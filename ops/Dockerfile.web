@@ -1,0 +1,38 @@
+FROM node:20-alpine AS builder
+
+RUN corepack enable && corepack prepare yarn@4.6.0 --activate
+
+WORKDIR /app
+
+# Copy upstream rivet source
+COPY rivet/ rivet/
+
+# Install upstream dependencies
+WORKDIR /app/rivet
+RUN YARN_NODE_LINKER=node-modules YARN_CHECKSUM_BEHAVIOR=ignore yarn install --immutable || YARN_NODE_LINKER=node-modules YARN_CHECKSUM_BEHAVIOR=ignore yarn install
+
+# Build upstream core + trivet (needed for wrapper frontend)
+RUN YARN_NODE_LINKER=node-modules yarn workspace @ironclad/rivet-core run build
+RUN YARN_NODE_LINKER=node-modules yarn workspace @ironclad/trivet run build
+
+# Copy wrapper source
+WORKDIR /app
+COPY wrapper/ wrapper/
+
+# Install wrapper web dependencies
+WORKDIR /app/wrapper/web
+RUN npm install --legacy-peer-deps
+
+# Build wrapper frontend
+RUN npx vite build --config vite.config.ts
+
+# --- Production stage ---
+FROM node:20-alpine
+
+RUN npm install -g serve
+
+WORKDIR /app
+COPY --from=builder /app/wrapper/web/dist ./dist
+
+EXPOSE 3000
+CMD ["serve", "-s", "dist", "-l", "3000"]

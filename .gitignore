@@ -1,0 +1,18 @@
+# Upstream vendor repo (do not sync)
+rivet/
+
+# Local env files
+.env.dev
+
+# Dependency + build artifacts
+node_modules/
+wrapper/**/node_modules/
+wrapper/web/dist/
+
+# Local runtime data
+.data/
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/

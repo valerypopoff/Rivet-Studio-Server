@@ -1,0 +1,21 @@
+FROM node:20-alpine
+
+RUN apk add --no-cache git
+
+# Install pnpm for plugin dependency installation
+RUN npm install -g pnpm
+
+WORKDIR /app
+
+# Copy API source
+COPY wrapper/api/ .
+
+# Install dependencies
+RUN npm ci
+
+# Create workspace and data directories
+RUN mkdir -p /workspace /data/rivet-app/plugins /data/rivet-app/logs
+
+EXPOSE 3100
+
+CMD ["npx", "tsx", "src/server.ts"]

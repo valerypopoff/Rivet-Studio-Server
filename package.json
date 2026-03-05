@@ -1,0 +1,17 @@
+{
+  "name": "self-hosted-rivet",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Root dev runner for self-hosted rivet wrapper",
+  "scripts": {
+    "setup": "npm --prefix wrapper/api install && npm --prefix wrapper/web install && corepack yarn --cwd rivet install",
+    "dev": "set COMPOSE_PARALLEL_LIMIT=1&& docker compose -f ops/docker-compose.yml --env-file .env.dev build && docker compose -f ops/docker-compose.yml --env-file .env.dev up --no-build",
+    "dev:down": "docker compose -f ops/docker-compose.yml --env-file .env.dev down",
+    "dev:local": "node scripts/dev.mjs",
+    "predev:local": "node scripts/ensure-dev-deps.mjs",
+    "dev:local:api": "node scripts/run-with-env.mjs \"npm --prefix wrapper/api run dev\"",
+    "dev:local:web": "node scripts/run-with-env.mjs \"npm --prefix wrapper/web run dev\"",
+    "dev:local:executor": "node scripts/run-with-env.mjs \"corepack yarn --cwd rivet workspace @ironclad/rivet-app-executor run dev\""
+  },
+  "packageManager": "yarn@3.5.0+sha512.2dc70be5fce9f66756d25b00a888f3ca66f86b502b76750e72ba54cec89da767b938c54124595e26f868825688e0fe3552c26c76a330673343057acadd5cfcf2"
+}

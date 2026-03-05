@@ -1,0 +1,70 @@
+# Self-Hosted Rivet — Operational Runbook
+
+## Quick Start
+
+### Prerequisites
+- Docker & Docker Compose
+- Upstream `rivet/` source in repo root
+
+### Deploy
+```bash
+cd ops
+cp .env.example .env
+# Edit .env with your API keys
+docker compose up -d --build
+```
+
+Access at `http://localhost:8080` (or the port set in `RIVET_PORT`).
+
+### Development (without Docker)
+
+1. **Install upstream deps & build core packages:**
+   ```bash
+   cd rivet && yarn install
+   yarn workspace @ironclad/rivet-core run build
+   yarn workspace @ironclad/trivet run build
+   ```
+
+2. **Start API backend:**
+   ```bash
+   cd wrapper/api && npm install && npm run dev
+   ```
+
+3. **Start wrapper frontend dev server:**
+   ```bash
+   cd wrapper/web && npm install && npm run dev
+   ```
+
+4. **Start executor (optional, for Node executor mode):**
+   ```bash
+   cd rivet && yarn workspace @ironclad/rivet-node run build
+   yarn workspace @ironclad/rivet-app-executor run build
+   node packages/app-executor/bin/executor.mjs --port 21889
+   ```
+
+### Update Upstream
+```bash
+# Replace rivet/ with new upstream
+bash ops/update-check.sh
+# If passes: rebuild & deploy
+docker compose up -d --build
+```
+
+## Architecture
+
+```
+Browser → nginx (proxy)
+           ├── / → web (static frontend)
+           ├── /api/* → api (Node.js backend)
+           └── /ws/executor* → executor (WebSocket, port 21889)
+```
+
+## Volumes
+- `rivet_workspace` — project files, mounted at `/workspace` in api
+- `rivet_data` — shared plugin cache + logs, mounted in both api and executor
+
+## Security
+- Filesystem access restricted to configured roots
+- Env var access is allowlist-only
+- Shell commands are allowlist-only (git, pnpm by default)
+- Path traversal prevention on all path parameters

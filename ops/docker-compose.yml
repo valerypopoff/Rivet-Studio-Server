@@ -1,0 +1,66 @@
+services:
+  proxy:
+    image: nginx:alpine
+    ports:
+      - "${RIVET_PORT:-8080}:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      web:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+      executor:
+        condition: service_started
+    restart: unless-stopped
+
+  web:
+    build:
+      context: ..
+      dockerfile: ops/Dockerfile.web
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ..
+      dockerfile: ops/Dockerfile.api
+    environment:
+      - PORT=3100
+      - RIVET_WORKSPACE_ROOT=/workspace
+      - RIVET_APP_DATA_ROOT=/data/rivet-app
+      - RIVET_ENV_ALLOWLIST=${RIVET_ENV_ALLOWLIST:-}
+      - RIVET_SHELL_ALLOWLIST=${RIVET_SHELL_ALLOWLIST:-}
+      - RIVET_EXTRA_ROOTS=${RIVET_EXTRA_ROOTS:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_ORG_ID=${OPENAI_ORG_ID:-}
+      - OPENAI_ENDPOINT=${OPENAI_ENDPOINT:-}
+    volumes:
+      - rivet_workspace:/workspace
+      - rivet_data:/data/rivet-app
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3100/api/config"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  executor:
+    build:
+      context: ..
+      dockerfile: ops/Dockerfile.executor
+    environment:
+      - HOME=/root
+    volumes:
+      - rivet_data:/root/.local/share/com.ironcladapp.rivet
+    restart: unless-stopped
+
+volumes:
+  rivet_workspace:
+    driver: local
+  rivet_data:
+    driver: local

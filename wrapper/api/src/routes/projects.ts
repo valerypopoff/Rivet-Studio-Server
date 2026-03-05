@@ -1,0 +1,53 @@
+import { Router } from 'express';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import { getWorkspaceRoot } from '../security.js';
+
+export const projectsRouter = Router();
+
+// GET /api/projects/list — list .rivet-project files in workspace
+projectsRouter.get('/list', async (_req, res) => {
+  try {
+    const root = getWorkspaceRoot();
+    const files = await findProjectFiles(root, 3);
+    res.json({ files });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// POST /api/projects/open-dialog — return list of .rivet-project files
+projectsRouter.post('/open-dialog', async (_req, res) => {
+  try {
+    const root = getWorkspaceRoot();
+    const files = await findProjectFiles(root, 5);
+    res.json({ files });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+async function findProjectFiles(dir: string, maxDepth: number, depth = 0): Promise<string[]> {
+  if (depth > maxDepth) return [];
+
+  const results: string[] = [];
+
+  try {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+
+      if (entry.isFile() && entry.name.endsWith('.rivet-project')) {
+        results.push(fullPath);
+      } else if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules') {
+        const subResults = await findProjectFiles(fullPath, maxDepth, depth + 1);
+        results.push(...subResults);
+      }
+    }
+  } catch {
+    // Skip directories we can't read
+  }
+
+  return results;
+}
