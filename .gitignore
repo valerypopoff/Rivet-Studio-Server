@@ -1,5 +1,6 @@
 # Upstream vendor repo (do not sync)
-rivet/
+rivet/*
+!rivet/.gitkeep
 
 # Local env files
 .env.dev
