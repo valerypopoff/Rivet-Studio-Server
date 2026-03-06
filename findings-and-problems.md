@@ -126,8 +126,29 @@ This document is intended as a developer handoff.
   - Set `VITE_RIVET_DEBUG_LOGS=true` when debugging hosted wrapper wiring or websocket behavior.
 - Important implementation detail:
   - This is a Vite build-time flag for the web app, so changing it requires rebuilding the web frontend/container.
+  - The gate now lives in one shared helper in `wrapper/shared/hosted-env.ts`, so hosted overrides do not each need their own ad hoc debug logging wrapper.
 
-## 11) Non-negotiable project rule
+## 11) Hosted execution overrides were simplified back toward upstream shape
+
+- `wrapper/web/overrides/hooks/useGraphExecutor.ts` now stays close to upstream behavior.
+- The hosted override keeps only the wrapper-specific differences that matter:
+  - Node mode should select the remote executor based on user choice rather than transient websocket connection state.
+  - The debugger should connect to the hosted executor websocket URL from `wrapper/shared/hosted-env.ts`.
+- Wrapper-specific render logging and the extra `tryRunGraph` wrapper used during debugging were removed.
+- Connection ownership is clearer now:
+  - `useGraphExecutor.ts` decides when Node mode should connect or disconnect.
+  - `useRemoteDebugger.ts` owns websocket lifecycle.
+  - `useRemoteExecutor.ts` owns remote run semantics and trace handling.
+
+## 12) Executor bundle patching is now safer to maintain
+
+- The hosted executor patch in `ops/bundle-executor.cjs` still relies on string-based source patching so wrapper behavior stays outside vendored `rivet/` code.
+- That patching is now guarded with explicit failure messages instead of silent `replace(...)` calls.
+- The matcher was also made tolerant of `LF` vs `CRLF` line endings, because the executor bundle is built from Windows-authored source but runs in Linux containers during Docker builds.
+- Practical outcome:
+  - if upstream executor code meaningfully changes, the Docker build now fails loudly at the exact patch point instead of silently dropping hosted behavior.
+
+## 13) Non-negotiable project rule
 
 - Do not modify vendor upstream source under `rivet/` for wrapper-specific behavior.
 - Keep hosted adaptations in `wrapper/` and `ops/`.

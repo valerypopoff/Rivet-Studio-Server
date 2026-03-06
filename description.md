@@ -145,6 +145,7 @@ Key points:
 - `wrapper/web/vite.config.ts` controls aliases and overrides
 - wrapper-owned overrides replace desktop-oriented upstream modules where a shim alone is not enough
 - hosted runtime values such as websocket URLs are derived from browser location in `wrapper/shared/hosted-env.ts`
+- hosted-only browser diagnostics are centrally gated in `wrapper/shared/hosted-env.ts` so override files do not each carry their own logging toggle logic
 
 This lets the wrapper preserve upstream UI behavior while redirecting platform-specific behavior to hosted implementations.
 
@@ -172,6 +173,8 @@ Current model:
 - the browser connects to the executor/debugger over websocket
 - Node-mode runs are sent to the executor service
 - processor/debugger events are streamed back to the browser
+- `wrapper/web/overrides/hooks/useGraphExecutor.ts` stays close to upstream and only owns hosted executor selection plus the hosted websocket endpoint
+- websocket lifecycle is owned by `wrapper/web/overrides/hooks/useRemoteDebugger.ts`
 - the hosted Docker executor bundle is patched in `ops/bundle-executor.cjs` for deployment-specific behavior
 
 That patching is used for hosted concerns such as:
@@ -179,6 +182,7 @@ That patching is used for hosted concerns such as:
 - Docker-friendly binding behavior
 - forwarding relevant executor traces to the browser
 - surfacing Node Code-node console output in browser devtools as sidecar-style logs
+- failing fast if an upstream executor snippet changes in a way that would otherwise silently break the hosted patch
 
 ## Important design rules
 
