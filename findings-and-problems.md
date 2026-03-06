@@ -83,7 +83,7 @@ This document is intended as a developer handoff.
   - A newly created, unsaved project runs in Browser executor on the first attempt.
   - No page refresh is required.
   - Current graph state is already present in `project.graphs` when the run happens.
-- Useful console signals during validation:
+- Useful console signals during validation when `VITE_RIVET_DEBUG_LOGS=true`:
   - `[HOSTED-DEBUG] tryRunGraph COMPLETED`
   - `[HOSTED-DEBUG] useGraphExecutor render: executor=browser, graph.id=..., graph.nodes=..., project.graphs keys=[<currentGraphId>]`
 - This is an important regression guard because earlier failures in this area were easy to mistake for Node executor problems.
@@ -105,7 +105,29 @@ This document is intended as a developer handoff.
     - `publicPath: 'monacoeditorwork'`
     - `customDistPath: (_root, buildOutDir) => resolve(buildOutDir, 'monacoeditorwork')`
 
-## 9) Non-negotiable project rule
+## 9) Node executor console logs can be surfaced in the browser console
+
+- In desktop Rivet, Node-executor logs appear in the browser console because the local sidecar stdout/stderr is mirrored there.
+- In the hosted wrapper, Node Code nodes originally received the real Node `console`, so `console.log(...)` only reached executor container stdout and did not reach the browser.
+- Hosted fix:
+  - Patch the Docker executor bundle in `ops/bundle-executor.cjs` instead of editing vendored upstream source.
+  - Forward executor lifecycle logs and Code-node console calls as websocket `trace` messages.
+  - Handle those `trace` messages in `wrapper/web/overrides/hooks/useRemoteExecutor.ts` and print them in the browser console with sidecar-style prefixes.
+- Current validated behavior:
+  - In Node executor mode, browser devtools now show entries such as `sidecar stdout Running graph ...` and `sidecar stdout Hello` for simple `console.log(...)` calls from Code nodes.
+  - `console.error(...)` from the executor path is surfaced as `sidecar stderr ...`.
+
+## 10) Hosted wrapper debug diagnostics are now env-gated
+
+- Temporary hosted diagnostics such as `[HOSTED-DEBUG] ...`, `[HOSTED-OVERRIDE] ...`, and `[executor-ws] ...` were useful during wiring, but they clutter normal browser-console usage.
+- Current behavior:
+  - They are gated behind `VITE_RIVET_DEBUG_LOGS`.
+  - Default should be `false` for normal usage.
+  - Set `VITE_RIVET_DEBUG_LOGS=true` when debugging hosted wrapper wiring or websocket behavior.
+- Important implementation detail:
+  - This is a Vite build-time flag for the web app, so changing it requires rebuilding the web frontend/container.
+
+## 11) Non-negotiable project rule
 
 - Do not modify vendor upstream source under `rivet/` for wrapper-specific behavior.
 - Keep hosted adaptations in `wrapper/` and `ops/`.
@@ -186,7 +208,7 @@ This document is intended as a developer handoff.
   - Node-mode UI state now reflects the actual connection lifecycle for the validated flow.
 
 ### 5) Browser executor for unsaved new projects only worked after refresh
- 
+
 - **Status**: done
 - **Symptom**:
   - A freshly created unsaved project did not run immediately in Browser executor.
@@ -200,12 +222,12 @@ This document is intended as a developer handoff.
   - Confirmed whether current graph state was present in `project.graphs` during the run.
 - **Resolution / current verified behavior**:
   - Fresh unsaved Browser execution now works without refresh.
-  - Console confirms:
+  - Console confirms when `VITE_RIVET_DEBUG_LOGS=true`:
     - `[HOSTED-DEBUG] tryRunGraph COMPLETED`
     - `project.graphs keys=[<currentGraphId>]`
- 
+
 ### 6) Browser mode was incorrectly routed to remote executor after WS activity
- 
+
 - **Status**: done
 - **Symptom**:
   - Browser mode could end up using remote execution after any remote WS connection had been established.
@@ -216,9 +238,9 @@ This document is intended as a developer handoff.
     - `selectedExecutor === 'nodejs' ? remoteExecutor : localExecutor`
 - **Result**:
   - Browser mode now follows the user selection instead of stale remote activity.
- 
+
 ### 7) WebSocket connection targeted `ws://localhost:21889/internal`
- 
+
 - **Status**: done
 - **Symptom**:
   - Hosted browser attempted to connect directly to executor localhost instead of going through nginx.
@@ -228,9 +250,9 @@ This document is intended as a developer handoff.
   - Added nginx path rewrites for executor endpoints.
 - **Result**:
   - WS routing now follows the hosted deployment design instead of trying to talk directly to container-local ports.
- 
+
 ### 8) Executor was not reachable from nginx inside Docker
- 
+
 - **Status**: done
 - **Symptom**:
   - Even with proxying configured, nginx could not reliably reach the executor debugger server.
@@ -240,9 +262,9 @@ This document is intended as a developer handoff.
   - Patch executor debugger bind host from `localhost` to `0.0.0.0` during Docker bundle creation.
 - **Result**:
   - Executor becomes reachable over the Docker network.
- 
+
 ### 9) Monaco Code node worker loading failed
- 
+
 - **Status**: done
 - **Symptom**:
   - Opening a Code node produced Monaco errors such as `Unexpected usage` and `Unexpected token '<'`.
@@ -252,3 +274,32 @@ This document is intended as a developer handoff.
   - Aligned Monaco plugin output with wrapper build layout in `wrapper/web/vite.config.ts`.
 - **Result**:
   - Code node editor worker assets load correctly.
+
+### 10) Node executor `console.log(...)` output was missing from the browser console
+
+- **Status**: done
+- **Symptom**:
+  - In Node executor mode, Code-node logs such as `console.log('Hello')` were visible in executor/container stdout but not in the browser devtools console.
+- **Root cause**:
+  - Hosted web mode does not have the desktop sidecar stdout bridge.
+  - Node Code nodes were running with the real Node `console`, so their output never became remote debugger `trace` events.
+- **Fix**:
+  - Patched `ops/bundle-executor.cjs` so the hosted executor bundle:
+    - forwards executor lifecycle logs as websocket `trace` messages
+    - wraps the console passed to Node Code execution and forwards console method calls through the same trace channel
+  - Updated `wrapper/web/overrides/hooks/useRemoteExecutor.ts` so structured trace payloads are logged to the browser console as `sidecar stdout ...` and `sidecar stderr ...`.
+- **Result**:
+  - Hosted Node executor logs now appear in browser devtools in a sidecar-like format, matching the intended debugging experience more closely.
+
+### 11) Hosted browser-console diagnostics became too noisy during normal use
+
+- **Status**: done
+- **Symptom**:
+  - The browser console showed many hosted diagnostics such as `[HOSTED-DEBUG] ...`, `[HOSTED-OVERRIDE] ...`, `[executor-ws] ...`, and `[tryRunGraph] ...`.
+  - Several of these were emitted with `console.error(...)`, so they appeared red and looked like actual failures.
+- **Fix**:
+  - Added `VITE_RIVET_DEBUG_LOGS` and gated hosted wrapper diagnostics behind it.
+  - Kept the useful mirrored Node-executor logs visible even when hosted diagnostics are disabled.
+- **Result**:
+  - Normal browser-console usage is clean by default.
+  - Hosted wiring diagnostics can still be re-enabled when needed by setting `VITE_RIVET_DEBUG_LOGS=true` and rebuilding the web app.
