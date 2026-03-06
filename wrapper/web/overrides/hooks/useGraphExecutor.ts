@@ -9,7 +9,7 @@ import { projectState } from '../../../../rivet/packages/app/src/state/savedGrap
 import { useExecutorSidecar } from './useExecutorSidecar';
 import { useLocalExecutor } from '../../../../rivet/packages/app/src/hooks/useLocalExecutor';
 import { useRemoteExecutor } from './useRemoteExecutor';
-import { RIVET_EXECUTOR_WS_URL } from '../../../shared/hosted-env';
+import { RIVET_DEBUG_LOGS, RIVET_EXECUTOR_WS_URL } from '../../../shared/hosted-env';
 
 /**
  * Caution: only use this hook on components that will not dismount. The `useEffect` cleanup function
@@ -34,8 +34,16 @@ export function useGraphExecutor() {
   const executorRef = useRef(executor);
   executorRef.current = executor;
 
+  const hostedDebugLog = (...args: unknown[]) => {
+    if (!RIVET_DEBUG_LOGS) {
+      return;
+    }
+
+    console.error(...args);
+  };
+
   // !! DEBUG — log on every render so we can see state
-  console.error(
+  hostedDebugLog(
     '[HOSTED-DEBUG] useGraphExecutor render: executor=%s, graph.id=%s, graph.nodes=%d, project.graphs keys=[%s]',
     selectedExecutor,
     graph.metadata?.id,
@@ -46,19 +54,19 @@ export function useGraphExecutor() {
   // Stable wrapper that adds diagnostic logging visible in the console
   const tryRunGraph = useCallback(
     async (options: { graphId?: string; to?: string[]; from?: string } = {}) => {
-      console.error(
+      hostedDebugLog(
         '[HOSTED-DEBUG] tryRunGraph CALLED: executor=%s, graphId=%s',
         selectedExecutor,
         options.graphId,
       );
       try {
         await executorRef.current.tryRunGraph(options);
-        console.error('[HOSTED-DEBUG] tryRunGraph COMPLETED');
+        hostedDebugLog('[HOSTED-DEBUG] tryRunGraph COMPLETED');
       } catch (e: any) {
-        console.error('[HOSTED-DEBUG] tryRunGraph ERROR:', e);
+        hostedDebugLog('[HOSTED-DEBUG] tryRunGraph ERROR:', e);
       }
     },
-    [selectedExecutor],
+    [hostedDebugLog, selectedExecutor],
   );
 
   useEffect(() => {

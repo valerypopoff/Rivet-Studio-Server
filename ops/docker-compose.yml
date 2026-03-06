@@ -18,6 +18,8 @@ services:
     build:
       context: ..
       dockerfile: ops/Dockerfile.web
+      args:
+        VITE_RIVET_DEBUG_LOGS: ${VITE_RIVET_DEBUG_LOGS:-false}
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/"]
       interval: 10s

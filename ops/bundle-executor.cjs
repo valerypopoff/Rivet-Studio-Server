@@ -24,6 +24,134 @@ const patchDockerHost = {
       );
       return { contents, loader: 'ts' };
     });
+
+    build.onLoad({ filter: /executor\.mts$/ }, async (args) => {
+      let contents = await fs.promises.readFile(args.path, 'utf8');
+      contents = contents.replace(
+        'const datasetProvider = new DebuggerDatasetProvider();',
+        `const datasetProvider = new DebuggerDatasetProvider();
+
+const formatHostedTraceArg = (value) => {
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  if (value instanceof Error) {
+    return value.stack ?? value.message;
+  }
+
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+};
+
+const sendHostedTrace = (client, level, args) => {
+  const message = args.map((value) => formatHostedTraceArg(value)).join(' ');
+
+  if (!message) {
+    return;
+  }
+
+  try {
+    if (client.readyState === 1) {
+      client.send(
+        JSON.stringify({
+          message: 'trace',
+          data: {
+            source: 'stdout',
+            level,
+            message,
+          },
+        }),
+      );
+    }
+  } catch {}
+};`
+      );
+      contents = contents.replace(
+        'dynamicGraphRun: async ({ graphId, inputs, runToNodeIds, contextValues, runFromNodeId, projectPath }) => {',
+        'dynamicGraphRun: async ({ client, graphId, inputs, runToNodeIds, contextValues, runFromNodeId, projectPath }) => {'
+      );
+      contents = contents.replace(
+        'console.log(`Running graph ${graphId} with inputs:`, inputs);',
+        "console.log(`Running graph ${graphId} with inputs:`, inputs);\n    sendHostedTrace(client, 'log', [`Running graph ${graphId} with inputs:`, inputs]);"
+      );
+      contents = contents.replace(
+        'console.warn(`Cannot run graph ${graphId} because no project is uploaded.`);',
+        "console.warn(`Cannot run graph ${graphId} because no project is uploaded.`);\n      sendHostedTrace(client, 'warn', [`Cannot run graph ${graphId} because no project is uploaded.`]);"
+      );
+      contents = contents.replace(
+        'console.log(`Enabled plugin ${spec.id}.`);',
+        "console.log(`Enabled plugin ${spec.id}.`);\n        sendHostedTrace(client, 'log', [`Enabled plugin ${spec.id}.`]);"
+      );
+      contents = contents.replace(
+        'console.error(`Failed to enable plugin ${spec.id}.`, err);',
+        "console.error(`Failed to enable plugin ${spec.id}.`, err);\n        sendHostedTrace(client, 'error', [`Failed to enable plugin ${spec.id}.`, err]);"
+      );
+      contents = contents.replace(
+        "        onTrace: (trace) => {\n          console.log(trace);\n        },",
+        "        onTrace: (trace) => {\n          console.log(trace);\n          sendHostedTrace(client, 'log', [trace]);\n        },"
+      );
+      contents = contents.replace(
+        'await processor.run();',
+        `const hostedConsoleState = globalThis;
+      const previousHostedConsoleSink = hostedConsoleState.__RIVET_HOSTED_CONSOLE_SINK__;
+      hostedConsoleState.__RIVET_HOSTED_CONSOLE_SINK__ = (level, args) => {
+        sendHostedTrace(client, level, args);
+      };
+
+      try {
+        await processor.run();
+      } finally {
+        hostedConsoleState.__RIVET_HOSTED_CONSOLE_SINK__ = previousHostedConsoleSink;
+      }`
+      );
+      contents = contents.replace(
+        'console.error(err);',
+        "console.error(err);\n      sendHostedTrace(client, 'error', [err]);"
+      );
+      return { contents, loader: 'ts' };
+    });
+
+    build.onLoad({ filter: /NodeCodeRunner\.ts$/ }, async (args) => {
+      let contents = await fs.promises.readFile(args.path, 'utf8');
+      contents = contents.replace(
+        '      args.push(console);',
+        `      const hostedConsoleState = globalThis as typeof globalThis & {
+        __RIVET_HOSTED_CONSOLE_SINK__?: (level: 'log' | 'info' | 'warn' | 'error' | 'debug', args: unknown[]) => void;
+      };
+      const originalConsole = console;
+      const forwardHostedConsole = (level: 'log' | 'info' | 'warn' | 'error' | 'debug', values: unknown[]) => {
+        hostedConsoleState.__RIVET_HOSTED_CONSOLE_SINK__?.(level, values);
+      };
+      args.push({
+        ...originalConsole,
+        log: (...values: unknown[]) => {
+          originalConsole.log(...values);
+          forwardHostedConsole('log', values);
+        },
+        info: (...values: unknown[]) => {
+          originalConsole.info(...values);
+          forwardHostedConsole('info', values);
+        },
+        warn: (...values: unknown[]) => {
+          originalConsole.warn(...values);
+          forwardHostedConsole('warn', values);
+        },
+        error: (...values: unknown[]) => {
+          originalConsole.error(...values);
+          forwardHostedConsole('error', values);
+        },
+        debug: (...values: unknown[]) => {
+          originalConsole.debug(...values);
+          forwardHostedConsole('debug', values);
+        },
+      });`
+      );
+      return { contents, loader: 'ts' };
+    });
   },
 };
 

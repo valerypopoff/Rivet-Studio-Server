@@ -24,6 +24,8 @@ WORKDIR /app/wrapper/web
 RUN npm install --legacy-peer-deps
 
 # Build wrapper frontend
+ARG VITE_RIVET_DEBUG_LOGS=false
+ENV VITE_RIVET_DEBUG_LOGS=$VITE_RIVET_DEBUG_LOGS
 RUN npx vite build --config vite.config.ts
 
 # --- Production stage ---
