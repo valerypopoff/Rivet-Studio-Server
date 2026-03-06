@@ -3,9 +3,12 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 
 const rootDir = process.cwd();
+const rivetDir = path.join(rootDir, 'rivet');
+const rivetRepoUrl = process.env.RIVET_REPO_URL || 'https://github.com/Ironclad/rivet.git';
 
 const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const corepackCmd = process.platform === 'win32' ? 'corepack.cmd' : 'corepack';
+const gitCmd = process.platform === 'win32' ? 'git.exe' : 'git';
 
 function quoteArg(arg) {
   if (/\s|"/.test(arg)) {
@@ -37,6 +40,27 @@ function run(command, args, cwd = rootDir) {
 function exists(relPath) {
   return fs.existsSync(path.join(rootDir, relPath));
 }
+
+function ensureRivetRepo() {
+  if (fs.existsSync(path.join(rivetDir, '.git'))) {
+    return;
+  }
+
+  if (fs.existsSync(rivetDir)) {
+    const contents = fs.readdirSync(rivetDir);
+
+    if (contents.length > 0) {
+      console.error('[predev] Expected rivet/ to be either absent or a Git checkout.');
+      console.error('[predev] Remove or rename the existing rivet/ directory, then run the command again.');
+      process.exit(1);
+    }
+  }
+
+  console.log(`[predev] Cloning rivet from ${rivetRepoUrl}`);
+  run(gitCmd, ['clone', rivetRepoUrl, 'rivet']);
+}
+
+ensureRivetRepo();
 
 const needsApiDeps = !exists('wrapper/api/node_modules/.bin/tsx');
 const needsWebDeps = !exists('wrapper/web/node_modules/.bin/vite');
