@@ -10,7 +10,7 @@ import { remoteDebuggerState, type RemoteDebuggerState } from '../../../../rivet
 import { useEffect } from 'react';
 import { match } from 'ts-pattern';
 import { datasetProvider } from '../utils/globals/datasetProvider.js';
-import { RIVET_DEBUG_LOGS, RIVET_REMOTE_DEBUGGER_DEFAULT_WS, RIVET_EXECUTOR_WS_URL } from '../../../shared/hosted-env';
+import { logHostedDebug, RIVET_REMOTE_DEBUGGER_DEFAULT_WS, RIVET_EXECUTOR_WS_URL } from '../../../shared/hosted-env';
 
 // ─── Message handler (set by useRemoteExecutor) ─────────────────────────
 let currentDebuggerMessageHandler: ((message: string, data: unknown) => void) | null = null;
@@ -95,7 +95,7 @@ function doConnect(url: string) {
   socket.onopen = () => {
     if (ws !== socket) return; // stale
     retryDelay = 0;
-    hostedDebugLog('log', '[executor-ws] connected to', wsUrl);
+    logHostedDebug('log', '[executor-ws] connected to', wsUrl);
     updateRemoteDebuggerState((prevState) => ({
       ...prevState,
       socket,
@@ -127,7 +127,7 @@ function doConnect(url: string) {
     const { message, data } = JSON.parse(event.data);
 
     if (message === 'graph-upload-allowed') {
-      hostedDebugLog('log', '[executor-ws] graph upload allowed');
+      logHostedDebug('log', '[executor-ws] graph upload allowed');
       updateRemoteDebuggerState((prevState) => ({
         ...prevState,
         remoteUploadAllowed: true,
@@ -154,7 +154,7 @@ function doDisconnect() {
 
 function doSend(type: string, data: unknown) {
   const open = ws?.readyState === WebSocket.OPEN;
-  hostedDebugLog('error', '[executor-ws] doSend type=%s open=%s', type, open);
+  logHostedDebug('error', '[executor-ws] doSend type=%s open=%s', type, open);
   if (open) {
     ws!.send(JSON.stringify({ type, data }));
   }
@@ -162,18 +162,10 @@ function doSend(type: string, data: unknown) {
 
 function doSendRaw(data: string) {
   const open = ws?.readyState === WebSocket.OPEN;
-  hostedDebugLog('error', '[executor-ws] doSendRaw open=%s len=%d', open, data.length);
+  logHostedDebug('error', '[executor-ws] doSendRaw open=%s len=%d', open, data.length);
   if (open) {
     ws!.send(data);
   }
-}
-
-function hostedDebugLog(method: 'log' | 'error', ...args: unknown[]) {
-  if (!RIVET_DEBUG_LOGS) {
-    return;
-  }
-
-  console[method](...args);
 }
 
 /** Call-time check — always reads the CURRENT socket, not a render-time capture. */
@@ -189,7 +181,7 @@ export function isExecutorConnected(): boolean {
 // and tryRunGraph uses isExecutorConnected() at call time.
 
 // !! DEBUG: this fires once when the module loads — proves override is in the bundle
-hostedDebugLog('error', '%c[HOSTED-OVERRIDE] useRemoteDebugger module loaded (singleton)', 'color: magenta; font-weight: bold; font-size: 14px');
+logHostedDebug('error', '%c[HOSTED-OVERRIDE] useRemoteDebugger module loaded (singleton)', 'color: magenta; font-weight: bold; font-size: 14px');
 
 export function useRemoteDebugger(options: { onConnect?: () => void; onDisconnect?: () => void } = {}) {
   const [remoteDebugger, setRemoteDebuggerState] = useAtom(remoteDebuggerState);
@@ -197,7 +189,7 @@ export function useRemoteDebugger(options: { onConnect?: () => void; onDisconnec
   const onDisconnectLatest = useLatest(options.onDisconnect ?? (() => {}));
 
   // !! DEBUG: fires every render — proves the hook is executing
-  hostedDebugLog('error', '[HOSTED-OVERRIDE] useRemoteDebugger render: started=%s reconnecting=%s ws=%s', remoteDebugger.started, remoteDebugger.reconnecting, ws?.readyState);
+  logHostedDebug('error', '[HOSTED-OVERRIDE] useRemoteDebugger render: started=%s reconnecting=%s ws=%s', remoteDebugger.started, remoteDebugger.reconnecting, ws?.readyState);
 
   useEffect(() => syncRemoteDebuggerState(setRemoteDebuggerState), [setRemoteDebuggerState]);
 

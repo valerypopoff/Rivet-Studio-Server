@@ -27,11 +27,10 @@ import { produce } from 'immer';
 import { userInputModalQuestionsState, userInputModalSubmitState } from '../../../../rivet/packages/app/src/state/userInput';
 import { pluginsState } from '../../../../rivet/packages/app/src/state/plugins';
 import { entries } from '../../../../rivet/packages/core/src/utils/typeSafety';
-import { selectedExecutorState } from '../../../../rivet/packages/app/src/state/execution';
 import { datasetProvider } from '../utils/globals/datasetProvider.js';
 import { type RunDataByNodeId, lastRunDataByNodeState } from '../../../../rivet/packages/app/src/state/dataFlow';
 import { useAtomValue, useSetAtom, useAtom } from 'jotai';
-import { RIVET_DEBUG_LOGS, RIVET_EXECUTOR_WS_URL } from '../../../shared/hosted-env';
+import { logHostedDebug } from '../../../shared/hosted-env';
 
 // TODO: This allows us to retrieve the GraphOutputs from the remote debugger.
 // If the remote debugger events had a unique ID for each run, this would feel a lot less hacky.
@@ -53,28 +52,14 @@ export function useRemoteExecutor() {
   const [{ testSuites }, setTrivetState] = useAtom(trivetState);
   const setUserInputModalSubmit = useSetAtom(userInputModalSubmitState);
   const setUserInputQuestions = useSetAtom(userInputModalQuestionsState);
-  const selectedExecutor = useAtomValue(selectedExecutorState);
   const lastRunData = useAtomValue(lastRunDataByNodeState);
   const loadedProject = useAtomValue(loadedProjectState);
 
   const remoteDebugger = useRemoteDebugger({
     onDisconnect: () => {
       currentExecution.onStop();
-
-      // If we're using the node executor, disconnecting means reconnecting to the internal executor
-      if (selectedExecutor === 'nodejs') {
-        remoteDebugger.connect(RIVET_EXECUTOR_WS_URL);
-      }
     },
   });
-
-  const hostedDebugLog = (...args: unknown[]) => {
-    if (!RIVET_DEBUG_LOGS) {
-      return;
-    }
-
-    console.error(...args);
-  };
 
   const logRemoteTrace = (data: unknown) => {
     if (typeof data === 'object' && data !== null && 'message' in data) {
@@ -189,15 +174,15 @@ export function useRemoteExecutor() {
     const graphToRun = options.graphId ?? graph.metadata!.id!;
 
     // !! DEBUG: dump graph data being sent
-    hostedDebugLog('[tryRunGraph] graphToRun=%s, graph.metadata.id=%s, options.graphId=%s', graphToRun, graph.metadata?.id, options.graphId);
-    hostedDebugLog('[tryRunGraph] project.graphs keys=%s', Object.keys(project.graphs ?? {}).join(', '));
-    hostedDebugLog('[tryRunGraph] project.metadata.mainGraphId=%s', project.metadata?.mainGraphId);
+    logHostedDebug('error', '[tryRunGraph] graphToRun=%s, graph.metadata.id=%s, options.graphId=%s', graphToRun, graph.metadata?.id, options.graphId);
+    logHostedDebug('error', '[tryRunGraph] project.graphs keys=%s', Object.keys(project.graphs ?? {}).join(', '));
+    logHostedDebug('error', '[tryRunGraph] project.metadata.mainGraphId=%s', project.metadata?.mainGraphId);
 
     try {
       const canUploadGraph =
         remoteDebugger.remoteDebuggerState.isInternalExecutor || remoteDebugger.remoteDebuggerState.remoteUploadAllowed;
 
-      hostedDebugLog('[tryRunGraph] canUploadGraph=%s, isInternal=%s, uploadAllowed=%s', canUploadGraph, remoteDebugger.remoteDebuggerState.isInternalExecutor, remoteDebugger.remoteDebuggerState.remoteUploadAllowed);
+      logHostedDebug('error', '[tryRunGraph] canUploadGraph=%s, isInternal=%s, uploadAllowed=%s', canUploadGraph, remoteDebugger.remoteDebuggerState.isInternalExecutor, remoteDebugger.remoteDebuggerState.remoteUploadAllowed);
 
       if (canUploadGraph) {
         remoteDebugger.send('set-dynamic-data', {
