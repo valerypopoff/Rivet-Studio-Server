@@ -1,134 +1,215 @@
 // Override for rivet/packages/app/src/hooks/useRemoteDebugger.ts
-// Uses env-driven WebSocket URLs instead of hardcoded localhost
+//
+// ARCHITECTURE: Module-level WebSocket singleton + thin React hook wrapper.
+// All socket management (connect, reconnect, send) lives outside React,
+// eliminating stale-closure, multi-instance, and render-lifecycle races.
 
 import { useLatest } from 'ahooks';
-import { useAtomValue, useAtom } from 'jotai';
-import { remoteDebuggerState, selectedExecutorState } from '../../../../rivet/packages/app/src/state/execution.js';
-import { useRef, useState } from 'react';
-import { set } from 'lodash-es';
+import { useAtom } from 'jotai';
+import { remoteDebuggerState, type RemoteDebuggerState } from '../../../../rivet/packages/app/src/state/execution.js';
+import { useEffect } from 'react';
 import { match } from 'ts-pattern';
 import { datasetProvider } from '../utils/globals/datasetProvider.js';
 import { RIVET_REMOTE_DEBUGGER_DEFAULT_WS, RIVET_EXECUTOR_WS_URL } from '../../../shared/hosted-env';
 
+// ─── Message handler (set by useRemoteExecutor) ─────────────────────────
 let currentDebuggerMessageHandler: ((message: string, data: unknown) => void) | null = null;
+
+type RemoteDebuggerStateValue = RemoteDebuggerState;
+type RemoteDebuggerSetter = (value: RemoteDebuggerStateValue | ((prev: RemoteDebuggerStateValue) => RemoteDebuggerStateValue)) => void;
 
 export function setCurrentDebuggerMessageHandler(handler: (message: string, data: unknown) => void) {
   currentDebuggerMessageHandler = handler;
 }
 
-// Hacky but whatev, shared between all useRemoteDebugger hooks
-let manuallyDisconnecting = false;
+// ─── Module-level WebSocket singleton ───────────────────────────────────
+let ws: WebSocket | null = null;
+let wsUrl = '';
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let retryDelay = 0;
+let sharedRemoteDebuggerState: RemoteDebuggerStateValue = {
+  socket: null,
+  started: false,
+  reconnecting: false,
+  url: '',
+  remoteUploadAllowed: false,
+  isInternalExecutor: false,
+};
+const remoteDebuggerSubscribers = new Set<RemoteDebuggerSetter>();
+
+function updateRemoteDebuggerState(
+  value: RemoteDebuggerStateValue | ((prev: RemoteDebuggerStateValue) => RemoteDebuggerStateValue),
+) {
+  sharedRemoteDebuggerState = typeof value === 'function' ? value(sharedRemoteDebuggerState) : value;
+  for (const subscriber of remoteDebuggerSubscribers) {
+    subscriber(sharedRemoteDebuggerState);
+  }
+}
+
+function syncRemoteDebuggerState(setState: RemoteDebuggerSetter) {
+  remoteDebuggerSubscribers.add(setState);
+  setState(sharedRemoteDebuggerState);
+
+  return () => {
+    remoteDebuggerSubscribers.delete(setState);
+  };
+}
+
+function clearReconnectTimer() {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+}
+
+function cleanupSocket() {
+  clearReconnectTimer();
+  if (ws) {
+    ws.onopen = null;
+    ws.onclose = null;
+    ws.onmessage = null;
+    ws.onerror = null;
+    if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+      ws.close();
+    }
+    ws = null;
+  }
+}
+
+function doConnect(url: string) {
+  cleanupSocket();
+  wsUrl = url || RIVET_REMOTE_DEBUGGER_DEFAULT_WS;
+  const socket = new WebSocket(wsUrl);
+  ws = socket;
+
+  updateRemoteDebuggerState((prevState) => ({
+    ...prevState,
+    socket,
+    started: true,
+    reconnecting: false,
+    url: wsUrl,
+    remoteUploadAllowed: false,
+    isInternalExecutor: wsUrl === RIVET_EXECUTOR_WS_URL,
+  }));
+
+  socket.onopen = () => {
+    if (ws !== socket) return; // stale
+    retryDelay = 0;
+    console.log('[executor-ws] connected to', wsUrl);
+    updateRemoteDebuggerState((prevState) => ({
+      ...prevState,
+      socket,
+      reconnecting: false,
+    }));
+  };
+
+  socket.onclose = () => {
+    if (ws !== socket) return; // stale
+    ws = null;
+    // Auto-reconnect with exponential backoff (max 2 s)
+    retryDelay = Math.min(2000, (retryDelay + 100) * 1.5);
+    updateRemoteDebuggerState((prevState) => ({
+      ...prevState,
+      socket: null,
+      started: false,
+      reconnecting: true,
+      remoteUploadAllowed: false,
+    }));
+    reconnectTimer = setTimeout(() => doConnect(wsUrl), retryDelay);
+  };
+
+  socket.onerror = () => {
+    // onclose fires after onerror — reconnection handled there
+  };
+
+  socket.onmessage = (event) => {
+    if (ws !== socket) return; // stale
+    const { message, data } = JSON.parse(event.data);
+
+    if (message === 'graph-upload-allowed') {
+      console.log('[executor-ws] graph upload allowed');
+      updateRemoteDebuggerState((prevState) => ({
+        ...prevState,
+        remoteUploadAllowed: true,
+      }));
+    } else if (message.startsWith('datasets:')) {
+      handleDatasetsMessage(message, data, socket);
+    } else {
+      currentDebuggerMessageHandler?.(message, data);
+    }
+  };
+}
+
+function doDisconnect() {
+  cleanupSocket();
+  retryDelay = 0;
+  updateRemoteDebuggerState((prevState) => ({
+    ...prevState,
+    socket: null,
+    started: false,
+    reconnecting: false,
+    remoteUploadAllowed: false,
+  }));
+}
+
+function doSend(type: string, data: unknown) {
+  const open = ws?.readyState === WebSocket.OPEN;
+  console.error('[executor-ws] doSend type=%s open=%s', type, open);
+  if (open) {
+    ws!.send(JSON.stringify({ type, data }));
+  }
+}
+
+function doSendRaw(data: string) {
+  const open = ws?.readyState === WebSocket.OPEN;
+  console.error('[executor-ws] doSendRaw open=%s len=%d', open, data.length);
+  if (open) {
+    ws!.send(data);
+  }
+}
+
+/** Call-time check — always reads the CURRENT socket, not a render-time capture. */
+export function isExecutorConnected(): boolean {
+  return ws !== null && ws.readyState === WebSocket.OPEN;
+}
+
+// ─── React hook: thin stable wrapper ────────────────────────────────────
+//
+// In hosted mode the executor container is always available. UI visibility
+// (Run button) must NOT depend on transient WS connection state. The actual
+// send helpers (doSend / doSendRaw) already guard against closed sockets,
+// and tryRunGraph uses isExecutorConnected() at call time.
+
+// !! DEBUG: this fires once when the module loads — proves override is in the bundle
+console.error('%c[HOSTED-OVERRIDE] useRemoteDebugger module loaded (singleton)', 'color: magenta; font-weight: bold; font-size: 14px');
 
 export function useRemoteDebugger(options: { onConnect?: () => void; onDisconnect?: () => void } = {}) {
   const [remoteDebugger, setRemoteDebuggerState] = useAtom(remoteDebuggerState);
   const onConnectLatest = useLatest(options.onConnect ?? (() => {}));
   const onDisconnectLatest = useLatest(options.onDisconnect ?? (() => {}));
-  const [retryDelay, setRetryDelay] = useState(0);
 
-  const connectRef = useRef<((url: string) => void) | undefined>();
-  const reconnectingTimeout = useRef<ReturnType<typeof setTimeout> | undefined>();
+  // !! DEBUG: fires every render — proves the hook is executing
+  console.error('[HOSTED-OVERRIDE] useRemoteDebugger render: started=%s reconnecting=%s ws=%s', remoteDebugger.started, remoteDebugger.reconnecting, ws?.readyState);
 
-  connectRef.current = (url: string) => {
-    if (!url) {
-      url = RIVET_REMOTE_DEBUGGER_DEFAULT_WS;
-    }
-    const socket = new WebSocket(url);
-    onConnectLatest.current?.();
-
-    setRemoteDebuggerState((prevState) => ({
-      ...prevState,
-      socket,
-      started: true,
-      url,
-      isInternalExecutor: url === RIVET_EXECUTOR_WS_URL,
-    }));
-
-    socket.onopen = () => {
-      setRemoteDebuggerState((prevState) => ({
-        ...prevState,
-        reconnecting: false,
-      }));
-      setRetryDelay(0);
-    };
-
-    socket.onclose = () => {
-      if (manuallyDisconnecting) {
-        setRemoteDebuggerState((prevState) => ({
-          ...prevState,
-          started: false,
-          reconnecting: false,
-          remoteUploadAllowed: false,
-        }));
-      } else {
-        setRemoteDebuggerState((prevState) => ({
-          ...prevState,
-          started: false,
-          reconnecting: true,
-        }));
-
-        // Exponential backoff, max 2s
-        setRetryDelay((delay) => Math.min(2000, (delay + 100) * 1.5));
-
-        reconnectingTimeout.current = setTimeout(() => {
-          connectRef.current?.(url);
-        }, retryDelay);
-      }
-    };
-
-    socket.onmessage = (event) => {
-      const { message, data } = JSON.parse(event.data);
-
-      if (message === 'graph-upload-allowed') {
-        console.log('Graph uploading is allowed.');
-        setRemoteDebuggerState((prevState) => ({
-          ...prevState,
-          remoteUploadAllowed: true,
-        }));
-      } else if (message.startsWith('datasets:')) {
-        handleDatasetsMessage(message, data, socket);
-      } else {
-        currentDebuggerMessageHandler?.(message, data);
-      }
-    };
-  };
+  useEffect(() => syncRemoteDebuggerState(setRemoteDebuggerState), [setRemoteDebuggerState]);
 
   return {
     remoteDebuggerState: remoteDebugger,
     connect: (url: string) => {
-      manuallyDisconnecting = false;
-      setRetryDelay(0);
-      connectRef.current?.(url);
+      retryDelay = 0;
+      onConnectLatest.current?.();
+      doConnect(url);
     },
     disconnect: () => {
-      setRemoteDebuggerState((prevState) => ({
-        ...prevState,
-        started: false,
-        reconnecting: false,
-      }));
-      manuallyDisconnecting = true;
-
-      if (reconnectingTimeout.current) {
-        clearTimeout(reconnectingTimeout.current);
-      }
-
-      if (remoteDebugger.socket) {
-        remoteDebugger.socket?.close?.();
-        onDisconnectLatest.current?.();
-      }
+      doDisconnect();
+      onDisconnectLatest.current?.();
     },
-    send(type: string, data: unknown) {
-      if (remoteDebugger.socket?.readyState === WebSocket.OPEN) {
-        remoteDebugger.socket.send(JSON.stringify({ type, data }));
-      }
-    },
-    sendRaw(data: string) {
-      if (remoteDebugger.socket?.readyState === WebSocket.OPEN) {
-        remoteDebugger.socket.send(data);
-      }
-    },
+    send: doSend,
+    sendRaw: doSendRaw,
   };
 }
 
+// ─── Dataset forwarding ─────────────────────────────────────────────────
 async function handleDatasetsMessage(type: string, data: any, socket: WebSocket) {
   const { requestId, payload } = data;
   await match(type)

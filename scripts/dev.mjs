@@ -42,6 +42,10 @@ if (!Object.prototype.hasOwnProperty.call(fileEnv, 'RIVET_APP_DATA_ROOT')) {
   mergedEnv.RIVET_APP_DATA_ROOT = path.join(rootDir, '.data', 'rivet-app');
 }
 
+console.log('[dev] Starting local development services...');
+console.log('[dev] Open http://localhost:5174 once Vite is ready.');
+console.log('[dev] This command stays running and watches for code changes. Press Ctrl+C to stop.');
+
 const processes = [];
 
 function start(name, command) {

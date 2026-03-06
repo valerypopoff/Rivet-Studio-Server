@@ -44,11 +44,10 @@ const needsRivetDeps =
   !exists('rivet/.pnp.cjs') ||
   !exists('rivet/.yarn/unplugged') ||
   !exists('rivet/.yarn/unplugged/esbuild-npm-0.19.5-107ce8536d/node_modules/esbuild');
-const needsRivetCoreBuild = !exists('rivet/packages/core/dist/index.js');
+const needsRivetCoreBuild = !exists('rivet/packages/core/dist/esm/index.js');
 const needsRivetNodeBuild = !exists('rivet/packages/node/dist/esm/index.js');
-const needsRivetExecutorBuild = !exists('rivet/packages/app-executor/dist/app-executor.js');
 
-if (!needsApiDeps && !needsWebDeps && !needsRivetDeps && !needsRivetCoreBuild && !needsRivetNodeBuild && !needsRivetExecutorBuild) {
+if (!needsApiDeps && !needsWebDeps && !needsRivetDeps && !needsRivetCoreBuild && !needsRivetNodeBuild) {
   process.exit(0);
 }
 
@@ -77,15 +76,6 @@ if (needsRivetCoreBuild) {
 if (needsRivetNodeBuild) {
   console.log('[predev] Building @ironclad/rivet-node');
   run(corepackCmd, ['yarn', 'workspace', '@ironclad/rivet-node', 'run', 'build'], path.join(rootDir, 'rivet'));
-}
-
-if (needsRivetExecutorBuild) {
-  console.log('[predev] Building @ironclad/rivet-app-executor');
-  run(
-    corepackCmd,
-    ['yarn', 'workspace', '@ironclad/rivet-app-executor', 'run', 'build'],
-    path.join(rootDir, 'rivet'),
-  );
 }
 
 console.log('[predev] Dependencies are ready.');

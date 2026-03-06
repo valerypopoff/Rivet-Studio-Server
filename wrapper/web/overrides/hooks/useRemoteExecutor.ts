@@ -16,7 +16,7 @@ import {
 import { useCurrentExecution } from '../../../../rivet/packages/app/src/hooks/useCurrentExecution';
 import { graphState } from '../../../../rivet/packages/app/src/state/graph';
 import { settingsState } from '../state/settings';
-import { setCurrentDebuggerMessageHandler, useRemoteDebugger } from './useRemoteDebugger';
+import { setCurrentDebuggerMessageHandler, useRemoteDebugger, isExecutorConnected } from './useRemoteDebugger';
 import { fillMissingSettingsFromEnvironmentVariables } from '../utils/tauri';
 import { loadedProjectState, projectContextState, projectDataState, projectState } from '../../../../rivet/packages/app/src/state/savedGraphs';
 import { useStableCallback } from '../../../../rivet/packages/app/src/hooks/useStableCallback';
@@ -130,10 +130,8 @@ export function useRemoteExecutor() {
   });
 
   const tryRunGraph = async (options: { to?: NodeId[]; from?: NodeId; graphId?: GraphId } = {}) => {
-    if (
-      !remoteDebugger.remoteDebuggerState.started ||
-      remoteDebugger.remoteDebuggerState.socket?.readyState !== WebSocket.OPEN
-    ) {
+    if (!isExecutorConnected()) {
+      toast.warn('Not connected to executor — retrying automatically…');
       return;
     }
 
@@ -152,8 +150,18 @@ export function useRemoteExecutor() {
 
     const graphToRun = options.graphId ?? graph.metadata!.id!;
 
+    // !! DEBUG: dump graph data being sent
+    console.error('[tryRunGraph] graphToRun=%s, graph.metadata.id=%s, options.graphId=%s', graphToRun, graph.metadata?.id, options.graphId);
+    console.error('[tryRunGraph] project.graphs keys=%s', Object.keys(project.graphs ?? {}).join(', '));
+    console.error('[tryRunGraph] project.metadata.mainGraphId=%s', project.metadata?.mainGraphId);
+
     try {
-      if (remoteDebugger.remoteDebuggerState.remoteUploadAllowed) {
+      const canUploadGraph =
+        remoteDebugger.remoteDebuggerState.isInternalExecutor || remoteDebugger.remoteDebuggerState.remoteUploadAllowed;
+
+      console.error('[tryRunGraph] canUploadGraph=%s, isInternal=%s, uploadAllowed=%s', canUploadGraph, remoteDebugger.remoteDebuggerState.isInternalExecutor, remoteDebugger.remoteDebuggerState.remoteUploadAllowed);
+
+      if (canUploadGraph) {
         remoteDebugger.send('set-dynamic-data', {
           project: {
             ...project,
@@ -194,7 +202,7 @@ export function useRemoteExecutor() {
         graphId: graphToRun,
         runToNodeIds: options.to,
         contextValues,
-        runFromNodeIds: options.from,
+        runFromNodeId: options.from,
         projectPath: loadedProject.path,
       });
     } catch (e) {
@@ -238,7 +246,11 @@ export function useRemoteExecutor() {
             }));
           },
           runGraph: async (project, graphId, inputs) => {
-            if (remoteDebugger.remoteDebuggerState.remoteUploadAllowed) {
+            const canUploadGraph =
+              remoteDebugger.remoteDebuggerState.isInternalExecutor ||
+              remoteDebugger.remoteDebuggerState.remoteUploadAllowed;
+
+            if (canUploadGraph) {
               remoteDebugger.send('set-dynamic-data', {
                 project: {
                   ...project,

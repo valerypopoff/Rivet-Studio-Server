@@ -8,6 +8,7 @@ const path = require('path');
 const appExecutorDir = path.resolve(__dirname, '..', 'rivet', 'packages', 'app-executor');
 
 // Patch the WS server to bind 0.0.0.0 instead of localhost inside Docker
+// Also inject debug logging for set-dynamic-data and run handlers
 const patchDockerHost = {
   name: 'patch-docker-host',
   setup(build) {
@@ -15,6 +16,12 @@ const patchDockerHost = {
     build.onLoad({ filter: /debugger\.ts$/ }, async (args) => {
       let contents = await fs.promises.readFile(args.path, 'utf8');
       contents = contents.replace("host = 'localhost'", "host = '0.0.0.0'");
+      // Inject logging after set-dynamic-data sets the project
+      contents = contents.replace(
+        'currentDebuggerState.settings = settings;',
+        `currentDebuggerState.settings = settings;
+         console.log('[executor-debug] set-dynamic-data received. project.graphs keys:', Object.keys(project?.graphs ?? {}));`
+      );
       return { contents, loader: 'ts' };
     });
   },
