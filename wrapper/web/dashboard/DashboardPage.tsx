@@ -119,6 +119,27 @@ export const DashboardPage: FC = () => {
   }, []);
 
   useEffect(() => {
+    if (openProjectCount === 0) {
+      setSidebarCollapsed(false);
+    }
+  }, [openProjectCount]);
+
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      const isSaveShortcut = (event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 's';
+      if (!isSaveShortcut || !activeProjectPath) {
+        return;
+      }
+
+      event.preventDefault();
+      handleSaveProject();
+    };
+
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [activeProjectPath, handleSaveProject]);
+
+  useEffect(() => {
     if (sidebarCollapsed) {
       return;
     }
@@ -181,7 +202,7 @@ export const DashboardPage: FC = () => {
             onOpenProject={handleOpenProject}
             onSaveProject={handleSaveProject}
             activeProjectPath={activeProjectPath}
-            onCollapse={() => setSidebarCollapsed(true)}
+            onCollapse={openProjectCount === 0 ? undefined : () => setSidebarCollapsed(true)}
           />
           <div className="dashboard-sidebar-resizer" role="separator" aria-orientation="vertical" aria-label="Resize folders pane" />
         </aside>
@@ -198,9 +219,9 @@ export const DashboardPage: FC = () => {
           className={`dashboard-editor-frame ${openProjectCount === 0 ? 'dashboard-editor-frame-hidden' : ''}`}
         />
       </main>
-      {sidebarCollapsed ? (
+      {sidebarCollapsed && openProjectCount > 0 ? (
         <button type="button" className="dashboard-restore-sidebar-button" onClick={() => setSidebarCollapsed(false)}>
-          Show folders
+          Show projects
         </button>
       ) : null}
       <ToastContainer position="bottom-right" hideProgressBar newestOnTop />

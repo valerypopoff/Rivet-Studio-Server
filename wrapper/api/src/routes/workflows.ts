@@ -12,7 +12,8 @@ workflowsRouter.get('/tree', async (_req, res) => {
   try {
     const root = await ensureWorkflowsRoot();
     const folders = await listWorkflowFolders(root);
-    res.json({ root, folders });
+    const projects = await listWorkflowProjects(root);
+    res.json({ root, folders, projects });
   } catch (err: any) {
     res.status(400).json({ error: err.message });
   }
@@ -154,6 +155,18 @@ async function listWorkflowFolders(root: string) {
   );
 
   return folders;
+}
+
+async function listWorkflowProjects(root: string) {
+  const entries = await fs.readdir(root, { withFileTypes: true });
+  const projects = await Promise.all(
+    entries
+      .filter((entry) => entry.isFile() && entry.name.endsWith(PROJECT_EXTENSION))
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((entry) => getWorkflowProject(root, path.join(root, entry.name))),
+  );
+
+  return projects;
 }
 
 async function getWorkflowFolder(root: string, folderPath: string) {

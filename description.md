@@ -179,16 +179,17 @@ The hosted app now boots into a wrapper-owned dashboard shell instead of present
 Current workflow-dashboard model:
 
 - the left panel is wrapper-owned UI rendered from `wrapper/web/dashboard/`
-- the left pane can be resized by dragging its right edge and can be collapsed from its header, with a restore button shown in the bottom-left corner of the browser window when collapsed
-- folders and `.rivet-project` entries are loaded from `/api/workflows/*`
-- the `Folders` pane exposes a `+ New folder` action below the header and supports creating `.rivet-project` files inside each folder
+- the left `Projects` pane can be resized by dragging its right edge and can be collapsed from its header, with a restore button shown in the bottom-left corner of the browser window when collapsed
+- when zero editor project tabs are open, the wrapper forces the `Projects` pane open even if the user had previously collapsed it
+- folders and `.rivet-project` entries, including projects stored directly at the workflow root, are loaded from `/api/workflows/*`
+- the `Projects` pane exposes a `+ New folder` action below the header and supports creating `.rivet-project` files inside each folder
 - folder expand/collapse is limited to the left chevron hit area, while double-clicking the folder name area triggers rename without also toggling the folder open state
 - selecting a project from the dashboard reuses the existing hosted project load flow rather than inventing a second editor state system
 - opening a project from the left pane normally adds or activates an editor tab rather than replacing the current one, so no replace-style warning is shown for that standard open flow
 - the editor remains the upstream Rivet editor running correctly inside the main dashboard area
 - when zero editor project tabs are open, the dashboard hides the embedded Rivet editor surface and shows a wrapper-owned empty main state instead of Rivet's built-in start screen
-- the wrapper-owned `Save` button in the left pane is driven by the editor's active tab rather than by stale last-loaded state
-- when the active editor tab is a file-backed workflow project, the wrapper `Save` action saves that exact project path
+- the wrapper-owned `Save` button in the left `Projects` pane is driven by the editor's active tab rather than by stale last-loaded state
+- when the active editor tab is a file-backed workflow project, the wrapper `Save` action saves that exact project path, and the dashboard also maps `Ctrl+S` / `Cmd+S` to that same save behavior
 - when no editor tabs are open, or when the active tab is not a path-backed workflow project, the wrapper `Save` button is hidden
 - normal workflow-pane actions stay quiet on success and only surface toast notifications for actual failures
 

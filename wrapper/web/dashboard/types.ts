@@ -19,4 +19,5 @@ export type WorkflowFolderItem = {
 export type WorkflowTreeResponse = {
   root: string;
   folders: WorkflowFolderItem[];
+  projects: WorkflowProjectItem[];
 };

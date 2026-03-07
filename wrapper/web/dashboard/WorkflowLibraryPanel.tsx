@@ -6,7 +6,7 @@ import ChevronRightIcon from 'majesticons/line/chevron-right-line.svg?react';
 import ExpandLeftIcon from 'majesticons/line/menu-expand-left-line.svg?react';
 import { toast } from 'react-toastify';
 import { createWorkflowFolder, createWorkflowProject, fetchWorkflowTree, renameWorkflowFolder } from './workflowApi';
-import type { WorkflowFolderItem } from './types';
+import type { WorkflowFolderItem, WorkflowProjectItem } from './types';
 
 const styles = `
   .workflow-library-panel {
@@ -234,6 +234,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   onCollapse,
 }) => {
   const [folders, setFolders] = useState<WorkflowFolderItem[]>([]);
+  const [rootProjects, setRootProjects] = useState<WorkflowProjectItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
@@ -245,6 +246,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     try {
       const tree = await fetchWorkflowTree();
       setFolders(tree.folders);
+      setRootProjects(tree.projects);
       setExpandedFolders((prev) => {
         const next = { ...prev };
         for (const folder of tree.folders) {
@@ -268,6 +270,21 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   const activePath = activeProjectPath;
 
   const folderIds = useMemo(() => folders.map((folder) => folder.id), [folders]);
+
+  const renderProjectRow = (project: WorkflowProjectItem, indentClassName = '') => (
+    <button
+      key={project.id}
+      className={`project-row${indentClassName ? ` ${indentClassName}` : ''}${activePath === project.absolutePath ? ' active' : ''}`}
+      onClick={() => void handleOpenProject(project.absolutePath)}
+      onDoubleClick={() => void handleSwitchProject(project.absolutePath)}
+      title={project.fileName}
+    >
+      <div className="project-main">
+        <FileIcon />
+        <div className="label">{project.name}</div>
+      </div>
+    </button>
+  );
 
   const handleCreateFolder = async () => {
     const name = prompt('New folder name:');
@@ -326,7 +343,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     <div className="workflow-library-panel">
       <style>{styles}</style>
       <div className="header">
-        <div className="header-title">Folders</div>
+        <div className="header-title">Projects</div>
         <div className="header-actions">
           {activeProjectPath ? (
             <button
@@ -361,9 +378,11 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
         </div>
         {loading ? <div className="state">Loading folders...</div> : null}
         {!loading && error ? <div className="state">{error}</div> : null}
-        {!loading && !error && folderIds.length === 0 ? (
-          <div className="state">No workflow folders yet. Use + New folder to create the first folder.</div>
+        {!loading && !error && folderIds.length === 0 && rootProjects.length === 0 ? (
+          <div className="state">No workflow projects yet. Use + New folder to create the first folder.</div>
         ) : null}
+
+        {!loading && !error && rootProjects.length > 0 ? <div className="projects">{rootProjects.map((project) => renderProjectRow(project))}</div> : null}
 
         {!loading && !error
           ? folders.map((folder) => {
@@ -412,20 +431,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
                   {expanded ? (
                     <div className="projects">
                       {folder.projects.length === 0 ? <div className="state">No Rivet projects in this folder.</div> : null}
-                      {folder.projects.map((project) => (
-                        <button
-                          key={project.id}
-                          className={`project-row${activePath === project.absolutePath ? ' active' : ''}`}
-                          onClick={() => void handleOpenProject(project.absolutePath)}
-                          onDoubleClick={() => void handleSwitchProject(project.absolutePath)}
-                          title={project.fileName}
-                        >
-                          <div className="project-main">
-                            <FileIcon />
-                            <div className="label">{project.name}</div>
-                          </div>
-                        </button>
-                      ))}
+                      {folder.projects.map((project) => renderProjectRow(project))}
                     </div>
                   ) : null}
                 </div>
