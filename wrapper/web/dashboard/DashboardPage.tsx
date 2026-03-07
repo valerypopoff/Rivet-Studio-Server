@@ -3,6 +3,9 @@ import { ToastContainer } from 'react-toastify';
 import { WorkflowLibraryPanel } from './WorkflowLibraryPanel';
 import { WORKFLOW_DASHBOARD_SIDEBAR_WIDTH } from './constants';
 
+const MIN_SIDEBAR_WIDTH = 240;
+const MAX_SIDEBAR_WIDTH = 560;
+
 const styles = `
   .dashboard-page {
     width: 100vw;
@@ -12,11 +15,27 @@ const styles = `
   }
 
   .dashboard-page .dashboard-sidebar {
-    flex: 0 0 ${WORKFLOW_DASHBOARD_SIDEBAR_WIDTH};
-    width: ${WORKFLOW_DASHBOARD_SIDEBAR_WIDTH};
+    position: relative;
+    flex: 0 0 var(--workflow-dashboard-sidebar-width);
+    width: var(--workflow-dashboard-sidebar-width);
     height: 100vh;
     background: var(--grey-darkest);
     border-right: 1px solid var(--grey);
+    min-width: 0;
+  }
+
+  .dashboard-page .dashboard-sidebar-resizer {
+    position: absolute;
+    top: 0;
+    right: -3px;
+    width: 6px;
+    height: 100%;
+    cursor: col-resize;
+    z-index: 2;
+  }
+
+  .dashboard-page .dashboard-sidebar-resizer:hover {
+    background: rgba(255, 255, 255, 0.08);
   }
 
   .dashboard-page .dashboard-editor-frame {
@@ -60,12 +79,33 @@ const styles = `
     font-size: 14px;
     line-height: 1.6;
   }
+
+  .dashboard-page .dashboard-restore-sidebar-button {
+    position: fixed;
+    left: 12px;
+    bottom: 12px;
+    z-index: 400;
+    border: 1px solid var(--grey);
+    border-radius: 8px;
+    background: var(--grey-darkest);
+    color: var(--grey-lightest);
+    padding: 8px 12px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .dashboard-page .dashboard-restore-sidebar-button:hover {
+    background: rgba(255, 255, 255, 0.08);
+  }
 `;
 
 export const DashboardPage: FC = () => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [activeProjectPath, setActiveProjectPath] = useState('');
   const [openProjectCount, setOpenProjectCount] = useState(0);
+  const [sidebarWidth, setSidebarWidth] = useState(() => parseInt(WORKFLOW_DASHBOARD_SIDEBAR_WIDTH, 10) || 300);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   const handleOpenProject = useCallback((path: string, options?: { replaceCurrent?: boolean }) => {
     iframeRef.current?.contentWindow?.postMessage(
@@ -77,6 +117,39 @@ export const DashboardPage: FC = () => {
   const handleSaveProject = useCallback(() => {
     iframeRef.current?.contentWindow?.postMessage({ type: 'save-project' }, '*');
   }, []);
+
+  useEffect(() => {
+    if (sidebarCollapsed) {
+      return;
+    }
+
+    const handleMouseMove = (event: MouseEvent) => {
+      setSidebarWidth(Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, event.clientX)));
+    };
+
+    const stopResize = () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', stopResize);
+    };
+
+    const handleResizeStart = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target?.closest('.dashboard-sidebar-resizer')) {
+        return;
+      }
+
+      event.preventDefault();
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', stopResize);
+    };
+
+    window.addEventListener('mousedown', handleResizeStart);
+
+    return () => {
+      window.removeEventListener('mousedown', handleResizeStart);
+      stopResize();
+    };
+  }, [sidebarCollapsed]);
 
   useEffect(() => {
     const handler = (event: MessageEvent) => {
@@ -100,19 +173,23 @@ export const DashboardPage: FC = () => {
   }, []);
 
   return (
-    <div className="dashboard-page">
+    <div className="dashboard-page" style={{ ['--workflow-dashboard-sidebar-width' as string]: `${sidebarWidth}px` }}>
       <style>{styles}</style>
-      <aside className="dashboard-sidebar">
-        <WorkflowLibraryPanel
-          onOpenProject={handleOpenProject}
-          onSaveProject={handleSaveProject}
-          activeProjectPath={activeProjectPath}
-        />
-      </aside>
+      {!sidebarCollapsed ? (
+        <aside className="dashboard-sidebar">
+          <WorkflowLibraryPanel
+            onOpenProject={handleOpenProject}
+            onSaveProject={handleSaveProject}
+            activeProjectPath={activeProjectPath}
+            onCollapse={() => setSidebarCollapsed(true)}
+          />
+          <div className="dashboard-sidebar-resizer" role="separator" aria-orientation="vertical" aria-label="Resize folders pane" />
+        </aside>
+      ) : null}
       <main className="dashboard-main">
         {openProjectCount === 0 ? (
           <div className="dashboard-empty-state">
-            <div className="dashboard-empty-state-message">Open a workflow project from the left pane to start editing.</div>
+            <div className="dashboard-empty-state-message">Open or create a workflow project in the left pane to start editing.</div>
           </div>
         ) : null}
         <iframe
@@ -121,6 +198,11 @@ export const DashboardPage: FC = () => {
           className={`dashboard-editor-frame ${openProjectCount === 0 ? 'dashboard-editor-frame-hidden' : ''}`}
         />
       </main>
+      {sidebarCollapsed ? (
+        <button type="button" className="dashboard-restore-sidebar-button" onClick={() => setSidebarCollapsed(false)}>
+          Show folders
+        </button>
+      ) : null}
       <ToastContainer position="bottom-right" hideProgressBar newestOnTop />
     </div>
   );

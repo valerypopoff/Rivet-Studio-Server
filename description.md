@@ -179,8 +179,10 @@ The hosted app now boots into a wrapper-owned dashboard shell instead of present
 Current workflow-dashboard model:
 
 - the left panel is wrapper-owned UI rendered from `wrapper/web/dashboard/`
+- the left pane can be resized by dragging its right edge and can be collapsed from its header, with a restore button shown in the bottom-left corner of the browser window when collapsed
 - folders and `.rivet-project` entries are loaded from `/api/workflows/*`
-- the `Folders` pane provides explicit controls to create folders, rename folders, and create `.rivet-project` files inside a selected folder
+- the `Folders` pane exposes a `+ New folder` action below the header and supports creating `.rivet-project` files inside each folder
+- folder expand/collapse is limited to the left chevron hit area, while double-clicking the folder name area triggers rename without also toggling the folder open state
 - selecting a project from the dashboard reuses the existing hosted project load flow rather than inventing a second editor state system
 - opening a project from the left pane normally adds or activates an editor tab rather than replacing the current one, so no replace-style warning is shown for that standard open flow
 - the editor remains the upstream Rivet editor running correctly inside the main dashboard area

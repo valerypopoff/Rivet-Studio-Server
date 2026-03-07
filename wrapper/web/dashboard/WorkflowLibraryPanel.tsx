@@ -3,6 +3,7 @@ import FolderIcon from 'majesticons/line/folder-line.svg?react';
 import FileIcon from 'majesticons/line/file-line.svg?react';
 import ChevronDownIcon from 'majesticons/line/chevron-down-line.svg?react';
 import ChevronRightIcon from 'majesticons/line/chevron-right-line.svg?react';
+import ExpandLeftIcon from 'majesticons/line/menu-expand-left-line.svg?react';
 import { toast } from 'react-toastify';
 import { createWorkflowFolder, createWorkflowProject, fetchWorkflowTree, renameWorkflowFolder } from './workflowApi';
 import type { WorkflowFolderItem } from './types';
@@ -30,6 +31,12 @@ const styles = `
     text-transform: uppercase;
     letter-spacing: 0.04em;
     color: var(--grey-lightest);
+  }
+
+  .workflow-library-panel .header-actions {
+    display: flex;
+    gap: 6px;
+    align-items: center;
   }
 
   .workflow-library-panel .icon-button,
@@ -74,6 +81,27 @@ const styles = `
     padding: 8px 8px 16px 8px;
   }
 
+  .workflow-library-panel .body-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 4px 8px 4px;
+  }
+
+  .workflow-library-panel .link-button {
+    border: none;
+    background: transparent;
+    padding: 0;
+    color: var(--grey-lightest);
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 600;
+  }
+
+  .workflow-library-panel .link-button:hover {
+    text-decoration: underline;
+  }
+
   .workflow-library-panel .state {
     padding: 12px;
     font-size: 12px;
@@ -109,6 +137,34 @@ const styles = `
   }
 
   .workflow-library-panel .folder-toggle {
+    border: none;
+    background: transparent;
+    color: inherit;
+    display: inline-flex;
+    align-items: center;
+    padding: 0;
+    cursor: pointer;
+    justify-content: center;
+    width: 20px;
+    min-width: 20px;
+    height: 20px;
+    border-radius: 4px;
+  }
+
+  .workflow-library-panel .folder-toggle:hover {
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .workflow-library-panel .folder-content {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0;
+  }
+
+  .workflow-library-panel .folder-name-button {
     flex: 1;
     min-width: 0;
     border: none;
@@ -118,7 +174,7 @@ const styles = `
     align-items: center;
     gap: 8px;
     padding: 0;
-    cursor: pointer;
+    cursor: default;
     text-align: left;
   }
 
@@ -168,9 +224,15 @@ interface WorkflowLibraryPanelProps {
   onOpenProject: (path: string, options?: { replaceCurrent?: boolean }) => void;
   onSaveProject: () => void;
   activeProjectPath: string;
+  onCollapse?: () => void;
 }
 
-export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({ onOpenProject, onSaveProject, activeProjectPath }) => {
+export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
+  onOpenProject,
+  onSaveProject,
+  activeProjectPath,
+  onCollapse,
+}) => {
   const [folders, setFolders] = useState<WorkflowFolderItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -265,7 +327,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({ onOpenProj
       <style>{styles}</style>
       <div className="header">
         <div className="header-title">Folders</div>
-        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+        <div className="header-actions">
           {activeProjectPath ? (
             <button
               type="button"
@@ -277,17 +339,30 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({ onOpenProj
               Save
             </button>
           ) : null}
-          <button type="button" className="icon-button" onClick={() => void handleCreateFolder()} title="Create folder" aria-label="Create folder">
-            +
-          </button>
+          {onCollapse ? (
+            <button
+              type="button"
+              className="icon-button"
+              onClick={onCollapse}
+              title="Collapse folders pane"
+              aria-label="Collapse folders pane"
+            >
+              <ExpandLeftIcon />
+            </button>
+          ) : null}
         </div>
       </div>
 
       <div className="body">
+        <div className="body-actions">
+          <button type="button" className="link-button" onClick={() => void handleCreateFolder()}>
+            + New folder
+          </button>
+        </div>
         {loading ? <div className="state">Loading folders...</div> : null}
         {!loading && error ? <div className="state">{error}</div> : null}
         {!loading && !error && folderIds.length === 0 ? (
-          <div className="state">No workflow folders yet. Use + to create the first folder.</div>
+          <div className="state">No workflow folders yet. Use + New folder to create the first folder.</div>
         ) : null}
 
         {!loading && !error
@@ -303,15 +378,24 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({ onOpenProj
                       type="button"
                       className="folder-toggle"
                       onClick={() => setExpandedFolders((prev) => ({ ...prev, [folder.id]: !expanded }))}
-                      onDoubleClick={() => void handleRenameFolder(folder)}
                       title={folder.name}
+                      aria-label={expanded ? `Collapse ${folder.name}` : `Expand ${folder.name}`}
                     >
                       {expanded ? <ChevronDownIcon /> : <ChevronRightIcon />}
-                      <div className="folder-main">
-                        <FolderIcon />
-                        <div className="label">{folder.name}</div>
-                      </div>
                     </button>
+                    <div className="folder-content">
+                      <button
+                        type="button"
+                        className="folder-name-button"
+                        onDoubleClick={() => void handleRenameFolder(folder)}
+                        title={folder.name}
+                      >
+                        <div className="folder-main">
+                          <FolderIcon />
+                          <div className="label">{folder.name}</div>
+                        </div>
+                      </button>
+                    </div>
                     <div className="folder-actions">
                       <button
                         type="button"
@@ -321,14 +405,6 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({ onOpenProj
                         aria-label={`Create project in ${folder.name}`}
                       >
                         +
-                      </button>
-                      <button
-                        type="button"
-                        className="text-button"
-                        onClick={() => void handleRenameFolder(folder)}
-                        title={`Rename ${folder.name}`}
-                      >
-                        Rename
                       </button>
                     </div>
                   </div>
