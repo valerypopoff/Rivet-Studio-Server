@@ -25,11 +25,47 @@ const styles = `
     width: 0;
     height: 100vh;
   }
+
+  .dashboard-page .dashboard-editor-frame.dashboard-editor-frame-hidden {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .dashboard-page .dashboard-main {
+    position: relative;
+    flex: 1;
+    min-width: 0;
+    height: 100vh;
+    background: var(--grey-darker);
+  }
+
+  .dashboard-page .dashboard-editor-frame {
+    width: 100%;
+  }
+
+  .dashboard-page .dashboard-empty-state {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px;
+    color: var(--grey-light);
+    text-align: center;
+    background: var(--grey-darker);
+  }
+
+  .dashboard-page .dashboard-empty-state-message {
+    max-width: 420px;
+    font-size: 14px;
+    line-height: 1.6;
+  }
 `;
 
 export const DashboardPage: FC = () => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [activeProjectPath, setActiveProjectPath] = useState('');
+  const [openProjectCount, setOpenProjectCount] = useState(0);
 
   const handleOpenProject = useCallback((path: string, options?: { replaceCurrent?: boolean }) => {
     iframeRef.current?.contentWindow?.postMessage(
@@ -52,6 +88,11 @@ export const DashboardPage: FC = () => {
 
       if (event.data?.type === 'active-project-path-changed' && typeof event.data.path === 'string') {
         setActiveProjectPath(event.data.path);
+        return;
+      }
+
+      if (event.data?.type === 'open-project-count-changed' && typeof event.data.count === 'number') {
+        setOpenProjectCount(event.data.count);
       }
     };
     window.addEventListener('message', handler);
@@ -68,7 +109,18 @@ export const DashboardPage: FC = () => {
           activeProjectPath={activeProjectPath}
         />
       </aside>
-      <iframe ref={iframeRef} src="/?editor" className="dashboard-editor-frame" />
+      <main className="dashboard-main">
+        {openProjectCount === 0 ? (
+          <div className="dashboard-empty-state">
+            <div className="dashboard-empty-state-message">Open a workflow project from the left pane to start editing.</div>
+          </div>
+        ) : null}
+        <iframe
+          ref={iframeRef}
+          src="/?editor"
+          className={`dashboard-editor-frame ${openProjectCount === 0 ? 'dashboard-editor-frame-hidden' : ''}`}
+        />
+      </main>
       <ToastContainer position="bottom-right" hideProgressBar newestOnTop />
     </div>
   );

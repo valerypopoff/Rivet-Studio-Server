@@ -58,5 +58,15 @@ export const EditorMessageBridge: FC = () => {
     );
   }, [currentProject.metadata.id, openedProjectIds, openedProjects]);
 
+  useEffect(() => {
+    window.parent.postMessage(
+      {
+        type: 'open-project-count-changed',
+        count: openedProjectIds.length,
+      },
+      '*',
+    );
+  }, [openedProjectIds.length]);
+
   return null;
 };
