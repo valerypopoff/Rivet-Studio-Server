@@ -214,7 +214,6 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({ onOpenProj
 
     try {
       const folder = await createWorkflowFolder(name);
-      toast.success(`Created folder ${folder.name}`);
       setExpandedFolders((prev) => ({ ...prev, [folder.id]: true }));
       await refresh();
     } catch (err: any) {
@@ -229,8 +228,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({ onOpenProj
     }
 
     try {
-      const renamedFolder = await renameWorkflowFolder(folder.relativePath, newName);
-      toast.success(`Renamed folder to ${renamedFolder.name}`);
+      await renameWorkflowFolder(folder.relativePath, newName);
       await refresh();
     } catch (err: any) {
       toast.error(err.message || 'Failed to rename folder');
@@ -245,7 +243,6 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({ onOpenProj
 
     try {
       const project = await createWorkflowProject(folder.relativePath, name);
-      toast.success(`Created project ${project.name}`);
       setExpandedFolders((prev) => ({ ...prev, [folder.id]: true }));
       await refresh();
       onOpenProject(project.absolutePath);

@@ -4,7 +4,7 @@ This file captures both critical wiring findings and the concrete problems encou
 
 This document is intended as a developer handoff.
 
-## Findings
+# Findings
 
 ## 1) App behavior that controls execution buttons
 
@@ -179,7 +179,7 @@ This document is intended as a developer handoff.
   - The component-level aliases were redundant and introduced layout/positioning drift.
   - After removing them and rebuilding Docker images, the editor was confirmed working again both at `http://localhost:8080/?editor` and inside the dashboard at `http://localhost:8080/`.
 
-## Problems
+# Problems
 
 ## Ongoing
 
