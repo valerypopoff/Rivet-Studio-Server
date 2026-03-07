@@ -183,7 +183,9 @@ Current workflow-dashboard model:
 - the `Folders` pane provides explicit controls to create folders, rename folders, and create `.rivet-project` files inside a selected folder
 - selecting a project from the dashboard reuses the existing hosted project load flow rather than inventing a second editor state system
 - the editor remains the upstream Rivet editor running correctly inside the main dashboard area
-- normal save behavior continues to write back to the currently loaded project path
+- the wrapper-owned `Save` button in the left pane is driven by the editor's active tab rather than by stale last-loaded state
+- when the active editor tab is a file-backed workflow project, the wrapper `Save` action saves that exact project path
+- when no editor tabs are open, or when the active tab is not a path-backed workflow project, the wrapper `Save` button is hidden
 - normal workflow-pane actions stay quiet on success and only surface toast notifications for actual failures
 
 This keeps the dashboard as a thin management layer around the upstream editor rather than turning the wrapper into a forked application.

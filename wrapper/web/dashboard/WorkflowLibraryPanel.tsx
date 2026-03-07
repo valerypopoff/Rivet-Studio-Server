@@ -166,10 +166,11 @@ const styles = `
 
 interface WorkflowLibraryPanelProps {
   onOpenProject: (path: string, options?: { replaceCurrent?: boolean }) => void;
+  onSaveProject: () => void;
   activeProjectPath: string;
 }
 
-export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({ onOpenProject, activeProjectPath }) => {
+export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({ onOpenProject, onSaveProject, activeProjectPath }) => {
   const [folders, setFolders] = useState<WorkflowFolderItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -264,9 +265,22 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({ onOpenProj
       <style>{styles}</style>
       <div className="header">
         <div className="header-title">Folders</div>
-        <button type="button" className="icon-button" onClick={() => void handleCreateFolder()} title="Create folder" aria-label="Create folder">
-          +
-        </button>
+        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+          {activeProjectPath ? (
+            <button
+              type="button"
+              className="text-button"
+              onClick={onSaveProject}
+              title="Save current project"
+              aria-label="Save current project"
+            >
+              Save
+            </button>
+          ) : null}
+          <button type="button" className="icon-button" onClick={() => void handleCreateFolder()} title="Create folder" aria-label="Create folder">
+            +
+          </button>
+        </div>
       </div>
 
       <div className="body">

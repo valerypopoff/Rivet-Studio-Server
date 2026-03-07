@@ -38,10 +38,19 @@ export const DashboardPage: FC = () => {
     );
   }, []);
 
+  const handleSaveProject = useCallback(() => {
+    iframeRef.current?.contentWindow?.postMessage({ type: 'save-project' }, '*');
+  }, []);
+
   useEffect(() => {
     const handler = (event: MessageEvent) => {
       if (event.source !== iframeRef.current?.contentWindow) return;
       if (event.data?.type === 'project-opened' && typeof event.data.path === 'string') {
+        setActiveProjectPath(event.data.path);
+        return;
+      }
+
+      if (event.data?.type === 'active-project-path-changed' && typeof event.data.path === 'string') {
         setActiveProjectPath(event.data.path);
       }
     };
@@ -53,7 +62,11 @@ export const DashboardPage: FC = () => {
     <div className="dashboard-page">
       <style>{styles}</style>
       <aside className="dashboard-sidebar">
-        <WorkflowLibraryPanel onOpenProject={handleOpenProject} activeProjectPath={activeProjectPath} />
+        <WorkflowLibraryPanel
+          onOpenProject={handleOpenProject}
+          onSaveProject={handleSaveProject}
+          activeProjectPath={activeProjectPath}
+        />
       </aside>
       <iframe ref={iframeRef} src="/?editor" className="dashboard-editor-frame" />
       <ToastContainer position="bottom-right" hideProgressBar newestOnTop />

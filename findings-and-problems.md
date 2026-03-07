@@ -204,6 +204,24 @@ This document is intended as a developer handoff.
 - Practical rule:
   - keep workflow-library success feedback lightweight and rely on visible UI state changes instead of global popup notifications where possible.
 
+## 17) Workflow-pane Save must follow the editor's active tab
+
+- The hosted editor can have multiple project tabs open at the same time.
+- `loadedProjectState` alone is not a reliable truth source for wrapper Save visibility or targeting, because it can retain the last loaded path after editor tab changes or close actions.
+- Reliable hosted truth sources are:
+  - `openedProjectsSortedIdsState`
+    - determines whether any project tab is open at all
+  - `projectState`
+    - identifies the currently active editor tab/project
+  - `openedProjectsState[projectState.metadata.id]?.fsPath`
+    - gives the file-system path for the active tab when that tab is path-backed
+- Current validated behavior:
+  - the wrapper-owned `Save` button in the left workflow pane is shown only when the active editor tab is a file-backed workflow project
+  - clicking that `Save` button saves the exact project that is active in the editor at that moment
+  - if no editor tabs are open, or if the active tab is not path-backed, the wrapper `Save` button is hidden
+- Practical rule:
+  - for dashboard/editor synchronization, prefer the active-tab model from `projectState` + `openedProjectsState` + `openedProjectsSortedIdsState` over `loadedProjectState` alone
+
 # Problems
 
 ## Ongoing
