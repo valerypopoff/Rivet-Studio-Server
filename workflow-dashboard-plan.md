@@ -132,7 +132,7 @@ Reason:
 
 ## Recommended high-level design
 
-## 1) Introduce a dedicated workflow library root
+## 1) Introduce a dedicated workflow library root - DONE
 
 Create one explicit server-side workflow root instead of relying on arbitrary workspace paths.
 
@@ -169,7 +169,7 @@ Initial scope recommendation:
 
 This keeps the UX simple and matches the requested sidebar mental model.
 
-## 2) Add a workflow-library API instead of overloading generic native routes
+## 2) Add a workflow-library API instead of overloading generic native routes - DONE
 
 Create a wrapper-owned route group such as:
 
@@ -238,7 +238,7 @@ Why a separate API is better than reusing `/api/native/*` directly:
 - makes the future endpoint server integration easier
 - reduces the chance that UI code starts depending on generic unrestricted file operations
 
-## 3) Add a workflow-root abstraction in API security/config
+## 3) Add a workflow-root abstraction in API security/config - DONE
 
 Extend `wrapper/api/src/security.ts` with a workflow-specific accessor.
 
@@ -258,7 +258,7 @@ Rules to enforce:
 
 This is one of the most important implementation details because the dashboard will be intentionally exposing filesystem-backed management actions.
 
-## 4) Introduce a wrapper-owned dashboard shell around the upstream editor
+## 4) Introduce a wrapper-owned dashboard shell around the upstream editor - DONE
 
 The app should stop booting directly into the raw upstream editor canvas.
 
@@ -306,7 +306,7 @@ Recommended responsibilities:
 - save behavior once project is loaded
 - existing graph editing functionality
 
-## 5) Decide how the shell opens a selected project in the existing editor state
+## 5) Decide how the shell opens a selected project in the existing editor state - DONE
 
 This is the key integration question.
 
@@ -335,7 +335,7 @@ Avoid:
 - duplicating deserialize logic in the dashboard component
 - bypassing existing hosted project-open behavior in a way that could reintroduce unsaved-project or `project.graphs` synchronization bugs
 
-## 6) Update HostedIOProvider to cooperate with library-driven paths
+## 6) Update HostedIOProvider to cooperate with library-driven paths - DONE
 
 `HostedIOProvider` is currently prompt-driven for project save/load.
 
@@ -358,7 +358,7 @@ Recommended save behavior after a dashboard open:
 - once a project is opened from `workflows/...`, subsequent saves should write back to that exact path through `saveProjectDataNoPrompt`
 - `Save As` can remain prompt-based initially, but should later become folder-aware inside the dashboard
 
-## 7) Folder and project creation UX
+## 7) Folder and project creation UX - DONE
 
 ### Folder creation
 
@@ -448,7 +448,7 @@ Recommended location:
 
 Do not mix the library-navigation state directly into upstream editor state unless a clear existing extension point already exists.
 
-## 10) Save semantics and editor integration
+## 10) Save semantics and editor integration - DONE
 
 To make the dashboard feel coherent, the open project path must remain authoritative.
 
@@ -463,7 +463,7 @@ This matters because your host-side endpoint server will depend on stable on-dis
 
 ## 11) Recommended phased rollout
 
-### Phase 1: backend workflow library foundation
+### Phase 1: backend workflow library foundation - DONE
 
 Deliverables:
 
@@ -478,7 +478,7 @@ Outcome:
 
 - backend can manage a real host-backed workflow library safely
 
-### Phase 2: sidebar dashboard shell
+### Phase 2: sidebar dashboard shell - DONE
 
 Deliverables:
 
@@ -494,7 +494,7 @@ Outcome:
 
 - app visually becomes a workflow dashboard with an embedded editor area
 
-### Phase 3: project open integration
+### Phase 3: project open integration - DONE
 
 Deliverables:
 
@@ -525,26 +525,26 @@ Outcome:
 
 ### Backend
 
-1. Add workflow root config to API security/config.
-2. Add `workflows.ts` router and mount it in `wrapper/api/src/server.ts`.
-3. Implement folder tree listing.
-4. Implement folder create/rename.
-5. Implement project create with minimal starter file generation.
+1. DONE - Add workflow root config to API security/config.
+2. DONE - Add `workflows.ts` router and mount it in `wrapper/api/src/server.ts`.
+3. DONE - Implement folder tree listing.
+4. DONE - Implement folder create/rename.
+5. DONE - Implement project create with minimal starter file generation.
 
 ### Frontend
 
-6. Add wrapper API client for workflow routes.
-7. Add dashboard state and types under `wrapper/web/`.
-8. Build left sidebar tree and context menu.
-9. Wrap the upstream app/editor in a dashboard shell.
-10. Connect project selection to existing hosted project open flow.
-11. Update save behavior to preserve workflow-library paths.
+6. DONE - Add wrapper API client for workflow routes.
+7. DONE - Add dashboard state and types under `wrapper/web/`.
+8. DONE - Build left sidebar tree and context menu.
+9. DONE - Wrap the upstream app/editor in a dashboard shell.
+10. DONE - Connect project selection to existing hosted project open flow.
+11. DONE - Update save behavior to preserve workflow-library paths.
 
 ### Ops/config
 
-12. Mount host `workflows/` directory into the relevant container(s).
-13. Add env vars in Docker Compose and docs.
-14. Document how the host-side endpoint server should consume the same directory.
+12. DONE - Mount host `workflows/` directory into the relevant container(s).
+13. DONE - Add env vars in Docker Compose and docs.
+14. DONE - Document how the host-side endpoint server should consume the same directory.
 
 ## 13) Open questions to resolve during implementation
 

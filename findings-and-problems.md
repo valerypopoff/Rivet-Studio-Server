@@ -153,6 +153,32 @@ This document is intended as a developer handoff.
 - Do not modify vendor upstream source under `rivet/` for wrapper-specific behavior.
 - Keep hosted adaptations in `wrapper/` and `ops/`.
 
+## 14) Dashboard-era component aliases can break the editor globally
+
+- The hosted editor breakage at `/?editor` turned out to **not** be an iframe-isolation problem.
+- Root cause:
+  - `wrapper/web/vite.config.ts` had gained four dashboard-era aliases:
+    - `LeftSidebar`
+    - `DebuggerConnectPanel`
+    - `NoProject`
+    - `useContextMenu`
+  - Those aliases affected the upstream editor bundle globally, including the direct `/?editor` route where no dashboard shell or iframe composition was involved.
+- Why this was misleading:
+  - The dashboard route was visibly broken, so it was easy to assume the shell or iframe integration was the main issue.
+  - But Vite aliases apply at build/import time, not only when a particular route is rendered.
+  - That means a route can be broken even if the dashboard UI itself is not mounted, as long as the aliased modules are imported by the upstream app.
+- Important practical rule:
+  - Prefer narrow hook/state/module aliases that preserve upstream component structure.
+  - Avoid adding component-level aliases for major viewport-owning UI unless there is a demonstrated hosted-only requirement that cannot be handled more locally.
+  - Before blaming iframe composition or CSS containment, always test `/?editor` directly to determine whether the regression is actually in the shared app bundle.
+- Confirmed fix:
+  - Remove the four dashboard-era aliases above.
+  - Keep the existing lower-level hosted aliases such as `settings`, `useRemoteDebugger`, `useRemoteExecutor`, `useGraphExecutor`, and similar wrapper-specific modules.
+- Why removing them was safe:
+  - The upstream components already received the hosted behavior they needed through the existing lower-level module aliases.
+  - The component-level aliases were redundant and introduced layout/positioning drift.
+  - After removing them and rebuilding Docker images, the editor was confirmed working again both at `http://localhost:8080/?editor` and inside the dashboard at `http://localhost:8080/`.
+
 ## Problems
 
 ## Ongoing
@@ -175,6 +201,94 @@ This document is intended as a developer handoff.
   - A simple one-node workflow now also runs in Node executor mode.
 - **What remains open**:
   - Unsaved-project-specific Node execution should still be rechecked explicitly, since the latest validation was a simple workflow success rather than a dedicated unsaved-upload regression test.
+
+### 2) Workflow dashboard integration initially broke API routing and editor layout
+
+- **Status**: resolved
+- **Goal of this work**:
+  - Turn the hosted wrapper from an editor-first experience into a workflow workspace with a persistent `Folders` panel on the left.
+  - Let users create folders, create `.rivet-project` files inside those folders, and open those projects in the existing Rivet editor.
+  - Keep the host-side `workflows/` directory as the source of truth for persisted workflow assets.
+  - Reuse the existing project open/load/save path instead of inventing a separate editor state reconstruction path.
+- **Initial visible failures**:
+  - The left `Folders` pane returned frontend HTML instead of workflow JSON.
+  - The main Rivet editor UI became visually broken, with collapsed viewport, overlapping header/tabs, misplaced context menus, and misaligned fixed-position panels.
+- **Why this work is tricky**:
+  - Upstream Rivet assumes a full-window editor with many UI elements positioned relative to the viewport rather than to an arbitrary nested layout box.
+  - The hosted wrapper must preserve the existing browser-safe boot path in `wrapper/web/entry.tsx`.
+  - The dashboard must not create a second bootstrapped app, disturb Monaco worker output, or replace the authoritative project-open and execution wiring.
+  - The wrapper must stay within the vendor boundary and keep dashboard behavior in `wrapper/` and `ops/`, not by editing vendored upstream files under `rivet/`.
+- **What we implemented for the dashboard feature**:
+  - Added a dedicated workflow-library backend in `wrapper/api/src/routes/workflows.ts`.
+  - Added dedicated workflow-root configuration in `wrapper/api/src/security.ts` and container wiring in `ops/docker-compose.yml` / `ops/Dockerfile.api`.
+  - Added wrapper frontend dashboard code in:
+    - `wrapper/web/dashboard/types.ts`
+    - `wrapper/web/dashboard/workflowApi.ts`
+    - `wrapper/web/dashboard/useOpenWorkflowProject.ts`
+    - `wrapper/web/dashboard/WorkflowLibraryPanel.tsx`
+    - `wrapper/web/dashboard/WorkflowDashboardShell.tsx`
+  - Added wrapper overrides and aliases so the dashboard could compose around the existing app without modifying vendored upstream source.
+- **First dashboard integration approach that we tried**:
+  - Wrap the upstream Rivet app inside a dashboard shell with:
+    - a fixed left sidebar
+    - a resized main pane for the editor
+  - This was initially wired through `wrapper/web/entry.tsx` and wrapper-owned composition around the existing app boot path.
+- **What broke with the first approach**:
+  - The dashboard shell changed the layout assumptions of the embedded editor.
+  - Rivet components that expect viewport-relative positioning started behaving as if their available screen geometry had changed in unsupported ways.
+  - Symptoms included overlapping header/tabs, misplaced context menus, tiny or clipped editor viewport, and misaligned node settings panels.
+- **Runtime error encountered during the first approach**:
+  - The dashboard initially crashed with:
+    - `TypeError: Cannot read properties of undefined (reading 'css')`
+  - This came from dashboard components using Emotion `css`-prop behavior in a wrapper build where that runtime assumption was not being satisfied.
+- **What we tried for the runtime styling crash**:
+  - Replaced Emotion `css` usage in `WorkflowDashboardShell.tsx` and `WorkflowLibraryPanel.tsx` with plain CSS strings injected via `<style>` tags and ordinary `className` usage.
+- **Result of that attempt**:
+  - The runtime crash was removed.
+  - The dashboard components rendered, but the deeper layout regressions remained.
+- **What we tried for context menu misplacement**:
+  - Added a wrapper override for `useContextMenu` that translates click coordinates from viewport space into `.node-canvas` local coordinates before positioning the menu.
+- **Result of that attempt**:
+  - It was a targeted mitigation for one symptom only.
+  - It did not solve the broader problem that the editor was now living inside a wrapper-owned layout model that upstream Rivet does not naturally expect.
+- **What we tried for fixed-position/editor-size regressions**:
+  - Added CSS in `WorkflowDashboardShell.tsx` to constrain the embedded `.app` and `.node-canvas` to the dashboard main pane.
+  - Added/adjusted wrapper overrides for some components such as `LeftSidebar`, `DebuggerConnectPanel`, and `NoProject` to account for the dashboard sidebar.
+  - Considered and briefly used additional component overrides for positioning-sensitive UI.
+- **Result of those attempts**:
+  - These changes acted more like symptom patches than a stable architectural fit.
+  - The editor still showed major visual regressions because more upstream UI assumes full-viewport ownership.
+- **What we tried for the workflow API failure**:
+  - Added clearer response validation in `wrapper/web/dashboard/workflowApi.ts` so that HTML fallback responses are reported explicitly instead of surfacing only as `Unexpected token '<'` JSON parse errors.
+  - Made the hosted API base URL configurable through `wrapper/shared/hosted-env.ts` using `VITE_RIVET_API_BASE_URL`.
+  - Updated local Docker config so the browser could call the API directly at `http://localhost:3100/api` instead of depending purely on nginx proxy routing.
+  - Exposed the API container on host port `3100` and passed the API base URL into the web build.
+- **Result of those API attempts**:
+  - API routing was corrected and the workflow sidebar now reaches the intended JSON API in the validated local stack.
+- **Second dashboard integration approach that we tried**:
+  - Move away from a layout-constraining shell and convert the dashboard into an overlay model:
+    - Rivet keeps the full viewport
+    - the `Folders` pane is rendered as a fixed overlay on top of the app
+  - The intent was to preserve upstream Rivet's viewport-based positioning model instead of forcing it into a smaller content pane.
+- **What finally resolved the editor regression**:
+  - The remaining editor breakage was traced to four dashboard-era Vite aliases in `wrapper/web/vite.config.ts`, not to iframe isolation itself.
+  - Those aliases overrode upstream `LeftSidebar`, `DebuggerConnectPanel`, `NoProject`, and `useContextMenu` modules globally.
+  - Removing those four aliases restored the upstream editor behavior while preserving the necessary lower-level hosted module overrides.
+- **Verification that confirmed the root cause**:
+  - The editor was tested directly at `http://localhost:8080/?editor`.
+  - It was broken before removing the aliases and correct after removing them.
+  - Because `/?editor` does not depend on the dashboard shell being rendered, this proved the regression lived in the shared built app bundle rather than in iframe composition alone.
+- **Current verified result**:
+  - `http://localhost:8080/?editor` renders correctly again.
+  - `http://localhost:8080/` also renders correctly with the dashboard integration.
+  - The earlier component-level dashboard overrides should be treated as a regression source and should not be reintroduced without a narrowly justified need.
+- **Important lesson from this effort**:
+  - The workflow dashboard problem is not just a cosmetic CSS issue.
+  - It is an integration-boundary problem involving:
+    - runtime routing of API requests
+    - viewport ownership assumptions inside the upstream editor
+    - the constraint that wrapper code must not fork or directly edit vendored upstream UI
+  - A second key lesson is that build-time alias scope must be treated as global: route-local UI experiments can still destabilize the editor route if they replace shared upstream modules.
 
 ## Done
 

@@ -1,0 +1,1 @@
+export const WORKFLOW_DASHBOARD_SIDEBAR_WIDTH = '300px';

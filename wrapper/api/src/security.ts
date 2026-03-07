@@ -4,10 +4,12 @@ const repoRoot = path.resolve(process.cwd(), '..', '..');
 
 const WORKSPACE_ROOT = process.env.RIVET_WORKSPACE_ROOT ?? repoRoot;
 const APP_DATA_ROOT = process.env.RIVET_APP_DATA_ROOT ?? path.join(repoRoot, '.data', 'rivet-app');
+const WORKFLOWS_ROOT = process.env.RIVET_WORKFLOWS_ROOT ?? path.join(repoRoot, 'workflows');
 
 const ALLOWED_ROOTS = [
   path.resolve(WORKSPACE_ROOT),
   path.resolve(APP_DATA_ROOT),
+  path.resolve(WORKFLOWS_ROOT),
   ...(process.env.RIVET_EXTRA_ROOTS?.split(',').map((r) => path.resolve(r.trim())) ?? []),
 ];
 
@@ -54,6 +56,10 @@ export function getWorkspaceRoot(): string {
 
 export function getAppDataRoot(): string {
   return path.resolve(APP_DATA_ROOT);
+}
+
+export function getWorkflowsRoot(): string {
+  return path.resolve(WORKFLOWS_ROOT);
 }
 
 export function getCommandTimeout(): number {

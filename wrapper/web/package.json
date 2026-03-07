@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --config vite.config.ts",
+    "dev:all": "concurrently --names api,web --prefix-colors blue,green \"npm run dev --prefix ../api\" \"vite --config vite.config.ts\"",
     "build": "vite build --config vite.config.ts",
     "preview": "vite preview --config vite.config.ts"
   },
@@ -105,5 +106,8 @@
     "vite-plugin-top-level-await": "^1.3.1",
     "vite-tsconfig-paths": "^4.2.1",
     "yaml": "^2.3.3"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
   }
 }

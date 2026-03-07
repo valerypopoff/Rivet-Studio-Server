@@ -59,6 +59,7 @@ This area provides:
 
 - the browser entrypoint
 - Vite configuration
+- the workflow dashboard shell and sidebar
 - browser-safe shims for Tauri APIs
 - targeted overrides for upstream modules that assume desktop behavior
 - hosted environment constants and frontend wiring
@@ -157,12 +158,55 @@ Typical responsibilities include:
 
 - reading and writing project files on the server
 - listing directories and files inside allowed roots
+- managing the dedicated workflow library under the host-backed `workflows/` directory
 - loading referenced projects
 - running allowlisted shell commands
 - managing plugin installation/loading
 - exposing controlled environment values to the hosted app
 
 The browser talks to this service through wrapper shims and overrides instead of talking to the local machine directly.
+
+## Workflow dashboard wiring
+
+The hosted app now boots into a wrapper-owned dashboard shell instead of presenting only the raw editor surface.
+
+Current workflow-dashboard model:
+
+- the left panel is wrapper-owned UI rendered from `wrapper/web/dashboard/`
+- folders and `.rivet-project` entries are loaded from `/api/workflows/*`
+- selecting a project from the dashboard reuses the existing hosted project load flow rather than inventing a second editor state system
+- the editor remains the upstream Rivet editor running inside the main dashboard area
+- normal save behavior continues to write back to the currently loaded project path
+
+This keeps the dashboard as a thin management layer around the upstream editor rather than turning the wrapper into a forked application.
+
+## Workflow library root
+
+The workflow dashboard is backed by a dedicated filesystem root configured through:
+
+- `RIVET_WORKFLOWS_ROOT`
+
+Current runtime expectation:
+
+- Docker Compose mounts a host-backed `workflows/` directory into the API container at `/workflows`
+- API security allows workflow-library operations only inside that validated workflow root
+- workflow create/rename/list actions are exposed through `wrapper/api/src/routes/workflows.ts`
+- hosted `Save As` now defaults to `/workflows/...` so dashboard-created and manually-saved hosted projects converge on the same library root
+
+This is intentionally separate from the broader workspace root so workflow-management UI does not depend on unrestricted filesystem browsing.
+
+## Host-side workflow consumer
+
+The workflow dashboard is designed so a separate host-side service can consume the same persisted directory.
+
+Recommended model:
+
+- the dashboard is responsible for creating and editing workflow project files under the host-backed `workflows/` directory
+- a separate host-side endpoint/publishing service should watch or scan that same directory on the host machine
+- that service should treat the on-disk `.rivet-project` files as the source of truth for exposed workflow endpoints
+- the wrapper should not become the deployment/orchestration service for those endpoints; it only manages the library and editor experience
+
+This separation keeps the browser wrapper focused on authoring and organization while allowing a dedicated host service to own publication/runtime exposure.
 
 ## Executor wiring
 

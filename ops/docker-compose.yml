@@ -31,9 +31,12 @@ services:
     build:
       context: ..
       dockerfile: ops/Dockerfile.api
+    ports:
+      - "${RIVET_API_PORT:-3100}:3100"
     environment:
       - PORT=3100
       - RIVET_WORKSPACE_ROOT=/workspace
+      - RIVET_WORKFLOWS_ROOT=/workflows
       - RIVET_APP_DATA_ROOT=/data/rivet-app
       - RIVET_ENV_ALLOWLIST=${RIVET_ENV_ALLOWLIST:-}
       - RIVET_SHELL_ALLOWLIST=${RIVET_SHELL_ALLOWLIST:-}
@@ -43,6 +46,7 @@ services:
       - OPENAI_ENDPOINT=${OPENAI_ENDPOINT:-}
     volumes:
       - rivet_workspace:/workspace
+      - ${RIVET_WORKFLOWS_HOST_PATH:-../workflows}:/workflows
       - rivet_data:/data/rivet-app
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3100/api/config"]

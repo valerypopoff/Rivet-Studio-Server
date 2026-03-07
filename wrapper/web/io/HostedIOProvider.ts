@@ -110,7 +110,7 @@ export class HostedIOProvider implements IOProvider {
   async saveProjectData(project: Project, testData: TrivetData): Promise<string | undefined> {
     // Show a simple prompt for server path
     const defaultName = `${project.metadata?.title ?? 'project'}.rivet-project`;
-    const filePath = prompt('Save project to server path:', `/workspace/${defaultName}`);
+    const filePath = prompt('Save project to server path:', `/workflows/${defaultName}`);
 
     if (!filePath) return undefined;
 
