@@ -23,8 +23,8 @@ export function useOpenWorkflowProject() {
 
   return async (filePath: string, options?: OpenWorkflowProjectOptions) => {
     const replaceCurrent = options?.replaceCurrent ?? false;
-    const isSwitchingProjects = Boolean(loadedProject.path) && loadedProject.path !== filePath;
-    const isLeavingUnsavedScratchProject = !loadedProject.path && Object.keys(projects.openedProjects).length > 0;
+    const isSwitchingProjects = replaceCurrent && Boolean(loadedProject.path) && loadedProject.path !== filePath;
+    const isLeavingUnsavedScratchProject = replaceCurrent && !loadedProject.path && Object.keys(projects.openedProjects).length > 0;
 
     if (isSwitchingProjects || isLeavingUnsavedScratchProject) {
       const shouldContinue = window.confirm(
