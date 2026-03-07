@@ -6,6 +6,10 @@ import { WORKFLOW_DASHBOARD_SIDEBAR_WIDTH } from './constants';
 const MIN_SIDEBAR_WIDTH = 240;
 const MAX_SIDEBAR_WIDTH = 560;
 
+type EditorCommand =
+  | { type: 'open-project'; path: string; replaceCurrent: boolean }
+  | { type: 'save-project' };
+
 const styles = `
   .dashboard-page {
     width: 100vw;
@@ -80,6 +84,25 @@ const styles = `
     line-height: 1.6;
   }
 
+  .dashboard-page .dashboard-editor-loading {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 32px;
+    color: var(--grey-lightest);
+    text-align: center;
+    background: rgba(13, 17, 23, 0.78);
+    z-index: 5;
+  }
+
+  .dashboard-page .dashboard-editor-loading-message {
+    max-width: 420px;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+
   .dashboard-page .dashboard-restore-sidebar-button {
     position: fixed;
     left: 12px;
@@ -102,21 +125,41 @@ const styles = `
 
 export const DashboardPage: FC = () => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
+  const pendingEditorCommandRef = useRef<EditorCommand | null>(null);
   const [activeProjectPath, setActiveProjectPath] = useState('');
+  const [editorReady, setEditorReady] = useState(false);
   const [openProjectCount, setOpenProjectCount] = useState(0);
   const [sidebarWidth, setSidebarWidth] = useState(() => parseInt(WORKFLOW_DASHBOARD_SIDEBAR_WIDTH, 10) || 300);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
+  const postEditorCommand = useCallback(
+    (command: EditorCommand) => {
+      if (!editorReady || !iframeRef.current?.contentWindow) {
+        pendingEditorCommandRef.current = command;
+        return;
+      }
+
+      iframeRef.current.contentWindow.postMessage(command, '*');
+    },
+    [editorReady],
+  );
+
   const handleOpenProject = useCallback((path: string, options?: { replaceCurrent?: boolean }) => {
-    iframeRef.current?.contentWindow?.postMessage(
-      { type: 'open-project', path, replaceCurrent: Boolean(options?.replaceCurrent) },
-      '*',
-    );
-  }, []);
+    postEditorCommand({ type: 'open-project', path, replaceCurrent: Boolean(options?.replaceCurrent) });
+  }, [postEditorCommand]);
 
   const handleSaveProject = useCallback(() => {
-    iframeRef.current?.contentWindow?.postMessage({ type: 'save-project' }, '*');
-  }, []);
+    postEditorCommand({ type: 'save-project' });
+  }, [postEditorCommand]);
+
+  useEffect(() => {
+    if (!editorReady || !pendingEditorCommandRef.current || !iframeRef.current?.contentWindow) {
+      return;
+    }
+
+    iframeRef.current.contentWindow.postMessage(pendingEditorCommandRef.current, '*');
+    pendingEditorCommandRef.current = null;
+  }, [editorReady]);
 
   useEffect(() => {
     if (openProjectCount === 0) {
@@ -175,6 +218,11 @@ export const DashboardPage: FC = () => {
   useEffect(() => {
     const handler = (event: MessageEvent) => {
       if (event.source !== iframeRef.current?.contentWindow) return;
+      if (event.data?.type === 'editor-ready') {
+        setEditorReady(true);
+        return;
+      }
+
       if (event.data?.type === 'project-opened' && typeof event.data.path === 'string') {
         setActiveProjectPath(event.data.path);
         return;
@@ -193,6 +241,8 @@ export const DashboardPage: FC = () => {
     return () => window.removeEventListener('message', handler);
   }, []);
 
+  const showEditorLoading = !editorReady;
+
   return (
     <div className="dashboard-page" style={{ ['--workflow-dashboard-sidebar-width' as string]: `${sidebarWidth}px` }}>
       <style>{styles}</style>
@@ -202,20 +252,27 @@ export const DashboardPage: FC = () => {
             onOpenProject={handleOpenProject}
             onSaveProject={handleSaveProject}
             activeProjectPath={activeProjectPath}
+            editorReady={editorReady}
             onCollapse={openProjectCount === 0 ? undefined : () => setSidebarCollapsed(true)}
           />
           <div className="dashboard-sidebar-resizer" role="separator" aria-orientation="vertical" aria-label="Resize folders pane" />
         </aside>
       ) : null}
       <main className="dashboard-main">
+        {showEditorLoading ? (
+          <div className="dashboard-editor-loading">
+            <div className="dashboard-editor-loading-message">Loading editor... Project open actions will be available in a moment.</div>
+          </div>
+        ) : null}
         {openProjectCount === 0 ? (
           <div className="dashboard-empty-state">
-            <div className="dashboard-empty-state-message">Open or create a workflow project in the left pane to start editing.</div>
+            <div className="dashboard-empty-state-message">Open or create a Rivet project in the left pane to start editing.</div>
           </div>
         ) : null}
         <iframe
           ref={iframeRef}
           src="/?editor"
+          onLoad={() => setEditorReady(false)}
           className={`dashboard-editor-frame ${openProjectCount === 0 ? 'dashboard-editor-frame-hidden' : ''}`}
         />
       </main>

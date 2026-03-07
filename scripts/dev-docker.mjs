@@ -79,14 +79,14 @@ if (!Object.prototype.hasOwnProperty.call(mergedEnv, 'COMPOSE_PARALLEL_LIMIT')) 
   mergedEnv.COMPOSE_PARALLEL_LIMIT = '1';
 }
 
-const composeBase = 'docker compose -f ops/docker-compose.yml';
+const composeBase = 'docker compose -f ops/docker-compose.dev.yml';
 
 const commandsByAction = {
-  build: [`${composeBase} build`],
-  up: [`${composeBase} up --no-build`],
+  build: [`${composeBase} build api executor`],
+  up: [`${composeBase} up --build`],
   down: [`${composeBase} down`],
   config: [`${composeBase} config`],
-  dev: [`${composeBase} build`, `${composeBase} up --no-build`],
+  dev: [`${composeBase} up --build`],
 };
 
 const commands = commandsByAction[action];

@@ -54,7 +54,6 @@ if (!('process' in globalScope)) {
   (globalThis as any).process = processShim;
 }
 
-await import('../../rivet/packages/app/src/utils/deserializeProject');
 await import('../../rivet/packages/app/src/index.css');
 await import('../../rivet/packages/app/src/colors.css');
 
@@ -65,16 +64,8 @@ const root = ReactDOM.createRoot(document.getElementById('root') as HTMLElement)
 
 if (isEditorFrame) {
   // Inside the iframe — render the normal Rivet editor + message bridge
-  const [{ default: App }, { EditorMessageBridge }] = await Promise.all([
-    import('../../rivet/packages/app/src/App.tsx'),
-    import('./dashboard/EditorMessageBridge'),
-  ]);
-  root.render(
-    <>
-      <App />
-      <EditorMessageBridge />
-    </>,
-  );
+  const { HostedEditorApp } = await import('./dashboard/HostedEditorApp');
+  root.render(<HostedEditorApp />);
 } else {
   // Top-level page — render dashboard with sidebar + editor iframe
   const { DashboardPage } = await import('./dashboard/DashboardPage');

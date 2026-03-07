@@ -1,0 +1,109 @@
+services:
+  proxy:
+    image: nginx:alpine
+    ports:
+      - "${RIVET_PORT:-8080}:80"
+    volumes:
+      - ./nginx.dev.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      web:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+      executor:
+        condition: service_started
+    restart: unless-stopped
+
+  web:
+    image: node:20-alpine
+    working_dir: /workspace/wrapper/web
+    environment:
+      - VITE_RIVET_DEBUG_LOGS=${VITE_RIVET_DEBUG_LOGS:-false}
+      - VITE_RIVET_API_BASE_URL=${VITE_RIVET_API_BASE_URL:-http://localhost:3100/api}
+      - CHOKIDAR_USEPOLLING=true
+      - CHOKIDAR_INTERVAL=300
+    volumes:
+      - ..:/workspace
+      - rivet_node_modules:/workspace/rivet/node_modules
+      - wrapper_web_node_modules:/workspace/wrapper/web/node_modules
+    command: >
+      sh -lc "
+        corepack enable &&
+        corepack prepare yarn@4.6.0 --activate &&
+        cd /workspace/rivet &&
+        if [ ! -d node_modules ] || [ -z \"$(ls -A node_modules 2>/dev/null)\" ]; then
+          YARN_NODE_LINKER=node-modules YARN_CHECKSUM_BEHAVIOR=ignore yarn install --immutable ||
+          YARN_NODE_LINKER=node-modules YARN_CHECKSUM_BEHAVIOR=ignore yarn install;
+        fi &&
+        cd /workspace/wrapper/web &&
+        if [ ! -d node_modules ] || [ -z \"$(ls -A node_modules 2>/dev/null)\" ]; then npm ci --legacy-peer-deps; fi &&
+        npm run dev -- --host 0.0.0.0 --strictPort
+      "
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('node:http').get('http://127.0.0.1:5174/', (res) => process.exit(res.statusCode && res.statusCode < 500 ? 0 : 1)).on('error', () => process.exit(1))",
+        ]
+      start_period: 180s
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ..
+      dockerfile: ops/Dockerfile.api
+    ports:
+      - "${RIVET_API_PORT:-3100}:3100"
+    environment:
+      - PORT=3100
+      - RIVET_WORKSPACE_ROOT=/workspace
+      - RIVET_WORKFLOWS_ROOT=/workflows
+      - RIVET_APP_DATA_ROOT=/data/rivet-app
+      - RIVET_ENV_ALLOWLIST=${RIVET_ENV_ALLOWLIST:-}
+      - RIVET_SHELL_ALLOWLIST=${RIVET_SHELL_ALLOWLIST:-}
+      - RIVET_EXTRA_ROOTS=${RIVET_EXTRA_ROOTS:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_ORG_ID=${OPENAI_ORG_ID:-}
+      - OPENAI_ENDPOINT=${OPENAI_ENDPOINT:-}
+    volumes:
+      - ..:/workspace
+      - ../wrapper/api:/app
+      - wrapper_api_node_modules:/app/node_modules
+      - ${RIVET_WORKFLOWS_HOST_PATH:-../workflows}:/workflows
+      - rivet_data:/data/rivet-app
+    command: >
+      sh -lc "
+        if [ ! -d node_modules ] || [ -z \"$(ls -A node_modules 2>/dev/null)\" ]; then npm ci; fi &&
+        npm run dev
+      "
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3100/api/config"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+
+  executor:
+    build:
+      context: ..
+      dockerfile: ops/Dockerfile.executor
+    environment:
+      - HOME=/root
+    volumes:
+      - rivet_data:/root/.local/share/com.ironcladapp.rivet
+    restart: unless-stopped
+
+volumes:
+  rivet_node_modules:
+    driver: local
+  wrapper_web_node_modules:
+    driver: local
+  wrapper_api_node_modules:
+    driver: local
+  rivet_data:
+    driver: local

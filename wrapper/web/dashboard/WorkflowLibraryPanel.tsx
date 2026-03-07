@@ -88,6 +88,11 @@ const styles = `
     padding: 0 4px 8px 4px;
   }
 
+  .workflow-library-panel .body-status {
+    font-size: 11px;
+    color: var(--grey-light);
+  }
+
   .workflow-library-panel .link-button {
     border: none;
     background: transparent;
@@ -224,6 +229,7 @@ interface WorkflowLibraryPanelProps {
   onOpenProject: (path: string, options?: { replaceCurrent?: boolean }) => void;
   onSaveProject: () => void;
   activeProjectPath: string;
+  editorReady: boolean;
   onCollapse?: () => void;
 }
 
@@ -231,6 +237,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   onOpenProject,
   onSaveProject,
   activeProjectPath,
+  editorReady,
   onCollapse,
 }) => {
   const [folders, setFolders] = useState<WorkflowFolderItem[]>([]);
@@ -275,9 +282,10 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     <button
       key={project.id}
       className={`project-row${indentClassName ? ` ${indentClassName}` : ''}${activePath === project.absolutePath ? ' active' : ''}`}
+      disabled={!editorReady}
       onClick={() => void handleOpenProject(project.absolutePath)}
       onDoubleClick={() => void handleSwitchProject(project.absolutePath)}
-      title={project.fileName}
+      title={editorReady ? project.fileName : 'Loading editor...'}
     >
       <div className="project-main">
         <FileIcon />
@@ -349,9 +357,10 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
             <button
               type="button"
               className="text-button"
+              disabled={!editorReady}
               onClick={onSaveProject}
-              title="Save current project"
-              aria-label="Save current project"
+              title={editorReady ? 'Save current project' : 'Loading editor...'}
+              aria-label={editorReady ? 'Save current project' : 'Loading editor'}
             >
               Save
             </button>
@@ -375,6 +384,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
           <button type="button" className="link-button" onClick={() => void handleCreateFolder()}>
             + New folder
           </button>
+          {!editorReady ? <div className="body-status">Loading editor...</div> : null}
         </div>
         {loading ? <div className="state">Loading folders...</div> : null}
         {!loading && error ? <div className="state">{error}</div> : null}

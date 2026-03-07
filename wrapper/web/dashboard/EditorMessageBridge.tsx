@@ -22,6 +22,10 @@ export const EditorMessageBridge: FC = () => {
   saveProjectRef.current = saveProject;
 
   useEffect(() => {
+    window.parent.postMessage({ type: 'editor-ready' }, '*');
+  }, []);
+
+  useEffect(() => {
     const handler = async (event: MessageEvent) => {
       if (event.data?.type === 'save-project') {
         await saveProjectRef.current();

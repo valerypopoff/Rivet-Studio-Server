@@ -2,7 +2,7 @@
   "name": "self-hosted-rivet",
   "private": true,
   "version": "1.0.0",
-  "description": "Root dev runner for self-hosted rivet wrapper",
+  "description": "Root dev runner for the live-update self-hosted rivet docker development stack",
   "scripts": {
     "setup": "node scripts/ensure-dev-deps.mjs",
     "dev": "npm run dev:docker",
