@@ -58,6 +58,14 @@ const wrapperAliasedDependencies = Object.keys(wrapperPackageJson.dependencies ?
 );
 
 const resolveWrapperImport = (specifier: string) => {
+  if (specifier === 'yaml') {
+    return resolve(__dirname, 'node_modules/yaml/browser/index.js');
+  }
+
+  if (specifier === 'yaml/util') {
+    return resolve(__dirname, 'node_modules/yaml/browser/dist/util.js');
+  }
+
   try {
     return wrapperRequire.resolve(specifier);
   } catch {
@@ -103,6 +111,8 @@ const wrapperTargetedSubpathAliases = [
   { find: /^@google\/genai$/, replacement: resolve(__dirname, 'node_modules/@google/genai/dist/web/index.mjs') },
   { find: /^nanoid$/, replacement: resolve(__dirname, 'node_modules/nanoid/index.browser.js') },
   { find: /^nanoid\/non-secure$/, replacement: resolve(__dirname, 'node_modules/nanoid/non-secure/index.js') },
+  { find: /^yaml$/, replacement: resolve(__dirname, 'node_modules/yaml/browser/index.js') },
+  { find: /^yaml\/util$/, replacement: resolve(__dirname, 'node_modules/yaml/browser/dist/util.js') },
 ];
 
 const resolveWrapperDependency = (): PluginOption => ({

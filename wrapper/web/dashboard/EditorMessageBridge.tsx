@@ -1,5 +1,7 @@
 import { type FC, useEffect, useRef } from 'react';
 import { useOpenWorkflowProject } from './useOpenWorkflowProject';
+import { getError } from '@ironclad/rivet-core';
+import { toast } from 'react-toastify';
 
 export const EditorMessageBridge: FC = () => {
   const openProject = useOpenWorkflowProject();
@@ -11,10 +13,13 @@ export const EditorMessageBridge: FC = () => {
       if (event.data?.type !== 'open-project' || typeof event.data.path !== 'string') return;
 
       try {
-        await openProjectRef.current(event.data.path);
+        await openProjectRef.current(event.data.path, { replaceCurrent: Boolean(event.data.replaceCurrent) });
         window.parent.postMessage({ type: 'project-opened', path: event.data.path }, '*');
-      } catch {
-        // Project load was cancelled or failed — no message sent back
+      } catch (error) {
+        const message = getError(error).message;
+        console.error('Failed to open workflow project:', error);
+        toast.error(`Failed to open project: ${message}`);
+        window.parent.postMessage({ type: 'project-open-failed', path: event.data.path, error: message }, '*');
       }
     };
 

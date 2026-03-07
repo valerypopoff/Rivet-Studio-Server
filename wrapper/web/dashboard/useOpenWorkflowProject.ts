@@ -1,6 +1,7 @@
 import { useAtom, useSetAtom } from 'jotai';
 import {
   loadedProjectState,
+  projectState,
   projectsState,
   type OpenedProjectInfo,
   type OpenedProjectsInfo,
@@ -10,12 +11,18 @@ import { ioProvider } from '../../../rivet/packages/app/src/utils/globals';
 import { toast } from 'react-toastify';
 import type { NodeGraph } from '@ironclad/rivet-core';
 
+type OpenWorkflowProjectOptions = {
+  replaceCurrent?: boolean;
+};
+
 export function useOpenWorkflowProject() {
   const loadProject = useLoadProject();
   const [loadedProject] = useAtom(loadedProjectState);
+  const [currentProject] = useAtom(projectState);
   const [projects, setProjects] = useAtom(projectsState);
 
-  return async (filePath: string) => {
+  return async (filePath: string, options?: OpenWorkflowProjectOptions) => {
+    const replaceCurrent = options?.replaceCurrent ?? false;
     const isSwitchingProjects = Boolean(loadedProject.path) && loadedProject.path !== filePath;
     const isLeavingUnsavedScratchProject = !loadedProject.path && Object.keys(projects.openedProjects).length > 0;
 
@@ -34,6 +41,18 @@ export function useOpenWorkflowProject() {
     const alreadyOpenByPath = openedProjects.find((projectInfo) => projectInfo.fsPath === filePath);
 
     if (alreadyOpenByPath) {
+      if (replaceCurrent && currentProject.metadata.id !== alreadyOpenByPath.project.metadata.id) {
+        setProjects((prev: OpenedProjectsInfo) => {
+          const nextOpenedProjects = { ...prev.openedProjects };
+          delete nextOpenedProjects[currentProject.metadata.id];
+
+          return {
+            openedProjects: nextOpenedProjects,
+            openedProjectsSortedIds: prev.openedProjectsSortedIds.filter((projectId) => projectId !== currentProject.metadata.id),
+          };
+        });
+      }
+
       await loadProject(alreadyOpenByPath);
       return;
     }
@@ -65,12 +84,26 @@ export function useOpenWorkflowProject() {
 
     setProjects((prev: OpenedProjectsInfo) => ({
       openedProjects: {
-        ...prev.openedProjects,
+        ...(replaceCurrent
+          ? Object.fromEntries(
+              Object.entries(prev.openedProjects).filter(([projectId]) => projectId !== currentProject.metadata.id),
+            )
+          : prev.openedProjects),
         [project.metadata.id]: projectInfo,
       },
-      openedProjectsSortedIds: prev.openedProjectsSortedIds.includes(project.metadata.id)
-        ? prev.openedProjectsSortedIds
-        : [...prev.openedProjectsSortedIds, project.metadata.id],
+      openedProjectsSortedIds: (replaceCurrent
+        ? prev.openedProjectsSortedIds.filter((projectId) => projectId !== currentProject.metadata.id)
+        : prev.openedProjectsSortedIds
+      ).includes(project.metadata.id)
+        ? (replaceCurrent
+            ? prev.openedProjectsSortedIds.filter((projectId) => projectId !== currentProject.metadata.id)
+            : prev.openedProjectsSortedIds)
+        : [
+            ...(replaceCurrent
+              ? prev.openedProjectsSortedIds.filter((projectId) => projectId !== currentProject.metadata.id)
+              : prev.openedProjectsSortedIds),
+            project.metadata.id,
+          ],
     }));
 
     await loadProject(projectInfo);

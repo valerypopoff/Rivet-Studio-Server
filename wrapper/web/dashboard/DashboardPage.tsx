@@ -31,8 +31,11 @@ export const DashboardPage: FC = () => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [activeProjectPath, setActiveProjectPath] = useState('');
 
-  const handleOpenProject = useCallback((path: string) => {
-    iframeRef.current?.contentWindow?.postMessage({ type: 'open-project', path }, '*');
+  const handleOpenProject = useCallback((path: string, options?: { replaceCurrent?: boolean }) => {
+    iframeRef.current?.contentWindow?.postMessage(
+      { type: 'open-project', path, replaceCurrent: Boolean(options?.replaceCurrent) },
+      '*',
+    );
   }, []);
 
   useEffect(() => {

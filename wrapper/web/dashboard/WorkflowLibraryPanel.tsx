@@ -165,7 +165,7 @@ const styles = `
 `;
 
 interface WorkflowLibraryPanelProps {
-  onOpenProject: (path: string) => void;
+  onOpenProject: (path: string, options?: { replaceCurrent?: boolean }) => void;
   activeProjectPath: string;
 }
 
@@ -255,6 +255,10 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({ onOpenProj
     onOpenProject(absolutePath);
   };
 
+  const handleSwitchProject = (absolutePath: string) => {
+    onOpenProject(absolutePath, { replaceCurrent: true });
+  };
+
   return (
     <div className="workflow-library-panel">
       <style>{styles}</style>
@@ -323,6 +327,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({ onOpenProj
                           key={project.id}
                           className={`project-row${activePath === project.absolutePath ? ' active' : ''}`}
                           onClick={() => void handleOpenProject(project.absolutePath)}
+                          onDoubleClick={() => void handleSwitchProject(project.absolutePath)}
                           title={project.fileName}
                         >
                           <div className="project-main">
