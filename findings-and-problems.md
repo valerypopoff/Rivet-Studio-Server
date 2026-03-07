@@ -179,6 +179,31 @@ This document is intended as a developer handoff.
   - The component-level aliases were redundant and introduced layout/positioning drift.
   - After removing them and rebuilding Docker images, the editor was confirmed working again both at `http://localhost:8080/?editor` and inside the dashboard at `http://localhost:8080/`.
 
+## 15) Root-launched Docker dev flow must resolve workflow host paths from the repo root
+
+- The developer expectation is that `npm run dev` should be run from the repo root.
+- That matters for `RIVET_WORKFLOWS_HOST_PATH` because the user may intentionally point the workflow library outside the repo so generated workflow files are not tracked in git.
+- Important practical rule:
+  - Treat `RIVET_WORKFLOWS_HOST_PATH` in the root `.env.dev` as a repo-root-relative path when using the root development command.
+  - Example:
+    - `RIVET_WORKFLOWS_HOST_PATH=../workflows`
+    - expected host target: `<parent-of-repo>/workflows`
+- Confirmed implementation:
+  - Root `package.json` Docker dev scripts now use `scripts/dev-docker.mjs`.
+  - That script reads `.env.dev` from the repo root, resolves `RIVET_WORKFLOWS_HOST_PATH` to an absolute host path, and passes the resolved value into Docker Compose.
+- Why this matters:
+  - Without that root-owned resolution step, the same relative path can be interpreted in surprising ways depending on how Compose is invoked.
+  - That can make the workflow library appear to write to the wrong directory even though the frontend and API are otherwise working.
+
+## 16) Workflow pane success feedback should stay quiet
+
+- Success toasts for folder creation, folder rename, and project creation were noisy and unnecessary in normal use.
+- Current behavior:
+  - workflow-pane actions are silent on success
+  - toast notifications are still shown for actual failures
+- Practical rule:
+  - keep workflow-library success feedback lightweight and rely on visible UI state changes instead of global popup notifications where possible.
+
 # Problems
 
 ## Ongoing
@@ -281,6 +306,8 @@ This document is intended as a developer handoff.
 - **Current verified result**:
   - `http://localhost:8080/?editor` renders correctly again.
   - `http://localhost:8080/` also renders correctly with the dashboard integration.
+  - The `Folders` pane now shows visible actions for creating folders, renaming folders, and creating `.rivet-project` files inside folders.
+  - Workflow-pane success actions are quiet by default and only failures produce toast notifications.
   - The earlier component-level dashboard overrides should be treated as a regression source and should not be reintroduced without a narrowly justified need.
 - **Important lesson from this effort**:
   - The workflow dashboard problem is not just a cosmetic CSS issue.
@@ -438,3 +465,27 @@ This document is intended as a developer handoff.
 - **Result**:
   - Normal browser-console usage is clean by default.
   - Hosted wiring diagnostics can still be re-enabled when needed by setting `VITE_RIVET_DEBUG_LOGS=true` and rebuilding the web app.
+
+### 12) Workflow pane now manages an external host-backed workflow library correctly
+
+- **Status**: done
+- **Goal**:
+  - Let the dashboard `Folders` pane manage the contents of the host workflow library directory rather than a repo-local folder that might accidentally be committed.
+- **Problems that existed**:
+  - Folder creation appeared to target the wrong host directory because relative workflow-root configuration was being interpreted inconsistently across Docker entrypoints.
+  - The header `+` button was effectively invisible.
+  - Folder actions for rename and project creation were not discoverable enough in the pane.
+  - Success toasts for simple pane actions were unnecessarily noisy.
+- **Fixes**:
+  - Added a root-owned Docker launcher in `scripts/dev-docker.mjs` and wired root `package.json` Docker scripts through it.
+  - Resolved `RIVET_WORKFLOWS_HOST_PATH` from the repo root before invoking Docker Compose.
+  - Updated `WorkflowLibraryPanel.tsx` so the create-folder button is visibly rendered.
+  - Replaced hidden/indirect folder actions with explicit visible controls for:
+    - create folder
+    - rename folder
+    - create `.rivet-project` in a folder
+  - Removed success toast notifications while keeping error toasts.
+- **Validated result**:
+  - Root `npm run dev` now honors repo-root `.env.dev` semantics for workflow host paths.
+  - A setting such as `RIVET_WORKFLOWS_HOST_PATH=../workflows` can intentionally point the workflow library outside the repo.
+  - The dashboard pane is now usable for day-to-day folder and project management.

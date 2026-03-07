@@ -100,6 +100,12 @@ This area contains:
 
 Developer helpers for local and Docker-based development flows.
 
+Notable current behavior:
+
+- root `npm run dev` uses `scripts/dev-docker.mjs`
+- that launcher reads the repo-root `.env.dev`
+- it resolves `RIVET_WORKFLOWS_HOST_PATH` before invoking Docker Compose so workflow-library host paths behave predictably
+
 ### `findings-and-problems.md`
 
 Working engineering handoff document that captures discovered constraints, bugs, fixes, and current status.
@@ -174,9 +180,11 @@ Current workflow-dashboard model:
 
 - the left panel is wrapper-owned UI rendered from `wrapper/web/dashboard/`
 - folders and `.rivet-project` entries are loaded from `/api/workflows/*`
+- the `Folders` pane provides explicit controls to create folders, rename folders, and create `.rivet-project` files inside a selected folder
 - selecting a project from the dashboard reuses the existing hosted project load flow rather than inventing a second editor state system
-- the editor remains the upstream Rivet editor running inside the main dashboard area
+- the editor remains the upstream Rivet editor running correctly inside the main dashboard area
 - normal save behavior continues to write back to the currently loaded project path
+- normal workflow-pane actions stay quiet on success and only surface toast notifications for actual failures
 
 This keeps the dashboard as a thin management layer around the upstream editor rather than turning the wrapper into a forked application.
 
@@ -185,13 +193,20 @@ This keeps the dashboard as a thin management layer around the upstream editor r
 The workflow dashboard is backed by a dedicated filesystem root configured through:
 
 - `RIVET_WORKFLOWS_ROOT`
+- host-side Docker bind configuration via `RIVET_WORKFLOWS_HOST_PATH`
 
 Current runtime expectation:
 
 - Docker Compose mounts a host-backed `workflows/` directory into the API container at `/workflows`
+- when using root `npm run dev`, `RIVET_WORKFLOWS_HOST_PATH` from the repo-root `.env.dev` is resolved relative to the repo root before Docker Compose is started
 - API security allows workflow-library operations only inside that validated workflow root
 - workflow create/rename/list actions are exposed through `wrapper/api/src/routes/workflows.ts`
 - hosted `Save As` now defaults to `/workflows/...` so dashboard-created and manually-saved hosted projects converge on the same library root
+
+Example supported workflow-root setup:
+
+- `RIVET_WORKFLOWS_HOST_PATH=../workflows`
+- This allows the workflow library to live outside the git repository so generated workflow assets do not need to be tracked in repo history.
 
 This is intentionally separate from the broader workspace root so workflow-management UI does not depend on unrestricted filesystem browsing.
 
@@ -260,7 +275,8 @@ That platform layer includes:
 - browser-safe frontend bootstrapping
 - hosted replacements for desktop integrations
 - API-backed filesystem and shell capabilities
+- a workflow dashboard and `Folders` pane for managing host-backed workflow projects
 - Dockerized Node executor support
 - nginx-based routing for HTTP and websocket traffic
 
-The result is a maintainable self-hosted browser deployment of Rivet with a clear separation between upstream vendor code and wrapper-owned infrastructure.
+The result is a maintainable self-hosted browser deployment of Rivet with a clear separation between upstream vendor code and wrapper-owned infrastructure, while still providing a practical workflow-library authoring experience around the upstream editor.
