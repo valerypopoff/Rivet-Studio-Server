@@ -6,6 +6,7 @@ import { useSaveProject } from '../../../rivet/packages/app/src/hooks/useSavePro
 import { useAtom, useAtomValue } from 'jotai';
 import {
   loadedProjectState,
+  type OpenedProjectInfo,
   openedProjectsSortedIdsState,
   openedProjectsState,
   projectState,
@@ -13,6 +14,7 @@ import {
 import type { WorkflowProjectPathMove } from './types';
 
 const isWindowsPlatform = typeof navigator !== 'undefined' && /Win/.test(navigator.platform ?? '');
+const SAVE_SHORTCUT_DEBUG_PREFIX = '[hosted-save-shortcut][iframe]';
 
 export const EditorMessageBridge: FC = () => {
   const openProject = useOpenWorkflowProject();
@@ -37,11 +39,28 @@ export const EditorMessageBridge: FC = () => {
         return;
       }
 
+      console.log(`${SAVE_SHORTCUT_DEBUG_PREFIX} observed keydown`, {
+        isWindowsPlatform,
+        defaultPrevented: event.defaultPrevented,
+        repeat: event.repeat,
+        targetTag: (event.target as HTMLElement | null)?.tagName ?? null,
+        activeElementTag: document.activeElement?.tagName ?? null,
+        loadedProjectPath: loadedProject.path,
+      });
+
       event.preventDefault();
       event.stopPropagation();
 
-       if (!isWindowsPlatform) {
+      console.log(`${SAVE_SHORTCUT_DEBUG_PREFIX} prevented browser default`, {
+        isWindowsPlatform,
+        loadedProjectPath: loadedProject.path,
+      });
+
+      if (!isWindowsPlatform) {
+        console.log(`${SAVE_SHORTCUT_DEBUG_PREFIX} calling hosted saveProject directly from iframe`);
         await saveProjectRef.current();
+      } else {
+        console.log(`${SAVE_SHORTCUT_DEBUG_PREFIX} waiting for wrapper-managed Windows keyup save handling`);
       }
     };
 
@@ -49,17 +68,53 @@ export const EditorMessageBridge: FC = () => {
     return () => {
       document.removeEventListener('keydown', handler, true);
     };
-  }, []);
+  }, [loadedProject.path]);
+
+  useEffect(() => {
+    if (!isWindowsPlatform) {
+      return;
+    }
+
+    const handler = async (event: KeyboardEvent) => {
+      const isSaveShortcut = (event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 's';
+      if (!isSaveShortcut) {
+        return;
+      }
+
+      console.log(`${SAVE_SHORTCUT_DEBUG_PREFIX} observed Windows keyup`, {
+        defaultPrevented: event.defaultPrevented,
+        repeat: event.repeat,
+        targetTag: (event.target as HTMLElement | null)?.tagName ?? null,
+        activeElementTag: document.activeElement?.tagName ?? null,
+        loadedProjectPath: loadedProject.path,
+      });
+
+      event.preventDefault();
+      event.stopPropagation();
+
+      console.log(`${SAVE_SHORTCUT_DEBUG_PREFIX} calling hosted saveProject from Windows keyup handler`);
+      await saveProjectRef.current();
+    };
+
+    window.addEventListener('keyup', handler, true);
+    return () => {
+      window.removeEventListener('keyup', handler, true);
+    };
+  }, [loadedProject.path]);
 
   useEffect(() => {
     const handler = async (event: MessageEvent) => {
       if (event.data?.type === 'save-project') {
+        console.log(`${SAVE_SHORTCUT_DEBUG_PREFIX} received save-project message from parent`, {
+          loadedProjectPath: loadedProject.path,
+          openedProjectCount: openedProjectIds.length,
+        });
         await saveProjectRef.current();
         return;
       }
 
       if (event.data?.type === 'workflow-paths-moved' && Array.isArray(event.data.moves)) {
-        const moves = event.data.moves.filter(
+        const moves: WorkflowProjectPathMove[] = event.data.moves.filter(
           (move: WorkflowProjectPathMove) =>
             move && typeof move.fromAbsolutePath === 'string' && typeof move.toAbsolutePath === 'string',
         );
@@ -69,8 +124,9 @@ export const EditorMessageBridge: FC = () => {
         }
 
         const moveMap = new Map(moves.map((move) => [move.fromAbsolutePath, move.toAbsolutePath]));
+        const openedProjectsRecord = openedProjects as Record<string, OpenedProjectInfo>;
         const nextOpenedProjects = Object.fromEntries(
-          Object.entries(openedProjects).map(([projectId, projectInfo]) => [
+          Object.entries(openedProjectsRecord).map(([projectId, projectInfo]) => [
             projectId,
             projectInfo.fsPath && moveMap.has(projectInfo.fsPath)
               ? {
@@ -79,7 +135,7 @@ export const EditorMessageBridge: FC = () => {
                 }
               : projectInfo,
           ]),
-        );
+        ) as Record<string, OpenedProjectInfo>;
 
         setOpenedProjects(nextOpenedProjects);
 

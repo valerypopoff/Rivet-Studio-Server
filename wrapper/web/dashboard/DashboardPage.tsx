@@ -7,6 +7,7 @@ import './DashboardPage.css';
 
 const MIN_SIDEBAR_WIDTH = 240;
 const MAX_SIDEBAR_WIDTH = 560;
+const SAVE_SHORTCUT_DEBUG_PREFIX = '[hosted-save-shortcut][dashboard]';
 
 type EditorCommand =
   | { type: 'open-project'; path: string; replaceCurrent: boolean }
@@ -25,10 +26,22 @@ export const DashboardPage: FC = () => {
   const postEditorCommand = useCallback(
     (command: EditorCommand) => {
       if (!editorReady || !iframeRef.current?.contentWindow) {
+        if (command.type === 'save-project') {
+          console.log(`${SAVE_SHORTCUT_DEBUG_PREFIX} queueing save-project command`, {
+            editorReady,
+            hasIframeWindow: Boolean(iframeRef.current?.contentWindow),
+          });
+        }
         pendingEditorCommandRef.current = command;
         return;
       }
 
+      if (command.type === 'save-project') {
+        console.log(`${SAVE_SHORTCUT_DEBUG_PREFIX} posting save-project command to iframe`, {
+          editorReady,
+          hasIframeWindow: Boolean(iframeRef.current?.contentWindow),
+        });
+      }
       iframeRef.current.contentWindow.postMessage(command, '*');
     },
     [editorReady],
@@ -59,6 +72,11 @@ export const DashboardPage: FC = () => {
       return;
     }
 
+    if (pendingEditorCommandRef.current.type === 'save-project') {
+      console.log(`${SAVE_SHORTCUT_DEBUG_PREFIX} flushing queued save-project command to iframe`, {
+        editorReady,
+      });
+    }
     iframeRef.current.contentWindow.postMessage(pendingEditorCommandRef.current, '*');
     pendingEditorCommandRef.current = null;
   }, [editorReady]);
@@ -72,16 +90,40 @@ export const DashboardPage: FC = () => {
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       const isSaveShortcut = (event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 's';
+      const isIframeFocused = document.activeElement === iframeRef.current;
       if (!isSaveShortcut || !editorReady || openProjectCount === 0) {
+        if (isSaveShortcut) {
+          console.log(`${SAVE_SHORTCUT_DEBUG_PREFIX} ignoring keydown`, {
+            editorReady,
+            openProjectCount,
+            isIframeFocused,
+            activeElementTag: document.activeElement?.tagName ?? null,
+            targetTag: (event.target as HTMLElement | null)?.tagName ?? null,
+            defaultPrevented: event.defaultPrevented,
+            repeat: event.repeat,
+          });
+        }
         return;
       }
 
-      if (document.activeElement === iframeRef.current) {
+      console.log(`${SAVE_SHORTCUT_DEBUG_PREFIX} observed save shortcut`, {
+        editorReady,
+        openProjectCount,
+        isIframeFocused,
+        activeElementTag: document.activeElement?.tagName ?? null,
+        targetTag: (event.target as HTMLElement | null)?.tagName ?? null,
+        defaultPrevented: event.defaultPrevented,
+        repeat: event.repeat,
+      });
+
+      if (isIframeFocused) {
+        console.log(`${SAVE_SHORTCUT_DEBUG_PREFIX} letting iframe handle save shortcut`);
         return;
       }
 
       event.preventDefault();
       event.stopPropagation();
+      console.log(`${SAVE_SHORTCUT_DEBUG_PREFIX} handling save shortcut in dashboard and relaying to iframe`);
       handleSaveProject();
     };
 

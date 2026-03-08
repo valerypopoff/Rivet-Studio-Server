@@ -222,6 +222,27 @@ This document is intended as a developer handoff.
 - Practical rule:
   - for dashboard/editor synchronization, prefer the active-tab model from `projectState` + `openedProjectsState` + `openedProjectsSortedIdsState` over `loadedProjectState` alone
 
+## 18) Windows `Ctrl+S` inside the iframe must be handled separately from the dashboard shortcut path
+
+- The hosted save shortcut path is split by focus context:
+  - `wrapper/web/dashboard/DashboardPage.tsx` should handle `Ctrl+S` / `Cmd+S` only when focus is outside the editor iframe
+  - `wrapper/web/dashboard/EditorMessageBridge.tsx` should handle the shortcut when focus is inside the iframe
+- A real Windows-specific failure mode was reproduced:
+  - `Ctrl+S` from the left pane saved reliably through the dashboard-to-iframe `save-project` message
+  - `Ctrl+S` from inside the iframe was intermittent and sometimes only saved on the third press
+  - console tracing showed the iframe `keydown` handler consistently firing, but save only happened when upstream `useWindowsHotkeysFix.tsx` later emitted `Hotkey Fix: CmdOrCtrl+S -> save_project`
+- Root cause:
+  - the wrapper iframe handler prevented browser default on `keydown` but, on Windows, deferred the actual save to upstream `window` `keyup` handling
+  - that made hosted save reliability depend on the upstream Windows hotkey workaround winning the event-order race in the iframe context
+- Hosted fix:
+  - keep the existing dashboard-vs-iframe split
+  - inside `EditorMessageBridge.tsx`, keep suppressing browser default on `keydown`
+  - on Windows, add a wrapper-owned `keyup` capture handler that directly calls hosted `saveProject()` from inside the iframe
+  - this makes hosted save reliable without depending on upstream `useWindowsHotkeysFix.tsx` timing
+- Practical rule:
+  - for hosted iframe shortcuts on Windows, prefer wrapper-owned `keyup` handling in the iframe when the browser default must be suppressed on `keydown`
+  - do not rely on upstream desktop hotkey workarounds as the sole save trigger for hosted iframe focus paths
+
 # Problems
 
 ## Ongoing
@@ -507,3 +528,33 @@ This document is intended as a developer handoff.
   - Root `npm run dev` now honors repo-root `.env.dev` semantics for workflow host paths.
   - A setting such as `RIVET_WORKFLOWS_HOST_PATH=../workflows` can intentionally point the workflow library outside the repo.
   - The dashboard pane is now usable for day-to-day folder and project management.
+
+### 13) `Ctrl+S` inside the hosted editor iframe was intermittent on Windows
+
+- **Status**: done
+- **Symptom**:
+  - with focus inside the editor iframe, `Ctrl+S` did not reliably save on Windows
+  - the same shortcut worked consistently from the left dashboard pane
+  - in one validated repro, pressing `Ctrl+S` inside the iframe saved only on the third attempt
+- **What the debug logs showed**:
+  - dashboard-focused saves followed the expected path:
+    - dashboard observed the shortcut
+    - dashboard posted `save-project` to the iframe
+    - iframe received the `save-project` message and saved
+  - iframe-focused saves showed:
+    - wrapper iframe `keydown` handler fired every time
+    - wrapper prevented browser default every time
+    - on Windows, wrapper did not call `saveProject()` on `keydown`
+    - actual save only occurred when upstream `useWindowsHotkeysFix.tsx` later emitted `Hotkey Fix: CmdOrCtrl+S -> save_project`
+- **Root cause**:
+  - hosted iframe save behavior on Windows was still depending on the upstream desktop-oriented `window` `keyup` workaround to perform the actual save
+  - that upstream hotkey path was not reliable enough as the only save trigger for hosted iframe focus
+- **Fix**:
+  - keep the existing dashboard-side shortcut handling for focus outside the iframe
+  - in `wrapper/web/dashboard/EditorMessageBridge.tsx`:
+    - continue suppressing browser default on iframe `keydown`
+    - on Windows, add a wrapper-owned `window` `keyup` capture handler that directly calls hosted `saveProject()`
+  - keep targeted console tracing in place so shortcut routing can still be inspected during validation
+- **Result**:
+  - `Ctrl+S` from inside the hosted editor iframe now saves reliably on every press in the validated Windows flow
+  - the web build still succeeds after the shortcut fix
