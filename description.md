@@ -188,6 +188,8 @@ Current workflow-dashboard model:
 - opening a project from the left pane normally adds or activates an editor tab rather than replacing the current one, so no replace-style warning is shown for that standard open flow
 - the editor remains the upstream Rivet editor running correctly inside the main dashboard area
 - when zero editor project tabs are open, the dashboard hides the embedded Rivet editor surface and shows a wrapper-owned empty main state instead of Rivet's built-in start screen
+- when the active editor project lives inside a collapsed workflow folder, the pane automatically expands that parent folder so the active highlight is visible
+- when the active editor project changes, the `Projects` pane scrolls the highlighted project row into view automatically
 - the wrapper-owned `Save` button in the left `Projects` pane is driven by the editor's active tab rather than by stale last-loaded state
 - when the active editor tab is a file-backed workflow project, the wrapper `Save` action saves that exact project path, and the dashboard also maps `Ctrl+S` / `Cmd+S` to that same save behavior
 - when no editor tabs are open, or when the active tab is not a path-backed workflow project, the wrapper `Save` button is hidden

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FC } from 'react';
+import { useEffect, useMemo, useRef, useState, type FC } from 'react';
 import FolderIcon from 'majesticons/line/folder-line.svg?react';
 import FileIcon from 'majesticons/line/file-line.svg?react';
 import ChevronDownIcon from 'majesticons/line/chevron-down-line.svg?react';
@@ -7,6 +7,8 @@ import ExpandLeftIcon from 'majesticons/line/menu-expand-left-line.svg?react';
 import { toast } from 'react-toastify';
 import { createWorkflowFolder, createWorkflowProject, fetchWorkflowTree, renameWorkflowFolder } from './workflowApi';
 import type { WorkflowFolderItem, WorkflowProjectItem } from './types';
+
+const normalizePath = (path: string) => path.replace(/\\/g, '/').replace(/\/+$/, '');
 
 const styles = `
   .workflow-library-panel {
@@ -245,6 +247,8 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const projectRowRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   const refresh = async () => {
     setLoading(true);
@@ -278,9 +282,67 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
 
   const folderIds = useMemo(() => folders.map((folder) => folder.id), [folders]);
 
+  const activeAncestorFolderIds = useMemo(() => {
+    if (!activePath) {
+      return [];
+    }
+
+    const normalizedActivePath = normalizePath(activePath);
+
+    return folders
+      .filter((folder) => {
+        const normalizedFolderPath = normalizePath(folder.absolutePath);
+        return normalizedActivePath === normalizedFolderPath || normalizedActivePath.startsWith(`${normalizedFolderPath}/`);
+      })
+      .sort((left, right) => left.absolutePath.length - right.absolutePath.length)
+      .map((folder) => folder.id);
+  }, [activePath, folders]);
+
+  useEffect(() => {
+    if (activeAncestorFolderIds.length === 0) {
+      return;
+    }
+
+    setExpandedFolders((prev) => {
+      let changed = false;
+      const next = { ...prev };
+
+      for (const folderId of activeAncestorFolderIds) {
+        if (!next[folderId]) {
+          next[folderId] = true;
+          changed = true;
+        }
+      }
+
+      return changed ? next : prev;
+    });
+  }, [activeAncestorFolderIds]);
+
+  useEffect(() => {
+    if (!activePath || loading) {
+      return;
+    }
+
+    const activeRow = projectRowRefs.current[activePath];
+    if (!activeRow) {
+      return;
+    }
+
+    const frameId = window.requestAnimationFrame(() => {
+      activeRow.scrollIntoView({ block: 'nearest' });
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [activePath, expandedFolders, loading]);
+
   const renderProjectRow = (project: WorkflowProjectItem, indentClassName = '') => (
     <button
       key={project.id}
+      ref={(node) => {
+        projectRowRefs.current[project.absolutePath] = node;
+      }}
       className={`project-row${indentClassName ? ` ${indentClassName}` : ''}${activePath === project.absolutePath ? ' active' : ''}`}
       disabled={!editorReady}
       onClick={() => void handleOpenProject(project.absolutePath)}
@@ -379,7 +441,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
         </div>
       </div>
 
-      <div className="body">
+      <div className="body" ref={bodyRef}>
         <div className="body-actions">
           <button type="button" className="link-button" onClick={() => void handleCreateFolder()}>
             + New folder
