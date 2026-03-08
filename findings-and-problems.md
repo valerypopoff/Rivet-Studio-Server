@@ -222,25 +222,25 @@ This document is intended as a developer handoff.
 - Practical rule:
   - for dashboard/editor synchronization, prefer the active-tab model from `projectState` + `openedProjectsState` + `openedProjectsSortedIdsState` over `loadedProjectState` alone
 
-## 18) Windows `Ctrl+S` inside the iframe must be handled separately from the dashboard shortcut path
+## 18) `Ctrl+S` inside the iframe needs separate handling on Windows browsers
 
 - The hosted save shortcut path is split by focus context:
   - `wrapper/web/dashboard/DashboardPage.tsx` should handle `Ctrl+S` / `Cmd+S` only when focus is outside the editor iframe
   - `wrapper/web/dashboard/EditorMessageBridge.tsx` should handle the shortcut when focus is inside the iframe
-- A real Windows-specific failure mode was reproduced:
+- A real Windows-browser-specific failure mode was reproduced:
   - `Ctrl+S` from the left pane saved reliably through the dashboard-to-iframe `save-project` message
   - `Ctrl+S` from inside the iframe was intermittent and sometimes only saved on the third press
   - console tracing showed the iframe `keydown` handler consistently firing, but save only happened when upstream `useWindowsHotkeysFix.tsx` later emitted `Hotkey Fix: CmdOrCtrl+S -> save_project`
 - Root cause:
-  - the wrapper iframe handler prevented browser default on `keydown` but, on Windows, deferred the actual save to upstream `window` `keyup` handling
-  - that made hosted save reliability depend on the upstream Windows hotkey workaround winning the event-order race in the iframe context
+  - the wrapper iframe handler prevented browser default on `keydown` but, on Windows browsers, deferred the actual save to upstream `window` `keyup` handling
+  - that made hosted save reliability depend on the upstream Windows-browser hotkey workaround winning the event-order race in the iframe context
 - Hosted fix:
   - keep the existing dashboard-vs-iframe split
   - inside `EditorMessageBridge.tsx`, keep suppressing browser default on `keydown`
-  - on Windows, add a wrapper-owned `keyup` capture handler that directly calls hosted `saveProject()` from inside the iframe
+  - on Windows browsers, add a wrapper-owned `keyup` capture handler that directly calls hosted `saveProject()` from inside the iframe
   - this makes hosted save reliable without depending on upstream `useWindowsHotkeysFix.tsx` timing
 - Practical rule:
-  - for hosted iframe shortcuts on Windows, prefer wrapper-owned `keyup` handling in the iframe when the browser default must be suppressed on `keydown`
+  - for hosted iframe shortcuts on Windows browsers, prefer wrapper-owned `keyup` handling in the iframe when the browser default must be suppressed on `keydown`
   - do not rely on upstream desktop hotkey workarounds as the sole save trigger for hosted iframe focus paths
 
 # Problems
