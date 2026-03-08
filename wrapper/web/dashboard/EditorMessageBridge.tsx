@@ -12,7 +12,7 @@ import {
 } from '../../../rivet/packages/app/src/state/savedGraphs';
 import type { WorkflowProjectPathMove } from './types';
 
-const isWindowsPlatform = typeof navigator !== 'undefined' && navigator.userAgent.includes('Win64');
+const isWindowsPlatform = typeof navigator !== 'undefined' && /Win/.test(navigator.platform ?? '');
 
 export const EditorMessageBridge: FC = () => {
   const openProject = useOpenWorkflowProject();

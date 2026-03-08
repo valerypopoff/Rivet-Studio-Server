@@ -2,29 +2,20 @@ import { Router } from 'express';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { getWorkspaceRoot } from '../security.js';
+import { asyncHandler } from '../utils/asyncHandler.js';
 export const projectsRouter = Router();
 // GET /api/projects/list — list .rivet-project files in workspace
-projectsRouter.get('/list', async (_req, res) => {
-    try {
-        const root = getWorkspaceRoot();
-        const files = await findProjectFiles(root, 3);
-        res.json({ files });
-    }
-    catch (err) {
-        res.status(400).json({ error: err.message });
-    }
-});
+projectsRouter.get('/list', asyncHandler(async (_req, res) => {
+    const root = getWorkspaceRoot();
+    const files = await findProjectFiles(root, 3);
+    res.json({ files });
+}));
 // POST /api/projects/open-dialog — return list of .rivet-project files
-projectsRouter.post('/open-dialog', async (_req, res) => {
-    try {
-        const root = getWorkspaceRoot();
-        const files = await findProjectFiles(root, 5);
-        res.json({ files });
-    }
-    catch (err) {
-        res.status(400).json({ error: err.message });
-    }
-});
+projectsRouter.post('/open-dialog', asyncHandler(async (_req, res) => {
+    const root = getWorkspaceRoot();
+    const files = await findProjectFiles(root, 5);
+    res.json({ files });
+}));
 async function findProjectFiles(dir, maxDepth, depth = 0) {
     if (depth > maxDepth)
         return [];

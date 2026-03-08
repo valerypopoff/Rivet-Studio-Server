@@ -3,6 +3,8 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { getWorkflowsRoot, validatePath } from '../security.js';
+import { asyncHandler } from '../utils/asyncHandler.js';
+import { badRequest, conflict } from '../utils/httpError.js';
 
 export const workflowsRouter = Router();
 
@@ -32,122 +34,102 @@ type WorkflowFolderItem = {
   projects: WorkflowProjectItem[];
 };
 
-workflowsRouter.get('/tree', async (_req, res) => {
-  try {
-    const root = await ensureWorkflowsRoot();
-    const folders = await listWorkflowFolders(root);
-    const projects = await listWorkflowProjects(root);
-    res.json({ root, folders, projects });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
+workflowsRouter.get('/tree', asyncHandler(async (_req, res) => {
+  const root = await ensureWorkflowsRoot();
+  const folders = await listWorkflowFolders(root);
+  const projects = await listWorkflowProjects(root);
+  res.json({ root, folders, projects });
+}));
+
+workflowsRouter.post('/move', asyncHandler(async (req, res) => {
+  const { itemType, sourceRelativePath, destinationFolderRelativePath } = req.body ?? {};
+  const root = await ensureWorkflowsRoot();
+
+  if (itemType === 'project') {
+    const result = await moveWorkflowProject(root, sourceRelativePath, destinationFolderRelativePath);
+    res.json(result);
+    return;
   }
-});
 
-workflowsRouter.post('/move', async (req, res) => {
-  try {
-    const { itemType, sourceRelativePath, destinationFolderRelativePath } = req.body ?? {};
-    const root = await ensureWorkflowsRoot();
-
-    if (itemType === 'project') {
-      const result = await moveWorkflowProject(root, sourceRelativePath, destinationFolderRelativePath);
-      res.json(result);
-      return;
-    }
-
-    if (itemType === 'folder') {
-      const result = await moveWorkflowFolder(root, sourceRelativePath, destinationFolderRelativePath);
-      res.json(result);
-      return;
-    }
-
-    throw new Error('Invalid itemType');
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
+  if (itemType === 'folder') {
+    const result = await moveWorkflowFolder(root, sourceRelativePath, destinationFolderRelativePath);
+    res.json(result);
+    return;
   }
-});
 
-workflowsRouter.post('/folders', async (req, res) => {
+  throw badRequest('Invalid itemType');
+}));
+
+workflowsRouter.post('/folders', asyncHandler(async (req, res) => {
+  const { name, parentRelativePath } = req.body ?? {};
+  const folderName = sanitizeWorkflowName(name, 'folder name');
+  const root = await ensureWorkflowsRoot();
+  const parentFolderPath = resolveWorkflowRelativePath(root, parentRelativePath, {
+    allowProjectFile: false,
+    allowEmpty: true,
+  });
+  const folderPath = validatePath(path.join(parentFolderPath, folderName));
+
   try {
-    const { name, parentRelativePath } = req.body ?? {};
-    const folderName = sanitizeWorkflowName(name, 'folder name');
-    const root = await ensureWorkflowsRoot();
-    const parentFolderPath = resolveWorkflowRelativePath(root, parentRelativePath, {
-      allowProjectFile: false,
-      allowEmpty: true,
-    });
-    const folderPath = validatePath(path.join(parentFolderPath, folderName));
+    await fs.access(folderPath);
+    res.status(409).json({ error: `Folder already exists: ${folderName}` });
+    return;
+  } catch {
+    // expected
+  }
 
+  await fs.mkdir(folderPath, { recursive: false });
+  res.status(201).json({ folder: await getWorkflowFolder(root, folderPath) });
+}));
+
+workflowsRouter.patch('/folders', asyncHandler(async (req, res) => {
+  const { relativePath, newName } = req.body ?? {};
+  const root = await ensureWorkflowsRoot();
+  const currentFolderPath = resolveWorkflowRelativePath(root, relativePath, {
+    allowProjectFile: false,
+  });
+  const sanitizedName = sanitizeWorkflowName(newName, 'new folder name');
+  const renamedFolderPath = validatePath(path.join(path.dirname(currentFolderPath), sanitizedName));
+
+  if (renamedFolderPath !== currentFolderPath) {
     try {
-      await fs.access(folderPath);
-      res.status(409).json({ error: `Folder already exists: ${folderName}` });
+      await fs.access(renamedFolderPath);
+      res.status(409).json({ error: `Folder already exists: ${sanitizedName}` });
       return;
     } catch {
       // expected
     }
-
-    await fs.mkdir(folderPath, { recursive: false });
-    res.status(201).json({ folder: await getWorkflowFolder(root, folderPath) });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
   }
-});
 
-workflowsRouter.patch('/folders', async (req, res) => {
+  await fs.rename(currentFolderPath, renamedFolderPath);
+  res.json({ folder: await getWorkflowFolder(root, renamedFolderPath) });
+}));
+
+workflowsRouter.post('/projects', asyncHandler(async (req, res) => {
+  const { folderRelativePath, name } = req.body ?? {};
+  const root = await ensureWorkflowsRoot();
+  const folderPath = resolveWorkflowRelativePath(root, folderRelativePath, {
+    allowProjectFile: false,
+    allowEmpty: true,
+  });
+  const projectName = sanitizeWorkflowName(name, 'project name');
+  const fileName = `${projectName}${PROJECT_EXTENSION}`;
+  const filePath = validatePath(path.join(folderPath, fileName));
+
   try {
-    const { relativePath, newName } = req.body ?? {};
-    const root = await ensureWorkflowsRoot();
-    const currentFolderPath = resolveWorkflowRelativePath(root, relativePath, {
-      allowProjectFile: false,
-    });
-    const sanitizedName = sanitizeWorkflowName(newName, 'new folder name');
-    const renamedFolderPath = validatePath(path.join(path.dirname(currentFolderPath), sanitizedName));
-
-    if (renamedFolderPath !== currentFolderPath) {
-      try {
-        await fs.access(renamedFolderPath);
-        res.status(409).json({ error: `Folder already exists: ${sanitizedName}` });
-        return;
-      } catch {
-        // expected
-      }
-    }
-
-    await fs.rename(currentFolderPath, renamedFolderPath);
-    res.json({ folder: await getWorkflowFolder(root, renamedFolderPath) });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
+    await fs.access(filePath);
+    res.status(409).json({ error: `Project already exists: ${fileName}` });
+    return;
+  } catch {
+    // expected
   }
-});
 
-workflowsRouter.post('/projects', async (req, res) => {
-  try {
-    const { folderRelativePath, name } = req.body ?? {};
-    const root = await ensureWorkflowsRoot();
-    const folderPath = resolveWorkflowRelativePath(root, folderRelativePath, {
-      allowProjectFile: false,
-      allowEmpty: true,
-    });
-    const projectName = sanitizeWorkflowName(name, 'project name');
-    const fileName = `${projectName}${PROJECT_EXTENSION}`;
-    const filePath = validatePath(path.join(folderPath, fileName));
+  await fs.writeFile(filePath, createBlankProjectFile(projectName), 'utf8');
 
-    try {
-      await fs.access(filePath);
-      res.status(409).json({ error: `Project already exists: ${fileName}` });
-      return;
-    } catch {
-      // expected
-    }
-
-    await fs.writeFile(filePath, createBlankProjectFile(projectName), 'utf8');
-
-    res.status(201).json({
-      project: await getWorkflowProject(root, filePath),
-    });
-  } catch (err: any) {
-    res.status(400).json({ error: err.message });
-  }
-});
+  res.status(201).json({
+    project: await getWorkflowProject(root, filePath),
+  });
+}));
 
 async function ensureWorkflowsRoot(): Promise<string> {
   const root = getWorkflowsRoot();
@@ -157,24 +139,24 @@ async function ensureWorkflowsRoot(): Promise<string> {
 
 function sanitizeWorkflowName(value: unknown, label: string): string {
   if (typeof value !== 'string') {
-    throw new Error(`Missing ${label}`);
+    throw badRequest(`Missing ${label}`);
   }
 
   const trimmed = value.trim();
   if (!trimmed) {
-    throw new Error(`Missing ${label}`);
+    throw badRequest(`Missing ${label}`);
   }
 
   if (trimmed === '.' || trimmed === '..') {
-    throw new Error(`Invalid ${label}`);
+    throw badRequest(`Invalid ${label}`);
   }
 
   if (/[\\/]/.test(trimmed)) {
-    throw new Error(`${label} must not contain path separators`);
+    throw badRequest(`${label} must not contain path separators`);
   }
 
   if (/[<>:"|?*]/.test(trimmed)) {
-    throw new Error(`${label} contains invalid filesystem characters`);
+    throw badRequest(`${label} contains invalid filesystem characters`);
   }
 
   return trimmed;
@@ -193,7 +175,7 @@ function resolveWorkflowRelativePath(
       return root;
     }
 
-    throw new Error('Missing relativePath');
+    throw badRequest('Missing relativePath');
   }
 
   const normalized = relativePath.replace(/\\/g, '/').trim().replace(/^\/+|\/+$/g, '');
@@ -203,16 +185,16 @@ function resolveWorkflowRelativePath(
       return root;
     }
 
-    throw new Error('Missing relativePath');
+    throw badRequest('Missing relativePath');
   }
 
   const segments = normalized.split('/');
   if (segments.some((segment) => !segment || segment === '.' || segment === '..')) {
-    throw new Error('Invalid relativePath');
+    throw badRequest('Invalid relativePath');
   }
 
   if (!options.allowProjectFile && normalized.endsWith(PROJECT_EXTENSION)) {
-    throw new Error('Expected folder path, received project path');
+    throw badRequest('Expected folder path, received project path');
   }
 
   return validatePath(path.join(root, ...segments));
@@ -298,7 +280,7 @@ async function moveWorkflowProject(
   });
 
   if (!sourceProjectPath.endsWith(PROJECT_EXTENSION)) {
-    throw new Error('Expected project path');
+    throw badRequest('Expected project path');
   }
 
   const targetProjectPath = validatePath(path.join(destinationFolderPath, path.basename(sourceProjectPath)));
@@ -349,7 +331,7 @@ async function moveWorkflowFolder(
   });
 
   if (destinationFolderPath === sourceFolderPath || destinationFolderPath.startsWith(`${sourceFolderPath}${path.sep}`)) {
-    throw new Error('Cannot move a folder into itself');
+    throw badRequest('Cannot move a folder into itself');
   }
 
   const targetFolderPath = validatePath(path.join(destinationFolderPath, path.basename(sourceFolderPath)));
@@ -399,7 +381,7 @@ async function listProjectPathsRecursive(folderPath: string): Promise<string[]> 
 async function ensurePathDoesNotExist(filePath: string, errorMessage: string) {
   try {
     await fs.access(filePath);
-    throw new Error(errorMessage);
+    throw conflict(errorMessage);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
       throw error;
@@ -416,7 +398,8 @@ async function pathExists(filePath: string) {
   }
 }
 
-function yamlString(value: string): string {
+// JSON-quotes a value for safe embedding in a YAML template
+function quoteForYaml(value: string): string {
   return JSON.stringify(value);
 }
 
@@ -428,14 +411,14 @@ function createBlankProjectFile(projectName: string): string {
     'version: 4',
     'data:',
     '  metadata:',
-    `    id: ${yamlString(projectId)}`,
-    `    title: ${yamlString(projectName)}`,
+    `    id: ${quoteForYaml(projectId)}`,
+    `    title: ${quoteForYaml(projectName)}`,
     '    description: ""',
-    `    mainGraphId: ${yamlString(graphId)}`,
+    `    mainGraphId: ${quoteForYaml(graphId)}`,
     '  graphs:',
-    `    ${yamlString(graphId)}:`,
+    `    ${quoteForYaml(graphId)}:`,
     '      metadata:',
-    `        id: ${yamlString(graphId)}`,
+    `        id: ${quoteForYaml(graphId)}`,
     '        name: "Main Graph"',
     '        description: ""',
     '      nodes: {}',

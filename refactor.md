@@ -6,27 +6,27 @@ No files inside `rivet/` are touched by any item in this plan.
 
 ---
 
-## 1. Remove dead code
+## 1. Remove dead code — DONE
 
-### 1a. Delete `wrapper/web/dashboard/WorkflowDashboardShell.tsx`
+### 1a. Delete `wrapper/web/dashboard/WorkflowDashboardShell.tsx` — DONE
 
 This file is not imported by any other file. It was an earlier layout approach (non-iframe shell around the editor) superseded by the current `DashboardPage` + iframe model. Grep for `WorkflowDashboardShell` across the repo confirms zero imports.
 
 **Files changed:** delete `wrapper/web/dashboard/WorkflowDashboardShell.tsx`.
 
-### 1b. Delete `wrapper/web/overrides/components/RivetApp.tsx`
+### 1b. Delete `wrapper/web/overrides/components/RivetApp.tsx` — DONE
 
 This file contains a single line: `export { RivetApp } from '../../../../rivet/packages/app/src/components/RivetApp';`. It is a pure re-export with zero modifications. There is no Vite alias pointing to it (confirmed by inspecting `vite.config.ts`), and the only consumer (`HostedEditorApp.tsx`) imports `RivetApp` directly from the upstream path, not through this override.
 
 **Files changed:** delete `wrapper/web/overrides/components/RivetApp.tsx`.
 
-### 1c. Rename `yamlString()` in `wrapper/api/src/routes/workflows.ts`
+### 1c. Rename `yamlString()` in `wrapper/api/src/routes/workflows.ts` — DONE
 
 The function on line 419 is named `yamlString` but its body is `return JSON.stringify(value)`. This is confusing — it is used to produce a JSON-quoted string for embedding in a YAML template. Rename to `quoteForYaml` and add a one-line comment.
 
 **Files changed:** `wrapper/api/src/routes/workflows.ts` — rename function and its 5 call sites (lines 431, 432, 434, 436, 438).
 
-### 1d. Fix debug log severity in `wrapper/web/overrides/hooks/useRemoteDebugger.ts`
+### 1d. Fix debug log severity in `wrapper/web/overrides/hooks/useRemoteDebugger.ts` — DONE
 
 Lines 157, 165, 184, 192 use `logHostedDebug('error', ...)` for non-error diagnostic messages. Change the first argument to `'log'` so that when debug logging is enabled, these do not appear as red console errors.
 
@@ -36,7 +36,7 @@ Lines 157, 165, 184, 192 use `logHostedDebug('error', ...)` for non-error diagno
 
 ---
 
-## 2. Simplify `useOpenWorkflowProject.ts`
+## 2. Simplify `useOpenWorkflowProject.ts` — DONE
 
 ### Problem
 
@@ -76,7 +76,7 @@ setProjects((prev: OpenedProjectsInfo) => {
 
 ---
 
-## 3. Extract shared API helpers (`wrapper/shared/api.ts`)
+## 3. Extract shared API helpers (`wrapper/shared/api.ts`) — DONE
 
 ### Problem
 
@@ -156,7 +156,7 @@ Then:
 
 ---
 
-## 4. Deduplicate `parseEnvFile` across scripts
+## 4. Deduplicate `parseEnvFile` across scripts — DONE
 
 ### Problem
 
@@ -215,7 +215,7 @@ Then update all three scripts:
 
 ---
 
-## 5. Deduplicate command execution between `plugins.ts` and `shell.ts`
+## 5. Deduplicate command execution between `plugins.ts` and `shell.ts` — DONE
 
 ### Problem
 
@@ -292,7 +292,7 @@ Then:
 
 ---
 
-## 6. Merge `config.ts` and `path.ts` API routes
+## 6. Merge `config.ts` and `path.ts` API routes — DONE
 
 ### Problem
 
@@ -338,7 +338,7 @@ The resulting URLs are identical: `GET /api/config`, `GET /api/path/app-local-da
 
 ---
 
-## 7. Consolidate API error handling
+## 7. Consolidate API error handling — DONE
 
 ### Problem
 
@@ -393,7 +393,7 @@ Routes that need specific status codes (like `workflows.ts` returning 409 for co
 
 ---
 
-## 8. Simplify `useSyncCurrentStateIntoOpenedProjects.ts` — LOW CONFIDENCE, TEST CAREFULLY
+## 8. Simplify `useSyncCurrentStateIntoOpenedProjects.ts` — DONE
 
 ### Problem
 
@@ -418,7 +418,7 @@ This preserves the existing timing behavior while making the code understandable
 
 ---
 
-## 9. Extract CSS out of component files
+## 9. Extract CSS out of component files — DONE
 
 ### Problem
 
@@ -454,19 +454,19 @@ The selectors already use `.dashboard-page` and `.workflow-library-panel` class 
 
 ---
 
-## 10. Reduce `WorkflowLibraryPanel.tsx` further
+## 10. Reduce `WorkflowLibraryPanel.tsx` further — DONE
 
 After extracting CSS (item 9), the component is ~430 lines. Two trivial wrappers can be inlined:
 
-### 10a. Inline `handleOpenProject`
+### 10a. Inline `handleOpenProject` — DONE
 
 `handleOpenProject` on line 550 is `(absolutePath) => onOpenProject(absolutePath)`. Replace the `onClick` on line 494 with `onClick={() => onOpenProject(project.absolutePath)}`.
 
-### 10b. Inline `handleSwitchProject`
+### 10b. Inline `handleSwitchProject` — DONE
 
 `handleSwitchProject` on line 554 is `(absolutePath) => onOpenProject(absolutePath, { replaceCurrent: true })`. Replace the `onDoubleClick` on line 495 with `onDoubleClick={() => onOpenProject(project.absolutePath, { replaceCurrent: true })}`.
 
-### 10c. Simplify body rendering conditions
+### 10c. Simplify body rendering conditions — DONE
 
 Lines 676-684 repeat `!loading && !error && ...` multiple times. Extract the body content into a local variable computed before the JSX return:
 
@@ -496,7 +496,7 @@ Then use `{bodyContent}` in the JSX. This replaces 4 separate `!loading && !erro
 
 ---
 
-## 11. Simplify the `handleDatasetsMessage` function
+## 11. Simplify the `handleDatasetsMessage` function — DONE
 
 ### Problem
 
@@ -544,7 +544,7 @@ Note: `ts-pattern` is still used by upstream `rivet/` code, so the package stays
 
 ---
 
-## 12. Improve `EditorMessageBridge.tsx` Ctrl+S platform detection
+## 12. Improve `EditorMessageBridge.tsx` Ctrl+S platform detection — DONE
 
 ### Problem
 
@@ -574,7 +574,7 @@ const isWindowsPlatform = typeof navigator !== 'undefined' && /Win/.test(navigat
 
 ---
 
-## 13. Fix the "yed" typos in `useRemoteExecutor.ts`
+## 13. Fix the "yed" typos in `useRemoteExecutor.ts` — DONE
 
 In `wrapper/web/overrides/hooks/useRemoteExecutor.ts`, lines 392, 394, and 396 have `throw new Error('Not implemented yed')`. Change `'yed'` to `'yet'` in all three.
 
@@ -582,7 +582,7 @@ In `wrapper/web/overrides/hooks/useRemoteExecutor.ts`, lines 392, 394, and 396 h
 
 ---
 
-## 14. Clarify Vite config structure with comments
+## 14. Clarify Vite config structure with comments — DONE
 
 ### Problem
 
@@ -604,7 +604,7 @@ Do NOT restructure the alias array — the current order is correct and ordering
 
 ---
 
-## 15. Reduce `useRemoteExecutor.ts` duplication
+## 15. Reduce `useRemoteExecutor.ts` duplication — DONE
 
 ### Problem
 
@@ -658,7 +658,7 @@ Call `uploadProjectIfAllowed()` and `buildContextValues()` from both `tryRunGrap
 
 ---
 
-## 16. Simplify `HostedIOProvider.loadProjectData` flow
+## 16. Simplify `HostedIOProvider.loadProjectData` flow — DONE
 
 ### Problem
 
@@ -718,7 +718,7 @@ Keep the current two-prompt structure but remove the `try/catch` nesting that ma
 
 ---
 
-## 17. Strengthen `validatePath` for Windows (dev:local mode only)
+## 17. Strengthen `validatePath` for Windows (dev:local mode only) — DONE
 
 ### Problem
 

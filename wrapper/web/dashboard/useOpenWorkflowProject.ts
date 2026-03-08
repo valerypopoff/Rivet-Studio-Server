@@ -82,29 +82,27 @@ export function useOpenWorkflowProject() {
       openedGraph,
     };
 
-    setProjects((prev: OpenedProjectsInfo) => ({
-      openedProjects: {
-        ...(replaceCurrent
-          ? Object.fromEntries(
-              Object.entries(prev.openedProjects).filter(([projectId]) => projectId !== currentProject.metadata.id),
-            )
-          : prev.openedProjects),
-        [project.metadata.id]: projectInfo,
-      },
-      openedProjectsSortedIds: (replaceCurrent
-        ? prev.openedProjectsSortedIds.filter((projectId) => projectId !== currentProject.metadata.id)
-        : prev.openedProjectsSortedIds
-      ).includes(project.metadata.id)
-        ? (replaceCurrent
-            ? prev.openedProjectsSortedIds.filter((projectId) => projectId !== currentProject.metadata.id)
-            : prev.openedProjectsSortedIds)
-        : [
-            ...(replaceCurrent
-              ? prev.openedProjectsSortedIds.filter((projectId) => projectId !== currentProject.metadata.id)
-              : prev.openedProjectsSortedIds),
-            project.metadata.id,
-          ],
-    }));
+    setProjects((prev: OpenedProjectsInfo) => {
+      const filteredSortedIds = replaceCurrent
+        ? prev.openedProjectsSortedIds.filter((id) => id !== currentProject.metadata.id)
+        : prev.openedProjectsSortedIds;
+
+      const nextSortedIds = filteredSortedIds.includes(project.metadata.id)
+        ? filteredSortedIds
+        : [...filteredSortedIds, project.metadata.id];
+
+      return {
+        openedProjects: {
+          ...(replaceCurrent
+            ? Object.fromEntries(
+                Object.entries(prev.openedProjects).filter(([id]) => id !== currentProject.metadata.id),
+              )
+            : prev.openedProjects),
+          [project.metadata.id]: projectInfo,
+        },
+        openedProjectsSortedIds: nextSortedIds,
+      };
+    });
 
     await loadProject(projectInfo);
   };

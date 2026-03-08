@@ -8,7 +8,6 @@ import { useLatest } from 'ahooks';
 import { useAtom } from 'jotai';
 import { remoteDebuggerState, type RemoteDebuggerState } from '../../../../rivet/packages/app/src/state/execution.js';
 import { useEffect } from 'react';
-import { match } from 'ts-pattern';
 import { datasetProvider } from '../utils/globals/datasetProvider.js';
 import { logHostedDebug, RIVET_REMOTE_DEBUGGER_DEFAULT_WS, RIVET_EXECUTOR_WS_URL } from '../../../shared/hosted-env';
 
@@ -124,7 +123,13 @@ function doConnect(url: string) {
 
   socket.onmessage = (event) => {
     if (ws !== socket) return; // stale
-    const { message, data } = JSON.parse(event.data);
+    const parsed = JSON.parse(event.data) as { message?: string; type?: string; data?: unknown };
+    const message = parsed.message ?? parsed.type;
+    const data = parsed.data;
+
+    if (!message) {
+      return;
+    }
 
     if (message === 'graph-upload-allowed') {
       logHostedDebug('log', '[executor-ws] graph upload allowed');
@@ -133,7 +138,9 @@ function doConnect(url: string) {
         remoteUploadAllowed: true,
       }));
     } else if (message.startsWith('datasets:')) {
-      handleDatasetsMessage(message, data, socket);
+      void handleDatasetsMessage(message, data, socket).catch((error) => {
+        console.error('Failed to handle datasets message:', error);
+      });
     } else {
       currentDebuggerMessageHandler?.(message, data);
     }
@@ -154,7 +161,7 @@ function doDisconnect() {
 
 function doSend(type: string, data: unknown) {
   const open = ws?.readyState === WebSocket.OPEN;
-  logHostedDebug('error', '[executor-ws] doSend type=%s open=%s', type, open);
+  logHostedDebug('log', '[executor-ws] doSend type=%s open=%s', type, open);
   if (open) {
     ws!.send(JSON.stringify({ type, data }));
   }
@@ -162,7 +169,7 @@ function doSend(type: string, data: unknown) {
 
 function doSendRaw(data: string) {
   const open = ws?.readyState === WebSocket.OPEN;
-  logHostedDebug('error', '[executor-ws] doSendRaw open=%s len=%d', open, data.length);
+  logHostedDebug('log', '[executor-ws] doSendRaw open=%s len=%d', open, data.length);
   if (open) {
     ws!.send(data);
   }
@@ -181,7 +188,7 @@ export function isExecutorConnected(): boolean {
 // and tryRunGraph uses isExecutorConnected() at call time.
 
 // !! DEBUG: this fires once when the module loads — proves override is in the bundle
-logHostedDebug('error', '%c[HOSTED-OVERRIDE] useRemoteDebugger module loaded (singleton)', 'color: magenta; font-weight: bold; font-size: 14px');
+logHostedDebug('log', '%c[HOSTED-OVERRIDE] useRemoteDebugger module loaded (singleton)', 'color: magenta; font-weight: bold; font-size: 14px');
 
 export function useRemoteDebugger(options: { onConnect?: () => void; onDisconnect?: () => void } = {}) {
   const [remoteDebugger, setRemoteDebuggerState] = useAtom(remoteDebuggerState);
@@ -189,7 +196,7 @@ export function useRemoteDebugger(options: { onConnect?: () => void; onDisconnec
   const onDisconnectLatest = useLatest(options.onDisconnect ?? (() => {}));
 
   // !! DEBUG: fires every render — proves the hook is executing
-  logHostedDebug('error', '[HOSTED-OVERRIDE] useRemoteDebugger render: started=%s reconnecting=%s ws=%s', remoteDebugger.started, remoteDebugger.reconnecting, ws?.readyState);
+  logHostedDebug('log', '[HOSTED-OVERRIDE] useRemoteDebugger render: started=%s reconnecting=%s ws=%s', remoteDebugger.started, remoteDebugger.reconnecting, ws?.readyState);
 
   useEffect(() => syncRemoteDebuggerState(setRemoteDebuggerState), [setRemoteDebuggerState]);
 
@@ -210,118 +217,28 @@ export function useRemoteDebugger(options: { onConnect?: () => void; onDisconnec
 }
 
 // ─── Dataset forwarding ─────────────────────────────────────────────────
+const datasetHandlers: Record<string, (p: any) => Promise<unknown>> = {
+  'datasets:get-metadata': (p) => datasetProvider.getDatasetMetadata(p.id),
+  'datasets:get-for-project': (p) => datasetProvider.getDatasetsForProject(p.projectId),
+  'datasets:get-data': (p) => datasetProvider.getDatasetData(p.id),
+  'datasets:put-data': (p) => datasetProvider.putDatasetData(p.id, p.data),
+  'datasets:put-row': (p) => datasetProvider.putDatasetRow(p.id, p.row),
+  'datasets:put-metadata': (p) => datasetProvider.putDatasetMetadata(p.metadata),
+  'datasets:clear-data': (p) => datasetProvider.clearDatasetData(p.id),
+  'datasets:delete': (p) => datasetProvider.deleteDataset(p.id),
+  'datasets:knn': (p) => datasetProvider.knnDatasetRows(p.datasetId, p.k, p.vector),
+};
+
 async function handleDatasetsMessage(type: string, data: any, socket: WebSocket) {
+  const handler = datasetHandlers[type];
+  if (!handler) {
+    console.error(`Unknown datasets message type: ${type}`);
+    return;
+  }
   const { requestId, payload } = data;
-  await match(type)
-    .with('datasets:get-metadata', async () => {
-      const metadata = await datasetProvider.getDatasetMetadata(payload.id);
-      socket.send(
-        JSON.stringify({
-          type: 'datasets:response',
-          data: {
-            requestId,
-            payload: metadata,
-          },
-        }),
-      );
-    })
-    .with('datasets:get-for-project', async () => {
-      const metadata = await datasetProvider.getDatasetsForProject(payload.projectId);
-      socket.send(
-        JSON.stringify({
-          type: 'datasets:response',
-          data: {
-            requestId,
-            payload: metadata,
-          },
-        }),
-      );
-    })
-    .with('datasets:get-data', async () => {
-      const data = await datasetProvider.getDatasetData(payload.id);
-      socket.send(
-        JSON.stringify({
-          type: 'datasets:response',
-          data: {
-            requestId,
-            payload: data,
-          },
-        }),
-      );
-    })
-    .with('datasets:put-data', async () => {
-      await datasetProvider.putDatasetData(payload.id, payload.data);
-      socket.send(
-        JSON.stringify({
-          type: 'datasets:response',
-          data: {
-            requestId,
-            payload: undefined,
-          },
-        }),
-      );
-    })
-    .with('datasets:put-row', async () => {
-      await datasetProvider.putDatasetRow(payload.id, payload.row);
-      socket.send(
-        JSON.stringify({
-          type: 'datasets:response',
-          data: {
-            requestId,
-            payload: undefined,
-          },
-        }),
-      );
-    })
-    .with('datasets:put-metadata', async () => {
-      await datasetProvider.putDatasetMetadata(payload.metadata);
-      socket.send(
-        JSON.stringify({
-          type: 'datasets:response',
-          data: {
-            requestId,
-            payload: undefined,
-          },
-        }),
-      );
-    })
-    .with('datasets:clear-data', async () => {
-      await datasetProvider.clearDatasetData(payload.id);
-      socket.send(
-        JSON.stringify({
-          type: 'datasets:response',
-          data: {
-            requestId,
-            payload: undefined,
-          },
-        }),
-      );
-    })
-    .with('datasets:delete', async () => {
-      await datasetProvider.deleteDataset(payload.id);
-      socket.send(
-        JSON.stringify({
-          type: 'datasets:response',
-          data: {
-            requestId,
-            payload: undefined,
-          },
-        }),
-      );
-    })
-    .with('datasets:knn', async () => {
-      const nearest = await datasetProvider.knnDatasetRows(payload.datasetId, payload.k, payload.vector);
-      socket.send(
-        JSON.stringify({
-          type: 'datasets:response',
-          data: {
-            requestId,
-            payload: nearest,
-          },
-        }),
-      );
-    })
-    .otherwise(() => {
-      console.error(`Unknown datasets message type: ${type}`);
-    });
+  const result = await handler(payload);
+  socket.send(JSON.stringify({
+    type: 'datasets:response',
+    data: { requestId, payload: result },
+  }));
 }

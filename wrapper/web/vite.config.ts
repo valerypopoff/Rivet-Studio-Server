@@ -107,6 +107,8 @@ const resolveBrowserSafeGoogleCoreModule = (): PluginOption => ({
   },
 });
 
+// These packages need explicit browser-safe entry points because their default upstream
+// resolution paths can pull in Node-oriented modules that break the hosted web bundle.
 const wrapperTargetedSubpathAliases = [
   { find: /^@google\/genai$/, replacement: resolve(__dirname, 'node_modules/@google/genai/dist/web/index.mjs') },
   { find: /^nanoid$/, replacement: resolve(__dirname, 'node_modules/nanoid/index.browser.js') },
@@ -156,6 +158,8 @@ export default defineConfig({
 
     alias: [
       // === Tauri package shims (most specific first) ===
+      // These must stay first so upstream Tauri imports are intercepted before any broader
+      // alias rule can resolve them to the real desktop-only packages.
       { find: '@tauri-apps/api/app', replacement: resolve(shimDir, 'tauri-apps-api-app.ts') },
       { find: '@tauri-apps/api/dialog', replacement: resolve(shimDir, 'tauri-apps-api-dialog.ts') },
       { find: '@tauri-apps/api/fs', replacement: resolve(shimDir, 'tauri-apps-api-fs.ts') },
@@ -170,7 +174,8 @@ export default defineConfig({
       { find: '@tauri-apps/api', replacement: resolve(shimDir, 'tauri-apps-api.ts') },
 
       // === Upstream module overrides (file-level aliases) ===
-      // ^\.\.?\/ restricts to relative imports only (safe for generic names like settings/datasets)
+      // ^\.\.?\/ restricts to relative imports only, which lets us override upstream files with
+      // generic names like settings or datasets without accidentally hijacking bare package imports.
       { find: /^\.\.?\/(?:.*\/)?tauri(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'utils/tauri.ts') },
       { find: /^\.\.?\/(?:.*\/)?ioProvider(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'utils/globals/ioProvider.ts') },
       { find: /^\.\.?\/(?:.*\/)?datasetProvider(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'utils/globals/datasetProvider.ts') },
@@ -186,6 +191,8 @@ export default defineConfig({
       { find: /^\.\.?\/(?:.*\/)?datasets(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'io/datasets.ts') },
       { find: /^\.\.?\/(?:.*\/)?TauriIOProvider(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'io/TauriIOProvider.ts') },
 
+      // Vendored upstream code must resolve shared dependencies from wrapper/web/node_modules,
+      // not from whatever nested node_modules the upstream packages would otherwise find.
       ...wrapperExactDependencyAliases,
       ...wrapperTargetedSubpathAliases,
 

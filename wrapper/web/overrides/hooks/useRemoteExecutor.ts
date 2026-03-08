@@ -61,6 +61,42 @@ export function useRemoteExecutor() {
     },
   });
 
+  async function uploadProjectToExecutor(projectToUpload: typeof project, options?: { includeStaticData?: boolean }) {
+    const canUpload =
+      remoteDebugger.remoteDebuggerState.isInternalExecutor ||
+      remoteDebugger.remoteDebuggerState.remoteUploadAllowed;
+    if (!canUpload) return;
+
+    const includeStaticData = options?.includeStaticData ?? true;
+
+    remoteDebugger.send('set-dynamic-data', {
+      project: {
+        ...projectToUpload,
+        graphs: {
+          ...projectToUpload.graphs,
+          [graph.metadata!.id!]: graph,
+        },
+      },
+      settings: await fillMissingSettingsFromEnvironmentVariables(
+        savedSettings,
+        globalRivetNodeRegistry.getPlugins(),
+      ),
+    });
+
+    if (includeStaticData) {
+      for (const [id, dataValue] of entries(projectData)) {
+        remoteDebugger.sendRaw(`set-static-data:${id}:${dataValue}`);
+      }
+    }
+  }
+
+  function buildContextValues(): Record<string, DataValue> {
+    return entries(projectContext).reduce(
+      (acc, [id, value]) => ({ ...acc, [id]: (value as any).value }),
+      {} as Record<string, DataValue>,
+    );
+  }
+
   const logRemoteTrace = (data: unknown) => {
     if (typeof data === 'object' && data !== null && 'message' in data) {
       const traceData = data as { level?: 'log' | 'info' | 'warn' | 'error' | 'debug'; message: unknown; source?: string };
@@ -174,43 +210,14 @@ export function useRemoteExecutor() {
     const graphToRun = options.graphId ?? graph.metadata!.id!;
 
     // !! DEBUG: dump graph data being sent
-    logHostedDebug('error', '[tryRunGraph] graphToRun=%s, graph.metadata.id=%s, options.graphId=%s', graphToRun, graph.metadata?.id, options.graphId);
-    logHostedDebug('error', '[tryRunGraph] project.graphs keys=%s', Object.keys(project.graphs ?? {}).join(', '));
-    logHostedDebug('error', '[tryRunGraph] project.metadata.mainGraphId=%s', project.metadata?.mainGraphId);
+    logHostedDebug('log', '[tryRunGraph] graphToRun=%s, graph.metadata.id=%s, options.graphId=%s', graphToRun, graph.metadata?.id, options.graphId);
+    logHostedDebug('log', '[tryRunGraph] project.graphs keys=%s', Object.keys(project.graphs ?? {}).join(', '));
+    logHostedDebug('log', '[tryRunGraph] project.metadata.mainGraphId=%s', project.metadata?.mainGraphId);
 
     try {
-      const canUploadGraph =
-        remoteDebugger.remoteDebuggerState.isInternalExecutor || remoteDebugger.remoteDebuggerState.remoteUploadAllowed;
+      await uploadProjectToExecutor(project);
 
-      logHostedDebug('error', '[tryRunGraph] canUploadGraph=%s, isInternal=%s, uploadAllowed=%s', canUploadGraph, remoteDebugger.remoteDebuggerState.isInternalExecutor, remoteDebugger.remoteDebuggerState.remoteUploadAllowed);
-
-      if (canUploadGraph) {
-        remoteDebugger.send('set-dynamic-data', {
-          project: {
-            ...project,
-            graphs: {
-              ...project.graphs,
-              [graph.metadata!.id!]: graph,
-            },
-          },
-          settings: await fillMissingSettingsFromEnvironmentVariables(
-            savedSettings,
-            globalRivetNodeRegistry.getPlugins(),
-          ),
-        });
-
-        for (const [id, dataValue] of entries(projectData)) {
-          remoteDebugger.sendRaw(`set-static-data:${id}:${dataValue}`);
-        }
-      }
-
-      const contextValues = entries(projectContext).reduce(
-        (acc, [id, value]) => ({
-          ...acc,
-          [id]: value.value,
-        }),
-        {} as Record<string, DataValue>,
-      );
+      const contextValues = buildContextValues();
 
       if (options.from) {
         // Use a local graph processor to get dependency nodes instead of asking the remote debugger
@@ -269,25 +276,7 @@ export function useRemoteExecutor() {
             }));
           },
           runGraph: async (project, graphId, inputs) => {
-            const canUploadGraph =
-              remoteDebugger.remoteDebuggerState.isInternalExecutor ||
-              remoteDebugger.remoteDebuggerState.remoteUploadAllowed;
-
-            if (canUploadGraph) {
-              remoteDebugger.send('set-dynamic-data', {
-                project: {
-                  ...project,
-                  graphs: {
-                    ...project.graphs,
-                    [graph.metadata!.id!]: graph,
-                  },
-                },
-                settings: await fillMissingSettingsFromEnvironmentVariables(
-                  savedSettings,
-                  globalRivetNodeRegistry.getPlugins(),
-                ),
-              });
-            }
+            await uploadProjectToExecutor(project);
 
             {
               let resolve: (value: GraphOutputs) => void;
@@ -303,13 +292,7 @@ export function useRemoteExecutor() {
               };
             }
 
-            const contextValues = entries(projectContext).reduce(
-              (acc, [id, value]) => ({
-                ...acc,
-                [id]: value.value,
-              }),
-              {} as Record<string, DataValue>,
-            );
+            const contextValues = buildContextValues();
 
             remoteDebugger.send('run', { graphId, inputs, contextValues, projectPath: loadedProject.path });
 
@@ -389,11 +372,11 @@ function getDependentDataForNodeForPreload(dependencyNodes: NodeId[], previousRu
     const outputDataWithoutRefs = Object.fromEntries(
       Object.entries(outputData).map(([portId, dataValueWithRefs]) => {
         if (dataValueWithRefs.type === 'image') {
-          throw new Error('Not implemented yed');
+          throw new Error('Not implemented yet');
         } else if (dataValueWithRefs.type === 'binary') {
-          throw new Error('Not implemented yed');
+          throw new Error('Not implemented yet');
         } else if (dataValueWithRefs.type === 'audio') {
-          throw new Error('Not implemented yed');
+          throw new Error('Not implemented yet');
         } else {
           return [portId, dataValueWithRefs];
         }

@@ -18,55 +18,9 @@ import {
   serializeTrivetData,
 } from '@ironclad/trivet';
 import { RIVET_API_BASE_URL } from '../../shared/hosted-env';
+import { apiReadText, apiWriteText, apiReadBinary } from '../../shared/api';
 
 const API = RIVET_API_BASE_URL;
-
-async function apiReadText(path: string): Promise<string> {
-  const resp = await fetch(`${API}/native/read-text`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path }),
-  });
-  if (!resp.ok) throw new Error(`Failed to read file: ${resp.statusText}`);
-  const data = await resp.json();
-  return data.contents;
-}
-
-async function apiWriteText(path: string, contents: string): Promise<void> {
-  const resp = await fetch(`${API}/native/write-text`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path, contents }),
-  });
-  if (!resp.ok) throw new Error(`Failed to write file: ${resp.statusText}`);
-}
-
-async function apiReadBinary(path: string): Promise<Uint8Array> {
-  const resp = await fetch(`${API}/native/read-binary`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path }),
-  });
-  if (!resp.ok) throw new Error(`Failed to read binary file: ${resp.statusText}`);
-  const data = await resp.json();
-  const binary = atob(data.contents);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) {
-    bytes[i] = binary.charCodeAt(i);
-  }
-  return bytes;
-}
-
-async function apiExists(path: string): Promise<boolean> {
-  const resp = await fetch(`${API}/native/exists`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path }),
-  });
-  if (!resp.ok) return false;
-  const data = await resp.json();
-  return data.exists;
-}
 
 async function apiListProjects(): Promise<string[]> {
   const resp = await fetch(`${API}/projects/list`);
@@ -157,7 +111,9 @@ export class HostedIOProvider implements IOProvider {
   async loadProjectData(
     callback: (data: { project: Project; testData: TrivetData; path: string }) => void,
   ): Promise<void> {
-    // Try to list server projects first
+    // Try to list known server projects first so users can pick from an index when possible.
+    // This stays separate from the manual path prompt because fresh installs still need a
+    // direct-entry fallback even when listing fails or returns no saved projects.
     try {
       const files = await apiListProjects();
       if (files.length > 0) {
@@ -180,9 +136,10 @@ export class HostedIOProvider implements IOProvider {
         return;
       }
     } catch {
-      // Fall through to manual path entry
+      // Fall through to manual path entry if project listing is unavailable.
     }
 
+    // Preserve the explicit manual-path prompt for empty servers and listing failures.
     const path = prompt('Enter server path to .rivet-project file:');
     if (!path) return;
 

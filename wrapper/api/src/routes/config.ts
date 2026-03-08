@@ -1,4 +1,6 @@
 import { Router } from 'express';
+import path from 'node:path';
+import { getAppDataRoot } from '../security.js';
 
 export const configRouter = Router();
 
@@ -10,4 +12,14 @@ configRouter.get('/config', (_req, res) => {
     remoteDebuggerDefaultWs: process.env.RIVET_REMOTE_DEBUGGER_DEFAULT_WS ?? 'ws://localhost/ws/executor',
     apiBaseUrl: '/api',
   });
+});
+
+// GET /api/path/app-local-data-dir
+configRouter.get('/path/app-local-data-dir', (_req, res) => {
+  res.json({ path: getAppDataRoot() });
+});
+
+// GET /api/path/app-log-dir
+configRouter.get('/path/app-log-dir', (_req, res) => {
+  res.json({ path: path.join(getAppDataRoot(), 'logs') });
 });

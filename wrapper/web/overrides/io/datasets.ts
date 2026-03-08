@@ -3,40 +3,7 @@
 
 import { type Project, deserializeDatasets, serializeDatasets } from '@ironclad/rivet-core';
 import { datasetProvider } from '../utils/globals/datasetProvider.js';
-import { RIVET_API_BASE_URL } from '../../../shared/hosted-env';
-
-const API = RIVET_API_BASE_URL;
-
-async function apiExists(path: string): Promise<boolean> {
-  const resp = await fetch(`${API}/native/exists`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path }),
-  });
-  if (!resp.ok) return false;
-  const data = await resp.json();
-  return data.exists;
-}
-
-async function apiReadText(path: string): Promise<string> {
-  const resp = await fetch(`${API}/native/read-text`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path }),
-  });
-  if (!resp.ok) throw new Error(`Failed to read: ${resp.statusText}`);
-  const data = await resp.json();
-  return data.contents;
-}
-
-async function apiWriteText(path: string, contents: string): Promise<void> {
-  const resp = await fetch(`${API}/native/write-text`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path, contents }),
-  });
-  if (!resp.ok) throw new Error(`Failed to write: ${resp.statusText}`);
-}
+import { apiExists, apiReadText, apiWriteText } from '../../../shared/api';
 
 export async function saveDatasetsFile(projectFilePath: string, project: Project) {
   const dataPath = projectFilePath.replace('.rivet-project', '.rivet-data');

@@ -18,12 +18,16 @@ export function useSyncCurrentStateIntoOpenedProjects() {
   const loadedProject = useAtomValue(loadedProjectState);
   const currentGraph = useAtomValue(graphState);
 
+  // Clear the file-backed loaded path when the last opened project tab is gone.
+  // This keeps scratch-project state from still looking file-backed after everything closes.
   useEffect(() => {
     if (openedProjectsSortedIds.length === 0 && loadedProject.path) {
       setLoadedProject({ loaded: false, path: '' });
     }
   }, [loadedProject.path, openedProjectsSortedIds.length, setLoadedProject]);
 
+  // Ensure the active project exists in the opened-project registry, picks up its file path,
+  // and appears in the tab order as soon as it becomes current.
   useEffect(() => {
     if (currentProject && openedProjects[currentProject.metadata.id] == null) {
       setOpenedProjects({
@@ -50,6 +54,8 @@ export function useSyncCurrentStateIntoOpenedProjects() {
     }
   }, [currentProject, loadedProject, openedProjects, openedProjectsSortedIds, setOpenedProjects, setOpenedProjectsSortedIds]);
 
+  // Keep the current project's stored project object synchronized with editor edits.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- syncing only on currentProject changes avoids extra re-syncs from openedProjects mutations.
   useEffect(() => {
     setOpenedProjects({
       ...openedProjects,
@@ -65,6 +71,8 @@ export function useSyncCurrentStateIntoOpenedProjects() {
     openedGraph: currentGraph?.metadata?.id,
   } satisfies OpenedProjectInfo);
 
+  // Track the latest edited graph for the current project so it can be written back if the
+  // user switches tabs before a broader project-state sync happens.
   useEffect(() => {
     if (
       currentGraph.metadata?.id != null &&
@@ -84,6 +92,8 @@ export function useSyncCurrentStateIntoOpenedProjects() {
     }
   }, [currentGraph, currentProject, prevProjectState.project.metadata.id]);
 
+  // When the active project changes, flush the previously active project's last in-memory
+  // project/graph state into the opened-project registry before tracking the new one.
   useEffect(() => {
     if (
       prevProjectState.project != null &&

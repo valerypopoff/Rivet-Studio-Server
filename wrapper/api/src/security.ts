@@ -1,5 +1,7 @@
 import path from 'node:path';
 
+import { badRequest } from './utils/httpError.js';
+
 const repoRoot = path.resolve(process.cwd(), '..', '..');
 
 const WORKSPACE_ROOT = process.env.RIVET_WORKSPACE_ROOT ?? repoRoot;
@@ -32,10 +34,14 @@ const MAX_OUTPUT_BYTES = parseInt(process.env.RIVET_MAX_OUTPUT ?? String(10 * 10
 export function validatePath(inputPath: string): string {
   const resolved = path.resolve(inputPath);
 
-  const isAllowed = ALLOWED_ROOTS.some((root) => resolved.startsWith(root + path.sep) || resolved === root);
+  const cmp = process.platform === 'win32'
+    ? (a: string, b: string) => a.toLowerCase().startsWith(b.toLowerCase())
+    : (a: string, b: string) => a.startsWith(b);
+
+  const isAllowed = ALLOWED_ROOTS.some((root) => cmp(resolved, root + path.sep) || resolved.length === root.length && cmp(resolved, root));
 
   if (!isAllowed) {
-    throw new Error(`Path not allowed: ${inputPath} (resolved: ${resolved})`);
+    throw badRequest(`Path not allowed: ${inputPath} (resolved: ${resolved})`);
   }
 
   return resolved;
