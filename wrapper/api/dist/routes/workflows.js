@@ -70,6 +70,19 @@ workflowsRouter.patch('/folders', asyncHandler(async (req, res) => {
     await fs.rename(currentFolderPath, renamedFolderPath);
     res.json({ folder: await getWorkflowFolder(root, renamedFolderPath) });
 }));
+workflowsRouter.delete('/folders', asyncHandler(async (req, res) => {
+    const { relativePath } = req.body ?? {};
+    const root = await ensureWorkflowsRoot();
+    const folderPath = resolveWorkflowRelativePath(root, relativePath, {
+        allowProjectFile: false,
+    });
+    const entries = await fs.readdir(folderPath);
+    if (entries.length > 0) {
+        throw conflict('Only empty folders can be deleted');
+    }
+    await fs.rmdir(folderPath);
+    res.json({ deleted: true });
+}));
 workflowsRouter.post('/projects', asyncHandler(async (req, res) => {
     const { folderRelativePath, name } = req.body ?? {};
     const root = await ensureWorkflowsRoot();
@@ -91,6 +104,48 @@ workflowsRouter.post('/projects', asyncHandler(async (req, res) => {
     await fs.writeFile(filePath, createBlankProjectFile(projectName), 'utf8');
     res.status(201).json({
         project: await getWorkflowProject(root, filePath),
+    });
+}));
+workflowsRouter.patch('/projects', asyncHandler(async (req, res) => {
+    const { relativePath, newName } = req.body ?? {};
+    const root = await ensureWorkflowsRoot();
+    const currentProjectPath = resolveWorkflowRelativePath(root, relativePath, {
+        allowProjectFile: true,
+    });
+    if (!currentProjectPath.endsWith(PROJECT_EXTENSION)) {
+        throw badRequest('Expected project path');
+    }
+    const projectName = sanitizeWorkflowName(newName, 'new project name');
+    const renamedProjectPath = validatePath(path.join(path.dirname(currentProjectPath), `${projectName}${PROJECT_EXTENSION}`));
+    if (renamedProjectPath !== currentProjectPath) {
+        try {
+            await fs.access(renamedProjectPath);
+            res.status(409).json({ error: `Project already exists: ${path.basename(renamedProjectPath)}` });
+            return;
+        }
+        catch {
+            // expected
+        }
+    }
+    await fs.rename(currentProjectPath, renamedProjectPath);
+    const currentDatasetPath = currentProjectPath.replace(PROJECT_EXTENSION, '.rivet-data');
+    const renamedDatasetPath = renamedProjectPath.replace(PROJECT_EXTENSION, '.rivet-data');
+    if (await pathExists(currentDatasetPath)) {
+        await fs.rename(currentDatasetPath, renamedDatasetPath);
+    }
+    const currentSettingsPath = getWorkflowProjectSettingsPath(currentProjectPath);
+    const renamedSettingsPath = getWorkflowProjectSettingsPath(renamedProjectPath);
+    if (await pathExists(currentSettingsPath)) {
+        await fs.rename(currentSettingsPath, renamedSettingsPath);
+    }
+    res.json({
+        project: await getWorkflowProject(root, renamedProjectPath),
+        movedProjectPaths: [
+            {
+                fromAbsolutePath: currentProjectPath,
+                toAbsolutePath: renamedProjectPath,
+            },
+        ],
     });
 }));
 workflowsRouter.patch('/projects/settings', asyncHandler(async (req, res) => {

@@ -140,7 +140,7 @@ const styles = css`
           }
 
           .graph {
-            font-size: 12px;
+            font-size: 13px;
             color: var(--grey-light);
             margin-bottom: 4px;
             display: inline;
@@ -156,7 +156,7 @@ const styles = css`
           }
 
           .data {
-            font-size: 12px;
+            font-size: 13px;
             color: var(--grey-light);
             display: inline;
             margin-left: 16px;

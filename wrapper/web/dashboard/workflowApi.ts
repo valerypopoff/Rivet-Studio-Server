@@ -59,6 +59,16 @@ export async function renameWorkflowFolder(relativePath: string, newName: string
   return data.folder;
 }
 
+export async function deleteWorkflowFolder(relativePath: string): Promise<void> {
+  const response = await fetch(`${API}/workflows/folders`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ relativePath }),
+  });
+
+  await parseJsonResponse<{ deleted: true }>(response);
+}
+
 export async function createWorkflowProject(
   folderRelativePath: string,
   name: string,
@@ -71,6 +81,19 @@ export async function createWorkflowProject(
 
   const data = await parseJsonResponse<{ project: WorkflowProjectItem }>(response);
   return data.project;
+}
+
+export async function renameWorkflowProject(
+  relativePath: string,
+  newName: string,
+): Promise<{ project: WorkflowProjectItem; movedProjectPaths: WorkflowMoveResponse['movedProjectPaths'] }> {
+  const response = await fetch(`${API}/workflows/projects`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ relativePath, newName }),
+  });
+
+  return parseJsonResponse<{ project: WorkflowProjectItem; movedProjectPaths: WorkflowMoveResponse['movedProjectPaths'] }>(response);
 }
 
 export async function moveWorkflowItem(

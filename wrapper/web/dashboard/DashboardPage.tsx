@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type FC } from 'react';
 import { ToastContainer } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 import { WorkflowLibraryPanel } from './WorkflowLibraryPanel';
 import { WORKFLOW_DASHBOARD_SIDEBAR_WIDTH } from './constants';
 import type { WorkflowProjectPathMove } from './types';
@@ -18,12 +19,14 @@ type EditorCommand =
 export const DashboardPage: FC = () => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const pendingEditorCommandRef = useRef<EditorCommand | null>(null);
-  const [activeProjectPath, setActiveProjectPath] = useState('');
+  const [selectedProjectPath, setSelectedProjectPath] = useState('');
+  const [openedProjectPath, setOpenedProjectPath] = useState('');
   const [editorReady, setEditorReady] = useState(false);
   const [openProjectCount, setOpenProjectCount] = useState(0);
   const [projectSaveSequence, setProjectSaveSequence] = useState(0);
   const [sidebarWidth, setSidebarWidth] = useState(() => parseInt(WORKFLOW_DASHBOARD_SIDEBAR_WIDTH, 10) || 300);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarResizing, setSidebarResizing] = useState(false);
 
   const postEditorCommand = useCallback(
     (command: EditorCommand) => {
@@ -50,15 +53,21 @@ export const DashboardPage: FC = () => {
   );
 
   const handleOpenProject = useCallback((path: string, options?: { replaceCurrent?: boolean }) => {
+    setSelectedProjectPath(path);
     postEditorCommand({ type: 'open-project', path, replaceCurrent: Boolean(options?.replaceCurrent) });
   }, [postEditorCommand]);
+
+  const handleSelectProject = useCallback((path: string) => {
+    setSelectedProjectPath(path);
+  }, []);
 
   const handleSaveProject = useCallback(() => {
     postEditorCommand({ type: 'save-project' });
   }, [postEditorCommand]);
 
   const handleDeleteProject = useCallback((path: string) => {
-    setActiveProjectPath((prev) => (prev === path ? '' : prev));
+    setSelectedProjectPath((prev) => (prev === path ? '' : prev));
+    setOpenedProjectPath((prev) => (prev === path ? '' : prev));
     postEditorCommand({ type: 'delete-workflow-project', path });
   }, [postEditorCommand]);
 
@@ -68,7 +77,8 @@ export const DashboardPage: FC = () => {
         return;
       }
 
-      setActiveProjectPath((prev) => moves.find((move) => move.fromAbsolutePath === prev)?.toAbsolutePath ?? prev);
+      setSelectedProjectPath((prev) => moves.find((move) => move.fromAbsolutePath === prev)?.toAbsolutePath ?? prev);
+      setOpenedProjectPath((prev) => moves.find((move) => move.fromAbsolutePath === prev)?.toAbsolutePath ?? prev);
       postEditorCommand({ type: 'workflow-paths-moved', moves });
     },
     [postEditorCommand],
@@ -142,6 +152,7 @@ export const DashboardPage: FC = () => {
 
   useEffect(() => {
     if (sidebarCollapsed) {
+      setSidebarResizing(false);
       return;
     }
 
@@ -150,6 +161,7 @@ export const DashboardPage: FC = () => {
     };
 
     const stopResize = () => {
+      setSidebarResizing(false);
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', stopResize);
     };
@@ -161,6 +173,7 @@ export const DashboardPage: FC = () => {
       }
 
       event.preventDefault();
+      setSidebarResizing(true);
       window.addEventListener('mousemove', handleMouseMove);
       window.addEventListener('mouseup', stopResize);
     };
@@ -182,12 +195,14 @@ export const DashboardPage: FC = () => {
       }
 
       if (event.data?.type === 'project-opened' && typeof event.data.path === 'string') {
-        setActiveProjectPath(event.data.path);
+        setOpenedProjectPath(event.data.path);
+        setSelectedProjectPath(event.data.path);
         return;
       }
 
       if (event.data?.type === 'active-project-path-changed' && typeof event.data.path === 'string') {
-        setActiveProjectPath(event.data.path);
+        setOpenedProjectPath(event.data.path);
+        setSelectedProjectPath(event.data.path);
         return;
       }
 
@@ -212,10 +227,12 @@ export const DashboardPage: FC = () => {
         <aside className="dashboard-sidebar">
           <WorkflowLibraryPanel
             onOpenProject={handleOpenProject}
+            onSelectProject={handleSelectProject}
             onSaveProject={handleSaveProject}
             onDeleteProject={handleDeleteProject}
             onWorkflowPathsMoved={handleWorkflowPathsMoved}
-            activeProjectPath={activeProjectPath}
+            selectedProjectPath={selectedProjectPath}
+            openedProjectPath={openedProjectPath}
             editorReady={editorReady}
             projectSaveSequence={projectSaveSequence}
             onCollapse={openProjectCount === 0 ? undefined : () => setSidebarCollapsed(true)}
@@ -226,6 +243,7 @@ export const DashboardPage: FC = () => {
       <main className="dashboard-main">
         {showEditorLoading ? (
           <div className="dashboard-editor-loading">
+            <div className="dashboard-editor-loading-spinner" aria-hidden="true" />
             <div className="dashboard-editor-loading-message">Loading editor... Project open actions will be available in a moment.</div>
           </div>
         ) : null}
@@ -238,15 +256,24 @@ export const DashboardPage: FC = () => {
           ref={iframeRef}
           src="/?editor"
           onLoad={() => setEditorReady(false)}
-          className={`dashboard-editor-frame ${openProjectCount === 0 ? 'dashboard-editor-frame-hidden' : ''}`}
+          className={`dashboard-editor-frame ${openProjectCount === 0 ? 'dashboard-editor-frame-hidden' : ''}${sidebarResizing ? ' dashboard-editor-frame-resizing' : ''}`}
         />
       </main>
+      {sidebarResizing ? <div className="dashboard-resize-overlay" aria-hidden="true" /> : null}
       {sidebarCollapsed && openProjectCount > 0 ? (
         <button type="button" className="dashboard-restore-sidebar-button" onClick={() => setSidebarCollapsed(false)}>
           Show projects
         </button>
       ) : null}
-      <ToastContainer position="bottom-right" hideProgressBar newestOnTop />
+      <ToastContainer
+        position="bottom-center"
+        hideProgressBar
+        newestOnTop
+        closeButton={false}
+        icon={false}
+        toastClassName="dashboard-toast"
+        bodyClassName="dashboard-toast-body"
+      />
     </div>
   );
 };

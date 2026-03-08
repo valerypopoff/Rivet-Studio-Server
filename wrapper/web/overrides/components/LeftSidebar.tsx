@@ -31,7 +31,7 @@ const styles = css`
   }
 
   label {
-    font-size: 12px;
+    font-size: 13px;
   }
 
   .graph-info-section,

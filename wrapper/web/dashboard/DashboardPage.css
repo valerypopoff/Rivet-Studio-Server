@@ -36,6 +36,10 @@
   height: 100vh;
 }
 
+.dashboard-page .dashboard-editor-frame.dashboard-editor-frame-resizing {
+  pointer-events: none;
+}
+
 .dashboard-page .dashboard-editor-frame.dashboard-editor-frame-hidden {
   opacity: 0;
   pointer-events: none;
@@ -75,8 +79,10 @@
   position: absolute;
   inset: 0;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 14px;
   padding: 32px;
   color: var(--grey-lightest);
   text-align: center;
@@ -84,10 +90,36 @@
   z-index: 5;
 }
 
+.dashboard-page .dashboard-editor-loading-spinner {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  border: 3px solid rgba(255, 255, 255, 0.18);
+  border-top-color: var(--grey-lightest);
+  animation: dashboard-editor-spinner 900ms linear infinite;
+}
+
 .dashboard-page .dashboard-editor-loading-message {
   max-width: 420px;
   font-size: 14px;
   line-height: 1.6;
+}
+
+@keyframes dashboard-editor-spinner {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.dashboard-page .dashboard-resize-overlay {
+  position: fixed;
+  inset: 0;
+  cursor: col-resize;
+  z-index: 6000;
 }
 
 .dashboard-page .dashboard-restore-sidebar-button {
@@ -101,8 +133,49 @@
   color: var(--grey-lightest);
   padding: 8px 12px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 600;
+}
+
+.Toastify__toast-container {
+  z-index: 7000;
+}
+
+.Toastify__toast-container--bottom-center {
+  left: 50%;
+  transform: translateX(-50%);
+  width: auto;
+  min-width: 0;
+  padding: 0;
+  bottom: 20px;
+}
+
+.dashboard-toast {
+  min-height: 0;
+  margin: 0;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  background: #1f1f22;
+  color: var(--grey-lightest);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+  padding: 0;
+}
+
+.dashboard-toast-body {
+  margin: 0;
+  padding: 10px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.dashboard-toast-success {
+  border-color: rgba(126, 226, 148, 0.45);
+}
+
+.dashboard-toast-error {
+  border-color: rgba(255, 107, 122, 0.45);
 }
 
 .dashboard-page .dashboard-restore-sidebar-button:hover {

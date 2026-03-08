@@ -1,4 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FC } from 'react';
+import Button, { LoadingButton } from '@atlaskit/button';
+import ModalDialog, { ModalBody, ModalTransition } from '@atlaskit/modal-dialog';
+import TextField from '@atlaskit/textfield';
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FC, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import FolderIcon from 'majesticons/line/folder-line.svg?react';
 import FileIcon from 'majesticons/line/file-line.svg?react';
 import ChevronDownIcon from 'majesticons/line/chevron-down-line.svg?react';
@@ -8,10 +11,12 @@ import { toast } from 'react-toastify';
 import {
   createWorkflowFolder,
   createWorkflowProject,
+  deleteWorkflowFolder,
   deleteWorkflowProject,
   fetchWorkflowTree,
   moveWorkflowItem,
   publishWorkflowProject,
+  renameWorkflowProject,
   renameWorkflowFolder,
   unpublishWorkflowProject,
 } from './workflowApi';
@@ -27,6 +32,7 @@ import './WorkflowLibraryPanel.css';
 const normalizePath = (path: string) => path.replace(/\\/g, '/').replace(/\/+$/, '');
 
 const ROOT_DROP_TARGET = '__root__';
+const PROJECT_FILE_EXTENSION = '.rivet-project';
 
 type DraggedWorkflowItem = {
   itemType: 'folder' | 'project';
@@ -60,10 +66,12 @@ const ENDPOINT_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 interface WorkflowLibraryPanelProps {
   onOpenProject: (path: string, options?: { replaceCurrent?: boolean }) => void;
+  onSelectProject: (path: string) => void;
   onSaveProject: () => void;
   onDeleteProject: (path: string) => void;
   onWorkflowPathsMoved: (moves: WorkflowProjectPathMove[]) => void;
-  activeProjectPath: string;
+  selectedProjectPath: string;
+  openedProjectPath: string;
   editorReady: boolean;
   projectSaveSequence: number;
   onCollapse?: () => void;
@@ -71,10 +79,12 @@ interface WorkflowLibraryPanelProps {
 
 export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   onOpenProject,
+  onSelectProject,
   onSaveProject,
   onDeleteProject,
   onWorkflowPathsMoved,
-  activeProjectPath,
+  selectedProjectPath,
+  openedProjectPath,
   editorReady,
   projectSaveSequence,
   onCollapse,
@@ -92,6 +102,9 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   const [settingsDraft, setSettingsDraft] = useState<WorkflowProjectSettingsDraft>({
     endpointName: '',
   });
+  const [projectNameDraft, setProjectNameDraft] = useState('');
+  const [editingProjectName, setEditingProjectName] = useState(false);
+  const [renamingProject, setRenamingProject] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
   const [deletingProject, setDeletingProject] = useState(false);
 
@@ -127,7 +140,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     void refresh();
   }, [refresh]);
 
-  const activePath = activeProjectPath;
+  const activePath = selectedProjectPath;
 
   const flattenedFolders = useMemo(() => flattenFolders(folders), [folders]);
 
@@ -139,6 +152,8 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     () => allProjects.find((project) => project.absolutePath === activePath) ?? null,
     [activePath, allProjects],
   );
+
+  const isActiveProjectOpen = activeProject != null && activeProject.absolutePath === openedProjectPath;
 
   const normalizedDraftEndpointName = useMemo(
     () => settingsDraft.endpointName.trim().toLowerCase(),
@@ -156,6 +171,53 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
         project.settings.endpointName === normalizedDraftEndpointName,
     ) ?? null;
   }, [activeProject, allProjects, normalizedDraftEndpointName]);
+
+  const normalizedProjectNameDraft = useMemo(() => {
+    const trimmed = projectNameDraft.trim();
+    return trimmed.toLowerCase().endsWith(PROJECT_FILE_EXTENSION)
+      ? trimmed.slice(0, -PROJECT_FILE_EXTENSION.length).trim()
+      : trimmed;
+  }, [projectNameDraft]);
+
+  const duplicateProjectNameInFolder = useMemo(() => {
+    if (!activeProject || !normalizedProjectNameDraft) {
+      return null;
+    }
+
+    const activeParentRelativePath = getParentRelativePath(activeProject.relativePath);
+
+    return allProjects.find((project) => {
+      if (project.absolutePath === activeProject.absolutePath) {
+        return false;
+      }
+
+      return getParentRelativePath(project.relativePath) === activeParentRelativePath && project.name.toLowerCase() === normalizedProjectNameDraft.toLowerCase();
+    }) ?? null;
+  }, [activeProject, allProjects, normalizedProjectNameDraft]);
+
+  const projectNameValidationError = useMemo(() => {
+    if (!editingProjectName) {
+      return null;
+    }
+
+    if (!normalizedProjectNameDraft) {
+      return 'Project name is required.';
+    }
+
+    if (/[\\/]/.test(normalizedProjectNameDraft)) {
+      return 'Project name must not contain path separators.';
+    }
+
+    if (/[<>:"|?*]/.test(normalizedProjectNameDraft)) {
+      return 'Project name contains invalid filesystem characters.';
+    }
+
+    if (duplicateProjectNameInFolder) {
+      return `A project named ${duplicateProjectNameInFolder.fileName} already exists in this folder.`;
+    }
+
+    return null;
+  }, [duplicateProjectNameInFolder, editingProjectName, normalizedProjectNameDraft]);
 
   const endpointValidationError = useMemo(() => {
     if (!normalizedDraftEndpointName) {
@@ -182,27 +244,35 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
         ? 'Publish changes'
         : 'Publish';
 
+  const showSecondaryUnpublishAction = displayedProjectStatus === 'unpublished_changes';
+
   const disablePrimarySettingsAction =
     savingSettings ||
     deletingProject ||
     (displayedProjectStatus !== 'published' && endpointValidationError != null);
 
+  const disableSecondaryUnpublishAction = savingSettings || deletingProject;
+  const disableDeleteProjectAction = savingSettings || deletingProject || displayedProjectStatus !== 'unpublished';
+
   useEffect(() => {
     if (!activeProject) {
       setSettingsModalOpen(false);
+      setEditingProjectName(false);
       return;
     }
 
     setSettingsDraft({ endpointName: activeProject.settings.endpointName });
+    setProjectNameDraft(activeProject.name);
+    setEditingProjectName(false);
   }, [activeProject]);
 
   useEffect(() => {
-    if (projectSaveSequence === 0 || !activeProjectPath) {
+    if (projectSaveSequence === 0 || !openedProjectPath) {
       return;
     }
 
     void refresh(false);
-  }, [activeProjectPath, projectSaveSequence, refresh]);
+  }, [openedProjectPath, projectSaveSequence, refresh]);
 
   const activeAncestorFolderIds = useMemo(() => {
     if (!activePath) {
@@ -313,6 +383,62 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     }
   };
 
+  const handleProjectNameDraftChange = (event: ChangeEvent<HTMLInputElement>) => {
+    setProjectNameDraft(event.target.value);
+  };
+
+  const handleStartProjectRename = () => {
+    if (!activeProject || savingSettings || deletingProject || renamingProject) {
+      return;
+    }
+
+    setProjectNameDraft(activeProject.name);
+    setEditingProjectName(true);
+  };
+
+  const handleCommitProjectRename = async () => {
+    if (!activeProject) {
+      return;
+    }
+
+    const normalizedName = normalizedProjectNameDraft;
+    if (!normalizedName) {
+      return;
+    }
+
+    if (projectNameValidationError) {
+      return;
+    }
+
+    if (normalizedName === activeProject.name) {
+      setEditingProjectName(false);
+      setProjectNameDraft(activeProject.name);
+      return;
+    }
+
+    setRenamingProject(true);
+
+    try {
+      const result = await renameWorkflowProject(activeProject.relativePath, normalizedName);
+      if (result.movedProjectPaths.length > 0) {
+        onWorkflowPathsMoved(result.movedProjectPaths);
+      }
+      await refresh(false);
+      setEditingProjectName(false);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to rename project');
+    } finally {
+      setRenamingProject(false);
+    }
+  };
+
+  const handleProjectNameKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      void handleCommitProjectRename();
+    }
+  };
+
   const handleDragStart = (item: DraggedWorkflowItem) => (event: React.DragEvent<HTMLElement>) => {
     event.dataTransfer.effectAllowed = 'move';
     event.dataTransfer.setData('text/plain', item.relativePath);
@@ -363,7 +489,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
       ref={(node) => {
         projectRowRefs.current[project.absolutePath] = node;
       }}
-      className={`project-row${activePath === project.absolutePath ? ' active' : ''}${draggedItem?.itemType === 'project' && draggedItem.absolutePath === project.absolutePath ? ' dragging' : ''}`}
+      className={`project-row project-row-status-${project.settings.status}${activePath === project.absolutePath ? ' active' : ''}${draggedItem?.itemType === 'project' && draggedItem.absolutePath === project.absolutePath ? ' dragging' : ''}`}
       draggable={editorReady}
       disabled={!editorReady}
       onDragStart={handleDragStart({
@@ -373,12 +499,12 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
         parentRelativePath: getParentRelativePath(project.relativePath),
       })}
       onDragEnd={handleDragEnd}
-      onClick={() => onOpenProject(project.absolutePath)}
-      onDoubleClick={() => onOpenProject(project.absolutePath, { replaceCurrent: true })}
+      onClick={() => onSelectProject(project.absolutePath)}
+      onDoubleClick={() => onOpenProject(project.absolutePath)}
       title={editorReady ? project.fileName : 'Loading editor...'}
     >
       <div className="project-main">
-        <FileIcon />
+        {project.settings.status === 'unpublished' ? <FileIcon /> : <span className={`project-status-dot ${project.settings.status}`} aria-hidden="true" />}
         <div className="label">{project.name}</div>
       </div>
     </button>
@@ -429,6 +555,20 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     }
   };
 
+  const handleDeleteFolder = async (folder: WorkflowFolderItem) => {
+    const shouldDelete = window.confirm(`Delete empty folder "${folder.name}"?`);
+    if (!shouldDelete) {
+      return;
+    }
+
+    try {
+      await deleteWorkflowFolder(folder.relativePath);
+      await refresh();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to delete folder');
+    }
+  };
+
   const handleSettingsDraftChange =
     <K extends keyof WorkflowProjectSettingsDraft>(key: K) =>
     (event: ChangeEvent<HTMLInputElement>) => {
@@ -445,15 +585,49 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     }
 
     setSettingsDraft({ endpointName: activeProject.settings.endpointName });
+    setProjectNameDraft(activeProject.name);
+    setEditingProjectName(false);
     setSettingsModalOpen(true);
   };
 
-  const handlePrimarySettingsAction = async () => {
+  const closeSettingsModal = () => {
+    if (!savingSettings && !deletingProject) {
+      setSettingsModalOpen(false);
+    }
+  };
+
+  const handleCopyEndpointName = async () => {
+    const endpointName = settingsDraft.endpointName.trim();
+    if (!endpointName) {
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(endpointName);
+      toast.success('Endpoint copied', {
+        toastId: 'workflow-endpoint-copy-success',
+        className: 'dashboard-toast dashboard-toast-success',
+        bodyClassName: 'dashboard-toast-body',
+        position: 'bottom-center',
+      });
+    } catch {
+      toast.error('Could not copy endpoint', {
+        toastId: 'workflow-endpoint-copy-error',
+        className: 'dashboard-toast dashboard-toast-error',
+        bodyClassName: 'dashboard-toast-body',
+        position: 'bottom-center',
+      });
+    }
+  };
+
+  const handlePrimarySettingsAction = async (action: 'primary' | 'unpublish' = 'primary') => {
     if (!activeProject) {
       return;
     }
 
-    if (displayedProjectStatus === 'published') {
+    const shouldUnpublish = displayedProjectStatus === 'published' || action === 'unpublish';
+
+    if (shouldUnpublish) {
       const shouldUnpublish = window.confirm(`Unpublish project "${activeProject.fileName}"?`);
       if (!shouldUnpublish) {
         return;
@@ -463,7 +637,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     setSavingSettings(true);
 
     try {
-      if (displayedProjectStatus === 'published') {
+      if (shouldUnpublish) {
         await unpublishWorkflowProject(activeProject.relativePath);
       } else {
         await publishWorkflowProject(activeProject.relativePath, {
@@ -483,6 +657,10 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
       return;
     }
 
+    if (displayedProjectStatus !== 'unpublished') {
+      return;
+    }
+
     const shouldDelete = window.confirm(`Delete project "${activeProject.name}"? This cannot be undone.`);
     if (!shouldDelete) {
       return;
@@ -491,9 +669,6 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     setDeletingProject(true);
 
     try {
-      if (displayedProjectStatus !== 'unpublished') {
-        await unpublishWorkflowProject(activeProject.relativePath);
-      }
       await deleteWorkflowProject(activeProject.relativePath);
       onDeleteProject(activeProject.absolutePath);
       setSettingsModalOpen(false);
@@ -566,7 +741,14 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
         {expanded ? (
           <div className="projects">
             {(folder.folders ?? []).map((childFolder) => renderFolder(childFolder))}
-            {(folder.folders ?? []).length === 0 && folder.projects.length === 0 ? <div className="state">No Rivet projects in this folder.</div> : null}
+            {(folder.folders ?? []).length === 0 && folder.projects.length === 0 ? (
+              <div className="state folder-empty-state">
+                <span>No Rivet projects in this folder.</span>
+                <button type="button" className="state-action" onClick={() => void handleDeleteFolder(folder)}>
+                  Delete
+                </button>
+              </div>
+            ) : null}
             {folder.projects.map((project) => renderProjectRow(project))}
           </div>
         ) : null}
@@ -596,15 +778,16 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
         <div className="header-title">Projects</div>
         <div className="header-actions">
           {onCollapse ? (
-            <button
-              type="button"
-              className="icon-button"
+            <Button
+              appearance="subtle"
+              spacing="compact"
+              className="icon-button collapse-button"
               onClick={onCollapse}
               title="Collapse folders pane"
               aria-label="Collapse folders pane"
             >
               <ExpandLeftIcon />
-            </button>
+            </Button>
           ) : null}
         </div>
       </div>
@@ -613,7 +796,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
         <div className="active-project-section">
           <div className="active-project-section-content">
             <div className="active-project-details">
-              <div className="active-project-label">Active project</div>
+              <div className="active-project-label">Selected project</div>
               <div className="active-project-name" title={activeProject.fileName}>
                 {activeProject.fileName}
               </div>
@@ -625,19 +808,31 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
             </div>
 
             <div className="active-project-actions">
-              <button
-                type="button"
+              <LoadingButton
+                appearance="primary"
                 className="active-project-save-button"
-                disabled={!editorReady}
-                onClick={onSaveProject}
-                title={editorReady ? 'Save current project' : 'Loading editor...'}
-                aria-label={editorReady ? 'Save current project' : 'Loading editor'}
+                isDisabled={!editorReady}
+                onClick={isActiveProjectOpen ? onSaveProject : () => onOpenProject(activeProject.absolutePath)}
+                title={
+                  !editorReady
+                    ? 'Loading editor...'
+                    : isActiveProjectOpen
+                      ? 'Save current project'
+                      : 'Open selected project in editor'
+                }
+                aria-label={
+                  !editorReady
+                    ? 'Loading editor'
+                    : isActiveProjectOpen
+                      ? 'Save current project'
+                      : 'Open selected project in editor'
+                }
               >
-                Save
-              </button>
-              <button type="button" className="active-project-more-button" onClick={handleOpenSettings}>
-                More
-              </button>
+                {isActiveProjectOpen ? 'Save' : 'Edit'}
+              </LoadingButton>
+              <Button appearance="subtle" className="active-project-more-button" onClick={handleOpenSettings}>
+                Settings
+              </Button>
             </div>
           </div>
         </div>
@@ -655,80 +850,143 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
         onDrop={(event) => void handleRootDrop(event)}
       >
         <div className="body-actions">
-          <button type="button" className="link-button" onClick={() => void handleCreateFolder()}>
+          <Button appearance="subtle-link" spacing="compact" className="link-button" onClick={() => void handleCreateFolder()}>
             + New folder
-          </button>
+          </Button>
           {!editorReady ? <div className="body-status">Loading editor...</div> : null}
         </div>
         {bodyContent}
       </div>
 
-      {settingsModalOpen && activeProject ? (
-        <div className="project-settings-modal-backdrop" onClick={() => !savingSettings && !deletingProject && setSettingsModalOpen(false)}>
-          <div className="project-settings-modal" onClick={(event) => event.stopPropagation()}>
-            <div className="project-settings-modal-header">
-              <div className="project-settings-modal-heading">
-                <div className="project-settings-modal-title" title={activeProject.fileName}>{activeProject.fileName}</div>
-                <div className="active-project-status-row">
-                  <span className={`project-status-badge ${displayedProjectStatus}`}>
-                    {STATUS_LABELS[displayedProjectStatus]}
-                  </span>
+      <ModalTransition>
+        {settingsModalOpen && activeProject ? (
+          <ModalDialog
+            testId="workflow-project-settings-modal"
+            width="medium"
+            label={activeProject.fileName}
+            onClose={closeSettingsModal}
+            shouldCloseOnOverlayClick={!savingSettings && !deletingProject}
+            shouldCloseOnEscapePress={!savingSettings && !deletingProject}
+          >
+            <ModalBody>
+              <div className="project-settings-modal-shell">
+                <div className="project-settings-modal-header-row">
+                  <div className="project-settings-modal-heading">
+                    {editingProjectName ? (
+                      <div className="project-settings-title-field">
+                        <TextField
+                          className="project-settings-title-input"
+                          value={projectNameDraft}
+                          onChange={handleProjectNameDraftChange}
+                          onBlur={() => void handleCommitProjectRename()}
+                          onKeyDown={handleProjectNameKeyDown}
+                          isInvalid={projectNameValidationError != null}
+                          isDisabled={renamingProject || savingSettings || deletingProject}
+                          autoFocus
+                          spellCheck={false}
+                        />
+                        {projectNameValidationError ? <div className="project-settings-error">{projectNameValidationError}</div> : null}
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        className="project-settings-title-button"
+                        onClick={handleStartProjectRename}
+                        disabled={renamingProject || savingSettings || deletingProject}
+                        title={activeProject.fileName}
+                      >
+                        <span className="project-settings-modal-title">{activeProject.fileName}</span>
+                      </button>
+                    )}
+                    <div className="active-project-status-row">
+                      <span className={`project-status-badge ${displayedProjectStatus}`}>
+                        {STATUS_LABELS[displayedProjectStatus]}
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="project-settings-close-button"
+                    onClick={closeSettingsModal}
+                    disabled={savingSettings || deletingProject}
+                    aria-label="Close project settings"
+                  >
+                    ×
+                  </button>
+                </div>
+
+                <div className="project-settings-modal-content">
+                  <div className="project-settings-field">
+                    <label className="project-settings-label" htmlFor="workflow-project-endpoint-name">
+                      Endpoint name
+                    </label>
+                    <div className="project-settings-input-row">
+                      <TextField
+                        id="workflow-project-endpoint-name"
+                        className="project-settings-input"
+                        value={settingsDraft.endpointName}
+                        onChange={handleSettingsDraftChange('endpointName')}
+                        isDisabled={savingSettings || deletingProject || displayedProjectStatus !== 'unpublished'}
+                        isInvalid={displayedProjectStatus === 'unpublished' && endpointValidationError != null}
+                        isCompact
+                        spellCheck={false}
+                      />
+                      {displayedProjectStatus === 'published' ? (
+                        <Button
+                          appearance="subtle"
+                          spacing="compact"
+                          className="project-settings-copy-button"
+                          onClick={() => void handleCopyEndpointName()}
+                          isDisabled={savingSettings || deletingProject || settingsDraft.endpointName.trim().length === 0}
+                        >
+                          Copy
+                        </Button>
+                      ) : null}
+                    </div>
+                    {displayedProjectStatus !== 'unpublished' ? (
+                      <div className="project-settings-help">Unpublish the project to change its endpoint.</div>
+                    ) : null}
+                    {endpointValidationError ? <div className="project-settings-error">{endpointValidationError}</div> : null}
+                  </div>
+
+                  <div className="project-settings-actions">
+                    <Button
+                      appearance="subtle"
+                      className="project-settings-delete-button"
+                      onClick={() => void handleDeleteActiveProject()}
+                      isDisabled={disableDeleteProjectAction}
+                      title={displayedProjectStatus !== 'unpublished' ? 'Unpublish the project before deleting it' : undefined}
+                    >
+                      {deletingProject ? 'Deleting...' : 'Delete project'}
+                    </Button>
+                    <div className="project-settings-action-group">
+                      {showSecondaryUnpublishAction ? (
+                        <Button
+                          appearance="subtle"
+                          className="project-settings-secondary-button"
+                          onClick={() => void handlePrimarySettingsAction('unpublish')}
+                          isDisabled={disableSecondaryUnpublishAction}
+                        >
+                          Unpublish
+                        </Button>
+                      ) : null}
+                      <LoadingButton
+                        appearance={displayedProjectStatus === 'published' ? 'subtle' : 'primary'}
+                        className={`project-settings-primary-button${displayedProjectStatus === 'published' ? ' unpublish' : ''}`}
+                        onClick={() => void handlePrimarySettingsAction('primary')}
+                        isDisabled={disablePrimarySettingsAction}
+                        isLoading={savingSettings}
+                      >
+                        {primarySettingsActionLabel}
+                      </LoadingButton>
+                    </div>
+                  </div>
                 </div>
               </div>
-              <button
-                type="button"
-                className="icon-button"
-                onClick={() => setSettingsModalOpen(false)}
-                disabled={savingSettings || deletingProject}
-                aria-label="Close project settings"
-              >
-                ×
-              </button>
-            </div>
-
-            <div className="project-settings-field">
-              <label className="project-settings-label" htmlFor="workflow-project-endpoint-name">
-                Endpoint name
-              </label>
-              <input
-                id="workflow-project-endpoint-name"
-                className="project-settings-input"
-                type="text"
-                value={settingsDraft.endpointName}
-                onChange={handleSettingsDraftChange('endpointName')}
-                disabled={savingSettings || deletingProject || displayedProjectStatus !== 'unpublished'}
-                spellCheck={false}
-              />
-              <div className="project-settings-help">Must be URL-compatible so `host/workflows/[endpoint name]` is a valid path.</div>
-              {displayedProjectStatus !== 'unpublished' ? (
-                <div className="project-settings-help">Unpublish the project to change its endpoint.</div>
-              ) : null}
-              {endpointValidationError ? <div className="project-settings-error">{endpointValidationError}</div> : null}
-            </div>
-
-            <div className="project-settings-actions">
-              <button
-                type="button"
-                className="project-settings-delete-button"
-                onClick={() => void handleDeleteActiveProject()}
-                disabled={savingSettings || deletingProject}
-              >
-                {deletingProject ? 'Deleting...' : 'Delete project'}
-              </button>
-              <div className="project-settings-action-group">
-                <button
-                  type="button"
-                  className={`project-settings-primary-button${displayedProjectStatus === 'published' ? ' unpublish' : ''}`}
-                  onClick={() => void handlePrimarySettingsAction()}
-                  disabled={disablePrimarySettingsAction}
-                >
-                  {savingSettings ? 'Working...' : primarySettingsActionLabel}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
+            </ModalBody>
+          </ModalDialog>
+        ) : null}
+      </ModalTransition>
     </div>
   );
 };
