@@ -194,6 +194,9 @@ Current workflow-dashboard model:
 - when the active editor tab is a file-backed workflow project, the wrapper `Save` action saves that exact project path, and the dashboard also maps `Ctrl+S` / `Cmd+S` to that same save behavior
 - when no editor tabs are open, or when the active tab is not a path-backed workflow project, the wrapper `Save` button is hidden
 - normal workflow-pane actions stay quiet on success and only surface toast notifications for actual failures
+- workflow projects and folders in the `Projects` pane can be dragged between folders or back to the root, and folder moves are applied on disk rather than being a UI-only reordering
+- nested workflow folders are supported in the dashboard tree, so dragging a folder into another folder creates the same nested structure on disk
+- when an already-open workflow project is moved through the pane, the dashboard updates the editor's tracked file path so subsequent `Save` / `Ctrl+S` / `Cmd+S` actions continue writing to the new location without reopening the project
 
 This keeps the dashboard as a thin management layer around the upstream editor rather than turning the wrapper into a forked application.
 
@@ -209,7 +212,7 @@ Current runtime expectation:
 - Docker Compose mounts a host-backed `workflows/` directory into the API container at `/workflows`
 - when using root `npm run dev`, `RIVET_WORKFLOWS_HOST_PATH` from the repo-root `.env.dev` is resolved relative to the repo root before Docker Compose is started
 - API security allows workflow-library operations only inside that validated workflow root
-- workflow create/rename/list actions are exposed through `wrapper/api/src/routes/workflows.ts`
+- workflow create/rename/list/move actions are exposed through `wrapper/api/src/routes/workflows.ts`
 - hosted `Save As` now defaults to `/workflows/...` so dashboard-created and manually-saved hosted projects converge on the same library root
 
 Example supported workflow-root setup:

@@ -3,12 +3,14 @@ import { useOpenWorkflowProject } from './useOpenWorkflowProject';
 import { getError } from '@ironclad/rivet-core';
 import { toast } from 'react-toastify';
 import { useSaveProject } from '../../../rivet/packages/app/src/hooks/useSaveProject';
-import { useAtomValue } from 'jotai';
+import { useAtom, useAtomValue } from 'jotai';
 import {
+  loadedProjectState,
   openedProjectsSortedIdsState,
   openedProjectsState,
   projectState,
 } from '../../../rivet/packages/app/src/state/savedGraphs';
+import type { WorkflowProjectPathMove } from './types';
 
 const isWindowsPlatform = typeof navigator !== 'undefined' && navigator.userAgent.includes('Win64');
 
@@ -16,7 +18,8 @@ export const EditorMessageBridge: FC = () => {
   const openProject = useOpenWorkflowProject();
   const { saveProject } = useSaveProject();
   const openedProjectIds = useAtomValue(openedProjectsSortedIdsState);
-  const openedProjects = useAtomValue(openedProjectsState);
+  const [openedProjects, setOpenedProjects] = useAtom(openedProjectsState);
+  const [loadedProject, setLoadedProject] = useAtom(loadedProjectState);
   const currentProject = useAtomValue(projectState);
   const openProjectRef = useRef(openProject);
   const saveProjectRef = useRef(saveProject);
@@ -55,6 +58,41 @@ export const EditorMessageBridge: FC = () => {
         return;
       }
 
+      if (event.data?.type === 'workflow-paths-moved' && Array.isArray(event.data.moves)) {
+        const moves = event.data.moves.filter(
+          (move: WorkflowProjectPathMove) =>
+            move && typeof move.fromAbsolutePath === 'string' && typeof move.toAbsolutePath === 'string',
+        );
+
+        if (moves.length === 0) {
+          return;
+        }
+
+        const moveMap = new Map(moves.map((move) => [move.fromAbsolutePath, move.toAbsolutePath]));
+        const nextOpenedProjects = Object.fromEntries(
+          Object.entries(openedProjects).map(([projectId, projectInfo]) => [
+            projectId,
+            projectInfo.fsPath && moveMap.has(projectInfo.fsPath)
+              ? {
+                  ...projectInfo,
+                  fsPath: moveMap.get(projectInfo.fsPath)!,
+                }
+              : projectInfo,
+          ]),
+        );
+
+        setOpenedProjects(nextOpenedProjects);
+
+        if (loadedProject.path && moveMap.has(loadedProject.path)) {
+          setLoadedProject({
+            ...loadedProject,
+            path: moveMap.get(loadedProject.path)!,
+          });
+        }
+
+        return;
+      }
+
       if (event.data?.type !== 'open-project' || typeof event.data.path !== 'string') return;
 
       try {
@@ -70,7 +108,7 @@ export const EditorMessageBridge: FC = () => {
 
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
-  }, []);
+  }, [loadedProject, openedProjects, setLoadedProject, setOpenedProjects]);
 
   useEffect(() => {
     const activeProjectInfo = openedProjects[currentProject.metadata.id];

@@ -5,10 +5,31 @@ import ChevronDownIcon from 'majesticons/line/chevron-down-line.svg?react';
 import ChevronRightIcon from 'majesticons/line/chevron-right-line.svg?react';
 import ExpandLeftIcon from 'majesticons/line/menu-expand-left-line.svg?react';
 import { toast } from 'react-toastify';
-import { createWorkflowFolder, createWorkflowProject, fetchWorkflowTree, renameWorkflowFolder } from './workflowApi';
-import type { WorkflowFolderItem, WorkflowProjectItem } from './types';
+import { createWorkflowFolder, createWorkflowProject, fetchWorkflowTree, moveWorkflowItem, renameWorkflowFolder } from './workflowApi';
+import type { WorkflowFolderItem, WorkflowProjectItem, WorkflowProjectPathMove } from './types';
 
 const normalizePath = (path: string) => path.replace(/\\/g, '/').replace(/\/+$/, '');
+
+const ROOT_DROP_TARGET = '__root__';
+
+type DraggedWorkflowItem = {
+  itemType: 'folder' | 'project';
+  absolutePath: string;
+  relativePath: string;
+  parentRelativePath: string;
+};
+
+const flattenFolders = (items: WorkflowFolderItem[]): WorkflowFolderItem[] =>
+  items.flatMap((folder) => [folder, ...flattenFolders(folder.folders ?? [])]);
+
+const collectFolderIds = (items: WorkflowFolderItem[]): string[] =>
+  items.flatMap((folder) => [folder.id, ...collectFolderIds(folder.folders ?? [])]);
+
+const getParentRelativePath = (relativePath: string) => {
+  const normalized = relativePath.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+  const lastSlashIndex = normalized.lastIndexOf('/');
+  return lastSlashIndex === -1 ? '' : normalized.slice(0, lastSlashIndex);
+};
 
 const styles = `
   .workflow-library-panel {
@@ -143,6 +164,16 @@ const styles = `
     background: rgba(255, 255, 255, 0.08);
   }
 
+  .workflow-library-panel .body.drag-over-root,
+  .workflow-library-panel .folder-row.drag-over {
+    background: rgba(255, 255, 255, 0.12);
+  }
+
+  .workflow-library-panel .folder-row.dragging,
+  .workflow-library-panel .project-row.dragging {
+    opacity: 0.6;
+  }
+
   .workflow-library-panel .folder-toggle {
     border: none;
     background: transparent;
@@ -230,6 +261,7 @@ const styles = `
 interface WorkflowLibraryPanelProps {
   onOpenProject: (path: string, options?: { replaceCurrent?: boolean }) => void;
   onSaveProject: () => void;
+  onWorkflowPathsMoved: (moves: WorkflowProjectPathMove[]) => void;
   activeProjectPath: string;
   editorReady: boolean;
   onCollapse?: () => void;
@@ -238,6 +270,7 @@ interface WorkflowLibraryPanelProps {
 export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   onOpenProject,
   onSaveProject,
+  onWorkflowPathsMoved,
   activeProjectPath,
   editorReady,
   onCollapse,
@@ -247,8 +280,10 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
-  const bodyRef = useRef<HTMLDivElement | null>(null);
   const projectRowRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const [draggedItem, setDraggedItem] = useState<DraggedWorkflowItem | null>(null);
+  const [dropTargetFolderPath, setDropTargetFolderPath] = useState<string | null>(null);
+  const [dragOverRoot, setDragOverRoot] = useState(false);
 
   const refresh = async () => {
     setLoading(true);
@@ -260,9 +295,9 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
       setRootProjects(tree.projects);
       setExpandedFolders((prev) => {
         const next = { ...prev };
-        for (const folder of tree.folders) {
-          if (next[folder.id] == null) {
-            next[folder.id] = true;
+        for (const folderId of collectFolderIds(tree.folders)) {
+          if (next[folderId] == null) {
+            next[folderId] = true;
           }
         }
         return next;
@@ -280,7 +315,9 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
 
   const activePath = activeProjectPath;
 
-  const folderIds = useMemo(() => folders.map((folder) => folder.id), [folders]);
+  const flattenedFolders = useMemo(() => flattenFolders(folders), [folders]);
+
+  const folderIds = useMemo(() => flattenedFolders.map((folder) => folder.id), [flattenedFolders]);
 
   const activeAncestorFolderIds = useMemo(() => {
     if (!activePath) {
@@ -289,14 +326,14 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
 
     const normalizedActivePath = normalizePath(activePath);
 
-    return folders
+    return flattenedFolders
       .filter((folder) => {
         const normalizedFolderPath = normalizePath(folder.absolutePath);
         return normalizedActivePath === normalizedFolderPath || normalizedActivePath.startsWith(`${normalizedFolderPath}/`);
       })
       .sort((left, right) => left.absolutePath.length - right.absolutePath.length)
       .map((folder) => folder.id);
-  }, [activePath, folders]);
+  }, [activePath, flattenedFolders]);
 
   useEffect(() => {
     if (activeAncestorFolderIds.length === 0) {
@@ -337,14 +374,123 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     };
   }, [activePath, expandedFolders, loading]);
 
-  const renderProjectRow = (project: WorkflowProjectItem, indentClassName = '') => (
+  const canDropIntoFolder = (item: DraggedWorkflowItem | null, destinationFolderRelativePath: string) => {
+    if (!item) {
+      return false;
+    }
+
+    if (item.parentRelativePath === destinationFolderRelativePath) {
+      return false;
+    }
+
+    if (item.itemType === 'folder') {
+      return !(
+        item.relativePath === destinationFolderRelativePath ||
+        destinationFolderRelativePath.startsWith(`${item.relativePath}/`)
+      );
+    }
+
+    return true;
+  };
+
+  const resetDragState = () => {
+    setDraggedItem(null);
+    setDropTargetFolderPath(null);
+    setDragOverRoot(false);
+  };
+
+  const handleMoveDraggedItem = async (destinationFolderRelativePath: string) => {
+    if (!canDropIntoFolder(draggedItem, destinationFolderRelativePath) || !draggedItem) {
+      return;
+    }
+
+    try {
+      const result = await moveWorkflowItem(
+        draggedItem.itemType,
+        draggedItem.relativePath,
+        destinationFolderRelativePath,
+      );
+
+      if (destinationFolderRelativePath) {
+        setExpandedFolders((prev) => ({ ...prev, [destinationFolderRelativePath]: true }));
+      }
+
+      if (result.folder) {
+        setExpandedFolders((prev) => ({ ...prev, [result.folder!.id]: true }));
+      }
+
+      if (result.movedProjectPaths.length > 0) {
+        onWorkflowPathsMoved(result.movedProjectPaths);
+      }
+
+      await refresh();
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to move workflow item');
+    } finally {
+      resetDragState();
+    }
+  };
+
+  const handleDragStart = (item: DraggedWorkflowItem) => (event: React.DragEvent<HTMLElement>) => {
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', item.relativePath);
+    setDraggedItem(item);
+  };
+
+  const handleDragEnd = () => {
+    resetDragState();
+  };
+
+  const handleFolderDragOver = (folder: WorkflowFolderItem) => (event: React.DragEvent<HTMLElement>) => {
+    if (!canDropIntoFolder(draggedItem, folder.relativePath)) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = 'move';
+    setDropTargetFolderPath(folder.relativePath);
+    setDragOverRoot(false);
+  };
+
+  const handleFolderDrop = (folder: WorkflowFolderItem) => async (event: React.DragEvent<HTMLElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    await handleMoveDraggedItem(folder.relativePath);
+  };
+
+  const handleRootDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+    if (!canDropIntoFolder(draggedItem, '')) {
+      return;
+    }
+
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    setDropTargetFolderPath(ROOT_DROP_TARGET);
+    setDragOverRoot(true);
+  };
+
+  const handleRootDrop = async (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    await handleMoveDraggedItem('');
+  };
+
+  const renderProjectRow = (project: WorkflowProjectItem) => (
     <button
       key={project.id}
       ref={(node) => {
         projectRowRefs.current[project.absolutePath] = node;
       }}
-      className={`project-row${indentClassName ? ` ${indentClassName}` : ''}${activePath === project.absolutePath ? ' active' : ''}`}
+      className={`project-row${activePath === project.absolutePath ? ' active' : ''}${draggedItem?.itemType === 'project' && draggedItem.absolutePath === project.absolutePath ? ' dragging' : ''}`}
+      draggable={editorReady}
       disabled={!editorReady}
+      onDragStart={handleDragStart({
+        itemType: 'project',
+        absolutePath: project.absolutePath,
+        relativePath: project.relativePath,
+        parentRelativePath: getParentRelativePath(project.relativePath),
+      })}
+      onDragEnd={handleDragEnd}
       onClick={() => void handleOpenProject(project.absolutePath)}
       onDoubleClick={() => void handleSwitchProject(project.absolutePath)}
       title={editorReady ? project.fileName : 'Loading editor...'}
@@ -386,7 +532,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   };
 
   const handleAddProject = async (folder: WorkflowFolderItem) => {
-    const name = prompt(`New Rivet project name for ${folder.name}:`);
+    const name = prompt(`New Rivet project name in folder "${folder.name}":`);
     if (!name) {
       return;
     }
@@ -407,6 +553,75 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
 
   const handleSwitchProject = (absolutePath: string) => {
     onOpenProject(absolutePath, { replaceCurrent: true });
+  };
+
+  const renderFolder = (folder: WorkflowFolderItem): JSX.Element => {
+    const expanded = expandedFolders[folder.id] ?? true;
+
+    return (
+      <div className="folder" key={folder.id}>
+        <div
+          className={`folder-row${dropTargetFolderPath === folder.relativePath ? ' drag-over' : ''}${draggedItem?.itemType === 'folder' && draggedItem.absolutePath === folder.absolutePath ? ' dragging' : ''}`}
+          draggable={editorReady}
+          onDragStart={handleDragStart({
+            itemType: 'folder',
+            absolutePath: folder.absolutePath,
+            relativePath: folder.relativePath,
+            parentRelativePath: getParentRelativePath(folder.relativePath),
+          })}
+          onDragEnd={handleDragEnd}
+          onDragOver={handleFolderDragOver(folder)}
+          onDragLeave={() => {
+            if (dropTargetFolderPath === folder.relativePath) {
+              setDropTargetFolderPath(null);
+            }
+          }}
+          onDrop={(event) => void handleFolderDrop(folder)(event)}
+        >
+          <button
+            type="button"
+            className="folder-toggle"
+            onClick={() => setExpandedFolders((prev) => ({ ...prev, [folder.id]: !expanded }))}
+            title={folder.name}
+            aria-label={expanded ? `Collapse ${folder.name}` : `Expand ${folder.name}`}
+          >
+            {expanded ? <ChevronDownIcon /> : <ChevronRightIcon />}
+          </button>
+          <div className="folder-content">
+            <button
+              type="button"
+              className="folder-name-button"
+              onDoubleClick={() => void handleRenameFolder(folder)}
+              title={folder.name}
+            >
+              <div className="folder-main">
+                <FolderIcon />
+                <div className="label">{folder.name}</div>
+              </div>
+            </button>
+          </div>
+          <div className="folder-actions">
+            <button
+              type="button"
+              className="icon-button"
+              onClick={() => void handleAddProject(folder)}
+              title={`Create project in ${folder.name}`}
+              aria-label={`Create project in ${folder.name}`}
+            >
+              +
+            </button>
+          </div>
+        </div>
+
+        {expanded ? (
+          <div className="projects">
+            {(folder.folders ?? []).map((childFolder) => renderFolder(childFolder))}
+            {(folder.folders ?? []).length === 0 && folder.projects.length === 0 ? <div className="state">No Rivet projects in this folder.</div> : null}
+            {folder.projects.map((project) => renderProjectRow(project))}
+          </div>
+        ) : null}
+      </div>
+    );
   };
 
   return (
@@ -441,7 +656,17 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
         </div>
       </div>
 
-      <div className="body" ref={bodyRef}>
+      <div
+        className={`body${dragOverRoot ? ' drag-over-root' : ''}`}
+        onDragOver={handleRootDragOver}
+        onDragLeave={() => {
+          setDragOverRoot(false);
+          if (dropTargetFolderPath === ROOT_DROP_TARGET) {
+            setDropTargetFolderPath(null);
+          }
+        }}
+        onDrop={(event) => void handleRootDrop(event)}
+      >
         <div className="body-actions">
           <button type="button" className="link-button" onClick={() => void handleCreateFolder()}>
             + New folder
@@ -456,61 +681,8 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
 
         {!loading && !error && rootProjects.length > 0 ? <div className="projects">{rootProjects.map((project) => renderProjectRow(project))}</div> : null}
 
-        {!loading && !error
-          ? folders.map((folder) => {
-              const expanded = expandedFolders[folder.id] ?? true;
-
-              return (
-                <div className="folder" key={folder.id}>
-                  <div
-                    className="folder-row"
-                  >
-                    <button
-                      type="button"
-                      className="folder-toggle"
-                      onClick={() => setExpandedFolders((prev) => ({ ...prev, [folder.id]: !expanded }))}
-                      title={folder.name}
-                      aria-label={expanded ? `Collapse ${folder.name}` : `Expand ${folder.name}`}
-                    >
-                      {expanded ? <ChevronDownIcon /> : <ChevronRightIcon />}
-                    </button>
-                    <div className="folder-content">
-                      <button
-                        type="button"
-                        className="folder-name-button"
-                        onDoubleClick={() => void handleRenameFolder(folder)}
-                        title={folder.name}
-                      >
-                        <div className="folder-main">
-                          <FolderIcon />
-                          <div className="label">{folder.name}</div>
-                        </div>
-                      </button>
-                    </div>
-                    <div className="folder-actions">
-                      <button
-                        type="button"
-                        className="icon-button"
-                        onClick={() => void handleAddProject(folder)}
-                        title={`Create project in ${folder.name}`}
-                        aria-label={`Create project in ${folder.name}`}
-                      >
-                        +
-                      </button>
-                    </div>
-                  </div>
-
-                  {expanded ? (
-                    <div className="projects">
-                      {folder.projects.length === 0 ? <div className="state">No Rivet projects in this folder.</div> : null}
-                      {folder.projects.map((project) => renderProjectRow(project))}
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })
-          : null}
+        {!loading && !error ? folders.map((folder) => renderFolder(folder)) : null}
       </div>
     </div>
   );
-};
+ };

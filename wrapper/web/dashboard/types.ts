@@ -13,7 +13,19 @@ export type WorkflowFolderItem = {
   relativePath: string;
   absolutePath: string;
   updatedAt: string;
+  folders: WorkflowFolderItem[];
   projects: WorkflowProjectItem[];
+};
+
+export type WorkflowProjectPathMove = {
+  fromAbsolutePath: string;
+  toAbsolutePath: string;
+};
+
+export type WorkflowMoveResponse = {
+  folder?: WorkflowFolderItem;
+  project?: WorkflowProjectItem;
+  movedProjectPaths: WorkflowProjectPathMove[];
 };
 
 export type WorkflowTreeResponse = {

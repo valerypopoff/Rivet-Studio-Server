@@ -2,13 +2,15 @@ import { useCallback, useEffect, useRef, useState, type FC } from 'react';
 import { ToastContainer } from 'react-toastify';
 import { WorkflowLibraryPanel } from './WorkflowLibraryPanel';
 import { WORKFLOW_DASHBOARD_SIDEBAR_WIDTH } from './constants';
+import type { WorkflowProjectPathMove } from './types';
 
 const MIN_SIDEBAR_WIDTH = 240;
 const MAX_SIDEBAR_WIDTH = 560;
 
 type EditorCommand =
   | { type: 'open-project'; path: string; replaceCurrent: boolean }
-  | { type: 'save-project' };
+  | { type: 'save-project' }
+  | { type: 'workflow-paths-moved'; moves: WorkflowProjectPathMove[] };
 
 const styles = `
   .dashboard-page {
@@ -152,6 +154,18 @@ export const DashboardPage: FC = () => {
     postEditorCommand({ type: 'save-project' });
   }, [postEditorCommand]);
 
+  const handleWorkflowPathsMoved = useCallback(
+    (moves: WorkflowProjectPathMove[]) => {
+      if (moves.length === 0) {
+        return;
+      }
+
+      setActiveProjectPath((prev) => moves.find((move) => move.fromAbsolutePath === prev)?.toAbsolutePath ?? prev);
+      postEditorCommand({ type: 'workflow-paths-moved', moves });
+    },
+    [postEditorCommand],
+  );
+
   useEffect(() => {
     if (!editorReady || !pendingEditorCommandRef.current || !iframeRef.current?.contentWindow) {
       return;
@@ -258,6 +272,7 @@ export const DashboardPage: FC = () => {
           <WorkflowLibraryPanel
             onOpenProject={handleOpenProject}
             onSaveProject={handleSaveProject}
+            onWorkflowPathsMoved={handleWorkflowPathsMoved}
             activeProjectPath={activeProjectPath}
             editorReady={editorReady}
             onCollapse={openProjectCount === 0 ? undefined : () => setSidebarCollapsed(true)}

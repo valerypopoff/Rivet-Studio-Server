@@ -1,5 +1,10 @@
 import { RIVET_API_BASE_URL } from '../../shared/hosted-env';
-import type { WorkflowFolderItem, WorkflowProjectItem, WorkflowTreeResponse } from './types';
+import type {
+  WorkflowFolderItem,
+  WorkflowMoveResponse,
+  WorkflowProjectItem,
+  WorkflowTreeResponse,
+} from './types';
 
 const API = RIVET_API_BASE_URL;
 
@@ -65,4 +70,22 @@ export async function createWorkflowProject(
 
   const data = await parseJsonResponse<{ project: WorkflowProjectItem }>(response);
   return data.project;
+}
+
+export async function moveWorkflowItem(
+  itemType: 'folder' | 'project',
+  sourceRelativePath: string,
+  destinationFolderRelativePath: string,
+): Promise<WorkflowMoveResponse> {
+  const response = await fetch(`${API}/workflows/move`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      itemType,
+      sourceRelativePath,
+      destinationFolderRelativePath,
+    }),
+  });
+
+  return parseJsonResponse<WorkflowMoveResponse>(response);
 }
