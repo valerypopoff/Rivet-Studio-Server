@@ -1,47 +1,63 @@
-# Repository Description
+# Self-hosted Rivet Wrapper
 
-## What this repository is
+## What this application is
 
-This repository is a self-hosted web wrapper around the upstream Rivet codebase stored in `rivet/`.
+This repository hosts a browser-based, self-hosted distribution of Rivet.
 
-Its goal is to run Rivet as a browser-based application on a private VM while preserving practical parity with the desktop workflow:
+It is not a forked rewrite of Rivet. The core editor and most product behavior still come from the vendored upstream source in `rivet/`. This repository adds the hosted platform layer around that upstream app so it can run correctly in a browser on a trusted self-hosted machine.
 
-- project editing
-- graph execution
-- Browser and Node executor modes
-- datasets
-- plugins
-- project references
-- revisions and related tooling
+In practical terms, the application provides:
 
-The repository is intentionally structured as a wrapper rather than a fork. The upstream `rivet/` tree is treated as vendor source, while hosted-specific behavior lives in the wrapper and operations layers.
+- the upstream Rivet editor running in the browser
+- hosted file open/save behavior through an API instead of desktop-native access
+- a wrapper-owned workflow dashboard for organizing workflow projects
+- Dockerized backend, proxy, and executor services
+- browser-compatible replacements for desktop-only integrations
 
-## Purpose
+The intended result is: **upstream Rivet as the app core, wrapper-owned code as the hosted integration layer**.
 
-The purpose of this repo is to make Rivet usable through a browser without taking ownership of long-lived custom changes inside upstream Rivet.
+## Primary goal
 
-That means:
+The purpose of this repository is to make Rivet usable through the browser without taking ownership of large, long-lived custom changes inside the upstream codebase.
 
-- `rivet/` remains replaceable and updateable
-- hosted adaptations live outside `rivet/`
-- desktop-only assumptions are replaced with browser, API, and Docker-backed equivalents
-- deployment is designed around Docker Compose on a trusted self-hosted machine
+That goal has several consequences:
 
-## Core architectural idea
+- `rivet/` should remain vendor-style and replaceable
+- hosted-specific behavior should live in `wrapper/`, `ops/`, and repo-level scripts/docs
+- desktop assumptions should be redirected through browser shims, overrides, backend APIs, and container wiring
+- the hosted experience should stay as close as practical to the upstream editor instead of becoming a separate product
 
-The browser app is still fundamentally the upstream Rivet app, but it is started through a wrapper-controlled frontend build.
+## High-level architecture
 
-The wrapper changes behavior in three main ways:
+The application is composed of four runtime services:
 
-- it provides a custom web entrypoint and Vite configuration
-- it replaces desktop/Tauri integrations with wrapper-owned shims and overrides
-- it supplies backend and executor services that the browser can talk to over HTTP and WebSocket
+### `web`
 
-In short:
+Builds and serves the browser-facing frontend.
 
-- upstream app UI and core logic come from `rivet/`
-- hosted integration logic comes from `wrapper/`
-- deployment and runtime wiring come from `ops/`
+This is a wrapper-controlled Vite application that loads and renders the upstream Rivet app, plus wrapper-owned hosted UI such as the workflow dashboard shell.
+
+### `api`
+
+Provides hosted compatibility endpoints.
+
+This replaces desktop-native capabilities with server-side operations exposed over HTTP, including file access, workflow library management, and related hosted integrations.
+
+### `executor`
+
+Runs the Node-side Rivet executor and debugger service.
+
+This provides hosted Node execution mode and websocket-based debugging/event streaming.
+
+### `proxy`
+
+nginx entrypoint for the full stack.
+
+It routes:
+
+- browser requests to the web app
+- `/api/*` traffic to the compatibility backend
+- websocket traffic to the executor/debugger service
 
 ## Repository layout
 
@@ -49,156 +65,149 @@ In short:
 
 Vendored upstream Rivet source.
 
-This repo treats it as external/vendor code. Wrapper-specific behavior should not be implemented directly inside this tree.
+This should be treated as vendor code. Wrapper-owned hosted behavior should generally not be implemented directly here.
 
 ### `wrapper/web/`
 
 Hosted frontend layer.
 
-This area provides:
+This area owns:
 
 - the browser entrypoint
 - Vite configuration
-- the workflow dashboard shell and sidebar
-- browser-safe shims for Tauri APIs
-- targeted overrides for upstream modules that assume desktop behavior
-- hosted environment constants and frontend wiring
-
-The frontend still renders the upstream Rivet application, but with hosted-specific replacements where needed.
+- hosted shims and overrides
+- the workflow dashboard shell
+- iframe/editor bridge logic
+- hosted environment wiring
 
 ### `wrapper/api/`
 
-Compatibility backend for hosted mode.
+Hosted compatibility backend.
 
-It provides API endpoints for things that desktop Rivet normally does through Tauri or local native access, such as:
+This area owns:
 
 - file operations
 - project loading and saving
-- project reference loading
-- shell command execution
-- plugin installation/loading
-- environment-variable access
-- app-data path resolution
+- workflow library filesystem management
+- plugin and shell-related hosted endpoints
+- allowed environment/config exposure
 
 ### `wrapper/shared/`
 
-Shared contracts and environment helpers used across wrapper-owned pieces.
+Shared wrapper-owned contracts and environment helpers.
 
 ### `ops/`
 
-Deployment and runtime wiring.
+Runtime and deployment wiring.
 
-This area contains:
+This includes:
 
 - Dockerfiles
-- Docker Compose configuration
-- nginx proxy configuration
-- executor bundling logic
-- related operational scripts
+- Docker Compose files
+- nginx configuration
+- executor bundling/patching
+- deployment-oriented operational assets
 
 ### `scripts/`
 
-Developer helpers for local and Docker-based development flows.
+Developer helpers for local and Docker-based workflows.
 
-Notable current behavior:
+Current notable behavior:
 
 - root `npm run dev` uses `scripts/dev-docker.mjs`
-- that launcher reads the repo-root `.env.dev`
-- it resolves `RIVET_WORKFLOWS_HOST_PATH` before invoking Docker Compose so workflow-library host paths behave predictably
+- the launcher reads repo-root `.env.dev`
+- it resolves `RIVET_WORKFLOWS_HOST_PATH` before invoking Docker Compose so workflow-library host paths are stable and predictable
 
 ### `findings-and-problems.md`
 
-Working engineering handoff document that captures discovered constraints, bugs, fixes, and current status.
+Working engineering handoff document for discovered issues, constraints, and in-progress findings.
 
-## Runtime wiring
+## Frontend model
 
-The deployed application is composed of four main services:
-
-### `web`
-
-Builds and serves the hosted frontend bundle.
-
-This is the browser-facing Rivet UI, built from wrapper-controlled Vite config while loading upstream app code from `rivet/packages/app`.
-
-### `api`
-
-Provides hosted compatibility endpoints.
-
-This service replaces desktop-native capabilities with server-side operations exposed over HTTP.
-
-### `executor`
-
-Runs the Node-side Rivet executor and debugger server.
-
-This enables hosted Node execution mode and websocket-based remote debugging/event forwarding.
-
-### `proxy`
-
-nginx entrypoint for the stack.
-
-It fronts the other services and routes:
-
-- browser requests to the web app
-- API requests to the compatibility backend
-- websocket traffic to the executor/debugger
-
-## Frontend wiring
-
-The hosted frontend works by booting the upstream Rivet app through wrapper-owned infrastructure.
+The hosted frontend boots the upstream Rivet app through wrapper-owned infrastructure.
 
 Key points:
 
-- `wrapper/web/entry.tsx` provides browser-safe global shims before loading the upstream app
-- `wrapper/web/vite.config.ts` controls aliases and overrides
-- wrapper-owned overrides replace desktop-oriented upstream modules where a shim alone is not enough
-- hosted runtime values such as websocket URLs are derived from browser location in `wrapper/shared/hosted-env.ts`
-- hosted-only browser diagnostics are centrally gated in `wrapper/shared/hosted-env.ts` so override files do not each carry their own logging toggle logic
+- `wrapper/web/entry.tsx` provides browser-safe global shims before loading the app
+- `wrapper/web/vite.config.ts` controls aliases, overrides, dev-server behavior, and hosted build wiring
+- wrapper-owned overrides replace desktop-oriented upstream modules where simple shims are not enough
+- hosted runtime values such as API and websocket URLs are derived from browser location in `wrapper/shared/hosted-env.ts`
 
-This lets the wrapper preserve upstream UI behavior while redirecting platform-specific behavior to hosted implementations.
+The important architectural idea is that the wrapper changes the **platform layer**, not the editor's core product identity.
 
-## Backend wiring
+## Backend model
 
-The backend exists to replace Tauri-native capabilities with API-backed ones.
+The backend exists to replace Tauri/local-native behavior with API-backed hosted behavior.
 
 Typical responsibilities include:
 
 - reading and writing project files on the server
-- listing directories and files inside allowed roots
+- listing files and directories inside allowed roots
 - managing the dedicated workflow library under the host-backed `workflows/` directory
 - loading referenced projects
 - running allowlisted shell commands
 - managing plugin installation/loading
-- exposing controlled environment values to the hosted app
+- exposing controlled environment/config values to the hosted frontend
 
-The browser talks to this service through wrapper shims and overrides instead of talking to the local machine directly.
+The browser talks to this service through wrapper shims and overrides instead of talking directly to the user's machine.
 
-## Workflow dashboard wiring
+## Workflow dashboard
 
-The hosted app now boots into a wrapper-owned dashboard shell instead of presenting only the raw editor surface.
+The hosted app boots into a wrapper-owned dashboard shell around the upstream editor.
 
-Current workflow-dashboard model:
+This dashboard is the main wrapper-owned UX layer and is one of the most regression-sensitive parts of the app.
 
-- the left panel is wrapper-owned UI rendered from `wrapper/web/dashboard/`
-- the left `Projects` pane can be resized by dragging its right edge and can be collapsed from its header, with a restore button shown in the bottom-left corner of the browser window when collapsed
+### Dashboard layout and behavior
+
+- the left panel is wrapper-owned UI from `wrapper/web/dashboard/`
+- the main editor area remains the upstream Rivet editor
+- the left `Projects` pane can be resized by dragging its right edge
+- the `Projects` pane can be collapsed from the header
+- when the pane is collapsed, a restore button is shown in the bottom-left corner of the window
 - when zero editor project tabs are open, the wrapper forces the `Projects` pane open even if the user had previously collapsed it
-- folders and `.rivet-project` entries, including projects stored directly at the workflow root, are loaded from `/api/workflows/*`
-- the `Projects` pane exposes a `+ New folder` action below the header and supports creating `.rivet-project` files inside each folder
-- folder expand/collapse is limited to the left chevron hit area, while double-clicking the folder name area triggers rename without also toggling the folder open state
-- selecting a project from the dashboard reuses the existing hosted project load flow rather than inventing a second editor state system
-- opening a project from the left pane normally adds or activates an editor tab rather than replacing the current one, so no replace-style warning is shown for that standard open flow
-- the editor remains the upstream Rivet editor running correctly inside the main dashboard area
-- when zero editor project tabs are open, the dashboard hides the embedded Rivet editor surface and shows a wrapper-owned empty main state instead of Rivet's built-in start screen
-- when the active editor project lives inside a collapsed workflow folder, the pane automatically expands that parent folder so the active highlight is visible
-- when the active editor project changes, the `Projects` pane scrolls the highlighted project row into view automatically
-- the wrapper-owned `Save` button in the left `Projects` pane is driven by the editor's active tab rather than by stale last-loaded state
-- when the active editor tab is a file-backed workflow project, the wrapper `Save` action saves that exact project path, and the dashboard also maps `Ctrl+S` / `Cmd+S` to that same save behavior
-- when no editor tabs are open, or when the active tab is not a path-backed workflow project, the wrapper `Save` button is hidden
-- normal workflow-pane actions stay quiet on success and only surface toast notifications for actual failures
-- workflow projects and folders in the `Projects` pane can be dragged between folders or back to the root, and folder moves are applied on disk rather than being a UI-only reordering
-- nested workflow folders are supported in the dashboard tree, so dragging a folder into another folder creates the same nested structure on disk
-- when an already-open workflow project is moved through the pane, the dashboard updates the editor's tracked file path so subsequent `Save` / `Ctrl+S` / `Cmd+S` actions continue writing to the new location without reopening the project
+- when zero editor project tabs are open, the dashboard hides the embedded editor surface and shows a wrapper-owned empty state instead of Rivet's default start screen
 
-This keeps the dashboard as a thin management layer around the upstream editor rather than turning the wrapper into a forked application.
+### Workflow library contents
+
+- folders and `.rivet-project` files are loaded from `/api/workflows/*`
+- projects may exist directly at the workflow root or inside folders
+- nested workflow folders are supported
+- the pane exposes a `+ New folder` action
+- the pane supports creating `.rivet-project` files inside folders
+- workflow create, rename, list, and move operations are implemented by `wrapper/api/src/routes/workflows.ts`
+
+### Folder and project interactions
+
+- folder expand/collapse is limited to the left chevron hit area
+- double-clicking the folder name area triggers rename without also toggling folder expansion
+- selecting a project from the pane reuses the normal hosted project-open flow rather than introducing a second editor state system
+- opening a project from the pane normally activates or adds an editor tab instead of replacing the current tab
+
+### Active project visibility
+
+- when the active editor project is inside a collapsed workflow folder, the pane automatically expands all ancestor folders necessary to expose the active item
+- when the active editor project changes, the pane automatically scrolls the highlighted project row into view
+
+### Save behavior
+
+- the wrapper-owned `Save` button in the `Projects` pane is driven by the editor's active tab rather than stale last-loaded state
+- when the active editor tab is a file-backed workflow project, the wrapper `Save` action saves that exact file path
+- the dashboard maps `Ctrl+S` / `Cmd+S` to that same hosted save behavior
+- when the active editor is not a path-backed workflow project, or when no tabs are open, the wrapper `Save` button is hidden
+
+### Drag and drop behavior
+
+- workflow projects can be dragged into folders, between folders, and back to the root
+- workflow folders can be dragged into other folders and back to the root
+- folder moves are real filesystem moves, not UI-only reorder operations
+- dragging a folder into another folder creates the same nested structure on disk
+- when a project has an associated `.rivet-data` sidecar, it moves with the project file
+- when an already-open workflow project is moved through the pane, the dashboard updates the editor's tracked file path so later `Save` / `Ctrl+S` / `Cmd+S` actions still write to the new location without reopening the project
+
+### Success and error feedback
+
+- routine workflow-pane actions stay quiet on success
+- toast notifications are used for actual failures
 
 ## Workflow library root
 
@@ -207,88 +216,101 @@ The workflow dashboard is backed by a dedicated filesystem root configured throu
 - `RIVET_WORKFLOWS_ROOT`
 - host-side Docker bind configuration via `RIVET_WORKFLOWS_HOST_PATH`
 
-Current runtime expectation:
+Current runtime expectations:
 
 - Docker Compose mounts a host-backed `workflows/` directory into the API container at `/workflows`
-- when using root `npm run dev`, `RIVET_WORKFLOWS_HOST_PATH` from the repo-root `.env.dev` is resolved relative to the repo root before Docker Compose is started
+- when using root `npm run dev`, `RIVET_WORKFLOWS_HOST_PATH` from the repo-root `.env.dev` is resolved relative to the repo root before Docker Compose starts
 - API security allows workflow-library operations only inside that validated workflow root
-- workflow create/rename/list/move actions are exposed through `wrapper/api/src/routes/workflows.ts`
-- hosted `Save As` now defaults to `/workflows/...` so dashboard-created and manually-saved hosted projects converge on the same library root
+- hosted `Save As` defaults to `/workflows/...` so manually saved hosted projects and dashboard-created projects converge on the same library root
 
-Example supported workflow-root setup:
+Example supported setup:
 
 - `RIVET_WORKFLOWS_HOST_PATH=../workflows`
-- This allows the workflow library to live outside the git repository so generated workflow assets do not need to be tracked in repo history.
 
-This is intentionally separate from the broader workspace root so workflow-management UI does not depend on unrestricted filesystem browsing.
+This allows the workflow library to live outside the git repository so generated workflow assets do not need to be tracked in repo history.
 
-## Host-side workflow consumer
+This workflow root is intentionally narrower than the broader workspace root so the dashboard can manage authored workflows without turning into unrestricted filesystem browsing.
 
-The workflow dashboard is designed so a separate host-side service can consume the same persisted directory.
+## Host-side workflow consumer model
+
+The workflow dashboard is designed so a separate host-side service can consume the same persisted workflow directory.
 
 Recommended model:
 
-- the dashboard is responsible for creating and editing workflow project files under the host-backed `workflows/` directory
-- a separate host-side endpoint/publishing service should watch or scan that same directory on the host machine
-- that service should treat the on-disk `.rivet-project` files as the source of truth for exposed workflow endpoints
-- the wrapper should not become the deployment/orchestration service for those endpoints; it only manages the library and editor experience
+- the dashboard creates and edits `.rivet-project` files under the host-backed workflow root
+- a separate host-side service watches or scans that same directory
+- that service treats the on-disk workflow files as the source of truth for publication/runtime exposure
+- the wrapper should remain an authoring and organization layer, not the orchestration/deployment service for published workflows
 
-This separation keeps the browser wrapper focused on authoring and organization while allowing a dedicated host service to own publication/runtime exposure.
+This separation keeps the browser wrapper focused on editing and organization while allowing a dedicated host process to own exposure/runtime concerns.
 
-## Executor wiring
+## Executor model
 
-Hosted Node execution is provided by the separate executor service instead of a local desktop sidecar process.
+Hosted Node execution is provided by the separate executor service instead of a local desktop sidecar.
 
 Current model:
 
 - the browser connects to the executor/debugger over websocket
 - Node-mode runs are sent to the executor service
-- processor/debugger events are streamed back to the browser
-- `wrapper/web/overrides/hooks/useGraphExecutor.ts` stays close to upstream and only owns hosted executor selection plus the hosted websocket endpoint
-- websocket lifecycle is owned by `wrapper/web/overrides/hooks/useRemoteDebugger.ts`
+- processor and debugger events are streamed back to the browser
+- `wrapper/web/overrides/hooks/useGraphExecutor.ts` stays close to upstream and mainly owns hosted executor selection plus the hosted websocket endpoint
+- websocket lifecycle is handled by `wrapper/web/overrides/hooks/useRemoteDebugger.ts`
 - the hosted Docker executor bundle is patched in `ops/bundle-executor.cjs` for deployment-specific behavior
 
-That patching is used for hosted concerns such as:
+That executor patching is used for hosted concerns such as:
 
 - Docker-friendly binding behavior
 - forwarding relevant executor traces to the browser
-- surfacing Node Code-node console output in browser devtools as sidecar-style logs
-- failing fast if an upstream executor snippet changes in a way that would otherwise silently break the hosted patch
+- surfacing Node Code-node console output in browser devtools as hosted logs
+- failing fast if an upstream executor snippet changes in a way that would silently break the hosted patch
 
-## Important design rules
+## Design rules
 
 ### Vendor boundary
 
-Do not put wrapper-owned hosted behavior inside `rivet/`.
+Do not put wrapper-owned hosted behavior directly inside `rivet/` unless there is a compelling reason and no practical wrapper-level alternative.
 
-Hosted adaptations belong in:
+Default location for hosted changes:
 
 - `wrapper/`
 - `ops/`
-- repo-level docs and scripts
+- repo-level scripts and docs
 
-### Wrapper-first integration
+### Wrapper-first integration strategy
 
-If upstream desktop behavior depends on Tauri, local sidecars, or direct filesystem access, the hosted implementation should solve it by:
+If upstream desktop behavior depends on Tauri, local sidecars, or direct filesystem access, the hosted implementation should prefer:
 
-- shim
-- override
-- backend API
-- container/service wiring
+- a shim
+- an override
+- a backend API
+- service/container wiring
 
-not by permanently modifying vendored upstream source.
+and should avoid permanently forking upstream behavior where possible.
+
+## Regression-sensitive feature checklist
+
+The following statements should remain true after major refactors unless there is an intentional product change:
+
+- the app still opens as a hosted wrapper around the upstream Rivet editor rather than as a separate forked UI
+- the editor still runs in the main dashboard area and remains functionally upstream Rivet
+- the workflow dashboard still owns project organization, not the core editor
+- file-backed workflow projects still save to their real on-disk paths through the hosted API
+- `Ctrl+S` / `Cmd+S` still save the active file-backed workflow project correctly
+- the active project is still highlighted in the `Projects` pane
+- collapsed parent folders of the active project still auto-expand so the active item is visible
+- the pane still scrolls the active project into view when needed
+- workflow folders and projects are still creatable from the dashboard
+- workflow folders and projects are still movable on disk through drag and drop
+- moving an already-open project still preserves later save behavior without forcing a reopen
+- the workflow library is still constrained to the validated workflow root
+- the app still uses API-backed and websocket-backed hosted services instead of assuming desktop-native integrations
 
 ## Current practical outcome
 
-This repo is a hosted Rivet distribution that keeps upstream Rivet as the application core while supplying the missing hosted platform layer around it.
+This repository produces a maintainable, self-hosted browser deployment of Rivet with a clear separation between:
 
-That platform layer includes:
+- upstream vendor code
+- wrapper-owned hosted integrations
+- runtime/deployment infrastructure
 
-- browser-safe frontend bootstrapping
-- hosted replacements for desktop integrations
-- API-backed filesystem and shell capabilities
-- a workflow dashboard and `Folders` pane for managing host-backed workflow projects
-- Dockerized Node executor support
-- nginx-based routing for HTTP and websocket traffic
-
-The result is a maintainable self-hosted browser deployment of Rivet with a clear separation between upstream vendor code and wrapper-owned infrastructure, while still providing a practical workflow-library authoring experience around the upstream editor.
+The resulting app is not just the raw upstream editor in a browser tab. It is a hosted Rivet distribution with a wrapper-owned workflow-management layer around the upstream editor, while still trying to preserve upstream behavior wherever practical.
