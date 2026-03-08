@@ -10,6 +10,8 @@ import {
   projectState,
 } from '../../../rivet/packages/app/src/state/savedGraphs';
 
+const isWindowsPlatform = typeof navigator !== 'undefined' && navigator.userAgent.includes('Win64');
+
 export const EditorMessageBridge: FC = () => {
   const openProject = useOpenWorkflowProject();
   const { saveProject } = useSaveProject();
@@ -23,6 +25,27 @@ export const EditorMessageBridge: FC = () => {
 
   useEffect(() => {
     window.parent.postMessage({ type: 'editor-ready' }, '*');
+  }, []);
+
+  useEffect(() => {
+    const handler = async (event: KeyboardEvent) => {
+      const isSaveShortcut = (event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 's';
+      if (!isSaveShortcut) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+
+       if (!isWindowsPlatform) {
+        await saveProjectRef.current();
+      }
+    };
+
+    document.addEventListener('keydown', handler, true);
+    return () => {
+      document.removeEventListener('keydown', handler, true);
+    };
   }, []);
 
   useEffect(() => {

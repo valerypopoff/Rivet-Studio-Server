@@ -170,17 +170,24 @@ export const DashboardPage: FC = () => {
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       const isSaveShortcut = (event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 's';
-      if (!isSaveShortcut || !activeProjectPath) {
+      if (!isSaveShortcut || !editorReady || openProjectCount === 0) {
+        return;
+      }
+
+      if (document.activeElement === iframeRef.current) {
         return;
       }
 
       event.preventDefault();
+      event.stopPropagation();
       handleSaveProject();
     };
 
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [activeProjectPath, handleSaveProject]);
+    document.addEventListener('keydown', handler, true);
+    return () => {
+      document.removeEventListener('keydown', handler, true);
+    };
+  }, [editorReady, handleSaveProject, openProjectCount]);
 
   useEffect(() => {
     if (sidebarCollapsed) {
