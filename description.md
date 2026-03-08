@@ -11,7 +11,8 @@ In practical terms, the application provides:
 - the upstream Rivet editor running in the browser
 - hosted file open/save behavior through an API instead of desktop-native access
 - a wrapper-owned workflow dashboard for organizing workflow projects
-- snapshot-backed published workflow serving at `/workflows/[endpoint-name]`
+- published workflow serving at `/workflows/[endpoint-name]`
+- latest working-version workflow serving at `/workflows-last/[endpoint-name]` for published projects
 - Dockerized backend, proxy, and executor services
 - browser-compatible replacements for desktop-only integrations
 
@@ -42,7 +43,7 @@ This is a wrapper-controlled Vite application that loads and renders the upstrea
 
 Provides hosted compatibility endpoints.
 
-This replaces desktop-native capabilities with server-side operations exposed over HTTP, including file access, workflow library management, published workflow execution, and related hosted integrations.
+This replaces desktop-native capabilities with server-side operations exposed over HTTP, including file access, workflow library management, published and latest workflow execution, and related hosted integrations.
 
 ### `executor`
 
@@ -58,7 +59,8 @@ It routes:
 
 - browser requests to the web app
 - `/api/*` traffic to the compatibility backend
-- `/workflows/*` traffic to published workflow execution endpoints
+- `/workflows/*` traffic to last-published workflow execution endpoints
+- `/workflows-last/*` traffic to latest working-version workflow execution endpoints for published workflows
 - websocket traffic to the executor/debugger service
 
 ## Repository layout
@@ -92,6 +94,7 @@ This area owns:
 - project loading and saving
 - workflow library filesystem management
 - published workflow snapshot storage and execution routing
+- latest working-version workflow execution routing for published workflows
 - plugin and shell-related hosted endpoints
 - allowed environment/config exposure
 
@@ -148,6 +151,7 @@ Typical responsibilities include:
 - listing files and directories inside allowed roots
 - managing the dedicated workflow library under the host-backed `workflows/` directory
 - serving published workflows from stable snapshot files under `/workflows/[endpoint-name]`
+- serving the latest working version of published workflows under `/workflows-last/[endpoint-name]`
 - loading referenced projects
 - running allowlisted shell commands
 - managing plugin installation/loading
@@ -176,6 +180,13 @@ The settings sidecar is wrapper-owned infrastructure, not upstream Rivet product
 When a workflow project is moved through the dashboard, the wrapper moves the related sidecars with it so the project's hosted metadata follows the file.
 
 Published workflow snapshots themselves are stored separately under the workflow root's hidden `.published/` directory so the live served version can remain stable even while the working project file has unpublished changes.
+
+The two public execution paths intentionally serve different targets:
+
+- `/workflows/[endpoint-name]` serves the last published snapshot
+- `/workflows-last/[endpoint-name]` serves the current working project file for workflows that are published or have unpublished changes
+
+Fully unpublished projects are not served by either public execution path.
 
 ### Dashboard layout and behavior
 

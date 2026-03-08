@@ -5,7 +5,7 @@ import { shellRouter } from './routes/shell.js';
 import { compatRouter } from './routes/compat.js';
 import { pluginsRouter } from './routes/plugins.js';
 import { projectsRouter } from './routes/projects.js';
-import { publishedWorkflowsRouter, workflowsRouter } from './routes/workflows.js';
+import { latestWorkflowsRouter, publishedWorkflowsRouter, workflowsRouter } from './routes/workflows.js';
 import { configRouter } from './routes/config.js';
 
 const app = express();
@@ -16,6 +16,7 @@ app.use(express.json({ limit: '100mb' }));
 
 // Mount routes
 app.use('/workflows', publishedWorkflowsRouter);
+app.use('/workflows-last', latestWorkflowsRouter);
 app.use('/api/native', nativeRouter);
 app.use('/api/shell', shellRouter);
 app.use('/api/compat', compatRouter);

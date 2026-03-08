@@ -8,6 +8,7 @@ import { asyncHandler } from '../utils/asyncHandler.js';
 import { badRequest, conflict } from '../utils/httpError.js';
 export const workflowsRouter = Router();
 export const publishedWorkflowsRouter = Router();
+export const latestWorkflowsRouter = Router();
 const PROJECT_EXTENSION = '.rivet-project';
 const PROJECT_SETTINGS_SUFFIX = '.wrapper-settings.json';
 const PUBLISHED_SNAPSHOTS_DIR = '.published';
@@ -34,6 +35,54 @@ publishedWorkflowsRouter.post('/:endpointName', asyncHandler(async (req, res) =>
         const projectReferenceLoader = createPublishedWorkflowProjectReferenceLoader(root, publishedWorkflow.projectPath);
         const outputs = await runGraph(project, {
             projectPath: publishedWorkflow.projectPath,
+            datasetProvider,
+            projectReferenceLoader,
+            inputs: {
+                input: {
+                    type: 'any',
+                    value: {
+                        payload: req.body ?? {},
+                    },
+                },
+            },
+        });
+        const outputValue = outputs.output;
+        if (outputValue?.type === 'any' && outputValue.value != null && typeof outputValue.value === 'object') {
+            res.status(200).json(outputValue.value);
+            return;
+        }
+        res.status(200).json(outputs);
+    }
+    catch (error) {
+        const errorPayload = error instanceof Error
+            ? {
+                name: error.name,
+                message: error.message,
+                stack: error.stack,
+            }
+            : {
+                message: String(error),
+            };
+        res.status(500).json({ error: errorPayload });
+    }
+}));
+latestWorkflowsRouter.post('/:endpointName', asyncHandler(async (req, res) => {
+    const root = await ensureWorkflowsRoot();
+    const endpointName = normalizeStoredEndpointName(String(req.params.endpointName ?? ''));
+    if (!endpointName) {
+        throw badRequest('Endpoint name is required');
+    }
+    const latestWorkflow = await findLatestWorkflowByEndpoint(root, endpointName);
+    if (!latestWorkflow) {
+        res.status(404).json({ error: 'Latest workflow not found' });
+        return;
+    }
+    try {
+        const project = await loadProjectFromFile(latestWorkflow.projectPath);
+        const datasetProvider = await NodeDatasetProvider.fromProjectFile(latestWorkflow.projectPath);
+        const projectReferenceLoader = createPublishedWorkflowProjectReferenceLoader(root, latestWorkflow.projectPath);
+        const outputs = await runGraph(project, {
+            projectPath: latestWorkflow.projectPath,
             datasetProvider,
             projectReferenceLoader,
             inputs: {
@@ -653,7 +702,7 @@ async function findPublishedWorkflowByEndpoint(root, endpointName) {
     for (const projectPath of projectPaths) {
         const projectName = path.basename(projectPath, PROJECT_EXTENSION);
         const settings = await readStoredWorkflowProjectSettings(projectPath, projectName);
-        if (!settings.publishedStateHash || settings.publishedEndpointName !== endpointName) {
+        if (!isWorkflowEndpointPublished(settings, endpointName)) {
             continue;
         }
         const publishedProjectPath = await resolvePublishedWorkflowProjectPath(root, projectPath, settings);
@@ -668,6 +717,21 @@ async function findPublishedWorkflowByEndpoint(root, endpointName) {
     }
     return null;
 }
+async function findLatestWorkflowByEndpoint(root, endpointName) {
+    const projectPaths = await listProjectPathsRecursive(root);
+    for (const projectPath of projectPaths) {
+        const projectName = path.basename(projectPath, PROJECT_EXTENSION);
+        const settings = await readStoredWorkflowProjectSettings(projectPath, projectName);
+        if (!isWorkflowEndpointPublished(settings, endpointName)) {
+            continue;
+        }
+        return {
+            endpointName,
+            projectPath,
+        };
+    }
+    return null;
+}
 async function resolvePublishedWorkflowProjectPath(root, projectPath, settings) {
     if (settings.publishedSnapshotId) {
         const publishedProjectPath = getPublishedWorkflowSnapshotPath(root, settings.publishedSnapshotId);
@@ -675,11 +739,26 @@ async function resolvePublishedWorkflowProjectPath(root, projectPath, settings) 
             return publishedProjectPath;
         }
     }
-    if (!settings.publishedStateHash || !settings.publishedEndpointName) {
+    if (!settings.publishedEndpointName) {
+        return null;
+    }
+    if (!settings.publishedStateHash) {
+        if (settings.legacyStatus === 'published' || settings.legacyStatus === 'unpublished_changes') {
+            return projectPath;
+        }
         return null;
     }
     const currentStateHash = await createWorkflowPublicationStateHash(projectPath, settings.publishedEndpointName);
     return currentStateHash === settings.publishedStateHash ? projectPath : null;
+}
+function isWorkflowEndpointPublished(settings, endpointName) {
+    if (settings.publishedEndpointName !== endpointName) {
+        return false;
+    }
+    if (settings.publishedStateHash) {
+        return true;
+    }
+    return settings.legacyStatus === 'published' || settings.legacyStatus === 'unpublished_changes';
 }
 function createPublishedWorkflowProjectReferenceLoader(root, rootProjectPath) {
     return {
