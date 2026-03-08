@@ -15,7 +15,11 @@ import {
 import type { WorkflowProjectPathMove } from './types';
 
 const isWindowsPlatform = typeof navigator !== 'undefined' && /Win/.test(navigator.platform ?? '');
-const SAVE_SHORTCUT_DEBUG_PREFIX = '[hosted-save-shortcut][iframe]';
+const isSaveShortcutEvent = (event: KeyboardEvent) =>
+  (event.ctrlKey || event.metaKey) &&
+  !event.altKey &&
+  !event.shiftKey &&
+  (event.code === 'KeyS' || event.key.toLowerCase() === 's');
 
 export const EditorMessageBridge: FC = () => {
   const openProject = useOpenWorkflowProject();
@@ -47,81 +51,29 @@ export const EditorMessageBridge: FC = () => {
 
   useEffect(() => {
     const handler = async (event: KeyboardEvent) => {
-      const isSaveShortcut = (event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 's';
-      if (!isSaveShortcut) {
+      if (!isSaveShortcutEvent(event)) {
         return;
       }
 
-      console.log(`${SAVE_SHORTCUT_DEBUG_PREFIX} observed keydown`, {
-        isWindowsPlatform,
-        defaultPrevented: event.defaultPrevented,
-        repeat: event.repeat,
-        targetTag: (event.target as HTMLElement | null)?.tagName ?? null,
-        activeElementTag: document.activeElement?.tagName ?? null,
-        loadedProjectPath: loadedProject.path,
-      });
-
       event.preventDefault();
       event.stopPropagation();
-
-      console.log(`${SAVE_SHORTCUT_DEBUG_PREFIX} prevented browser default`, {
-        isWindowsPlatform,
-        loadedProjectPath: loadedProject.path,
-      });
 
       if (!isWindowsPlatform) {
-        console.log(`${SAVE_SHORTCUT_DEBUG_PREFIX} calling hosted saveProject directly from iframe`);
         await saveCurrentProject();
-      } else {
-        console.log(`${SAVE_SHORTCUT_DEBUG_PREFIX} waiting for wrapper-managed Windows keyup save handling`);
       }
     };
 
+    window.addEventListener('keydown', handler, true);
     document.addEventListener('keydown', handler, true);
     return () => {
+      window.removeEventListener('keydown', handler, true);
       document.removeEventListener('keydown', handler, true);
-    };
-  }, [loadedProject.path]);
-
-  useEffect(() => {
-    if (!isWindowsPlatform) {
-      return;
-    }
-
-    const handler = async (event: KeyboardEvent) => {
-      const isSaveShortcut = (event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 's';
-      if (!isSaveShortcut) {
-        return;
-      }
-
-      console.log(`${SAVE_SHORTCUT_DEBUG_PREFIX} observed Windows keyup`, {
-        defaultPrevented: event.defaultPrevented,
-        repeat: event.repeat,
-        targetTag: (event.target as HTMLElement | null)?.tagName ?? null,
-        activeElementTag: document.activeElement?.tagName ?? null,
-        loadedProjectPath: loadedProject.path,
-      });
-
-      event.preventDefault();
-      event.stopPropagation();
-
-      console.log(`${SAVE_SHORTCUT_DEBUG_PREFIX} calling hosted saveProject from Windows keyup handler`);
-      await saveCurrentProject();
-    };
-
-    window.addEventListener('keyup', handler, true);
-    return () => {
-      window.removeEventListener('keyup', handler, true);
     };
   }, [loadedProject.path]);
 
   useEffect(() => {
     const handler = async (event: MessageEvent) => {
       if (event.data?.type === 'save-project') {
-        console.log(`${SAVE_SHORTCUT_DEBUG_PREFIX} received save-project message from parent`, {
-          loadedProjectPath: loadedProject.path,
-          openedProjectCount: openedProjectIds.length,
-        });
         await saveCurrentProject();
         return;
       }

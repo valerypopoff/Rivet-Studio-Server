@@ -2,13 +2,18 @@ import { useCallback, useEffect, useRef, useState, type FC } from 'react';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { WorkflowLibraryPanel } from './WorkflowLibraryPanel';
-import { WORKFLOW_DASHBOARD_SIDEBAR_WIDTH } from './constants';
 import type { WorkflowProjectPathMove } from './types';
 import './DashboardPage.css';
 
+const WORKFLOW_DASHBOARD_SIDEBAR_WIDTH = '300px';
 const MIN_SIDEBAR_WIDTH = 240;
 const MAX_SIDEBAR_WIDTH = 560;
-const SAVE_SHORTCUT_DEBUG_PREFIX = '[hosted-save-shortcut][dashboard]';
+
+const isSaveShortcutEvent = (event: KeyboardEvent) =>
+  (event.ctrlKey || event.metaKey) &&
+  !event.altKey &&
+  !event.shiftKey &&
+  (event.code === 'KeyS' || event.key.toLowerCase() === 's');
 
 type EditorCommand =
   | { type: 'open-project'; path: string; replaceCurrent: boolean }
@@ -19,8 +24,8 @@ type EditorCommand =
 export const DashboardPage: FC = () => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const pendingEditorCommandRef = useRef<EditorCommand | null>(null);
-  const [selectedProjectPath, setSelectedProjectPath] = useState('');
   const [openedProjectPath, setOpenedProjectPath] = useState('');
+  const [activeWorkflowProjectPath, setActiveWorkflowProjectPath] = useState('');
   const [editorReady, setEditorReady] = useState(false);
   const [openProjectCount, setOpenProjectCount] = useState(0);
   const [projectSaveSequence, setProjectSaveSequence] = useState(0);
@@ -31,42 +36,24 @@ export const DashboardPage: FC = () => {
   const postEditorCommand = useCallback(
     (command: EditorCommand) => {
       if (!editorReady || !iframeRef.current?.contentWindow) {
-        if (command.type === 'save-project') {
-          console.log(`${SAVE_SHORTCUT_DEBUG_PREFIX} queueing save-project command`, {
-            editorReady,
-            hasIframeWindow: Boolean(iframeRef.current?.contentWindow),
-          });
-        }
         pendingEditorCommandRef.current = command;
         return;
       }
 
-      if (command.type === 'save-project') {
-        console.log(`${SAVE_SHORTCUT_DEBUG_PREFIX} posting save-project command to iframe`, {
-          editorReady,
-          hasIframeWindow: Boolean(iframeRef.current?.contentWindow),
-        });
-      }
       iframeRef.current.contentWindow.postMessage(command, '*');
     },
     [editorReady],
   );
 
   const handleOpenProject = useCallback((path: string, options?: { replaceCurrent?: boolean }) => {
-    setSelectedProjectPath(path);
     postEditorCommand({ type: 'open-project', path, replaceCurrent: Boolean(options?.replaceCurrent) });
   }, [postEditorCommand]);
-
-  const handleSelectProject = useCallback((path: string) => {
-    setSelectedProjectPath(path);
-  }, []);
 
   const handleSaveProject = useCallback(() => {
     postEditorCommand({ type: 'save-project' });
   }, [postEditorCommand]);
 
   const handleDeleteProject = useCallback((path: string) => {
-    setSelectedProjectPath((prev) => (prev === path ? '' : prev));
     setOpenedProjectPath((prev) => (prev === path ? '' : prev));
     postEditorCommand({ type: 'delete-workflow-project', path });
   }, [postEditorCommand]);
@@ -77,7 +64,6 @@ export const DashboardPage: FC = () => {
         return;
       }
 
-      setSelectedProjectPath((prev) => moves.find((move) => move.fromAbsolutePath === prev)?.toAbsolutePath ?? prev);
       setOpenedProjectPath((prev) => moves.find((move) => move.fromAbsolutePath === prev)?.toAbsolutePath ?? prev);
       postEditorCommand({ type: 'workflow-paths-moved', moves });
     },
@@ -89,11 +75,6 @@ export const DashboardPage: FC = () => {
       return;
     }
 
-    if (pendingEditorCommandRef.current.type === 'save-project') {
-      console.log(`${SAVE_SHORTCUT_DEBUG_PREFIX} flushing queued save-project command to iframe`, {
-        editorReady,
-      });
-    }
     iframeRef.current.contentWindow.postMessage(pendingEditorCommandRef.current, '*');
     pendingEditorCommandRef.current = null;
   }, [editorReady]);
@@ -106,49 +87,32 @@ export const DashboardPage: FC = () => {
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
-      const isSaveShortcut = (event.ctrlKey || event.metaKey) && !event.altKey && event.key.toLowerCase() === 's';
       const isIframeFocused = document.activeElement === iframeRef.current;
-      if (!isSaveShortcut || !editorReady || openProjectCount === 0) {
-        if (isSaveShortcut) {
-          console.log(`${SAVE_SHORTCUT_DEBUG_PREFIX} ignoring keydown`, {
-            editorReady,
-            openProjectCount,
-            isIframeFocused,
-            activeElementTag: document.activeElement?.tagName ?? null,
-            targetTag: (event.target as HTMLElement | null)?.tagName ?? null,
-            defaultPrevented: event.defaultPrevented,
-            repeat: event.repeat,
-          });
-        }
+      if (!isSaveShortcutEvent(event) || event.defaultPrevented || !editorReady) {
         return;
       }
 
-      console.log(`${SAVE_SHORTCUT_DEBUG_PREFIX} observed save shortcut`, {
-        editorReady,
-        openProjectCount,
-        isIframeFocused,
-        activeElementTag: document.activeElement?.tagName ?? null,
-        targetTag: (event.target as HTMLElement | null)?.tagName ?? null,
-        defaultPrevented: event.defaultPrevented,
-        repeat: event.repeat,
-      });
-
       if (isIframeFocused) {
-        console.log(`${SAVE_SHORTCUT_DEBUG_PREFIX} letting iframe handle save shortcut`);
         return;
       }
 
       event.preventDefault();
       event.stopPropagation();
-      console.log(`${SAVE_SHORTCUT_DEBUG_PREFIX} handling save shortcut in dashboard and relaying to iframe`);
+
+      if (!activeWorkflowProjectPath) {
+        return;
+      }
+
       handleSaveProject();
     };
 
+    window.addEventListener('keydown', handler, true);
     document.addEventListener('keydown', handler, true);
     return () => {
+      window.removeEventListener('keydown', handler, true);
       document.removeEventListener('keydown', handler, true);
     };
-  }, [editorReady, handleSaveProject, openProjectCount]);
+  }, [activeWorkflowProjectPath, editorReady, handleSaveProject]);
 
   useEffect(() => {
     if (sidebarCollapsed) {
@@ -196,13 +160,11 @@ export const DashboardPage: FC = () => {
 
       if (event.data?.type === 'project-opened' && typeof event.data.path === 'string') {
         setOpenedProjectPath(event.data.path);
-        setSelectedProjectPath(event.data.path);
         return;
       }
 
       if (event.data?.type === 'active-project-path-changed' && typeof event.data.path === 'string') {
         setOpenedProjectPath(event.data.path);
-        setSelectedProjectPath(event.data.path);
         return;
       }
 
@@ -227,11 +189,10 @@ export const DashboardPage: FC = () => {
         <aside className="dashboard-sidebar">
           <WorkflowLibraryPanel
             onOpenProject={handleOpenProject}
-            onSelectProject={handleSelectProject}
             onSaveProject={handleSaveProject}
             onDeleteProject={handleDeleteProject}
             onWorkflowPathsMoved={handleWorkflowPathsMoved}
-            selectedProjectPath={selectedProjectPath}
+            onActiveWorkflowProjectPathChange={setActiveWorkflowProjectPath}
             openedProjectPath={openedProjectPath}
             editorReady={editorReady}
             projectSaveSequence={projectSaveSequence}

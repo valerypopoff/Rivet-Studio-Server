@@ -187,16 +187,10 @@ export function isExecutorConnected(): boolean {
 // send helpers (doSend / doSendRaw) already guard against closed sockets,
 // and tryRunGraph uses isExecutorConnected() at call time.
 
-// !! DEBUG: this fires once when the module loads — proves override is in the bundle
-logHostedDebug('log', '%c[HOSTED-OVERRIDE] useRemoteDebugger module loaded (singleton)', 'color: magenta; font-weight: bold; font-size: 14px');
-
 export function useRemoteDebugger(options: { onConnect?: () => void; onDisconnect?: () => void } = {}) {
   const [remoteDebugger, setRemoteDebuggerState] = useAtom(remoteDebuggerState);
   const onConnectLatest = useLatest(options.onConnect ?? (() => {}));
   const onDisconnectLatest = useLatest(options.onDisconnect ?? (() => {}));
-
-  // !! DEBUG: fires every render — proves the hook is executing
-  logHostedDebug('log', '[HOSTED-OVERRIDE] useRemoteDebugger render: started=%s reconnecting=%s ws=%s', remoteDebugger.started, remoteDebugger.reconnecting, ws?.readyState);
 
   useEffect(() => syncRemoteDebuggerState(setRemoteDebuggerState), [setRemoteDebuggerState]);
 

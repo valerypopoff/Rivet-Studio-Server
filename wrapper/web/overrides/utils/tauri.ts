@@ -2,9 +2,8 @@
 // Adds isHostedMode(), routes getEnvVar() through API backend
 
 import { type RivetPlugin, type Settings, type StringPluginConfigurationSpec } from '@ironclad/rivet-core';
-import { invoke } from '@tauri-apps/api/tauri';
 import { entries } from '../../../../rivet/packages/core/src/utils/typeSafety';
-import { RIVET_HOSTED_MODE } from '../../../shared/hosted-env';
+import { RIVET_API_BASE_URL, RIVET_HOSTED_MODE } from '../../../shared/hosted-env';
 
 export function isInTauri(): boolean {
   return false;
@@ -23,7 +22,12 @@ export async function getEnvVar(name: string): Promise<string | undefined> {
 
   if (isHostedMode()) {
     try {
-      const value = (await invoke('get_environment_variable', { name })) as string;
+      const response = await fetch(`${RIVET_API_BASE_URL}/config/env/${encodeURIComponent(name)}`);
+      if (!response.ok) {
+        return undefined;
+      }
+
+      const { value } = await response.json() as { value?: string };
       if (value) {
         cachedEnvVars[name] = value;
       }
@@ -78,12 +82,8 @@ export async function fillMissingSettingsFromEnvironmentVariables(settings: Part
 
 export async function allowDataFileNeighbor(projectFilePath: string): Promise<void> {
   if (isHostedMode()) {
-    // API backend handles scoping, no need for Tauri invoke
-    try {
-      await invoke('allow_data_file_scope', { projectFilePath });
-    } catch {
-      // no-op in hosted mode
-    }
     return;
   }
+
+  void projectFilePath;
 }

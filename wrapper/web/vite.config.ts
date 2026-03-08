@@ -50,6 +50,7 @@ const wrapperAliasedDependencies = Object.keys(wrapperPackageJson.dependencies ?
     !dependency.startsWith('@ironclad/') &&
     !dependency.startsWith('@tauri-apps/') &&
     !dependency.startsWith('@types/') &&
+    dependency !== 'assemblyai' &&
     dependency !== '@google/genai' &&
     dependency !== 'nanoid' &&
     dependency !== 'vite' &&
@@ -110,6 +111,7 @@ const resolveBrowserSafeGoogleCoreModule = (): PluginOption => ({
 // These packages need explicit browser-safe entry points because their default upstream
 // resolution paths can pull in Node-oriented modules that break the hosted web bundle.
 const wrapperTargetedSubpathAliases = [
+  { find: /^assemblyai$/, replacement: resolve(__dirname, 'node_modules/assemblyai/dist/browser.mjs') },
   { find: /^@google\/genai$/, replacement: resolve(__dirname, 'node_modules/@google/genai/dist/web/index.mjs') },
   { find: /^nanoid$/, replacement: resolve(__dirname, 'node_modules/nanoid/index.browser.js') },
   { find: /^nanoid\/non-secure$/, replacement: resolve(__dirname, 'node_modules/nanoid/non-secure/index.js') },
@@ -160,16 +162,15 @@ export default defineConfig({
       // === Tauri package shims (most specific first) ===
       // These must stay first so upstream Tauri imports are intercepted before any broader
       // alias rule can resolve them to the real desktop-only packages.
-      { find: '@tauri-apps/api/app', replacement: resolve(shimDir, 'tauri-apps-api-app.ts') },
+      { find: '@tauri-apps/api/app', replacement: resolve(shimDir, 'tauri-noop-shims.ts') },
       { find: '@tauri-apps/api/dialog', replacement: resolve(shimDir, 'tauri-apps-api-dialog.ts') },
       { find: '@tauri-apps/api/fs', replacement: resolve(shimDir, 'tauri-apps-api-fs.ts') },
-      { find: '@tauri-apps/api/globalShortcut', replacement: resolve(shimDir, 'tauri-apps-api-globalShortcut.ts') },
+      { find: '@tauri-apps/api/globalShortcut', replacement: resolve(shimDir, 'tauri-noop-shims.ts') },
       { find: '@tauri-apps/api/http', replacement: resolve(shimDir, 'tauri-apps-api-http.ts') },
       { find: '@tauri-apps/api/path', replacement: resolve(shimDir, 'tauri-apps-api-path.ts') },
-      { find: '@tauri-apps/api/process', replacement: resolve(shimDir, 'tauri-apps-api-process.ts') },
+      { find: '@tauri-apps/api/process', replacement: resolve(shimDir, 'tauri-noop-shims.ts') },
       { find: '@tauri-apps/api/shell', replacement: resolve(shimDir, 'tauri-apps-api-shell.ts') },
-      { find: '@tauri-apps/api/tauri', replacement: resolve(shimDir, 'tauri-apps-api-tauri.ts') },
-      { find: '@tauri-apps/api/updater', replacement: resolve(shimDir, 'tauri-apps-api-updater.ts') },
+      { find: '@tauri-apps/api/updater', replacement: resolve(shimDir, 'tauri-noop-shims.ts') },
       { find: '@tauri-apps/api/window', replacement: resolve(shimDir, 'tauri-apps-api-window.ts') },
       { find: '@tauri-apps/api', replacement: resolve(shimDir, 'tauri-apps-api.ts') },
 

@@ -4,7 +4,7 @@ This document describes a set of refactoring changes to reduce complexity, remov
 
 ---
 
-## 1. Split `workflows.ts` (1080 lines) into focused modules
+## 1. DONE - Split `workflows.ts` (1080 lines) into focused modules
 
 **File:** `wrapper/api/src/routes/workflows.ts`
 
@@ -46,7 +46,7 @@ This is the largest file in the codebase and mixes three distinct concerns in on
   - Extract a shared `executeWorkflowEndpoint(projectPath, referenceProjectPath, root, req, res)` helper (see Item 2)
   - Both route handlers become ~10 lines each: resolve endpoint, find workflow, call shared helper
 
-- **Keep** `wrapper/api/src/routes/workflows/index.ts` as the slim management router (`workflowsRouter`) containing the CRUD route handlers (`GET /tree`, `POST /folders`, `PATCH /folders`, `DELETE /folders`, `POST /projects`, `PATCH /projects`, `DELETE /projects`, `PATCH /projects/settings`, `POST /projects/publish`, `POST /projects/unpublish`, `POST /move`). Re-export the execution routers and types.
+- **Keep** `wrapper/api/src/routes/workflows/index.ts` as the slim management router (`workflowsRouter`) containing the CRUD route handlers (`GET /tree`, `POST /folders`, `PATCH /folders`, `DELETE /folders`, `POST /projects`, `PATCH /projects`, `DELETE /projects`, `POST /projects/publish`, `POST /projects/unpublish`, `POST /move`). Re-export the execution routers and types.
 
 - **Also extract** `getWorkflowProject` (builds a `WorkflowProjectItem` from a path), `listWorkflowFolders`, `listWorkflowProjects`, `moveWorkflowProject` (line 572) into appropriate modules — these are currently helper functions called by the route handlers.
 
@@ -54,7 +54,7 @@ This is the largest file in the codebase and mixes three distinct concerns in on
 
 ---
 
-## 2. Deduplicate published/latest workflow execution handlers
+## 2. DONE - Deduplicate published/latest workflow execution handlers
 
 **File:** `wrapper/api/src/routes/workflows.ts`, lines 80-184
 
@@ -89,7 +89,7 @@ The only differences: `findPublishedWorkflowByEndpoint` vs `findLatestWorkflowBy
 
 ---
 
-## 3. Remove excessive debug logging from save-shortcut handling
+## 3. DONE - Remove excessive debug logging from save-shortcut handling
 
 **Files:**
 - `wrapper/web/dashboard/DashboardPage.tsx`
@@ -125,7 +125,7 @@ The Ctrl+S / Cmd+S shortcut handling has 25+ `console.log` calls with a `[hosted
 
 ---
 
-## 4. Remove development-era debug logging from useRemoteDebugger
+## 4. DONE - Remove development-era debug logging from useRemoteDebugger
 
 **File:** `wrapper/web/overrides/hooks/useRemoteDebugger.ts`
 
@@ -143,7 +143,7 @@ The Ctrl+S / Cmd+S shortcut handling has 25+ `console.log` calls with a `[hosted
 
 ---
 
-## 5. Simplify the Windows keyup save workaround in EditorMessageBridge
+## 5. DONE - Simplify the Windows keyup save workaround in EditorMessageBridge
 
 **File:** `wrapper/web/dashboard/EditorMessageBridge.tsx`, lines 48-116
 
@@ -155,18 +155,18 @@ The Windows workaround exists because in some browsers on Windows, `keydown` Ctr
 
 **Changes:**
 
-- Consolidate into a single `useEffect` with one keydown handler that:
+- Remove the wrapper-managed Windows `keyup` save effect entirely and keep a single iframe `keydown` handler that:
   1. Always calls `event.preventDefault()` + `event.stopPropagation()` on save shortcut
   2. On non-Windows: immediately calls `saveCurrentProject()`
-  3. On Windows: sets a flag, then registers a one-time `keyup` listener that calls `saveCurrentProject()` and clears the flag
-- This keeps the Windows workaround functional but removes the separate `useEffect` hook and the confusing split across two listener registrations.
-- **Do NOT remove the Windows workaround without testing on Windows + Chrome/Edge first.** The workaround exists for a real browser behavior difference.
+  3. On Windows: does **not** call save directly and instead relies on Rivet's upstream `useWindowsHotkeysFix`, which already performs the actual save on `keyup`
+- This preserves the correct Windows behavior while simplifying the wrapper code and avoiding double-save bugs inside the iframe.
+- **Do NOT call save directly on Windows inside the iframe.** The upstream keyup-based workaround already exists and is required for correct browser behavior.
 
-**Impact:** Reduces two effects (~70 lines with debug logs removed) to one effect (~25 lines). The Windows branch becomes a small conditional inside a single handler instead of a separate lifecycle hook.
+**Impact:** Reduces two wrapper save effects to one while keeping the real Windows workaround intact in upstream Rivet. The wrapper now only suppresses the browser default inside the iframe and performs hosted save directly on non-Windows.
 
 ---
 
-## 6. Extract the settings modal from WorkflowLibraryPanel into its own component
+## 6. DONE - Extract the settings modal from WorkflowLibraryPanel into its own component
 
 **File:** `wrapper/web/dashboard/WorkflowLibraryPanel.tsx` (993 lines)
 
@@ -186,7 +186,7 @@ This component handles: tree rendering, drag-and-drop, folder CRUD, project CRUD
 
 ---
 
-## 7. Remove `wrapper/shared/api-types.ts` (dead code)
+## 7. DONE - Remove `wrapper/shared/api-types.ts` (dead code)
 
 **File:** `wrapper/shared/api-types.ts` (104 lines)
 
@@ -201,7 +201,7 @@ This file defines typed request/response interfaces (`NativeReadTextRequest`, `S
 
 ---
 
-## 8. Remove `server_old.js`
+## 8. DONE - Remove `server_old.js`
 
 **File:** `server_old.js` (103 lines, repo root)
 
@@ -214,7 +214,7 @@ This is a legacy Express server from before the modular `wrapper/api/` rewrite. 
 
 ---
 
-## 9. Consolidate the `constants.ts` one-liner
+## 9. DONE - Consolidate the `constants.ts` one-liner
 
 **File:** `wrapper/web/dashboard/constants.ts` (1 line)
 
@@ -230,7 +230,7 @@ This is used in exactly one place: `DashboardPage.tsx` line 27 (`parseInt(WORKFL
 
 ---
 
-## 10. Remove duplicate type definitions between frontend and backend
+## 10. DONE - Remove duplicate type definitions between frontend and backend
 
 **Files:**
 - `wrapper/web/dashboard/types.ts` (48 lines) — frontend types
@@ -258,7 +258,7 @@ The frontend `types.ts` also defines frontend-only types:
 
 ---
 
-## 11. Consolidate the trivial no-op Tauri shims
+## 11. DONE - Consolidate the trivial no-op Tauri shims
 
 **Files:** `wrapper/web/shims/` — 12 shim files total
 
@@ -289,7 +289,7 @@ The shim files fall into two categories:
 
 ---
 
-## 12. Clean up `useRemoteExecutor.ts` debug logging
+## 12. DONE - Clean up `useRemoteExecutor.ts` debug logging
 
 **File:** `wrapper/web/overrides/hooks/useRemoteExecutor.ts`
 
@@ -313,7 +313,7 @@ The shim files fall into two categories:
 
 ---
 
-## 13. Remove unused `updateWorkflowProjectSettings` frontend function and backend route
+## 13. DONE - Remove unused `updateWorkflowProjectSettings` frontend function and backend route
 
 **Files:**
 - `wrapper/web/dashboard/workflowApi.ts`, lines 117-129 — frontend API function
@@ -331,7 +331,7 @@ The corresponding backend route handler at line 341 (`workflowsRouter.patch('/pr
 
 ---
 
-## 14. Simplify the `normalizeStoredWorkflowProjectSettings` function
+## 14. DONE - Simplify the `normalizeStoredWorkflowProjectSettings` function
 
 **File:** `wrapper/api/src/routes/workflows.ts`, lines 803-841
 
@@ -358,7 +358,7 @@ This pattern is repeated 5 times (for `endpointName`, `publishedEndpointName`, `
 
 ---
 
-## 15. Fix inconsistent sidecar-path resolution and reduce duplication
+## 15. DONE - Fix inconsistent sidecar-path resolution and reduce duplication
 
 **File:** `wrapper/api/src/routes/workflows.ts`
 
@@ -381,7 +381,7 @@ Three handlers manage sidecar files (dataset `.rivet-data` and settings `.wrappe
 
 ---
 
-## 16. Remove the `compat/invoke` router and inline its commands
+## 16. DONE - Remove the `compat/invoke` router and inline its commands
 
 **Files:**
 - `wrapper/api/src/routes/compat.ts` (76 lines) — backend router
@@ -411,13 +411,13 @@ The `invoke` shim adds an unnecessary indirection layer: `getEnvVar('OPENAI_API_
 - Delete `compat.ts` entirely.
 - Delete `tauri-apps-api-tauri.ts` (the `invoke` shim) — after migrating all callers, no code will import from `@tauri-apps/api/tauri`.
 - Remove the `@tauri-apps/api/tauri` alias from `vite.config.ts`.
-- Remove the compat router registration from `wrapper/api/src/index.ts`.
+- Remove the compat router registration from `wrapper/api/src/server.ts`.
 
 **Impact:** Removes an unnecessary abstraction layer (108 lines across 2 files). Frontend code calls purpose-specific endpoints instead of a generic dispatch. Eliminates one shim file entirely.
 
 ---
 
-## 17. Simplify `entry.tsx` process shim
+## 17. DONE - Simplify `entry.tsx` process shim
 
 **File:** `wrapper/web/entry.tsx`, lines 1-55
 

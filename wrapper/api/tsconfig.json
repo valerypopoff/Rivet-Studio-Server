@@ -7,13 +7,13 @@
     "allowSyntheticDefaultImports": true,
     "strict": true,
     "outDir": "dist",
-    "rootDir": "src",
+    "rootDir": "..",
     "declaration": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "isolatedModules": true
   },
-  "include": ["src"],
+  "include": ["src", "../shared/**/*.ts"],
   "exclude": ["dist", "node_modules"]
 }

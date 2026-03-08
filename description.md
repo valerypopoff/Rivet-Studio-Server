@@ -227,27 +227,30 @@ That message bridge is responsible for wrapper-specific coordination such as:
 
 - folder expand/collapse is limited to the left chevron hit area
 - double-clicking the folder name area triggers rename without also toggling folder expansion
-- selecting a project from the pane reuses the normal hosted project-open flow rather than introducing a second editor state system
-- opening a project from the pane normally activates or adds an editor tab instead of replacing the current tab
+- single-clicking a project row selects it in the pane without opening it in the editor
+- double-clicking a project row opens it in the editor and normally activates or adds an editor tab instead of replacing the current tab
 
 ### Active project visibility
 
-- when the active editor project is inside a collapsed workflow folder, the pane automatically expands all ancestor folders necessary to expose the active item
-- when the active editor project changes, the pane automatically scrolls the highlighted project row into view
+- when the selected workflow project is inside a collapsed workflow folder, the pane automatically expands all ancestor folders necessary to expose the selected item
+- when the selected workflow project changes, the pane automatically scrolls the highlighted project row into view
 
 ### Active project section
 
-When there is an active workflow project, the dashboard shows a pinned wrapper-owned `Active project` section near the top of the `Projects` pane.
+The dashboard shows a pinned wrapper-owned `Active project` section near the top of the `Projects` pane.
 
 Current behavior:
 
-- the section is hidden when there is no active workflow project
+- the section follows the currently selected workflow project in the pane
+- when there is no separate selected project, the currently opened workflow project becomes the displayed project
+- the section is hidden when there is no selected or opened workflow project
 - it shows the full project filename including `.rivet-project`
 - it shows the current publish-related status directly under the filename
-- it contains the wrapper-owned `Save` action for the current project
+- it contains the wrapper-owned `Save` action when the displayed project is currently open in the editor
+- it shows `Edit` instead when the displayed project is selected but not currently open in the editor
 - it contains a `More` action that opens the project settings popup
 
-This section is meant to stay visible independently of the scroll position of the workflow tree so the user always has access to the current project's main actions.
+This section is meant to stay visible independently of the scroll position of the workflow tree so the user always has access to the selected project's main actions.
 
 ### Save behavior
 
@@ -260,7 +263,7 @@ This section is meant to stay visible independently of the scroll position of th
 
 ### Project settings popup
 
-The `More` action for the active project opens a wrapper-owned project settings popup.
+The `More` action for the selected project opens a wrapper-owned project settings popup.
 
 Current popup behavior:
 
@@ -417,16 +420,16 @@ The following statements should remain true after major refactors unless there i
 - the workflow dashboard still owns project organization, not the core editor
 - file-backed workflow projects still save to their real on-disk paths through the hosted API
 - `Ctrl+S` / `Cmd+S` still save the active file-backed workflow project correctly
-- the active project is still highlighted in the `Projects` pane
-- collapsed parent folders of the active project still auto-expand so the active item is visible
-- the pane still scrolls the active project into view when needed
+- the selected project is still highlighted in the `Projects` pane
+- collapsed parent folders of the selected project still auto-expand so the selected item is visible
+- the pane still scrolls the selected project into view when needed
 - workflow folders and projects are still creatable from the dashboard
 - workflow folders and projects are still movable on disk through drag and drop
 - moving an already-open project still preserves later save behavior without forcing a reopen
 - project settings metadata still follows workflow moves because the wrapper moves the related settings sidecar together with the project
 - the workflow library is still constrained to the validated workflow root
 - the app still uses API-backed and websocket-backed hosted services instead of assuming desktop-native integrations
-- the active project section and project settings popup still reflect the real active workflow project rather than a stale last-opened file
+- the active project section and project settings popup still reflect the currently selected workflow project, defaulting to the opened workflow project when nothing else is selected
 
 ## Current practical outcome
 

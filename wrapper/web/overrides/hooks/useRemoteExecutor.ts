@@ -246,7 +246,6 @@ export function useRemoteExecutor() {
       toast.info(
         (options.iterationCount ?? 1) > 1 ? `Running Tests (${options.iterationCount!} iterations)` : 'Running Tests',
       );
-      console.log('trying to run tests');
       currentExecution.onTrivetStart();
 
       setTrivetState((s) => ({
@@ -310,9 +309,8 @@ export function useRemoteExecutor() {
             result.testSuiteResults.filter((t) => t.passing).length
           } passing`,
         );
-        console.log(result);
       } catch (e) {
-        console.log(e);
+        console.error('Test run error:', e);
         setTrivetState((s) => ({
           ...s,
           runningTests: false,
@@ -323,17 +321,14 @@ export function useRemoteExecutor() {
   );
 
   function tryAbortGraph() {
-    console.log('Aborting via remote debugger');
     remoteDebugger.send('abort', undefined);
   }
 
   function tryPauseGraph() {
-    console.log('Pausing via remote debugger');
     remoteDebugger.send('pause', undefined);
   }
 
   function tryResumeGraph() {
-    console.log('Resuming via remote debugger');
     remoteDebugger.send('resume', undefined);
   }
 

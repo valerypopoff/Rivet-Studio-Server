@@ -2,10 +2,9 @@ import express, { type Request, type Response, type NextFunction } from 'express
 import cors from 'cors';
 import { nativeRouter } from './routes/native.js';
 import { shellRouter } from './routes/shell.js';
-import { compatRouter } from './routes/compat.js';
 import { pluginsRouter } from './routes/plugins.js';
 import { projectsRouter } from './routes/projects.js';
-import { latestWorkflowsRouter, publishedWorkflowsRouter, workflowsRouter } from './routes/workflows.js';
+import { latestWorkflowsRouter, publishedWorkflowsRouter, workflowsRouter } from './routes/workflows/index.js';
 import { configRouter } from './routes/config.js';
 
 const app = express();
@@ -19,7 +18,6 @@ app.use('/workflows', publishedWorkflowsRouter);
 app.use('/workflows-last', latestWorkflowsRouter);
 app.use('/api/native', nativeRouter);
 app.use('/api/shell', shellRouter);
-app.use('/api/compat', compatRouter);
 app.use('/api/plugins', pluginsRouter);
 app.use('/api/projects', projectsRouter);
 app.use('/api/workflows', workflowsRouter);

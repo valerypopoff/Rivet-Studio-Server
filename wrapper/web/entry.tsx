@@ -1,18 +1,8 @@
 const processShim = {
   env: {},
-  argv: [],
-  arch: 'browser',
-  platform: 'browser',
-  version: '0.0.0-browser',
-  versions: {},
   browser: true,
-  pid: 1,
-  noDeprecation: false,
-  traceDeprecation: false,
-  throwDeprecation: false,
+  versions: {},
   cwd: () => '/',
-  chdir: () => {},
-  exit: () => {},
   emitWarning: (...args: unknown[]) => {
     console.warn(...args);
   },

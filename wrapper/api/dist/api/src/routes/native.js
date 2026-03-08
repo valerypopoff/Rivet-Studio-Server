@@ -101,6 +101,19 @@ nativeRouter.post('/remove-file', asyncHandler(async (req, res) => {
     await fs.unlink(safePath);
     res.json({ success: true });
 }));
+// POST /api/native/read-relative
+nativeRouter.post('/read-relative', asyncHandler(async (req, res) => {
+    const { relativeFrom, projectFilePath } = req.body ?? {};
+    if (!relativeFrom || !projectFilePath) {
+        res.status(400).json({ error: 'Missing relativeFrom or projectFilePath' });
+        return;
+    }
+    const baseDir = path.dirname(relativeFrom);
+    const fullPath = path.resolve(baseDir, projectFilePath);
+    const safePath = validatePath(fullPath);
+    const contents = await fs.readFile(safePath, 'utf-8');
+    res.json({ contents });
+}));
 // Helper: resolve baseDir to actual path
 function resolveBaseDir(inputPath, baseDir) {
     if (!baseDir)
