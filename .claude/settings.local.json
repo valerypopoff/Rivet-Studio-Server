@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(docker image inspect:*)"
+      "Bash(docker image inspect:*)",
+      "Read(//d/**)",
+      "Read(//d//**)"
     ]
   }
 }
