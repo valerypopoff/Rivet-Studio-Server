@@ -151,6 +151,24 @@ Typical responsibilities include:
 
 The browser talks to this service through wrapper shims and overrides instead of talking directly to the user's machine.
 
+### Workflow project metadata model
+
+Workflow projects in the dashboard are not just raw `.rivet-project` files.
+
+For each project, the wrapper may also manage nearby sidecar files:
+
+- `.rivet-data` for project data that belongs with the workflow file
+- `.wrapper-settings.json` for wrapper-owned project settings metadata
+
+That wrapper settings sidecar currently stores hosted dashboard metadata such as:
+
+- the endpoint name used for publication
+- the last published state hash used to derive publish status
+
+The settings sidecar is wrapper-owned infrastructure, not upstream Rivet product data.
+
+When a workflow project is moved through the dashboard, the wrapper moves the related sidecars with it so the project's hosted metadata follows the file.
+
 ## Workflow dashboard
 
 The hosted app boots into a wrapper-owned dashboard shell around the upstream editor.
@@ -166,6 +184,22 @@ This dashboard is the main wrapper-owned UX layer and is one of the most regress
 - when the pane is collapsed, a restore button is shown in the bottom-left corner of the window
 - when zero editor project tabs are open, the wrapper forces the `Projects` pane open even if the user had previously collapsed it
 - when zero editor project tabs are open, the dashboard hides the embedded editor surface and shows a wrapper-owned empty state instead of Rivet's default start screen
+
+### Editor/dashboard coordination
+
+The dashboard and the embedded editor are deliberately split into two cooperating layers:
+
+- the dashboard owns wrapper UI, workflow browsing, popup state, and high-level file-management actions
+- the embedded editor owns actual Rivet project editing and tab state
+- the two sides coordinate through `postMessage` in `DashboardPage.tsx` and `EditorMessageBridge.tsx`
+
+That message bridge is responsible for wrapper-specific coordination such as:
+
+- opening workflow projects in the editor
+- saving the active workflow project
+- updating tracked file paths when workflow items are moved
+- removing deleted projects from the editor's open-tab state
+- notifying the dashboard when a project save has completed so wrapper-derived status can refresh
 
 ### Workflow library contents
 
@@ -188,6 +222,20 @@ This dashboard is the main wrapper-owned UX layer and is one of the most regress
 - when the active editor project is inside a collapsed workflow folder, the pane automatically expands all ancestor folders necessary to expose the active item
 - when the active editor project changes, the pane automatically scrolls the highlighted project row into view
 
+### Active project section
+
+When there is an active workflow project, the dashboard shows a pinned wrapper-owned `Active project` section near the top of the `Projects` pane.
+
+Current behavior:
+
+- the section is hidden when there is no active workflow project
+- it shows the full project filename including `.rivet-project`
+- it shows the current publish-related status directly under the filename
+- it contains the wrapper-owned `Save` action for the current project
+- it contains a `More` action that opens the project settings popup
+
+This section is meant to stay visible independently of the scroll position of the workflow tree so the user always has access to the current project's main actions.
+
 ### Save behavior
 
 - the wrapper-owned `Save` button in the `Projects` pane is driven by the editor's active tab rather than stale last-loaded state
@@ -195,6 +243,65 @@ This dashboard is the main wrapper-owned UX layer and is one of the most regress
 - hosted `Save As` reuses the current file-backed workflow project's directory as the default suggestion when available, so projects opened from nested workflow folders do not get flattened back to the workflow root by default
 - the dashboard maps `Ctrl+S` / `Cmd+S` to that same hosted save behavior
 - when the active editor is not a path-backed workflow project, or when no tabs are open, the wrapper `Save` button is hidden
+- after a successful save, the embedded editor notifies the dashboard so the workflow pane can refresh derived publish state for the active project
+
+### Project settings popup
+
+The `More` action for the active project opens a wrapper-owned project settings popup.
+
+Current popup behavior:
+
+- the header shows the full project filename including extension
+- the current publish-related status appears directly under the filename
+- the popup can be closed with the close button or by clicking outside it
+- close/dismiss is the cancel behavior; there is no separate cancel button
+- the popup stays open after publish, unpublish, and publish-changes actions so the user can continue reviewing the project state
+- the popup includes project deletion with confirmation
+
+### Publish model in project settings
+
+The project settings popup does not let the user manually choose a status. Instead, the status is derived from wrapper-owned publication metadata.
+
+Current status values are:
+
+- `unpublished`
+- `published`
+- `unpublished_changes`
+
+The practical rules are:
+
+- a newly created project starts as `unpublished`
+- `Publish` requires an endpoint name
+- the endpoint name must be URL-path compatible and unique among workflow projects
+- publishing stores a published-state hash based on the endpoint name and the current project file contents
+- if the project remains unchanged since publication, the status is `published`
+- if the project file changes after publication and is saved, the status becomes `unpublished_changes`
+- `Publish changes` updates the stored published-state hash to the current endpoint-plus-file state
+- `Unpublish` clears the stored published-state hash and returns the project to `unpublished`
+
+### Endpoint editing rules
+
+Endpoint editing is intentionally tied to publication state.
+
+Current behavior:
+
+- the endpoint field is editable only while the project is `unpublished`
+- once the project is `published` or has `unpublished_changes`, the endpoint field is locked
+- to change the endpoint, the user must unpublish first, edit the endpoint, and then publish again
+- there is no separate `Save endpoint` action; the endpoint is committed through publishing
+
+### Delete behavior
+
+Deleting a workflow project from the project settings popup is a wrapper-managed workflow action, not just a raw file delete.
+
+Current behavior:
+
+- the user must confirm deletion
+- if the project is published or has unpublished changes, the wrapper first unpublishes it
+- the project file is deleted from the workflow library
+- the `.rivet-data` sidecar is also deleted if it exists
+- the `.wrapper-settings.json` sidecar is also deleted if it exists
+- the dashboard tells the editor bridge to close or switch away from the deleted project as needed
 
 ### Drag and drop behavior
 
@@ -303,8 +410,10 @@ The following statements should remain true after major refactors unless there i
 - workflow folders and projects are still creatable from the dashboard
 - workflow folders and projects are still movable on disk through drag and drop
 - moving an already-open project still preserves later save behavior without forcing a reopen
+- project settings metadata still follows workflow moves because the wrapper moves the related settings sidecar together with the project
 - the workflow library is still constrained to the validated workflow root
 - the app still uses API-backed and websocket-backed hosted services instead of assuming desktop-native integrations
+- the active project section and project settings popup still reflect the real active workflow project rather than a stale last-opened file
 
 ## Current practical outcome
 

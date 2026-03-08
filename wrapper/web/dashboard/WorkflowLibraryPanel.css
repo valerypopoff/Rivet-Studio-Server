@@ -28,6 +28,121 @@
   align-items: center;
 }
 
+.workflow-library-panel .active-project-section {
+  border-bottom: 1px solid var(--grey);
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.workflow-library-panel .active-project-section-content {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.workflow-library-panel .active-project-details {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.workflow-library-panel .active-project-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.workflow-library-panel .active-project-label {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--grey-light);
+}
+
+.workflow-library-panel .active-project-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--grey-lightest);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.workflow-library-panel .active-project-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+}
+
+.workflow-library-panel .active-project-save-button,
+.workflow-library-panel .active-project-more-button {
+  border: none;
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 120ms ease, opacity 120ms ease;
+  min-width: 72px;
+}
+
+.workflow-library-panel .active-project-save-button {
+  background: #2f9e44;
+  color: white;
+}
+
+.workflow-library-panel .active-project-save-button:hover:not(:disabled) {
+  background: #37b24d;
+}
+
+.workflow-library-panel .active-project-save-button:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.workflow-library-panel .active-project-more-button {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--grey-lightest);
+}
+
+.workflow-library-panel .active-project-more-button:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.workflow-library-panel .project-status-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 22px;
+  padding: 0 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+  background: transparent;
+  border: 1px solid currentColor;
+  color: var(--grey-lightest);
+}
+
+.workflow-library-panel .project-status-badge.published {
+  color: #7ee294;
+}
+
+.workflow-library-panel .project-status-badge.unpublished_changes {
+  color: #ffd76a;
+}
+
+.workflow-library-panel .project-status-badge.unpublished {
+  color: var(--grey-light);
+}
+
 .workflow-library-panel .icon-button,
 .workflow-library-panel .text-button {
   border: none;
@@ -221,4 +336,152 @@
 .workflow-library-panel .project-row {
   border: none;
   cursor: pointer;
+}
+
+.workflow-library-panel .project-settings-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 40;
+}
+
+.workflow-library-panel .project-settings-modal {
+  width: min(420px, 100%);
+  background: #1f1f22;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.35);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.workflow-library-panel .project-settings-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.workflow-library-panel .project-settings-modal-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--grey-lightest);
+}
+
+.workflow-library-panel .project-settings-modal-heading {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.workflow-library-panel .project-settings-modal-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.workflow-library-panel .project-settings-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.workflow-library-panel .project-settings-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--grey-lightest);
+}
+
+.workflow-library-panel .project-settings-input {
+  width: 100%;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--grey-lightest);
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.workflow-library-panel .project-settings-input:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.workflow-library-panel .project-settings-help {
+  font-size: 11px;
+  color: var(--grey-light);
+}
+
+.workflow-library-panel .project-settings-error {
+  font-size: 11px;
+  color: #ff9ba5;
+}
+
+.workflow-library-panel .project-settings-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.workflow-library-panel .project-settings-action-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.workflow-library-panel .project-settings-delete-button {
+  border: none;
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: rgba(220, 53, 69, 0.18);
+  color: #ff9ba5;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.workflow-library-panel .project-settings-delete-button:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.workflow-library-panel .project-settings-primary-button {
+  border: none;
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: #2f9e44;
+  color: white;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 120ms ease, opacity 120ms ease;
+}
+
+.workflow-library-panel .project-settings-primary-button:hover:not(:disabled) {
+  background: #37b24d;
+}
+
+.workflow-library-panel .project-settings-primary-button.unpublish {
+  background: rgba(255, 255, 255, 0.12);
+  color: var(--grey-lightest);
+}
+
+.workflow-library-panel .project-settings-primary-button.unpublish:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.workflow-library-panel .project-settings-primary-button:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
 }

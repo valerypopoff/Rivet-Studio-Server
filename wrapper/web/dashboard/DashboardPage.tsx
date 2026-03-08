@@ -12,6 +12,7 @@ const SAVE_SHORTCUT_DEBUG_PREFIX = '[hosted-save-shortcut][dashboard]';
 type EditorCommand =
   | { type: 'open-project'; path: string; replaceCurrent: boolean }
   | { type: 'save-project' }
+  | { type: 'delete-workflow-project'; path: string }
   | { type: 'workflow-paths-moved'; moves: WorkflowProjectPathMove[] };
 
 export const DashboardPage: FC = () => {
@@ -20,6 +21,7 @@ export const DashboardPage: FC = () => {
   const [activeProjectPath, setActiveProjectPath] = useState('');
   const [editorReady, setEditorReady] = useState(false);
   const [openProjectCount, setOpenProjectCount] = useState(0);
+  const [projectSaveSequence, setProjectSaveSequence] = useState(0);
   const [sidebarWidth, setSidebarWidth] = useState(() => parseInt(WORKFLOW_DASHBOARD_SIDEBAR_WIDTH, 10) || 300);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
@@ -53,6 +55,11 @@ export const DashboardPage: FC = () => {
 
   const handleSaveProject = useCallback(() => {
     postEditorCommand({ type: 'save-project' });
+  }, [postEditorCommand]);
+
+  const handleDeleteProject = useCallback((path: string) => {
+    setActiveProjectPath((prev) => (prev === path ? '' : prev));
+    postEditorCommand({ type: 'delete-workflow-project', path });
   }, [postEditorCommand]);
 
   const handleWorkflowPathsMoved = useCallback(
@@ -186,6 +193,11 @@ export const DashboardPage: FC = () => {
 
       if (event.data?.type === 'open-project-count-changed' && typeof event.data.count === 'number') {
         setOpenProjectCount(event.data.count);
+        return;
+      }
+
+      if (event.data?.type === 'project-saved' && typeof event.data.path === 'string') {
+        setProjectSaveSequence((prev) => prev + 1);
       }
     };
     window.addEventListener('message', handler);
@@ -201,9 +213,11 @@ export const DashboardPage: FC = () => {
           <WorkflowLibraryPanel
             onOpenProject={handleOpenProject}
             onSaveProject={handleSaveProject}
+            onDeleteProject={handleDeleteProject}
             onWorkflowPathsMoved={handleWorkflowPathsMoved}
             activeProjectPath={activeProjectPath}
             editorReady={editorReady}
+            projectSaveSequence={projectSaveSequence}
             onCollapse={openProjectCount === 0 ? undefined : () => setSidebarCollapsed(true)}
           />
           <div className="dashboard-sidebar-resizer" role="separator" aria-orientation="vertical" aria-label="Resize folders pane" />

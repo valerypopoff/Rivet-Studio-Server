@@ -1,3 +1,14 @@
+export type WorkflowProjectStatus = 'unpublished' | 'published' | 'unpublished_changes';
+
+export type WorkflowProjectSettings = {
+  status: WorkflowProjectStatus;
+  endpointName: string;
+};
+
+export type WorkflowProjectSettingsDraft = {
+  endpointName: string;
+};
+
 export type WorkflowProjectItem = {
   id: string;
   name: string;
@@ -5,6 +16,7 @@ export type WorkflowProjectItem = {
   relativePath: string;
   absolutePath: string;
   updatedAt: string;
+  settings: WorkflowProjectSettings;
 };
 
 export type WorkflowFolderItem = {

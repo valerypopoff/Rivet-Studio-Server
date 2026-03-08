@@ -3,6 +3,7 @@ import type {
   WorkflowFolderItem,
   WorkflowMoveResponse,
   WorkflowProjectItem,
+  WorkflowProjectSettingsDraft,
   WorkflowTreeResponse,
 } from './types';
 
@@ -88,4 +89,53 @@ export async function moveWorkflowItem(
   });
 
   return parseJsonResponse<WorkflowMoveResponse>(response);
+}
+
+export async function updateWorkflowProjectSettings(
+  relativePath: string,
+  settings: WorkflowProjectSettingsDraft,
+): Promise<WorkflowProjectItem> {
+  const response = await fetch(`${API}/workflows/projects/settings`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ relativePath, settings }),
+  });
+
+  const data = await parseJsonResponse<{ project: WorkflowProjectItem }>(response);
+  return data.project;
+}
+
+export async function publishWorkflowProject(
+  relativePath: string,
+  settings: WorkflowProjectSettingsDraft,
+): Promise<WorkflowProjectItem> {
+  const response = await fetch(`${API}/workflows/projects/publish`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ relativePath, settings }),
+  });
+
+  const data = await parseJsonResponse<{ project: WorkflowProjectItem }>(response);
+  return data.project;
+}
+
+export async function unpublishWorkflowProject(relativePath: string): Promise<WorkflowProjectItem> {
+  const response = await fetch(`${API}/workflows/projects/unpublish`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ relativePath }),
+  });
+
+  const data = await parseJsonResponse<{ project: WorkflowProjectItem }>(response);
+  return data.project;
+}
+
+export async function deleteWorkflowProject(relativePath: string): Promise<void> {
+  const response = await fetch(`${API}/workflows/projects`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ relativePath }),
+  });
+
+  await parseJsonResponse<{ deleted: true }>(response);
 }

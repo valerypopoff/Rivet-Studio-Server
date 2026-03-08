@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { getWorkflowsRoot, validatePath } from '../security.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { badRequest, conflict } from '../utils/httpError.js';
@@ -9,6 +9,24 @@ import { badRequest, conflict } from '../utils/httpError.js';
 export const workflowsRouter = Router();
 
 const PROJECT_EXTENSION = '.rivet-project';
+const PROJECT_SETTINGS_SUFFIX = '.wrapper-settings.json';
+
+type WorkflowProjectStatus = 'unpublished' | 'published' | 'unpublished_changes';
+
+type WorkflowProjectSettings = {
+  status: WorkflowProjectStatus;
+  endpointName: string;
+};
+
+type WorkflowProjectSettingsDraft = {
+  endpointName: string;
+};
+
+type StoredWorkflowProjectSettings = {
+  endpointName: string;
+  publishedStateHash: string | null;
+  legacyStatus?: WorkflowProjectStatus;
+};
 
 type WorkflowProjectPathMove = {
   fromAbsolutePath: string;
@@ -22,6 +40,7 @@ type WorkflowProjectItem = {
   relativePath: string;
   absolutePath: string;
   updatedAt: string;
+  settings: WorkflowProjectSettings;
 };
 
 type WorkflowFolderItem = {
@@ -129,6 +148,103 @@ workflowsRouter.post('/projects', asyncHandler(async (req, res) => {
   res.status(201).json({
     project: await getWorkflowProject(root, filePath),
   });
+}));
+
+workflowsRouter.patch('/projects/settings', asyncHandler(async (req, res) => {
+  const { relativePath, settings } = req.body ?? {};
+  const root = await ensureWorkflowsRoot();
+  const projectPath = resolveWorkflowRelativePath(root, relativePath, {
+    allowProjectFile: true,
+  });
+
+  if (!projectPath.endsWith(PROJECT_EXTENSION)) {
+    throw badRequest('Expected project path');
+  }
+
+  const projectName = path.basename(projectPath, PROJECT_EXTENSION);
+  const existingSettings = await readStoredWorkflowProjectSettings(projectPath, projectName);
+  const normalizedSettings = normalizeWorkflowProjectSettingsDraft(settings);
+  await writeStoredWorkflowProjectSettings(projectPath, {
+    ...existingSettings,
+    endpointName: normalizedSettings.endpointName,
+  });
+
+  res.json({
+    project: await getWorkflowProject(root, projectPath),
+  });
+}));
+
+workflowsRouter.post('/projects/publish', asyncHandler(async (req, res) => {
+  const { relativePath, settings } = req.body ?? {};
+  const root = await ensureWorkflowsRoot();
+  const projectPath = resolveWorkflowRelativePath(root, relativePath, {
+    allowProjectFile: true,
+  });
+
+  if (!projectPath.endsWith(PROJECT_EXTENSION)) {
+    throw badRequest('Expected project path');
+  }
+
+  const normalizedSettings = normalizeWorkflowProjectSettingsDraft(settings);
+  await ensureWorkflowEndpointNameIsUnique(root, projectPath, normalizedSettings.endpointName);
+  const publishedStateHash = await createWorkflowPublicationStateHash(projectPath, normalizedSettings.endpointName);
+  await writeStoredWorkflowProjectSettings(projectPath, {
+    endpointName: normalizedSettings.endpointName,
+    publishedStateHash,
+  });
+
+  res.json({
+    project: await getWorkflowProject(root, projectPath),
+  });
+}));
+
+workflowsRouter.post('/projects/unpublish', asyncHandler(async (req, res) => {
+  const { relativePath } = req.body ?? {};
+  const root = await ensureWorkflowsRoot();
+  const projectPath = resolveWorkflowRelativePath(root, relativePath, {
+    allowProjectFile: true,
+  });
+
+  if (!projectPath.endsWith(PROJECT_EXTENSION)) {
+    throw badRequest('Expected project path');
+  }
+
+  const projectName = path.basename(projectPath, PROJECT_EXTENSION);
+  const existingSettings = await readStoredWorkflowProjectSettings(projectPath, projectName);
+  await writeStoredWorkflowProjectSettings(projectPath, {
+    endpointName: existingSettings.endpointName,
+    publishedStateHash: null,
+  });
+
+  res.json({
+    project: await getWorkflowProject(root, projectPath),
+  });
+}));
+
+workflowsRouter.delete('/projects', asyncHandler(async (req, res) => {
+  const { relativePath } = req.body ?? {};
+  const root = await ensureWorkflowsRoot();
+  const projectPath = resolveWorkflowRelativePath(root, relativePath, {
+    allowProjectFile: true,
+  });
+
+  if (!projectPath.endsWith(PROJECT_EXTENSION)) {
+    throw badRequest('Expected project path');
+  }
+
+  await fs.rm(projectPath, { force: false });
+
+  const datasetPath = projectPath.replace(PROJECT_EXTENSION, '.rivet-data');
+  if (await pathExists(datasetPath)) {
+    await fs.rm(datasetPath, { force: false });
+  }
+
+  const settingsPath = getWorkflowProjectSettingsPath(projectPath);
+  if (await pathExists(settingsPath)) {
+    await fs.rm(settingsPath, { force: false });
+  }
+
+  res.json({ deleted: true });
 }));
 
 async function ensureWorkflowsRoot(): Promise<string> {
@@ -255,14 +371,16 @@ async function getWorkflowProject(root: string, filePath: string): Promise<Workf
   const stats = await fs.stat(filePath);
   const relativePath = path.relative(root, filePath).replace(/\\/g, '/');
   const fileName = path.basename(filePath);
+  const projectName = fileName.slice(0, -PROJECT_EXTENSION.length);
 
   return {
     id: relativePath,
-    name: fileName.slice(0, -PROJECT_EXTENSION.length),
+    name: projectName,
     fileName,
     relativePath,
     absolutePath: filePath,
     updatedAt: stats.mtime.toISOString(),
+    settings: await getWorkflowProjectSettings(filePath, projectName),
   };
 }
 
@@ -300,10 +418,21 @@ async function moveWorkflowProject(
     await ensurePathDoesNotExist(targetDatasetPath, `Dataset file already exists for project: ${path.basename(targetProjectPath)}`);
   }
 
+  const sourceSettingsPath = getWorkflowProjectSettingsPath(sourceProjectPath);
+  const targetSettingsPath = getWorkflowProjectSettingsPath(targetProjectPath);
+  const sourceSettingsExists = await pathExists(sourceSettingsPath);
+  if (sourceSettingsExists) {
+    await ensurePathDoesNotExist(targetSettingsPath, `Settings file already exists for project: ${path.basename(targetProjectPath)}`);
+  }
+
   await fs.rename(sourceProjectPath, targetProjectPath);
 
   if (sourceDatasetExists) {
     await fs.rename(sourceDatasetPath, targetDatasetPath);
+  }
+
+  if (sourceSettingsExists) {
+    await fs.rename(sourceSettingsPath, targetSettingsPath);
   }
 
   return {
@@ -396,6 +525,145 @@ async function pathExists(filePath: string) {
   } catch {
     return false;
   }
+}
+
+function getWorkflowProjectSettingsPath(projectPath: string): string {
+  return `${projectPath}${PROJECT_SETTINGS_SUFFIX}`;
+}
+
+async function getWorkflowProjectSettings(projectPath: string, projectName: string): Promise<WorkflowProjectSettings> {
+  const storedSettings = await readStoredWorkflowProjectSettings(projectPath, projectName);
+  const currentStateHash = await createWorkflowPublicationStateHash(projectPath, storedSettings.endpointName);
+  const status = getDerivedWorkflowProjectStatus(storedSettings, currentStateHash);
+
+  return {
+    status,
+    endpointName: storedSettings.endpointName,
+  };
+}
+
+async function readStoredWorkflowProjectSettings(projectPath: string, _projectName: string): Promise<StoredWorkflowProjectSettings> {
+  const settingsPath = getWorkflowProjectSettingsPath(projectPath);
+
+  try {
+    const settingsText = await fs.readFile(settingsPath, 'utf8');
+    const parsedSettings = JSON.parse(settingsText) as unknown;
+    return normalizeStoredWorkflowProjectSettings(parsedSettings);
+  } catch (error) {
+    const errorCode = (error as NodeJS.ErrnoException).code;
+    if (errorCode === 'ENOENT' || error instanceof SyntaxError) {
+      return createDefaultStoredWorkflowProjectSettings();
+    }
+
+    throw error;
+  }
+}
+
+async function writeStoredWorkflowProjectSettings(projectPath: string, settings: StoredWorkflowProjectSettings): Promise<void> {
+  await fs.writeFile(getWorkflowProjectSettingsPath(projectPath), `${JSON.stringify(settings, null, 2)}\n`, 'utf8');
+}
+
+function createDefaultStoredWorkflowProjectSettings(): StoredWorkflowProjectSettings {
+  return {
+    endpointName: '',
+    publishedStateHash: null,
+  };
+}
+
+function normalizeWorkflowProjectSettingsDraft(value: unknown): WorkflowProjectSettingsDraft {
+  const defaultSettings = createDefaultStoredWorkflowProjectSettings();
+  const endpointName = typeof (value as WorkflowProjectSettingsDraft | undefined)?.endpointName === 'string'
+    ? (value as WorkflowProjectSettingsDraft).endpointName
+    : defaultSettings.endpointName;
+
+  return {
+    endpointName: normalizeStoredEndpointName(endpointName),
+  };
+}
+
+function normalizeStoredWorkflowProjectSettings(value: unknown): StoredWorkflowProjectSettings {
+  const defaultSettings = createDefaultStoredWorkflowProjectSettings();
+  const endpointName = typeof (value as StoredWorkflowProjectSettings | WorkflowProjectSettings | undefined)?.endpointName === 'string'
+    ? (value as StoredWorkflowProjectSettings | WorkflowProjectSettings).endpointName
+    : defaultSettings.endpointName;
+  const publishedStateHash = typeof (value as StoredWorkflowProjectSettings | undefined)?.publishedStateHash === 'string'
+    ? (value as StoredWorkflowProjectSettings).publishedStateHash
+    : (value as StoredWorkflowProjectSettings | undefined)?.publishedStateHash === null
+      ? null
+      : defaultSettings.publishedStateHash;
+  const legacyStatus = typeof (value as WorkflowProjectSettings | undefined)?.status === 'string'
+    ? (value as WorkflowProjectSettings).status
+    : undefined;
+
+  if (
+    legacyStatus != null &&
+    legacyStatus !== 'unpublished' &&
+    legacyStatus !== 'published' &&
+    legacyStatus !== 'unpublished_changes'
+  ) {
+    throw badRequest('Invalid project status');
+  }
+
+  return {
+    endpointName: normalizeStoredEndpointName(endpointName),
+    publishedStateHash,
+    legacyStatus,
+  };
+}
+
+function getDerivedWorkflowProjectStatus(
+  settings: StoredWorkflowProjectSettings,
+  currentStateHash: string,
+): WorkflowProjectStatus {
+  if (settings.publishedStateHash) {
+    return settings.publishedStateHash === currentStateHash ? 'published' : 'unpublished_changes';
+  }
+
+  if (settings.legacyStatus === 'published' || settings.legacyStatus === 'unpublished_changes') {
+    return settings.legacyStatus;
+  }
+
+  return 'unpublished';
+}
+
+async function ensureWorkflowEndpointNameIsUnique(root: string, currentProjectPath: string, endpointName: string): Promise<void> {
+  if (!endpointName) {
+    throw badRequest('Endpoint name is required');
+  }
+
+  const projectPaths = await listProjectPathsRecursive(root);
+
+  for (const projectPath of projectPaths) {
+    if (projectPath === currentProjectPath) {
+      continue;
+    }
+
+    const projectName = path.basename(projectPath, PROJECT_EXTENSION);
+    const settings = await readStoredWorkflowProjectSettings(projectPath, projectName);
+
+    if (settings.endpointName === endpointName) {
+      throw conflict(`Endpoint name is already used by ${path.basename(projectPath)}`);
+    }
+  }
+}
+
+async function createWorkflowPublicationStateHash(projectPath: string, endpointName: string): Promise<string> {
+  const projectContents = await fs.readFile(projectPath, 'utf8');
+  return createHash('sha256').update(endpointName).update('\n').update(projectContents).digest('hex');
+}
+
+function normalizeStoredEndpointName(value: string): string {
+  const trimmed = value.trim().toLowerCase();
+
+  if (!trimmed) {
+    return '';
+  }
+
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(trimmed)) {
+    throw badRequest('Endpoint name must contain only lowercase letters, numbers, and hyphens');
+  }
+
+  return trimmed;
 }
 
 // JSON-quotes a value for safe embedding in a YAML template
