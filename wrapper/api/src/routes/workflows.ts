@@ -2,14 +2,17 @@ import { Router } from 'express';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
+import { loadProjectFromFile, NodeDatasetProvider, runGraph } from '@ironclad/rivet-node';
 import { getWorkflowsRoot, validatePath } from '../security.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { badRequest, conflict } from '../utils/httpError.js';
 
 export const workflowsRouter = Router();
+export const publishedWorkflowsRouter = Router();
 
 const PROJECT_EXTENSION = '.rivet-project';
 const PROJECT_SETTINGS_SUFFIX = '.wrapper-settings.json';
+const PUBLISHED_SNAPSHOTS_DIR = '.published';
 
 type WorkflowProjectStatus = 'unpublished' | 'published' | 'unpublished_changes';
 
@@ -24,6 +27,8 @@ type WorkflowProjectSettingsDraft = {
 
 type StoredWorkflowProjectSettings = {
   endpointName: string;
+  publishedEndpointName: string;
+  publishedSnapshotId: string | null;
   publishedStateHash: string | null;
   legacyStatus?: WorkflowProjectStatus;
 };
@@ -53,11 +58,70 @@ type WorkflowFolderItem = {
   projects: WorkflowProjectItem[];
 };
 
+type PublishedWorkflowMatch = {
+  endpointName: string;
+  projectPath: string;
+  publishedProjectPath: string;
+};
+
 workflowsRouter.get('/tree', asyncHandler(async (_req, res) => {
   const root = await ensureWorkflowsRoot();
   const folders = await listWorkflowFolders(root);
   const projects = await listWorkflowProjects(root);
   res.json({ root, folders, projects });
+}));
+
+publishedWorkflowsRouter.post('/:endpointName', asyncHandler(async (req, res) => {
+  const root = await ensureWorkflowsRoot();
+  const endpointName = normalizeStoredEndpointName(String(req.params.endpointName ?? ''));
+  if (!endpointName) {
+    throw badRequest('Endpoint name is required');
+  }
+
+  const publishedWorkflow = await findPublishedWorkflowByEndpoint(root, endpointName);
+  if (!publishedWorkflow) {
+    res.status(404).json({ error: 'Published workflow not found' });
+    return;
+  }
+
+  try {
+    const project = await loadProjectFromFile(publishedWorkflow.publishedProjectPath);
+    const datasetProvider = await NodeDatasetProvider.fromProjectFile(publishedWorkflow.publishedProjectPath);
+    const projectReferenceLoader = createPublishedWorkflowProjectReferenceLoader(root, publishedWorkflow.projectPath);
+    const outputs = await runGraph(project, {
+      projectPath: publishedWorkflow.projectPath,
+      datasetProvider,
+      projectReferenceLoader,
+      inputs: {
+        input: {
+          type: 'any',
+          value: {
+            payload: req.body ?? {},
+          },
+        },
+      },
+    });
+
+    const outputValue = outputs.output;
+    if (outputValue?.type === 'any' && outputValue.value != null && typeof outputValue.value === 'object') {
+      res.status(200).json(outputValue.value);
+      return;
+    }
+
+    res.status(200).json(outputs);
+  } catch (error) {
+    const errorPayload = error instanceof Error
+      ? {
+          name: error.name,
+          message: error.message,
+          stack: error.stack,
+        }
+      : {
+          message: String(error),
+        };
+
+    res.status(500).json({ error: errorPayload });
+  }
 }));
 
 workflowsRouter.post('/move', asyncHandler(async (req, res) => {
@@ -250,11 +314,17 @@ workflowsRouter.post('/projects/publish', asyncHandler(async (req, res) => {
     throw badRequest('Expected project path');
   }
 
+  const projectName = path.basename(projectPath, PROJECT_EXTENSION);
+  const existingSettings = await readStoredWorkflowProjectSettings(projectPath, projectName);
   const normalizedSettings = normalizeWorkflowProjectSettingsDraft(settings);
   await ensureWorkflowEndpointNameIsUnique(root, projectPath, normalizedSettings.endpointName);
   const publishedStateHash = await createWorkflowPublicationStateHash(projectPath, normalizedSettings.endpointName);
+  const publishedSnapshotId = existingSettings.publishedSnapshotId ?? randomUUID();
+  await writePublishedWorkflowSnapshot(root, projectPath, publishedSnapshotId);
   await writeStoredWorkflowProjectSettings(projectPath, {
     endpointName: normalizedSettings.endpointName,
+    publishedEndpointName: normalizedSettings.endpointName,
+    publishedSnapshotId,
     publishedStateHash,
   });
 
@@ -276,8 +346,11 @@ workflowsRouter.post('/projects/unpublish', asyncHandler(async (req, res) => {
 
   const projectName = path.basename(projectPath, PROJECT_EXTENSION);
   const existingSettings = await readStoredWorkflowProjectSettings(projectPath, projectName);
+  await deletePublishedWorkflowSnapshot(root, existingSettings.publishedSnapshotId);
   await writeStoredWorkflowProjectSettings(projectPath, {
     endpointName: existingSettings.endpointName,
+    publishedEndpointName: '',
+    publishedSnapshotId: null,
     publishedStateHash: null,
   });
 
@@ -297,6 +370,9 @@ workflowsRouter.delete('/projects', asyncHandler(async (req, res) => {
     throw badRequest('Expected project path');
   }
 
+  const projectName = path.basename(projectPath, PROJECT_EXTENSION);
+  const existingSettings = await readStoredWorkflowProjectSettings(projectPath, projectName);
+  await deletePublishedWorkflowSnapshot(root, existingSettings.publishedSnapshotId);
   await fs.rm(projectPath, { force: false });
 
   const datasetPath = projectPath.replace(PROJECT_EXTENSION, '.rivet-data');
@@ -315,6 +391,7 @@ workflowsRouter.delete('/projects', asyncHandler(async (req, res) => {
 async function ensureWorkflowsRoot(): Promise<string> {
   const root = getWorkflowsRoot();
   await fs.mkdir(root, { recursive: true });
+  await fs.mkdir(getPublishedSnapshotsRoot(root), { recursive: true });
   return root;
 }
 
@@ -596,6 +673,22 @@ function getWorkflowProjectSettingsPath(projectPath: string): string {
   return `${projectPath}${PROJECT_SETTINGS_SUFFIX}`;
 }
 
+function getPublishedSnapshotsRoot(root: string): string {
+  return validatePath(path.join(root, PUBLISHED_SNAPSHOTS_DIR));
+}
+
+function getPublishedWorkflowSnapshotPath(root: string, snapshotId: string): string {
+  return validatePath(path.join(getPublishedSnapshotsRoot(root), `${snapshotId}${PROJECT_EXTENSION}`));
+}
+
+function getPublishedWorkflowSnapshotDatasetPath(root: string, snapshotId: string): string {
+  return getWorkflowDatasetPath(getPublishedWorkflowSnapshotPath(root, snapshotId));
+}
+
+function getWorkflowDatasetPath(projectPath: string): string {
+  return projectPath.replace(PROJECT_EXTENSION, '.rivet-data');
+}
+
 async function getWorkflowProjectSettings(projectPath: string, projectName: string): Promise<WorkflowProjectSettings> {
   const storedSettings = await readStoredWorkflowProjectSettings(projectPath, projectName);
   const currentStateHash = await createWorkflowPublicationStateHash(projectPath, storedSettings.endpointName);
@@ -631,6 +724,8 @@ async function writeStoredWorkflowProjectSettings(projectPath: string, settings:
 function createDefaultStoredWorkflowProjectSettings(): StoredWorkflowProjectSettings {
   return {
     endpointName: '',
+    publishedEndpointName: '',
+    publishedSnapshotId: null,
     publishedStateHash: null,
   };
 }
@@ -651,6 +746,14 @@ function normalizeStoredWorkflowProjectSettings(value: unknown): StoredWorkflowP
   const endpointName = typeof (value as StoredWorkflowProjectSettings | WorkflowProjectSettings | undefined)?.endpointName === 'string'
     ? (value as StoredWorkflowProjectSettings | WorkflowProjectSettings).endpointName
     : defaultSettings.endpointName;
+  const publishedEndpointName = typeof (value as StoredWorkflowProjectSettings | undefined)?.publishedEndpointName === 'string'
+    ? (value as StoredWorkflowProjectSettings).publishedEndpointName
+    : defaultSettings.publishedEndpointName;
+  const publishedSnapshotId = typeof (value as StoredWorkflowProjectSettings | undefined)?.publishedSnapshotId === 'string'
+    ? (value as StoredWorkflowProjectSettings).publishedSnapshotId
+    : (value as StoredWorkflowProjectSettings | undefined)?.publishedSnapshotId === null
+      ? null
+      : defaultSettings.publishedSnapshotId;
   const publishedStateHash = typeof (value as StoredWorkflowProjectSettings | undefined)?.publishedStateHash === 'string'
     ? (value as StoredWorkflowProjectSettings).publishedStateHash
     : (value as StoredWorkflowProjectSettings | undefined)?.publishedStateHash === null
@@ -671,6 +774,8 @@ function normalizeStoredWorkflowProjectSettings(value: unknown): StoredWorkflowP
 
   return {
     endpointName: normalizeStoredEndpointName(endpointName),
+    publishedEndpointName: normalizeStoredEndpointName(publishedEndpointName || (publishedStateHash ? endpointName : '')),
+    publishedSnapshotId,
     publishedStateHash,
     legacyStatus,
   };
@@ -706,15 +811,129 @@ async function ensureWorkflowEndpointNameIsUnique(root: string, currentProjectPa
     const projectName = path.basename(projectPath, PROJECT_EXTENSION);
     const settings = await readStoredWorkflowProjectSettings(projectPath, projectName);
 
-    if (settings.endpointName === endpointName) {
+    if (settings.endpointName === endpointName || settings.publishedEndpointName === endpointName) {
       throw conflict(`Endpoint name is already used by ${path.basename(projectPath)}`);
     }
   }
 }
 
+async function writePublishedWorkflowSnapshot(root: string, projectPath: string, snapshotId: string): Promise<void> {
+  const publishedProjectPath = getPublishedWorkflowSnapshotPath(root, snapshotId);
+  const sourceDatasetPath = getWorkflowDatasetPath(projectPath);
+  const publishedDatasetPath = getPublishedWorkflowSnapshotDatasetPath(root, snapshotId);
+  await fs.mkdir(path.dirname(publishedProjectPath), { recursive: true });
+  await fs.copyFile(projectPath, publishedProjectPath);
+
+  if (await pathExists(sourceDatasetPath)) {
+    await fs.copyFile(sourceDatasetPath, publishedDatasetPath);
+  } else if (await pathExists(publishedDatasetPath)) {
+    await fs.rm(publishedDatasetPath, { force: false });
+  }
+}
+
+async function deletePublishedWorkflowSnapshot(root: string, snapshotId: string | null): Promise<void> {
+  if (!snapshotId) {
+    return;
+  }
+
+  const publishedProjectPath = getPublishedWorkflowSnapshotPath(root, snapshotId);
+  const publishedDatasetPath = getPublishedWorkflowSnapshotDatasetPath(root, snapshotId);
+  if (await pathExists(publishedProjectPath)) {
+    await fs.rm(publishedProjectPath, { force: false });
+  }
+
+  if (await pathExists(publishedDatasetPath)) {
+    await fs.rm(publishedDatasetPath, { force: false });
+  }
+}
+
+async function findPublishedWorkflowByEndpoint(root: string, endpointName: string): Promise<PublishedWorkflowMatch | null> {
+  const projectPaths = await listProjectPathsRecursive(root);
+
+  for (const projectPath of projectPaths) {
+    const projectName = path.basename(projectPath, PROJECT_EXTENSION);
+    const settings = await readStoredWorkflowProjectSettings(projectPath, projectName);
+
+    if (!settings.publishedStateHash || settings.publishedEndpointName !== endpointName) {
+      continue;
+    }
+
+    const publishedProjectPath = await resolvePublishedWorkflowProjectPath(root, projectPath, settings);
+    if (!publishedProjectPath) {
+      continue;
+    }
+
+    return {
+      endpointName,
+      projectPath,
+      publishedProjectPath,
+    };
+  }
+
+  return null;
+}
+
+async function resolvePublishedWorkflowProjectPath(
+  root: string,
+  projectPath: string,
+  settings: StoredWorkflowProjectSettings,
+): Promise<string | null> {
+  if (settings.publishedSnapshotId) {
+    const publishedProjectPath = getPublishedWorkflowSnapshotPath(root, settings.publishedSnapshotId);
+    if (await pathExists(publishedProjectPath)) {
+      return publishedProjectPath;
+    }
+  }
+
+  if (!settings.publishedStateHash || !settings.publishedEndpointName) {
+    return null;
+  }
+
+  const currentStateHash = await createWorkflowPublicationStateHash(projectPath, settings.publishedEndpointName);
+  return currentStateHash === settings.publishedStateHash ? projectPath : null;
+}
+
+function createPublishedWorkflowProjectReferenceLoader(root: string, rootProjectPath: string) {
+  return {
+    async loadProject(currentProjectPath: string | undefined, reference: { id: string; hintPaths?: string[]; title?: string }) {
+      const baseProjectPath = currentProjectPath ?? rootProjectPath;
+
+      for (const hintPath of reference.hintPaths ?? []) {
+        try {
+          const resolvedProjectPath = validatePath(path.resolve(path.dirname(baseProjectPath), hintPath));
+          if (!resolvedProjectPath.endsWith(PROJECT_EXTENSION)) {
+            continue;
+          }
+
+          const projectName = path.basename(resolvedProjectPath, PROJECT_EXTENSION);
+          const settings = await readStoredWorkflowProjectSettings(resolvedProjectPath, projectName);
+          const publishedProjectPath = await resolvePublishedWorkflowProjectPath(root, resolvedProjectPath, settings);
+          return await loadProjectFromFile(publishedProjectPath ?? resolvedProjectPath);
+        } catch {
+          // ignore failed hint path resolutions and continue trying the remaining hint paths
+        }
+      }
+
+      throw new Error(
+        `Could not load project "${reference.title ?? reference.id} (${reference.id})": all hint paths failed. Tried: ${reference.hintPaths}`,
+      );
+    },
+  };
+}
+
 async function createWorkflowPublicationStateHash(projectPath: string, endpointName: string): Promise<string> {
   const projectContents = await fs.readFile(projectPath, 'utf8');
-  return createHash('sha256').update(endpointName).update('\n').update(projectContents).digest('hex');
+  const datasetPath = getWorkflowDatasetPath(projectPath);
+  const hash = createHash('sha256').update(endpointName).update('\n').update(projectContents);
+
+  if (await pathExists(datasetPath)) {
+    const datasetContents = await fs.readFile(datasetPath, 'utf8');
+    hash.update('\n--dataset--\n').update(datasetContents);
+  } else {
+    hash.update('\n--dataset-missing--\n');
+  }
+
+  return hash.digest('hex');
 }
 
 function normalizeStoredEndpointName(value: string): string {

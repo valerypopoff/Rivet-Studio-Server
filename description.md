@@ -11,6 +11,7 @@ In practical terms, the application provides:
 - the upstream Rivet editor running in the browser
 - hosted file open/save behavior through an API instead of desktop-native access
 - a wrapper-owned workflow dashboard for organizing workflow projects
+- snapshot-backed published workflow serving at `/workflows/[endpoint-name]`
 - Dockerized backend, proxy, and executor services
 - browser-compatible replacements for desktop-only integrations
 
@@ -41,7 +42,7 @@ This is a wrapper-controlled Vite application that loads and renders the upstrea
 
 Provides hosted compatibility endpoints.
 
-This replaces desktop-native capabilities with server-side operations exposed over HTTP, including file access, workflow library management, and related hosted integrations.
+This replaces desktop-native capabilities with server-side operations exposed over HTTP, including file access, workflow library management, published workflow execution, and related hosted integrations.
 
 ### `executor`
 
@@ -57,6 +58,7 @@ It routes:
 
 - browser requests to the web app
 - `/api/*` traffic to the compatibility backend
+- `/workflows/*` traffic to published workflow execution endpoints
 - websocket traffic to the executor/debugger service
 
 ## Repository layout
@@ -89,6 +91,7 @@ This area owns:
 - file operations
 - project loading and saving
 - workflow library filesystem management
+- published workflow snapshot storage and execution routing
 - plugin and shell-related hosted endpoints
 - allowed environment/config exposure
 
@@ -144,6 +147,7 @@ Typical responsibilities include:
 - reading and writing project files on the server
 - listing files and directories inside allowed roots
 - managing the dedicated workflow library under the host-backed `workflows/` directory
+- serving published workflows from stable snapshot files under `/workflows/[endpoint-name]`
 - loading referenced projects
 - running allowlisted shell commands
 - managing plugin installation/loading
@@ -163,17 +167,15 @@ For each project, the wrapper may also manage nearby sidecar files:
 That wrapper settings sidecar currently stores hosted dashboard metadata such as:
 
 - the endpoint name used for publication
+- the currently published endpoint name that remains live until the next publish or unpublish
+- the published snapshot identifier for the last live version
 - the last published state hash used to derive publish status
 
 The settings sidecar is wrapper-owned infrastructure, not upstream Rivet product data.
 
 When a workflow project is moved through the dashboard, the wrapper moves the related sidecars with it so the project's hosted metadata follows the file.
 
-## Workflow dashboard
-
-The hosted app boots into a wrapper-owned dashboard shell around the upstream editor.
-
-This dashboard is the main wrapper-owned UX layer and is one of the most regression-sensitive parts of the app.
+Published workflow snapshots themselves are stored separately under the workflow root's hidden `.published/` directory so the live served version can remain stable even while the working project file has unpublished changes.
 
 ### Dashboard layout and behavior
 
