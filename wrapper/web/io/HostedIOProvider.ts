@@ -17,16 +17,39 @@ import {
   deserializeTrivetData,
   serializeTrivetData,
 } from '@ironclad/trivet';
+import { getDefaultStore } from 'jotai';
 import { RIVET_API_BASE_URL } from '../../shared/hosted-env';
 import { apiReadText, apiWriteText, apiReadBinary } from '../../shared/api';
+import { loadedProjectState } from '../../../rivet/packages/app/src/state/savedGraphs.js';
 
 const API = RIVET_API_BASE_URL;
+const jotaiStore = getDefaultStore();
 
 async function apiListProjects(): Promise<string[]> {
   const resp = await fetch(`${API}/projects/list`);
   if (!resp.ok) throw new Error(`Failed to list projects: ${resp.statusText}`);
   const data = await resp.json();
   return data.files;
+}
+
+function getSuggestedProjectPath(defaultName: string): string {
+  const loadedProject = jotaiStore.get(loadedProjectState) as {
+    loaded: boolean;
+    path: string | null;
+  };
+  const currentPath = loadedProject.path?.trim();
+
+  if (!currentPath) {
+    return `/workflows/${defaultName}`;
+  }
+
+  const lastSeparatorIndex = Math.max(currentPath.lastIndexOf('/'), currentPath.lastIndexOf('\\'));
+  if (lastSeparatorIndex === -1) {
+    return defaultName;
+  }
+
+  const directory = currentPath.slice(0, lastSeparatorIndex + 1);
+  return `${directory}${defaultName}`;
 }
 
 export class HostedIOProvider implements IOProvider {
@@ -64,7 +87,7 @@ export class HostedIOProvider implements IOProvider {
   async saveProjectData(project: Project, testData: TrivetData): Promise<string | undefined> {
     // Show a simple prompt for server path
     const defaultName = `${project.metadata?.title ?? 'project'}.rivet-project`;
-    const filePath = prompt('Save project to server path:', `/workflows/${defaultName}`);
+    const filePath = prompt('Save project to server path:', getSuggestedProjectPath(defaultName));
 
     if (!filePath) return undefined;
 

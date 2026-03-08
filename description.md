@@ -192,6 +192,7 @@ This dashboard is the main wrapper-owned UX layer and is one of the most regress
 
 - the wrapper-owned `Save` button in the `Projects` pane is driven by the editor's active tab rather than stale last-loaded state
 - when the active editor tab is a file-backed workflow project, the wrapper `Save` action saves that exact file path
+- hosted `Save As` reuses the current file-backed workflow project's directory as the default suggestion when available, so projects opened from nested workflow folders do not get flattened back to the workflow root by default
 - the dashboard maps `Ctrl+S` / `Cmd+S` to that same hosted save behavior
 - when the active editor is not a path-backed workflow project, or when no tabs are open, the wrapper `Save` button is hidden
 
@@ -221,7 +222,7 @@ Current runtime expectations:
 - Docker Compose mounts a host-backed `workflows/` directory into the API container at `/workflows`
 - when using root `npm run dev`, `RIVET_WORKFLOWS_HOST_PATH` from the repo-root `.env.dev` is resolved relative to the repo root before Docker Compose starts
 - API security allows workflow-library operations only inside that validated workflow root
-- hosted `Save As` defaults to `/workflows/...` so manually saved hosted projects and dashboard-created projects converge on the same library root
+- hosted `Save As` falls back to `/workflows/...` for unsaved projects, but for already file-backed workflow projects it suggests the current project directory so nested workflow locations are preserved by default
 
 Example supported setup:
 
