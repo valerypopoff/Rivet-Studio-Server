@@ -259,7 +259,7 @@ This section is meant to stay visible independently of the scroll position of th
 - hosted `Save As` reuses the current file-backed workflow project's directory as the default suggestion when available, so projects opened from nested workflow folders do not get flattened back to the workflow root by default
 - the dashboard maps `Ctrl+S` / `Cmd+S` to that same hosted save behavior
 - when the active editor is not a path-backed workflow project, or when no tabs are open, the wrapper `Save` button is hidden
-- after a successful save, the embedded editor notifies the dashboard so the workflow pane can refresh derived publish state for the active project
+- after any successful save path, the embedded editor notifies the dashboard through the same save-completion signal so the workflow pane can immediately refresh derived publish state for the active project
 
 ### Project settings popup
 

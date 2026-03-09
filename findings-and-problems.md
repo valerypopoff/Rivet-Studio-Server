@@ -227,25 +227,41 @@ This document is intended as a developer handoff.
 - The hosted save shortcut path is split by focus context:
   - `wrapper/web/dashboard/DashboardPage.tsx` should handle `Ctrl+S` / `Cmd+S` only when focus is outside the editor iframe
   - `wrapper/web/dashboard/EditorMessageBridge.tsx` should handle the shortcut when focus is inside the iframe
-- A real Windows-browser-specific failure mode was reproduced:
-  - `Ctrl+S` from the left pane saved reliably through the dashboard-to-iframe `save-project` message
-  - `Ctrl+S` from inside the iframe was intermittent and sometimes only saved on the third press
-  - console tracing showed the iframe `keydown` handler consistently firing, but save only happened when upstream `useWindowsHotkeysFix.tsx` later emitted `Hotkey Fix: CmdOrCtrl+S -> save_project`
+- Current hosted behavior:
+  - `Ctrl+S` from the left pane saves reliably through the dashboard-to-iframe `save-project` message path
+  - `Ctrl+S` from inside the iframe on non-Windows browsers saves through the wrapper-owned iframe handler
+  - `Ctrl+S` from inside the iframe on Windows browsers still relies on upstream `useWindowsHotkeysFix.tsx` to perform the actual save on `keyup` after the wrapper suppresses browser default on `keydown`
 - Root cause:
-  - the wrapper iframe handler prevented browser default on `keydown` but, on Windows browsers, deferred the actual save to upstream `window` `keyup` handling
-  - that made hosted save reliability depend on the upstream Windows-browser hotkey workaround winning the event-order race in the iframe context
+  - hosted save is intentionally split by focus context, and Windows browsers still need the upstream `keyup` workaround inside the iframe to avoid browser-save behavior without causing double-saves
+  - that means workflow-pane refresh cannot rely only on the wrapper-originated `save-project` message path
 - Hosted fix:
   - keep the existing dashboard-vs-iframe split
   - inside `EditorMessageBridge.tsx`, keep suppressing browser default on `keydown`
-  - on Windows browsers, add a wrapper-owned `keyup` capture handler that directly calls hosted `saveProject()` from inside the iframe
-  - this makes hosted save reliable without depending on upstream `useWindowsHotkeysFix.tsx` timing
+  - on non-Windows browsers, let the iframe handler call hosted `saveProject()` directly
+  - on Windows browsers, let upstream `useWindowsHotkeysFix.tsx` perform the actual save on `keyup`
+  - emit a shared `rivet-project-saved` browser event from successful saves in `rivet/packages/app/src/hooks/useSaveProject.ts`
+  - relay that event from `EditorMessageBridge.tsx` to the dashboard as `project-saved`
 - Practical rule:
-  - for hosted iframe shortcuts on Windows browsers, prefer wrapper-owned `keyup` handling in the iframe when the browser default must be suppressed on `keydown`
-  - do not rely on upstream desktop hotkey workarounds as the sole save trigger for hosted iframe focus paths
+  - split save shortcut handling by focus context
+  - on Windows inside the iframe, do not call hosted save directly from the wrapper `keydown` handler or it can double-save
+  - drive workflow-pane refresh from a shared save-success signal rather than from only one shortcut path
 
-# Problems
+## 19) Workflow tree refresh effects must use stable path keys
 
-## Ongoing
+- Symptom that was reproduced:
+  - opening a workflow project could spam `GET /api/workflows/tree` dozens of times per second
+- Root cause:
+  - `wrapper/web/dashboard/WorkflowLibraryPanel.tsx` keyed refresh-related effects on the recreated `openedWorkflowProject` object
+  - every successful tree fetch rebuilt project objects, which retriggered those effects and called `refresh(false)` again
+- Current fix:
+  - derive `openedWorkflowProjectPath` as a stable absolute-path string
+  - key the dashboard notification effect and the `projectSaveSequence` refresh effect on that string instead of the full project object
+- Practical rule:
+  - when reacting to server-refreshed workflow trees, depend on stable identifiers like absolute paths rather than recreated project objects
+ 
+ # Problems
+ 
+ ## Ongoing
 
 ### 1) Unsaved project graph upload to Node executor
 
@@ -260,10 +276,10 @@ This document is intended as a developer handoff.
   - Instrumented `useRemoteExecutor.ts` to log the graph id, project graph keys, main graph id, and upload capability before sending `set-dynamic-data` and `run`.
   - Instrumented the executor bundle to log the `project.graphs` keys received by the `set-dynamic-data` handler.
   - Ensured hosted `useGraphExecutor` routes Browser mode to local execution only.
-- **Partial success**:
+ - **Partial success**:
   - Browser unsaved first-run is now confirmed working.
   - A simple one-node workflow now also runs in Node executor mode.
-- **What remains open**:
+ - **What remains open**:
   - Unsaved-project-specific Node execution should still be rechecked explicitly, since the latest validation was a simple workflow success rather than a dedicated unsaved-upload regression test.
 
 ### 2) Workflow dashboard integration initially broke API routing and editor layout
@@ -533,28 +549,38 @@ This document is intended as a developer handoff.
 
 - **Status**: done
 - **Symptom**:
-  - with focus inside the editor iframe, `Ctrl+S` did not reliably save on Windows
-  - the same shortcut worked consistently from the left dashboard pane
-  - in one validated repro, pressing `Ctrl+S` inside the iframe saved only on the third attempt
-- **What the debug logs showed**:
-  - dashboard-focused saves followed the expected path:
-    - dashboard observed the shortcut
-    - dashboard posted `save-project` to the iframe
-    - iframe received the `save-project` message and saved
-  - iframe-focused saves showed:
-    - wrapper iframe `keydown` handler fired every time
-    - wrapper prevented browser default every time
-    - on Windows, wrapper did not call `saveProject()` on `keydown`
-    - actual save only occurred when upstream `useWindowsHotkeysFix.tsx` later emitted `Hotkey Fix: CmdOrCtrl+S -> save_project`
+  - with focus inside the editor iframe, `Ctrl+S` save behavior needed to stay reliable without triggering browser save
+  - after save behavior was restored, a remaining issue was that iframe `Ctrl+S` could save successfully while the left pane failed to immediately reflect derived status changes such as `unpublished_changes`
+  - the same project refreshed correctly after saves triggered by the active-project button or by `Ctrl+S` from the left dashboard pane
+- **What we confirmed**:
+  - dashboard-focused saves followed the wrapper-owned `save-project` message path and refreshed the workflow pane immediately
+  - non-Windows iframe-focused saves can go through the wrapper-owned save path directly
+  - Windows iframe-focused saves are completed by upstream `useWindowsHotkeysFix.tsx` after the wrapper suppresses browser default on `keydown`
 - **Root cause**:
-  - hosted iframe save behavior on Windows was still depending on the upstream desktop-oriented `window` `keyup` workaround to perform the actual save
-  - that upstream hotkey path was not reliable enough as the only save trigger for hosted iframe focus
+  - only the wrapper-originated save path was reliably notifying the dashboard with `project-saved`
+  - Windows iframe `Ctrl+S` used a different successful-save path, so the workflow pane missed its immediate refresh signal until some later action caused a tree reload
 - **Fix**:
   - keep the existing dashboard-side shortcut handling for focus outside the iframe
-  - in `wrapper/web/dashboard/EditorMessageBridge.tsx`:
-    - continue suppressing browser default on iframe `keydown`
-    - on Windows, add a wrapper-owned `window` `keyup` capture handler that directly calls hosted `saveProject()`
-  - keep targeted console tracing in place so shortcut routing can still be inspected during validation
+  - in `wrapper/web/dashboard/EditorMessageBridge.tsx`, continue suppressing browser default on iframe `keydown`
+  - keep direct iframe save on non-Windows only
+  - emit `rivet-project-saved` from successful saves in `rivet/packages/app/src/hooks/useSaveProject.ts`
+  - relay that event from `EditorMessageBridge.tsx` to the dashboard as `project-saved`
 - **Result**:
-  - `Ctrl+S` from inside the hosted editor iframe now saves reliably on every press in the validated Windows flow
-  - the web build still succeeds after the shortcut fix
+  - iframe `Ctrl+S` now updates left-pane derived status immediately, including `unpublished_changes`
+  - the implementation avoids double-saving on Windows while preserving the current focus-context save split
+  - the web build still succeeds after the save notification unification
+
+### 14) Opening a workflow project triggered repeated `/api/workflows/tree` requests
+
+- **Status**: done
+- **Symptom**:
+  - opening any workflow project caused the proxy logs to spam `GET /api/workflows/tree` repeatedly, sometimes dozens of times per second
+- **Root cause**:
+  - `wrapper/web/dashboard/WorkflowLibraryPanel.tsx` had effects keyed on `openedWorkflowProject`, which is recreated from the fetched tree data on every refresh
+  - each tree response therefore retriggered the save-sequence refresh effect and caused another `refresh(false)` call
+- **Fix**:
+  - derive `openedWorkflowProjectPath` as a stable string
+  - key `onActiveWorkflowProjectPathChange` and the `projectSaveSequence` refresh effect on that path instead of the full project object
+- **Result**:
+  - opening a project no longer causes continuous workflow-tree polling
+  - refreshes now occur only on intended triggers such as initial load and successful saves

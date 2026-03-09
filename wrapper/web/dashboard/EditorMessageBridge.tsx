@@ -39,14 +39,28 @@ export const EditorMessageBridge: FC = () => {
 
   const saveCurrentProject = async () => {
     await saveProjectRef.current();
-
-    if (loadedProject.path) {
-      window.parent.postMessage({ type: 'project-saved', path: loadedProject.path }, '*');
-    }
   };
 
   useEffect(() => {
     window.parent.postMessage({ type: 'editor-ready' }, '*');
+  }, []);
+
+  useEffect(() => {
+    const handler = (event: Event) => {
+      const customEvent = event as CustomEvent<{ path?: string }>;
+      const savedPath = customEvent.detail?.path;
+
+      if (!savedPath) {
+        return;
+      }
+
+      window.parent.postMessage({ type: 'project-saved', path: savedPath }, '*');
+    };
+
+    window.addEventListener('rivet-project-saved', handler as EventListener);
+    return () => {
+      window.removeEventListener('rivet-project-saved', handler as EventListener);
+    };
   }, []);
 
   useEffect(() => {
@@ -69,7 +83,7 @@ export const EditorMessageBridge: FC = () => {
       window.removeEventListener('keydown', handler, true);
       document.removeEventListener('keydown', handler, true);
     };
-  }, [loadedProject.path]);
+  }, []);
 
   useEffect(() => {
     const handler = async (event: MessageEvent) => {
