@@ -7,6 +7,13 @@ RUN npm install -g pnpm
 
 WORKDIR /app
 
+COPY wrapper/executor/package*.json /opt/rivet-executor-deps/
+
+WORKDIR /opt/rivet-executor-deps
+RUN npm install --omit=dev
+
+WORKDIR /app
+
 # Copy API source
 COPY wrapper/api/ .
 
@@ -15,6 +22,8 @@ RUN npm ci
 
 # Create workspace and data directories
 RUN mkdir -p /workspace /workflows /data/rivet-app/plugins /data/rivet-app/logs
+
+ENV NODE_PATH=/opt/rivet-executor-deps/node_modules
 
 EXPOSE 3100
 
