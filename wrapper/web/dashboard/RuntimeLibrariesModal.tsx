@@ -1,4 +1,14 @@
-import { useCallback, useEffect, useRef, useState, type FC } from 'react';
+import Button, { LoadingButton } from '@atlaskit/button';
+import ModalDialog, { ModalBody, ModalTransition } from '@atlaskit/modal-dialog';
+import TextField from '@atlaskit/textfield';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FC,
+  type KeyboardEvent as ReactKeyboardEvent,
+} from 'react';
 import {
   fetchRuntimeLibraries,
   installPackages,
@@ -15,7 +25,10 @@ interface RuntimeLibrariesModalProps {
   onClose: () => void;
 }
 
-export const RuntimeLibrariesModal: FC<RuntimeLibrariesModalProps> = ({ isOpen, onClose }) => {
+export const RuntimeLibrariesModal: FC<RuntimeLibrariesModalProps> = ({
+  isOpen,
+  onClose,
+}) => {
   const [state, setState] = useState<RuntimeLibrariesState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -23,14 +36,20 @@ export const RuntimeLibrariesModal: FC<RuntimeLibrariesModalProps> = ({ isOpen, 
   // Add form
   const [addName, setAddName] = useState('');
   const [addVersion, setAddVersion] = useState('latest');
+  const [showInstallForm, setShowInstallForm] = useState(false);
 
   // Job tracking
   const [activeJob, setActiveJob] = useState<JobState | null>(null);
   const [logs, setLogs] = useState<string[]>([]);
-  const [jobResult, setJobResult] = useState<{ status: 'succeeded' | 'failed'; error?: string } | null>(null);
+  const [jobResult, setJobResult] = useState<{
+    status: 'succeeded' | 'failed';
+    error?: string;
+  } | null>(null);
 
   const logPanelRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const dismissedJobIdRef = useRef<string | null>(null);
+  const wasOpenRef = useRef(false);
 
   const isJobActive = activeJob != null &&
     activeJob.status !== 'succeeded' &&
@@ -44,7 +63,12 @@ export const RuntimeLibrariesModal: FC<RuntimeLibrariesModalProps> = ({ isOpen, 
       setState(data);
 
       // If there's an active job in progress, start streaming
-      if (data.activeJob && data.activeJob.status !== 'succeeded' && data.activeJob.status !== 'failed') {
+      if (
+        data.activeJob &&
+        data.activeJob.id !== dismissedJobIdRef.current &&
+        data.activeJob.status !== 'succeeded' &&
+        data.activeJob.status !== 'failed'
+      ) {
         setActiveJob(data.activeJob);
         setLogs(data.activeJob.logs ?? []);
         startStreaming(data.activeJob.id);
@@ -58,13 +82,22 @@ export const RuntimeLibrariesModal: FC<RuntimeLibrariesModalProps> = ({ isOpen, 
 
   useEffect(() => {
     if (isOpen) {
+      wasOpenRef.current = true;
       refresh();
+    } else if (wasOpenRef.current) {
+      dismissedJobIdRef.current = activeJob?.id ?? null;
+      eventSourceRef.current?.close();
+      setActiveJob(null);
+      setLogs([]);
+      setJobResult(null);
+      setShowInstallForm(false);
+      wasOpenRef.current = false;
     }
 
     return () => {
       eventSourceRef.current?.close();
     };
-  }, [isOpen, refresh]);
+  }, [activeJob?.id, isOpen, refresh]);
 
   // Auto-scroll log panel
   useEffect(() => {
@@ -101,6 +134,7 @@ export const RuntimeLibrariesModal: FC<RuntimeLibrariesModalProps> = ({ isOpen, 
     if (!addName.trim()) return;
 
     try {
+      dismissedJobIdRef.current = null;
       setError(null);
       setJobResult(null);
       setLogs([]);
@@ -117,6 +151,7 @@ export const RuntimeLibrariesModal: FC<RuntimeLibrariesModalProps> = ({ isOpen, 
 
   const handleRemove = useCallback(async (packageName: string) => {
     try {
+      dismissedJobIdRef.current = null;
       setError(null);
       setJobResult(null);
       setLogs([]);
@@ -129,9 +164,10 @@ export const RuntimeLibrariesModal: FC<RuntimeLibrariesModalProps> = ({ isOpen, 
     }
   }, [startStreaming]);
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+  const handleKeyDown = useCallback((e: ReactKeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && !isJobActive && addName.trim()) {
-      handleInstall();
+      e.preventDefault();
+      void handleInstall();
     }
   }, [handleInstall, isJobActive, addName]);
 
@@ -140,117 +176,155 @@ export const RuntimeLibrariesModal: FC<RuntimeLibrariesModalProps> = ({ isOpen, 
   const packages = state ? Object.values(state.packages) : [];
 
   return (
-    <div className="runtime-libraries-overlay" onClick={onClose}>
-      <div className="runtime-libraries-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h3>Runtime Libraries</h3>
-          <button className="close-button" onClick={onClose} title="Close">&times;</button>
-        </div>
-
-        <div className="modal-body">
-          {error ? (
-            <div className="status-area failed">{error}</div>
-          ) : null}
-
-          {/* Installed libraries */}
-          <div>
-            <div className="section-title">Installed Libraries</div>
-            {loading && !state ? (
-              <div className="empty-state">Loading...</div>
-            ) : packages.length === 0 ? (
-              <div className="empty-state">No runtime libraries installed</div>
-            ) : (
-              <div className="installed-list">
-                {packages.map((pkg) => (
-                  <div key={pkg.name} className="installed-item">
-                    <div className="pkg-info">
-                      <span className="pkg-name">{pkg.name}</span>
-                      <span className="pkg-version">{pkg.version}</span>
-                    </div>
-                    <button
-                      className="remove-btn"
-                      disabled={isJobActive}
-                      onClick={() => handleRemove(pkg.name)}
-                    >
-                      Remove
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Add form */}
-          <div>
-            <div className="section-title">Add Library</div>
-            <div className="add-form">
-              <div className="field name-field">
-                <label>Package name</label>
-                <input
-                  type="text"
-                  placeholder="e.g. sharp"
-                  value={addName}
-                  onChange={(e) => setAddName(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  disabled={isJobActive}
-                />
-              </div>
-              <div className="field version-field">
-                <label>Version</label>
-                <input
-                  type="text"
-                  placeholder="latest"
-                  value={addVersion}
-                  onChange={(e) => setAddVersion(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  disabled={isJobActive}
-                />
+    <ModalTransition>
+      <ModalDialog
+        testId="runtime-libraries-modal"
+        width="medium"
+        label="Runtime libraries"
+        onClose={onClose}
+      >
+        <ModalBody>
+          <div className="project-settings-modal-shell runtime-libraries-shell">
+            <div className="project-settings-modal-header-row runtime-libraries-header-row">
+              <div className="project-settings-modal-heading runtime-libraries-heading">
+                <div className="project-settings-modal-title runtime-libraries-title">Runtime libraries</div>
+                <div className="runtime-libraries-help runtime-libraries-header-help">
+                  Installed runtime libraries are available to Code nodes
+                </div>
               </div>
               <button
-                className="add-btn"
-                disabled={isJobActive || !addName.trim()}
-                onClick={handleInstall}
+                type="button"
+                className="project-settings-close-button"
+                onClick={onClose}
+                aria-label="Close runtime libraries"
               >
-                Install
+                ×
               </button>
             </div>
-          </div>
 
-          {/* Job status */}
-          {activeJob ? (
-            <div>
-              <div className="section-title">
-                {activeJob.type === 'install' ? 'Install' : 'Remove'} Job
-              </div>
-
-              {isJobActive ? (
-                <div className="status-area running">
-                  Status: {activeJob.status}...
-                </div>
+            <div className="project-settings-modal-content runtime-libraries-content">
+              {error ? (
+                <div className="project-settings-error runtime-libraries-status failed">{error}</div>
               ) : null}
 
-              {jobResult ? (
-                <div className={`status-area ${jobResult.status}`}>
-                  {jobResult.status === 'succeeded' ? 'Completed successfully' : `Failed: ${jobResult.error ?? 'Unknown error'}`}
-                </div>
-              ) : null}
-
-              {logs.length > 0 ? (
-                <div className="log-panel" ref={logPanelRef}>
-                  {logs.map((line, i) => (
-                    <div
-                      key={i}
-                      className={`log-line${line.startsWith('ERROR:') ? ' error' : ''}`}
-                    >
-                      {line}
+              {!loading && packages.length > 0 ? (
+                <>
+                  <div className="project-settings-field runtime-libraries-section">
+                    <div className="runtime-libraries-installed-list">
+                      {packages.map((pkg) => (
+                        <div key={pkg.name} className="runtime-libraries-installed-item">
+                          <div className="runtime-libraries-package-info">
+                            <span className="runtime-libraries-package-name">{`${pkg.name}: ${pkg.version}`}</span>
+                          </div>
+                          <Button
+                            appearance="subtle"
+                            spacing="compact"
+                            className="runtime-libraries-remove-button"
+                            isDisabled={isJobActive}
+                            onClick={() => void handleRemove(pkg.name)}
+                          >
+                            Remove
+                          </Button>
+                        </div>
+                      ))}
                     </div>
-                  ))}
+                  </div>
+                  {showInstallForm ? <div className="runtime-libraries-section-divider" aria-hidden="true" /> : null}
+                </>
+              ) : null}
+
+              {showInstallForm ? (
+                <div className="project-settings-field runtime-libraries-section">
+                  <label className="project-settings-label" htmlFor="runtime-library-package-name">
+                    Install library
+                  </label>
+                  <div className="runtime-libraries-form-grid">
+                    <div className="project-settings-field">
+                      <TextField
+                        id="runtime-library-package-name"
+                        className="project-settings-input"
+                        value={addName}
+                        onChange={(e) => setAddName(e.currentTarget.value)}
+                        onKeyDown={handleKeyDown}
+                        isDisabled={isJobActive}
+                        placeholder="NPM package name"
+                        isCompact
+                        spellCheck={false}
+                      />
+                    </div>
+                    <div className="project-settings-field">
+                      <TextField
+                        id="runtime-library-package-version"
+                        className="project-settings-input"
+                        value={addVersion}
+                        onChange={(e) => setAddVersion(e.currentTarget.value)}
+                        onKeyDown={handleKeyDown}
+                        isDisabled={isJobActive}
+                        placeholder="version"
+                        isCompact
+                        spellCheck={false}
+                      />
+                    </div>
+                    <div className="runtime-libraries-form-action">
+                      <LoadingButton
+                        appearance="primary"
+                        className="project-settings-primary-button runtime-libraries-install-button"
+                        onClick={() => void handleInstall()}
+                        isDisabled={isJobActive || !addName.trim()}
+                        isLoading={isJobActive && activeJob?.type === 'install'}
+                      >
+                        Install
+                      </LoadingButton>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <Button
+                  appearance="primary"
+                  className="runtime-libraries-add-button"
+                  onClick={() => setShowInstallForm(true)}
+                >
+                  Add library
+                </Button>
+              )}
+
+              {activeJob ? (
+                <div className="project-settings-field runtime-libraries-section">
+                  <label className="project-settings-label">
+                    {activeJob.type === 'install' ? 'Install job' : 'Remove job'}
+                  </label>
+
+                  {isJobActive ? (
+                    <div className="runtime-libraries-status running">
+                      Status: {activeJob.status}...
+                    </div>
+                  ) : null}
+
+                  {jobResult ? (
+                    <div className={`runtime-libraries-status ${jobResult.status}`}>
+                      {jobResult.status === 'succeeded' ? 'Completed successfully' : `Failed: ${jobResult.error ?? 'Unknown error'}`}
+                    </div>
+                  ) : null}
+
+                  {logs.length > 0 ? (
+                    <div className="runtime-libraries-log-panel" ref={logPanelRef}>
+                      {logs.map((line, i) => (
+                        <div
+                          key={i}
+                          className={`runtime-libraries-log-line${line.startsWith('ERROR:') ? ' error' : ''}`}
+                        >
+                          {line}
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
+
             </div>
-          ) : null}
-        </div>
-      </div>
-    </div>
+          </div>
+        </ModalBody>
+      </ModalDialog>
+    </ModalTransition>
   );
 };

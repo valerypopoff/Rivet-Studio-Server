@@ -15,7 +15,7 @@
 }
 
 .workflow-library-panel .header-title {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -33,7 +33,19 @@
   backdrop-filter: blur(2px);
 }
 
+[data-testid='runtime-libraries-modal--blanket'] {
+  background: rgba(0, 0, 0, 0.56) !important;
+  backdrop-filter: blur(2px);
+}
+
 [data-testid='workflow-project-settings-modal'] {
+  background: #1f1f22 !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.38) !important;
+  color: var(--grey-lightest) !important;
+}
+
+[data-testid='runtime-libraries-modal'] {
   background: #1f1f22 !important;
   border: 1px solid rgba(255, 255, 255, 0.08) !important;
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.38) !important;
@@ -44,14 +56,24 @@
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+[data-testid='runtime-libraries-modal--header'] {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
 [data-testid='workflow-project-settings-modal--body'] {
   padding: 0 !important;
 }
 
+[data-testid='runtime-libraries-modal--body'] {
+  padding: 0 !important;
+}
+
 .workflow-library-panel .active-project-section {
-  border-bottom: 1px solid var(--grey);
   padding: 10px 12px;
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  margin: 13px 13px 0 13px;
+  border-radius: 12px;
 }
 
 .workflow-library-panel .active-project-section-content {
@@ -59,34 +81,27 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+  overflow: hidden;
 }
 
 .workflow-library-panel .active-project-details {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 4px;
+  gap: 6px;
   min-width: 0;
   flex: 1 1 auto;
 }
 
-.workflow-library-panel .active-project-actions {
+.workflow-library-panel .active-project-actions-row {
   display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 6px;
-  flex: 0 0 auto;
-}
-
-.workflow-library-panel .active-project-label {
-  font-size: 13px;
-  font-weight: 400;
-  color: var(--grey-light);
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .workflow-library-panel .active-project-name {
-  font-size: 13px;
-  font-weight: 700;
+  font-size: 16px;
   color: var(--grey-lightest);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -94,11 +109,22 @@
   max-width: 100%;
 }
 
+.workflow-library-panel .active-project-name-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.workflow-library-panel .active-project-actions {
+  display: none;
+}
+
 .active-project-status-row {
   display: flex;
   align-items: center;
   justify-content: flex-start;
   gap: 6px;
+  margin-bottom: 8px;;
 }
 
 .workflow-library-panel .active-project-save-button,
@@ -210,8 +236,18 @@
   color: var(--grey-light);
 }
 
+.workflow-library-panel .body-status-top {
+  padding: 0 4px 8px 4px;
+}
+
 .workflow-library-panel .link-button {
   color: var(--grey-lightest);
+  margin: 0;
+  margin-left: 4px;
+  padding: 0;
+  height: 40px;
+  vertical-align: middle;
+  display: inline-block;
 }
 
 .workflow-library-panel .link-button:hover,
@@ -227,7 +263,7 @@
 
 .workflow-library-panel .folder-empty-state {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   gap: 8px;
   flex-wrap: wrap;
 }
@@ -236,9 +272,13 @@
   border: none;
   background: transparent;
   padding: 0;
+  margin: 0;
   color: #ff6b7a;
   font-size: 13px;
   font-weight: 600;
+  line-height: inherit;
+  vertical-align: baseline;
+  display: inline;
   cursor: pointer;
 }
 
@@ -247,9 +287,6 @@
   text-decoration: underline;
 }
 
-.workflow-library-panel .folder {
-  margin-bottom: 6px;
-}
 
 .workflow-library-panel .folder-row,
 .workflow-library-panel .project-row {
@@ -259,7 +296,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px;
+  padding: 6px;
   border-radius: 6px;
   text-align: left;
 }
@@ -298,6 +335,12 @@
   min-width: 20px;
   height: 20px;
   border-radius: 4px;
+}
+
+.folder-toggle svg{
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
 }
 
 .workflow-library-panel .folder-toggle:hover {
@@ -384,11 +427,11 @@
 }
 
 .workflow-library-panel .projects {
-  margin-top: 2px;
-  margin-left: 16px;
+  padding-left: 6px;
   display: flex;
   flex-direction: column;
   gap: 2px;
+  margin-bottom: 15px;
 }
 
 .workflow-library-panel .project-row {
@@ -438,6 +481,15 @@
   font-weight: 700;
   color: var(--grey-lightest);
   line-height: 1.25;
+  white-space: nowrap;
+  max-width: 100%;
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.project-settings-modal-title.editing {
+  visibility: hidden;
 }
 
 .project-settings-modal-heading {
@@ -447,13 +499,36 @@
   gap: 6px;
   min-width: 0;
   flex: 1 1 auto;
+  min-height: 32px;
 }
 
-.project-settings-modal-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+
+
+.project-settings-title-display {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 0;
+  min-height: 32px;
+  width: auto;
   max-width: 100%;
+}
+
+.project-settings-title-display.editing {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+
+.project-settings-rename-button {
+  min-width: 28px;
+  margin-left: 2px;
+  line-height: 1;
+}
+
+.project-settings-rename-button span {
+  color: white !important;
+  font-size: 20px;
+  transform: scaleX(-1);
 }
 
 .project-settings-title-button {
@@ -473,14 +548,45 @@
 }
 
 .project-settings-title-field {
-  width: 100%;
+  width: auto;
+  flex: 0 1 auto;
+  min-width: 0;
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  justify-content: flex-start;
+  min-height: 32px;
+}
+
+.project-settings-title-display.editing .project-settings-title-field {
+  width: 100%;
+  flex: 1 1 auto;
+}
+
+.project-settings-title-input-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: flex-start;
 }
 
 .project-settings-title-input {
   width: 100%;
+}
+
+.project-settings-title-input > div,
+.project-settings-title-input [data-ds--text-field--container] {
+  width: 100%;
+}
+
+.project-settings-title-input input {
+  font-size: 20px !important;
+  font-weight: 700 !important;
+  line-height: 1.25 !important;
+  min-height: 32px !important;
+  height: 32px !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
 }
 
 .project-settings-close-button {
@@ -492,7 +598,7 @@
   border: none;
   padding: 0;
   margin: 0;
-  border-radius: 0 10px 0 14px;
+  border-radius: 0 10px 0 10px;
   background: transparent;
   color: var(--grey-lightest);
   font-size: 36px;
@@ -501,6 +607,12 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
+}
+
+.project-settings-close-button:hover,
+.project-settings-close-button:focus-visible {
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: inherit;
 }
 
 .project-settings-modal-shell {
@@ -539,7 +651,7 @@
 }
 
 .project-settings-label {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--grey-lightest);
 }
@@ -574,8 +686,9 @@
 }
 
 .project-settings-help {
-  font-size: 13px;
+  font-size: 15px;
   color: var(--grey-light);
+  padding-right: 20%;
 }
 
 .project-settings-error {
@@ -586,7 +699,6 @@
 .project-settings-actions {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
   padding-top: 4px;
 }
@@ -595,6 +707,9 @@
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.project-settings-delete-button {
   margin-left: auto;
 }
 

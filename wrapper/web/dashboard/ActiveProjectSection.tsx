@@ -26,47 +26,46 @@ export const ActiveProjectSection: FC<ActiveProjectSectionProps> = ({
   onOpen,
   onOpenSettings,
 }) => {
+  const statusLabel = STATUS_LABELS[activeProject.settings.status];
+  const baseName = activeProject.fileName.replace(/\.[^.]+$/, '');
+
   return (
     <div className="active-project-section">
       <div className="active-project-section-content">
         <div className="active-project-details">
-          <div className="active-project-label">Active project</div>
-          <div className="active-project-name" title={activeProject.fileName}>
-            {activeProject.fileName}
-          </div>
-          <div className="active-project-status-row">
+          <div className="active-project-name-row" title={`${statusLabel} ${baseName}`}>
             <span className={`project-status-badge ${activeProject.settings.status}`}>
-              {STATUS_LABELS[activeProject.settings.status]}
+              {statusLabel}
             </span>
+            <span className="active-project-name">{baseName}</span>
           </div>
-        </div>
-
-        <div className="active-project-actions">
-          <LoadingButton
-            appearance="primary"
-            className="active-project-save-button"
-            isDisabled={!editorReady}
-            onClick={isCurrentlyOpen ? onSave : () => onOpen(activeProject.absolutePath)}
-            title={
-              !editorReady
-                ? 'Loading editor...'
-                : isCurrentlyOpen
-                  ? 'Save current project'
-                  : 'Open selected project in editor'
-            }
-            aria-label={
-              !editorReady
-                ? 'Loading editor'
-                : isCurrentlyOpen
-                  ? 'Save current project'
-                  : 'Open selected project in editor'
-            }
-          >
-            {isCurrentlyOpen ? 'Save' : 'Edit'}
-          </LoadingButton>
-          <Button appearance="subtle" className="active-project-more-button" onClick={onOpenSettings}>
-            More
-          </Button>
+          <div className="active-project-actions-row">
+            <LoadingButton
+              appearance="primary"
+              className="active-project-save-button"
+              isDisabled={!editorReady}
+              onClick={isCurrentlyOpen ? onSave : () => onOpen(activeProject.absolutePath)}
+              title={
+                !editorReady
+                  ? 'Loading editor...'
+                  : isCurrentlyOpen
+                    ? 'Save current project'
+                    : 'Open selected project in editor'
+              }
+              aria-label={
+                !editorReady
+                  ? 'Loading editor'
+                  : isCurrentlyOpen
+                    ? 'Save current project'
+                    : 'Open selected project in editor'
+              }
+            >
+              {isCurrentlyOpen ? 'Save' : 'Edit'}
+            </LoadingButton>
+            <Button appearance="subtle" className="active-project-more-button" onClick={onOpenSettings}>
+              Settings
+            </Button>
+          </div>
         </div>
       </div>
     </div>

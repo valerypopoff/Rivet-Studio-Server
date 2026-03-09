@@ -29,6 +29,23 @@ import { getWorkflowFolder, getWorkflowProject, listWorkflowFolders, listWorkflo
 
 export const workflowsRouter = Router();
 
+const pathsDifferOnlyByCase = (leftPath: string, rightPath: string) =>
+  leftPath !== rightPath && leftPath.toLowerCase() === rightPath.toLowerCase();
+
+const renamePath = async (currentPath: string, nextPath: string) => {
+  if (!pathsDifferOnlyByCase(currentPath, nextPath)) {
+    await fs.rename(currentPath, nextPath);
+    return;
+  }
+
+  const temporaryPath = validatePath(
+    path.join(path.dirname(currentPath), `.${randomUUID()}-${path.basename(nextPath)}`),
+  );
+
+  await fs.rename(currentPath, temporaryPath);
+  await fs.rename(temporaryPath, nextPath);
+};
+
 workflowsRouter.get('/tree', asyncHandler(async (_req, res) => {
   const root = await ensureWorkflowsRoot();
   const folders = await listWorkflowFolders(root);
@@ -152,8 +169,9 @@ workflowsRouter.patch('/projects', asyncHandler(async (req, res) => {
 
   const projectName = sanitizeWorkflowName(newName, 'new project name');
   const renamedProjectPath = validatePath(path.join(path.dirname(currentProjectPath), `${projectName}${PROJECT_EXTENSION}`));
+  const isCaseOnlyRename = pathsDifferOnlyByCase(currentProjectPath, renamedProjectPath);
 
-  if (renamedProjectPath !== currentProjectPath) {
+  if (renamedProjectPath !== currentProjectPath && !isCaseOnlyRename) {
     try {
       await fs.access(renamedProjectPath);
       res.status(409).json({ error: `Project already exists: ${path.basename(renamedProjectPath)}` });
@@ -162,16 +180,16 @@ workflowsRouter.patch('/projects', asyncHandler(async (req, res) => {
     }
   }
 
-  await fs.rename(currentProjectPath, renamedProjectPath);
+  await renamePath(currentProjectPath, renamedProjectPath);
 
   const currentSidecars = getProjectSidecarPaths(currentProjectPath);
   const renamedSidecars = getProjectSidecarPaths(renamedProjectPath);
   if (await pathExists(currentSidecars.dataset)) {
-    await fs.rename(currentSidecars.dataset, renamedSidecars.dataset);
+    await renamePath(currentSidecars.dataset, renamedSidecars.dataset);
   }
 
   if (await pathExists(currentSidecars.settings)) {
-    await fs.rename(currentSidecars.settings, renamedSidecars.settings);
+    await renamePath(currentSidecars.settings, renamedSidecars.settings);
   }
 
   res.json({

@@ -1,7 +1,7 @@
 import Button, { LoadingButton } from '@atlaskit/button';
 import ModalDialog, { ModalBody, ModalTransition } from '@atlaskit/modal-dialog';
 import TextField from '@atlaskit/textfield';
-import { type ChangeEvent, type FC, type KeyboardEvent as ReactKeyboardEvent, useEffect, useMemo, useState } from 'react';
+import { type ChangeEvent, type FC, type KeyboardEvent as ReactKeyboardEvent, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { toast } from 'react-toastify';
 
 import {
@@ -24,6 +24,26 @@ const STATUS_LABELS: Record<WorkflowProjectStatus, string> = {
   unpublished: 'Unpublished',
   published: 'Published',
   unpublished_changes: 'Unpublished changes',
+};
+
+const renderStatusExplanation = (status: WorkflowProjectStatus, endpointName: string): ReactNode => {
+  switch (status) {
+    case 'unpublished':
+      return 'The workflow is not published as an endpoint.';
+    case 'published':
+      return `Workflow is accessible via the endpoint on /workflows/${endpointName}`;
+    case 'unpublished_changes':
+      return (
+        <>
+          Workflow has changes that are not live. The published workflow version is still accessible on {`/workflows/${endpointName}`}.
+          <br />
+          <br />
+          The unpublished changes are accessible on {`/workflows-last/${endpointName}`}.
+        </>
+      );
+    default:
+      return null;
+  }
 };
 
 const getParentRelativePath = (relativePath: string) => {
@@ -54,6 +74,7 @@ export const ProjectSettingsModal: FC<ProjectSettingsModalProps> = ({
   const [settingsDraft, setSettingsDraft] = useState<WorkflowProjectSettingsDraft>({ endpointName: '' });
   const [projectNameDraft, setProjectNameDraft] = useState('');
   const [editingProjectName, setEditingProjectName] = useState(false);
+  const [showPublishSettings, setShowPublishSettings] = useState(false);
   const [renamingProject, setRenamingProject] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
   const [deletingProject, setDeletingProject] = useState(false);
@@ -62,7 +83,8 @@ export const ProjectSettingsModal: FC<ProjectSettingsModalProps> = ({
     setSettingsDraft({ endpointName: activeProject.settings.endpointName });
     setProjectNameDraft(activeProject.name);
     setEditingProjectName(false);
-  }, [activeProject]);
+    setShowPublishSettings(false);
+  }, [activeProject, isOpen]);
 
   const normalizedDraftEndpointName = useMemo(
     () => settingsDraft.endpointName.trim().toLowerCase(),
@@ -148,19 +170,20 @@ export const ProjectSettingsModal: FC<ProjectSettingsModalProps> = ({
   }, [endpointDuplicateProject, normalizedDraftEndpointName]);
 
   const displayedProjectStatus: WorkflowProjectStatus = activeProject.settings.status;
-  const primarySettingsActionLabel =
-    displayedProjectStatus === 'published'
-      ? 'Unpublish'
-      : displayedProjectStatus === 'unpublished_changes'
-        ? 'Publish changes'
-        : 'Publish';
-  const showSecondaryUnpublishAction = displayedProjectStatus === 'unpublished_changes';
-  const disablePrimarySettingsAction =
-    savingSettings ||
-    deletingProject ||
-    (displayedProjectStatus !== 'published' && endpointValidationError != null);
-  const disableSecondaryUnpublishAction = savingSettings || deletingProject;
-  const disableDeleteProjectAction = savingSettings || deletingProject;
+  const baseFileName = useMemo(() => activeProject.fileName.replace(/\.[^.]+$/, ''), [activeProject.fileName]);
+  const displayedEndpointName = useMemo(
+    () => settingsDraft.endpointName.trim() || activeProject.settings.endpointName || 'endpoint-name',
+    [activeProject.settings.endpointName, settingsDraft.endpointName],
+  );
+  const isUnpublishedProject = displayedProjectStatus === 'unpublished';
+  const isPublishedProject = displayedProjectStatus === 'published';
+  const isUnpublishedChangesProject = displayedProjectStatus === 'unpublished_changes';
+  const shouldShowPublishSettings = isUnpublishedProject && showPublishSettings;
+  const canCloseModal = !savingSettings && !deletingProject && !editingProjectName && !renamingProject;
+  const disablePublishAction = savingSettings || deletingProject || endpointValidationError != null;
+  const disablePublishChangesAction = savingSettings || deletingProject;
+  const disableUnpublishAction = savingSettings || deletingProject;
+  const disableDeleteProjectAction = savingSettings || deletingProject || !isUnpublishedProject;
 
   const handleSettingsDraftChange =
     <K extends keyof WorkflowProjectSettingsDraft>(key: K) =>
@@ -220,50 +243,40 @@ export const ProjectSettingsModal: FC<ProjectSettingsModalProps> = ({
     }
   };
 
-  const handleCopyEndpointName = async () => {
-    const endpointName = settingsDraft.endpointName.trim();
-    if (!endpointName) {
+  const handleShowPublishSettings = () => {
+    if (savingSettings || deletingProject) {
       return;
     }
 
+    setShowPublishSettings(true);
+  };
+
+  const handlePublishProject = async (publishChanges = false) => {
+    setSavingSettings(true);
+
     try {
-      await navigator.clipboard.writeText(endpointName);
-      toast.success('Endpoint copied', {
-        toastId: 'workflow-endpoint-copy-success',
-        className: 'dashboard-toast dashboard-toast-success',
-        bodyClassName: 'dashboard-toast-body',
-        position: 'bottom-center',
+      await publishWorkflowProject(activeProject.relativePath, {
+        endpointName: publishChanges ? activeProject.settings.endpointName : settingsDraft.endpointName,
       });
-    } catch {
-      toast.error('Could not copy endpoint', {
-        toastId: 'workflow-endpoint-copy-error',
-        className: 'dashboard-toast dashboard-toast-error',
-        bodyClassName: 'dashboard-toast-body',
-        position: 'bottom-center',
-      });
+      await onRefresh();
+      setShowPublishSettings(false);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update project publication state');
+    } finally {
+      setSavingSettings(false);
     }
   };
 
-  const handlePrimarySettingsAction = async (action: 'primary' | 'unpublish' = 'primary') => {
-    const shouldUnpublish = displayedProjectStatus === 'published' || action === 'unpublish';
-
-    if (shouldUnpublish) {
-      const shouldProceed = window.confirm(`Unpublish project "${activeProject.fileName}"?`);
-      if (!shouldProceed) {
-        return;
-      }
+  const handleUnpublishProject = async () => {
+    const shouldProceed = window.confirm(`Unpublish project "${activeProject.fileName}"?`);
+    if (!shouldProceed) {
+      return;
     }
 
     setSavingSettings(true);
 
     try {
-      if (shouldUnpublish) {
-        await unpublishWorkflowProject(activeProject.relativePath);
-      } else {
-        await publishWorkflowProject(activeProject.relativePath, {
-          endpointName: settingsDraft.endpointName,
-        });
-      }
+      await unpublishWorkflowProject(activeProject.relativePath);
       await onRefresh();
     } catch (err: any) {
       toast.error(err.message || 'Failed to update project publication state');
@@ -298,52 +311,55 @@ export const ProjectSettingsModal: FC<ProjectSettingsModalProps> = ({
         <ModalDialog
           testId="workflow-project-settings-modal"
           width="medium"
-          label={activeProject.fileName}
+          label={baseFileName}
           onClose={onClose}
-          shouldCloseOnOverlayClick={!savingSettings && !deletingProject}
-          shouldCloseOnEscapePress={!savingSettings && !deletingProject}
+          shouldCloseOnOverlayClick={canCloseModal}
+          shouldCloseOnEscapePress={canCloseModal}
         >
           <ModalBody>
             <div className="project-settings-modal-shell">
               <div className="project-settings-modal-header-row">
                 <div className="project-settings-modal-heading">
-                  {editingProjectName ? (
+                  <div className={`project-settings-title-display${editingProjectName ? ' editing' : ''}`} title={baseFileName}>
                     <div className="project-settings-title-field">
-                      <TextField
-                        className="project-settings-title-input"
-                        value={projectNameDraft}
-                        onChange={handleProjectNameDraftChange}
-                        onBlur={() => void handleCommitProjectRename()}
-                        onKeyDown={handleProjectNameKeyDown}
-                        isInvalid={projectNameValidationError != null}
-                        isDisabled={renamingProject || savingSettings || deletingProject}
-                        autoFocus
-                        spellCheck={false}
-                      />
-                      {projectNameValidationError ? <div className="project-settings-error">{projectNameValidationError}</div> : null}
+                      <span className={`project-settings-modal-title${editingProjectName ? ' editing' : ''}`}>{baseFileName}</span>
+                      {editingProjectName ? (
+                        <div className="project-settings-title-input-overlay">
+                          <TextField
+                            className="project-settings-title-input"
+                            value={projectNameDraft}
+                            onChange={handleProjectNameDraftChange}
+                            onBlur={() => void handleCommitProjectRename()}
+                            onKeyDown={handleProjectNameKeyDown}
+                            isInvalid={projectNameValidationError != null}
+                            isDisabled={renamingProject || savingSettings || deletingProject}
+                            isCompact
+                            autoFocus
+                            spellCheck={false}
+                          />
+                        </div>
+                      ) : null}
                     </div>
-                  ) : (
-                    <button
-                      type="button"
-                      className="project-settings-title-button"
-                      onClick={handleStartProjectRename}
-                      disabled={renamingProject || savingSettings || deletingProject}
-                      title={activeProject.fileName}
-                    >
-                      <span className="project-settings-modal-title">{activeProject.fileName}</span>
-                    </button>
-                  )}
-                  <div className="active-project-status-row">
-                    <span className={`project-status-badge ${displayedProjectStatus}`}>
-                      {STATUS_LABELS[displayedProjectStatus]}
-                    </span>
+                    {!editingProjectName ? (
+                      <Button
+                        appearance="subtle"
+                        spacing="compact"
+                        className="project-settings-rename-button"
+                        onClick={handleStartProjectRename}
+                        isDisabled={renamingProject || savingSettings || deletingProject}
+                        aria-label="Rename project"
+                      >
+                        ✎
+                      </Button>
+                    ) : null}
                   </div>
+                  {projectNameValidationError ? <div className="project-settings-error">{projectNameValidationError}</div> : null}
                 </div>
                 <button
                   type="button"
                   className="project-settings-close-button"
                   onClick={onClose}
-                  disabled={savingSettings || deletingProject}
+                  disabled={!canCloseModal}
                   aria-label="Close project settings"
                 >
                   ×
@@ -351,69 +367,102 @@ export const ProjectSettingsModal: FC<ProjectSettingsModalProps> = ({
               </div>
 
               <div className="project-settings-modal-content">
-                <div className="project-settings-field">
-                  <label className="project-settings-label" htmlFor="workflow-project-endpoint-name">
-                    Endpoint name
-                  </label>
-                  <div className="project-settings-input-row">
-                    <TextField
-                      id="workflow-project-endpoint-name"
-                      className="project-settings-input"
-                      value={settingsDraft.endpointName}
-                      onChange={handleSettingsDraftChange('endpointName')}
-                      isDisabled={savingSettings || deletingProject || displayedProjectStatus !== 'unpublished'}
-                      isInvalid={displayedProjectStatus === 'unpublished' && endpointValidationError != null}
-                      isCompact
-                      spellCheck={false}
-                    />
-                    {displayedProjectStatus === 'published' ? (
-                      <Button
-                        appearance="subtle"
-                        spacing="compact"
-                        className="project-settings-copy-button"
-                        onClick={() => void handleCopyEndpointName()}
-                        isDisabled={savingSettings || deletingProject || settingsDraft.endpointName.trim().length === 0}
-                      >
-                        Copy
-                      </Button>
-                    ) : null}
+                <div className="project-settings-status-block">
+                  <div className="active-project-status-row">
+                    <span className={`project-status-badge ${displayedProjectStatus}`}>
+                      {STATUS_LABELS[displayedProjectStatus]}
+                    </span>
                   </div>
-                  {displayedProjectStatus !== 'unpublished' ? (
-                    <div className="project-settings-help">Unpublish the project to change its endpoint.</div>
-                  ) : null}
-                  {endpointValidationError ? <div className="project-settings-error">{endpointValidationError}</div> : null}
+                  <div className="project-settings-help project-settings-status-help">
+                    {renderStatusExplanation(displayedProjectStatus, displayedEndpointName)}
+                  </div>
                 </div>
 
+                {shouldShowPublishSettings ? (
+                  <div className="project-settings-field">
+                    <label className="project-settings-label" htmlFor="workflow-project-endpoint-name">
+                      Endpoint path
+                    </label>
+                    <div className="project-settings-input-row">
+                      <TextField
+                        id="workflow-project-endpoint-name"
+                        className="project-settings-input"
+                        value={settingsDraft.endpointName}
+                        onChange={handleSettingsDraftChange('endpointName')}
+                        isDisabled={savingSettings || deletingProject}
+                        isInvalid={endpointValidationError != null}
+                        isCompact
+                        spellCheck={false}
+                      />
+                      <LoadingButton
+                        appearance="primary"
+                        className="project-settings-primary-button"
+                        onClick={() => void handlePublishProject(false)}
+                        isDisabled={disablePublishAction}
+                        isLoading={savingSettings}
+                      >
+                        Publish
+                      </LoadingButton>
+                    </div>
+                    {endpointValidationError ? <div className="project-settings-error">{endpointValidationError}</div> : null}
+                  </div>
+                ) : null}
+
                 <div className="project-settings-actions">
-                  <Button
-                    appearance="subtle"
-                    className="project-settings-delete-button"
-                    onClick={() => void handleDeleteActiveProject()}
-                    isDisabled={disableDeleteProjectAction}
-                  >
-                    {deletingProject ? 'Deleting...' : 'Delete project'}
-                  </Button>
                   <div className="project-settings-action-group">
-                    {showSecondaryUnpublishAction ? (
+                    {isUnpublishedProject && !shouldShowPublishSettings ? (
+                      <Button
+                        appearance="primary"
+                        className="project-settings-primary-button"
+                        onClick={handleShowPublishSettings}
+                        isDisabled={savingSettings || deletingProject}
+                      >
+                        Publish...
+                      </Button>
+                    ) : null}
+                    {isPublishedProject ? (
+                      <LoadingButton
+                        appearance="primary"
+                        className="project-settings-primary-button"
+                        onClick={() => void handleUnpublishProject()}
+                        isDisabled={disableUnpublishAction}
+                        isLoading={savingSettings}
+                      >
+                        Unpublish
+                      </LoadingButton>
+                    ) : null}
+                    {isUnpublishedChangesProject ? (
+                      <LoadingButton
+                        appearance="primary"
+                        className="project-settings-primary-button"
+                        onClick={() => void handlePublishProject(true)}
+                        isDisabled={disablePublishChangesAction}
+                        isLoading={savingSettings}
+                      >
+                        Publish changes
+                      </LoadingButton>
+                    ) : null}
+                    {isUnpublishedChangesProject ? (
                       <Button
                         appearance="subtle"
                         className="project-settings-secondary-button"
-                        onClick={() => void handlePrimarySettingsAction('unpublish')}
-                        isDisabled={disableSecondaryUnpublishAction}
+                        onClick={() => void handleUnpublishProject()}
+                        isDisabled={disableUnpublishAction}
                       >
                         Unpublish
                       </Button>
                     ) : null}
-                    <LoadingButton
-                      appearance={displayedProjectStatus === 'published' ? 'subtle' : 'primary'}
-                      className={`project-settings-primary-button${displayedProjectStatus === 'published' ? ' unpublish' : ''}`}
-                      onClick={() => void handlePrimarySettingsAction('primary')}
-                      isDisabled={disablePrimarySettingsAction}
-                      isLoading={savingSettings}
-                    >
-                      {primarySettingsActionLabel}
-                    </LoadingButton>
                   </div>
+                  {isUnpublishedProject && !shouldShowPublishSettings ? (
+                    <Button
+                      appearance="subtle"
+                      className="project-settings-delete-button"
+                      onClick={() => void handleDeleteActiveProject()}
+                      isDisabled={disableDeleteProjectAction}
+                    >
+                      {deletingProject ? 'Deleting...' : 'Delete project'}
+                    </Button>
+                  ) : null}
                 </div>
               </div>
             </div>

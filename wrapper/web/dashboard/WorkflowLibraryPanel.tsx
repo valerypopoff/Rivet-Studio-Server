@@ -1,7 +1,6 @@
 import Button from '@atlaskit/button';
 import { useCallback, useEffect, useMemo, useRef, useState, type FC } from 'react';
 import FolderIcon from 'majesticons/line/folder-line.svg?react';
-import FileIcon from 'majesticons/line/file-line.svg?react';
 import ChevronDownIcon from 'majesticons/line/chevron-down-line.svg?react';
 import ChevronRightIcon from 'majesticons/line/chevron-right-line.svg?react';
 import ExpandLeftIcon from 'majesticons/line/menu-expand-left-line.svg?react';
@@ -85,6 +84,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   const [dragOverRoot, setDragOverRoot] = useState(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [selectedProjectPath, setSelectedProjectPath] = useState('');
+  const [settingsModalProject, setSettingsModalProject] = useState<WorkflowProjectItem | null>(null);
   const [runtimeLibsOpen, setRuntimeLibsOpen] = useState(false);
 
   const refresh = useCallback(async (showLoading = true) => {
@@ -141,11 +141,15 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   const isActiveProjectOpen = activeProject != null && activeProject.absolutePath === openedProjectPath;
 
   useEffect(() => {
-    if (!activeProject) {
-      setSettingsModalOpen(false);
+    if (!settingsModalOpen || !settingsModalProject) {
       return;
     }
-  }, [activeProject]);
+
+    const matchingProject = allProjects.find((project) => project.absolutePath === settingsModalProject.absolutePath);
+    if (matchingProject) {
+      setSettingsModalProject(matchingProject);
+    }
+  }, [allProjects, settingsModalOpen, settingsModalProject]);
 
   useEffect(() => {
     if (!openedProjectPath) {
@@ -353,7 +357,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
       title={editorReady ? project.fileName : 'Loading editor...'}
     >
       <div className="project-main">
-        {project.settings.status === 'unpublished' ? <FileIcon /> : <span className={`project-status-dot ${project.settings.status}`} aria-hidden="true" />}
+        {project.settings.status !== 'unpublished' ? <span className={`project-status-dot ${project.settings.status}`} aria-hidden="true" /> : null}
         <div className="label">{project.name}</div>
       </div>
     </button>
@@ -423,11 +427,30 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
       return;
     }
 
+    setSettingsModalProject(activeProject);
     setSettingsModalOpen(true);
+  };
+
+  const handleWorkflowProjectPathsMoved = (moves: WorkflowProjectPathMove[]) => {
+    if (moves.length === 0) {
+      return;
+    }
+
+    setSelectedProjectPath((prev) => moves.find((move) => move.fromAbsolutePath === prev)?.toAbsolutePath ?? prev);
+    setSettingsModalProject((prev) => {
+      if (!prev) {
+        return prev;
+      }
+
+      const nextPath = moves.find((move) => move.fromAbsolutePath === prev.absolutePath)?.toAbsolutePath;
+      return nextPath ? { ...prev, absolutePath: nextPath } : prev;
+    });
+    onWorkflowPathsMoved(moves);
   };
 
   const closeSettingsModal = () => {
     setSettingsModalOpen(false);
+    setSettingsModalProject(null);
   };
 
   const renderFolder = (folder: WorkflowFolderItem): JSX.Element => {
@@ -564,13 +587,13 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
         }}
         onDrop={(event) => void handleRootDrop(event)}
       >
+        {!editorReady ? <div className="body-status body-status-top">Loading editor...</div> : null}
+        {bodyContent}
         <div className="body-actions">
           <Button appearance="subtle-link" spacing="compact" className="link-button" onClick={() => void handleCreateFolder()}>
             + New folder
           </Button>
-          {!editorReady ? <div className="body-status">Loading editor...</div> : null}
         </div>
-        {bodyContent}
       </div>
 
       <button
@@ -579,18 +602,18 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
         title="Manage runtime libraries available to Code nodes"
       >
         <span className="trigger-icon">&#9881;</span>
-        Runtime Libraries
+        Runtime libraries
       </button>
 
-      {settingsModalOpen && activeProject ? (
+      {settingsModalOpen && settingsModalProject ? (
         <ProjectSettingsModal
-          activeProject={activeProject}
+          activeProject={settingsModalProject}
           allProjects={allProjects}
           isOpen={settingsModalOpen}
           onClose={closeSettingsModal}
           onRefresh={() => refresh(false)}
           onDeleteProject={onDeleteProject}
-          onWorkflowPathsMoved={onWorkflowPathsMoved}
+          onWorkflowPathsMoved={handleWorkflowProjectPathsMoved}
         />
       ) : null}
 
