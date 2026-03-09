@@ -17,8 +17,6 @@ const mergedEnv = {
   ...fileEnv,
 };
 
-const executorNodeModulesPath = path.join(rootDir, 'wrapper', 'executor', 'node_modules');
-
 if (!Object.prototype.hasOwnProperty.call(fileEnv, 'RIVET_WORKSPACE_ROOT')) {
   mergedEnv.RIVET_WORKSPACE_ROOT = rootDir;
 }
@@ -26,8 +24,6 @@ if (!Object.prototype.hasOwnProperty.call(fileEnv, 'RIVET_WORKSPACE_ROOT')) {
 if (!Object.prototype.hasOwnProperty.call(fileEnv, 'RIVET_APP_DATA_ROOT')) {
   mergedEnv.RIVET_APP_DATA_ROOT = path.join(rootDir, '.data', 'rivet-app');
 }
-
-mergedEnv.NODE_PATH = [executorNodeModulesPath, mergedEnv.NODE_PATH].filter(Boolean).join(path.delimiter);
 
 const child = spawn(command, {
   cwd: rootDir,

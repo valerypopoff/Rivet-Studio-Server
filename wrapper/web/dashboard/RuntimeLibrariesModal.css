@@ -1,0 +1,263 @@
+.runtime-libraries-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.runtime-libraries-modal {
+  background: var(--grey-darkish, #1e1e1e);
+  border: 1px solid var(--grey-dark, #333);
+  border-radius: 8px;
+  width: 560px;
+  max-width: 90vw;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  color: var(--foreground, #ccc);
+  font-size: 13px;
+}
+
+.runtime-libraries-modal .modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--grey-dark, #333);
+}
+
+.runtime-libraries-modal .modal-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.runtime-libraries-modal .modal-header .close-button {
+  background: none;
+  border: none;
+  color: var(--foreground, #ccc);
+  cursor: pointer;
+  font-size: 18px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  line-height: 1;
+}
+
+.runtime-libraries-modal .modal-header .close-button:hover {
+  background: var(--grey-dark, #333);
+}
+
+.runtime-libraries-modal .modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.runtime-libraries-modal .section-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--foreground-dimmed, #888);
+  margin-bottom: 8px;
+}
+
+/* Installed libraries list */
+.runtime-libraries-modal .installed-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.runtime-libraries-modal .installed-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  background: var(--grey-darker, #151515);
+  border-radius: 4px;
+}
+
+.runtime-libraries-modal .installed-item .pkg-info {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.runtime-libraries-modal .installed-item .pkg-name {
+  font-weight: 500;
+}
+
+.runtime-libraries-modal .installed-item .pkg-version {
+  color: var(--foreground-dimmed, #888);
+  font-size: 12px;
+}
+
+.runtime-libraries-modal .installed-item .remove-btn {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--foreground-dimmed, #888);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 3px;
+}
+
+.runtime-libraries-modal .installed-item .remove-btn:hover {
+  color: #e55;
+  border-color: #e55;
+}
+
+.runtime-libraries-modal .installed-item .remove-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.runtime-libraries-modal .empty-state {
+  color: var(--foreground-dimmed, #888);
+  font-style: italic;
+  font-size: 12px;
+}
+
+/* Add form */
+.runtime-libraries-modal .add-form {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.runtime-libraries-modal .add-form .field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.runtime-libraries-modal .add-form .field label {
+  font-size: 11px;
+  color: var(--foreground-dimmed, #888);
+  text-transform: uppercase;
+}
+
+.runtime-libraries-modal .add-form .field input {
+  background: var(--grey-darker, #151515);
+  border: 1px solid var(--grey-dark, #333);
+  border-radius: 4px;
+  padding: 6px 8px;
+  color: var(--foreground, #ccc);
+  font-size: 13px;
+  outline: none;
+}
+
+.runtime-libraries-modal .add-form .field input:focus {
+  border-color: var(--primary, #4a9eff);
+}
+
+.runtime-libraries-modal .add-form .field.name-field {
+  flex: 2;
+}
+
+.runtime-libraries-modal .add-form .field.version-field {
+  flex: 1;
+}
+
+.runtime-libraries-modal .add-form .add-btn {
+  background: var(--primary, #4a9eff);
+  border: none;
+  color: white;
+  cursor: pointer;
+  font-size: 12px;
+  padding: 7px 14px;
+  border-radius: 4px;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.runtime-libraries-modal .add-form .add-btn:hover {
+  opacity: 0.9;
+}
+
+.runtime-libraries-modal .add-form .add-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Log panel */
+.runtime-libraries-modal .log-panel {
+  background: var(--grey-darker, #0d0d0d);
+  border: 1px solid var(--grey-dark, #333);
+  border-radius: 4px;
+  padding: 8px;
+  max-height: 200px;
+  overflow-y: auto;
+  font-family: 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.runtime-libraries-modal .log-panel .log-line {
+  color: var(--foreground-dimmed, #888);
+}
+
+.runtime-libraries-modal .log-panel .log-line.error {
+  color: #e55;
+}
+
+/* Status area */
+.runtime-libraries-modal .status-area {
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.runtime-libraries-modal .status-area.succeeded {
+  background: rgba(80, 200, 120, 0.15);
+  color: #50c878;
+  border: 1px solid rgba(80, 200, 120, 0.3);
+}
+
+.runtime-libraries-modal .status-area.failed {
+  background: rgba(230, 80, 80, 0.15);
+  color: #e55;
+  border: 1px solid rgba(230, 80, 80, 0.3);
+}
+
+.runtime-libraries-modal .status-area.running {
+  background: rgba(74, 158, 255, 0.15);
+  color: #4a9eff;
+  border: 1px solid rgba(74, 158, 255, 0.3);
+}
+
+/* Trigger button in sidebar */
+.runtime-libraries-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--grey-dark, #333);
+  cursor: pointer;
+  color: var(--foreground-dimmed, #888);
+  font-size: 12px;
+  background: none;
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+  width: 100%;
+  text-align: left;
+}
+
+.runtime-libraries-trigger:hover {
+  color: var(--foreground, #ccc);
+  background: var(--grey-dark, #252525);
+}
+
+.runtime-libraries-trigger .trigger-icon {
+  font-size: 14px;
+}

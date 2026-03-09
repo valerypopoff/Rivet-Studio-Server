@@ -3,7 +3,5 @@
   "private": true,
   "version": "1.0.0",
   "description": "Executor-only npm dependencies for hosted Rivet code nodes",
-  "dependencies": {
-    "sharp": "^0.34.3"
-  }
+  "dependencies": {}
 }

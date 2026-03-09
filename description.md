@@ -14,6 +14,7 @@ In practical terms, the application provides:
 - published workflow serving at `/workflows/[endpoint-name]`
 - latest working-version workflow serving at `/workflows-last/[endpoint-name]` for published projects
 - Dockerized backend, proxy, and executor services
+- a runtime library manager for installing npm packages available to Code nodes across both execution paths
 - browser-compatible replacements for desktop-only integrations
 
 The intended result is: **upstream Rivet as the app core, wrapper-owned code as the hosted integration layer**.
@@ -43,7 +44,7 @@ This is a wrapper-controlled Vite application that loads and renders the upstrea
 
 Provides hosted compatibility endpoints.
 
-This replaces desktop-native capabilities with server-side operations exposed over HTTP, including file access, workflow library management, published and latest workflow execution, and related hosted integrations.
+This replaces desktop-native capabilities with server-side operations exposed over HTTP, including file access, workflow library management, runtime library management, published and latest workflow execution, and related hosted integrations.
 
 ### `executor`
 
@@ -96,6 +97,7 @@ This area owns:
 - published workflow snapshot storage and execution routing
 - latest working-version workflow execution routing for published workflows
 - plugin and shell-related hosted endpoints
+- runtime library management (install, remove, validation, staged promotion)
 - allowed environment/config exposure
 
 ### `wrapper/shared/`
@@ -386,7 +388,102 @@ That executor patching is used for hosted concerns such as:
 - Docker-friendly binding behavior
 - forwarding relevant executor traces to the browser
 - surfacing Node Code-node console output in browser devtools as hosted logs
+- dynamic runtime-library resolution so Code nodes can require hot-installed packages without restarting the executor
 - failing fast if an upstream executor snippet changes in a way that would silently break the hosted patch
+
+## Runtime library manager
+
+Code nodes in Rivet can `require()` external npm packages when `allowRequire` is enabled. In a desktop environment that resolves from the local machine, but in the hosted wrapper there is no user-accessible filesystem for ad-hoc npm installs.
+
+The runtime library manager is a wrapper-owned feature that lets users install and remove npm packages from the browser UI so those packages become available to Code nodes in both execution paths without restarting containers or rebuilding images.
+
+### UI
+
+The feature is accessed through a trigger button at the bottom of the `Projects` pane in `WorkflowLibraryPanel.tsx`. Clicking it opens a modal (`RuntimeLibrariesModal.tsx`) that shows:
+
+- the list of currently installed runtime libraries with package name, version, and a remove action
+- an add form with package name and version fields
+- an install button that starts a background job
+- a live log panel that streams npm install output in real time via Server-Sent Events
+- a final success or failure verdict when the job completes
+
+Controls are disabled while a job is running. Feedback stays inside the modal rather than producing global toasts.
+
+### API
+
+Runtime library management is served by `wrapper/api/src/routes/runtime-libraries.ts` under `/api/runtime-libraries`:
+
+- `GET /` returns the current manifest (installed packages, active release, active job)
+- `POST /install` starts a background install job (returns 202)
+- `POST /remove` starts a background removal job (returns 202)
+- `GET /jobs/:jobId` returns job state
+- `GET /jobs/:jobId/stream` provides SSE log streaming with `X-Accel-Buffering: no` for nginx compatibility
+
+Only one mutating job runs at a time. Concurrent requests receive a 409 Conflict response.
+
+### Versioned release model
+
+Runtime libraries are managed through a versioned release system under `RIVET_RUNTIME_LIBRARIES_ROOT` (default `/data/runtime-libraries`):
+
+```
+<root>/
+  manifest.json          — desired package set, active release id, metadata
+  active-release         — plain-text pointer file with the current release id
+  releases/
+    0001/
+      package.json
+      node_modules/
+    0002/
+      ...
+  staging/               — build area for candidate releases
+```
+
+The install/remove flow:
+
+1. read current manifest and build a candidate dependency set
+2. create a fresh staging directory with a generated `package.json`
+3. run `npm install --production` with streamed output
+4. validate the candidate using `createRequire()` and `require.resolve()` for each package
+5. promote to a new numbered release via directory rename
+6. update the `active-release` pointer file (write-to-temp-then-rename for near-atomic switch)
+7. update `manifest.json`
+
+A failed install never modifies the active release. The staging directory is cleaned up on failure. The previous good release remains active and both execution paths continue working.
+
+### Shared runtime resolution
+
+Both execution paths resolve packages from the same active release:
+
+- **Published endpoints (API container)**: `executeWorkflowEndpoint()` passes a `ManagedCodeRunner` instance to `runGraph()` via the existing `codeRunner` option. On each `runCode()` call, `ManagedCodeRunner` reads the `active-release` pointer file and creates a `require` function rooted in that release's `node_modules`. Falls back to standard `NODE_PATH` resolution when no managed release exists.
+
+- **Editor execution (executor container)**: The `bundle-executor.cjs` build-time patch replaces `NodeCodeRunner`'s `createRequire` call with dynamic resolution that reads the `active-release` pointer file on every Code node invocation. Falls back to the original executor bundle resolution when no managed release exists.
+
+Both paths read the pointer file synchronously per invocation. Because `createRequire()` is called fresh each time (not cached), new releases take effect immediately without process restarts.
+
+### Persistence
+
+Runtime library state lives in a dedicated Docker named volume (`rivet_runtime_libs`) mounted at `/data/runtime-libraries` in both the API and executor containers. The `RIVET_RUNTIME_LIBRARIES_ROOT` environment variable is the single source of truth for the path.
+
+Installed libraries survive container restarts and image rebuilds. On startup, the API runs a reconciliation step that validates the active release directory exists, syncs the manifest with the pointer file, and cleans up old releases (keeping the last 5).
+
+In dev mode, `scripts/dev.mjs` sets `RIVET_RUNTIME_LIBRARIES_ROOT` to `.data/runtime-libraries` under the repo root.
+
+### Fallback behavior
+
+When no managed runtime libraries are installed (no `active-release` file exists), both execution paths continue working using image-baked dependencies via `NODE_PATH`. This ensures backward compatibility with existing setups where `wrapper/executor/package.json` dependencies (such as `sharp`) are installed at Docker build time.
+
+### Implementation files
+
+- `wrapper/api/src/runtime-libraries/manifest.ts` — manifest and pointer file read/write helpers
+- `wrapper/api/src/runtime-libraries/job-runner.ts` — staging, npm install, validation, promotion
+- `wrapper/api/src/runtime-libraries/managed-code-runner.ts` — `ManagedCodeRunner` implementing the `CodeRunner` interface
+- `wrapper/api/src/runtime-libraries/exec-streaming.ts` — streaming `child_process.spawn` wrapper
+- `wrapper/api/src/runtime-libraries/startup.ts` — startup reconciliation and old release cleanup
+- `wrapper/api/src/routes/runtime-libraries.ts` — API route handler
+- `wrapper/web/dashboard/RuntimeLibrariesModal.tsx` — modal component
+- `wrapper/web/dashboard/RuntimeLibrariesModal.css` — modal styles
+- `wrapper/web/dashboard/runtimeLibrariesApi.ts` — client API helper
+- `ops/bundle-executor.cjs` — executor-side dynamic require patch
 
 ## Design rules
 
@@ -430,6 +527,9 @@ The following statements should remain true after major refactors unless there i
 - the workflow library is still constrained to the validated workflow root
 - the app still uses API-backed and websocket-backed hosted services instead of assuming desktop-native integrations
 - the active project section and project settings popup still reflect the currently selected workflow project, defaulting to the opened workflow project when nothing else is selected
+- runtime libraries installed through the manager are available to Code nodes in both editor runs and published endpoint calls without restarting containers
+- a failed runtime library install does not break the currently active release or disrupt running workflows
+- the runtime library trigger button appears at the bottom of the `Projects` pane when the pane is open
 
 ## Current practical outcome
 

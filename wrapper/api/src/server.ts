@@ -6,6 +6,8 @@ import { pluginsRouter } from './routes/plugins.js';
 import { projectsRouter } from './routes/projects.js';
 import { latestWorkflowsRouter, publishedWorkflowsRouter, workflowsRouter } from './routes/workflows/index.js';
 import { configRouter } from './routes/config.js';
+import { runtimeLibrariesRouter } from './routes/runtime-libraries.js';
+import { reconcileRuntimeLibraries } from './runtime-libraries/startup.js';
 
 const app = express();
 const PORT = parseInt(process.env.PORT ?? '3100', 10);
@@ -21,6 +23,7 @@ app.use('/api/shell', shellRouter);
 app.use('/api/plugins', pluginsRouter);
 app.use('/api/projects', projectsRouter);
 app.use('/api/workflows', workflowsRouter);
+app.use('/api/runtime-libraries', runtimeLibrariesRouter);
 app.use('/api', configRouter);
 
 app.use((_req: Request, res: Response) => {
@@ -37,4 +40,10 @@ app.listen(PORT, () => {
   console.log(`[rivet-api] Listening on port ${PORT}`);
   console.log(`[rivet-api] Workspace root: ${process.env.RIVET_WORKSPACE_ROOT ?? '/workspace'}`);
   console.log(`[rivet-api] App data root: ${process.env.RIVET_APP_DATA_ROOT ?? '/data/rivet-app'}`);
+  console.log(`[rivet-api] Runtime libraries root: ${process.env.RIVET_RUNTIME_LIBRARIES_ROOT ?? '(not set)'}`);
+
+  // Run startup reconciliation for runtime libraries (non-blocking)
+  reconcileRuntimeLibraries().catch((err) => {
+    console.error('[runtime-libraries] Startup reconciliation failed:', err);
+  });
 });

@@ -38,6 +38,7 @@ services:
       - RIVET_WORKSPACE_ROOT=/workspace
       - RIVET_WORKFLOWS_ROOT=/workflows
       - RIVET_APP_DATA_ROOT=/data/rivet-app
+      - RIVET_RUNTIME_LIBRARIES_ROOT=/data/runtime-libraries
       - RIVET_ENV_ALLOWLIST=${RIVET_ENV_ALLOWLIST:-}
       - RIVET_SHELL_ALLOWLIST=${RIVET_SHELL_ALLOWLIST:-}
       - RIVET_EXTRA_ROOTS=${RIVET_EXTRA_ROOTS:-}
@@ -48,6 +49,7 @@ services:
       - rivet_workspace:/workspace
       - ${RIVET_WORKFLOWS_HOST_PATH:-../workflows}:/workflows
       - rivet_data:/data/rivet-app
+      - rivet_runtime_libs:/data/runtime-libraries
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3100/api/config"]
       interval: 10s
@@ -61,12 +63,16 @@ services:
       dockerfile: ops/Dockerfile.executor
     environment:
       - HOME=/root
+      - RIVET_RUNTIME_LIBRARIES_ROOT=/data/runtime-libraries
     volumes:
       - rivet_data:/root/.local/share/com.ironcladapp.rivet
+      - rivet_runtime_libs:/data/runtime-libraries
     restart: unless-stopped
 
 volumes:
   rivet_workspace:
     driver: local
   rivet_data:
+    driver: local
+  rivet_runtime_libs:
     driver: local

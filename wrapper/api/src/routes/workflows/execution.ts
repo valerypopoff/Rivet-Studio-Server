@@ -10,6 +10,8 @@ import {
   findPublishedWorkflowByEndpoint,
   normalizeStoredEndpointName,
 } from './publication.js';
+import { ManagedCodeRunner } from '../../runtime-libraries/managed-code-runner.js';
+import { getRootPath } from '../../runtime-libraries/manifest.js';
 
 export const publishedWorkflowsRouter = Router();
 export const latestWorkflowsRouter = Router();
@@ -26,6 +28,7 @@ async function executeWorkflowEndpoint(
     const datasetProvider = await NodeDatasetProvider.fromProjectFile(loadPath);
     const projectReferenceLoader = createPublishedWorkflowProjectReferenceLoader(root, referencePath);
     const outputs = await runGraph(project, {
+      codeRunner: new ManagedCodeRunner(getRootPath()) as any,
       projectPath: referencePath,
       datasetProvider,
       projectReferenceLoader,

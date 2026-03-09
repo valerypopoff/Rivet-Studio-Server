@@ -4,11 +4,6 @@ RUN corepack enable && corepack prepare yarn@4.6.0 --activate
 
 WORKDIR /app
 
-COPY wrapper/executor/package*.json /app/wrapper/executor/
-
-WORKDIR /app/wrapper/executor
-RUN if [ -f package.json ]; then npm install --omit=dev; fi
-
 COPY rivet/ /app/rivet/
 
 WORKDIR /app/rivet
@@ -25,11 +20,10 @@ FROM node:20-alpine
 WORKDIR /app
 
 COPY --from=builder /app/rivet/packages/app-executor/bin/executor-bundle.cjs ./executor-bundle.cjs
-COPY --from=builder /app/wrapper/executor/node_modules ./node_modules
 
 RUN mkdir -p /root/.local/share/com.ironcladapp.rivet/plugins
 
-ENV NODE_PATH=/app/node_modules
+ENV RIVET_RUNTIME_LIBRARIES_ROOT=/data/runtime-libraries
 
 EXPOSE 21889
 

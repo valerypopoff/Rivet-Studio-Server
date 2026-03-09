@@ -609,7 +609,7 @@ This is a hard requirement, not a best-effort goal.
 
 ## Proposed implementation phases
 
-### Phase 1: backend manifest, job framework, and container wiring
+### Phase 1: backend manifest, job framework, and container wiring -- DONE
 
 Implement:
 
@@ -627,7 +627,18 @@ Deliverable:
 
 - backend-only library job system with observable progress, testable via curl
 
-### Phase 2: safe staged installer
+Files created/modified:
+- `ops/docker-compose.yml` — added `rivet_runtime_libs` volume, `RIVET_RUNTIME_LIBRARIES_ROOT` env var for api and executor
+- `ops/docker-compose.dev.yml` — same changes for dev mode
+- `ops/Dockerfile.api` — added `mkdir /data/runtime-libraries`, `RIVET_RUNTIME_LIBRARIES_ROOT` env var
+- `ops/Dockerfile.executor` — added `RIVET_RUNTIME_LIBRARIES_ROOT` env var
+- `scripts/dev.mjs` — added `RIVET_RUNTIME_LIBRARIES_ROOT` default to `.data/runtime-libraries`
+- `wrapper/api/src/runtime-libraries/manifest.ts` — manifest and active-release pointer read/write helpers
+- `wrapper/api/src/runtime-libraries/exec-streaming.ts` — streaming child_process.spawn with EventEmitter
+- `wrapper/api/src/routes/runtime-libraries.ts` — route handler with list, install, remove, job status, SSE stream
+- `wrapper/api/src/server.ts` — registered `runtimeLibrariesRouter`
+
+### Phase 2: safe staged installer -- DONE
 
 Implement:
 
@@ -644,7 +655,10 @@ Deliverable:
 
 - safe persistent runtime-library release management, testable via API calls
 
-### Phase 3: shared runtime resolution
+Files created:
+- `wrapper/api/src/runtime-libraries/job-runner.ts` — staging, npm install, validation, promotion, rollback
+
+### Phase 3: shared runtime resolution -- DONE
 
 Implement:
 
@@ -664,7 +678,12 @@ Deliverable:
 - parity between editor execution and published endpoint execution
 - hot-switching works without container restarts
 
-### Phase 4: UI popup
+Files created/modified:
+- `wrapper/api/src/runtime-libraries/managed-code-runner.ts` — `ManagedCodeRunner` implementing `CodeRunner` interface
+- `wrapper/api/src/routes/workflows/execution.ts` — passes `codeRunner: new ManagedCodeRunner(root)` to `runGraph()`
+- `ops/bundle-executor.cjs` — replaced static `createRequire` patch with dynamic `active-release` pointer resolution
+
+### Phase 4: UI popup -- DONE
 
 Implement:
 
@@ -683,7 +702,13 @@ Deliverable:
 
 - end-to-end usable library-management UI
 
-### Phase 5: startup reconciliation and hardening
+Files created/modified:
+- `wrapper/web/dashboard/runtimeLibrariesApi.ts` — client API helper
+- `wrapper/web/dashboard/RuntimeLibrariesModal.tsx` — modal component with installed list, add form, live log viewer
+- `wrapper/web/dashboard/RuntimeLibrariesModal.css` — modal and trigger button styles
+- `wrapper/web/dashboard/WorkflowLibraryPanel.tsx` — added trigger button and modal at bottom of panel
+
+### Phase 5: startup reconciliation and hardening -- DONE
 
 Implement:
 
@@ -697,6 +722,12 @@ Implement:
 Deliverable:
 
 - resilient long-term runtime library management
+
+Files created/modified:
+- `wrapper/api/src/runtime-libraries/startup.ts` — startup reconciliation, old release cleanup
+- `wrapper/api/src/server.ts` — calls `reconcileRuntimeLibraries()` on startup
+- SSE keepalive already implemented in routes (30s interval)
+- 409 Conflict already implemented in install/remove routes
 
 ## Suggested file areas to touch
 

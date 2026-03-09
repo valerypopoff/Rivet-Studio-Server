@@ -8,6 +8,7 @@ import ExpandLeftIcon from 'majesticons/line/menu-expand-left-line.svg?react';
 import { toast } from 'react-toastify';
 import { ActiveProjectSection } from './ActiveProjectSection';
 import { ProjectSettingsModal } from './ProjectSettingsModal';
+import { RuntimeLibrariesModal } from './RuntimeLibrariesModal';
 import {
   createWorkflowFolder,
   createWorkflowProject,
@@ -84,6 +85,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   const [dragOverRoot, setDragOverRoot] = useState(false);
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [selectedProjectPath, setSelectedProjectPath] = useState('');
+  const [runtimeLibsOpen, setRuntimeLibsOpen] = useState(false);
 
   const refresh = useCallback(async (showLoading = true) => {
     if (showLoading) {
@@ -571,6 +573,15 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
         {bodyContent}
       </div>
 
+      <button
+        className="runtime-libraries-trigger"
+        onClick={() => setRuntimeLibsOpen(true)}
+        title="Manage runtime libraries available to Code nodes"
+      >
+        <span className="trigger-icon">&#9881;</span>
+        Runtime Libraries
+      </button>
+
       {settingsModalOpen && activeProject ? (
         <ProjectSettingsModal
           activeProject={activeProject}
@@ -582,6 +593,11 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
           onWorkflowPathsMoved={onWorkflowPathsMoved}
         />
       ) : null}
+
+      <RuntimeLibrariesModal
+        isOpen={runtimeLibsOpen}
+        onClose={() => setRuntimeLibsOpen(false)}
+      />
     </div>
   );
 };
