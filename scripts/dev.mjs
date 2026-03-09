@@ -4,6 +4,7 @@ import { parseEnvFile } from './lib/env.mjs';
 
 const rootDir = process.cwd();
 const envPath = path.join(rootDir, '.env.dev');
+const executorNodeModulesPath = path.join(rootDir, 'wrapper', 'executor', 'node_modules');
 
 const fileEnv = parseEnvFile(envPath);
 const mergedEnv = {
@@ -18,6 +19,8 @@ if (!Object.prototype.hasOwnProperty.call(fileEnv, 'RIVET_WORKSPACE_ROOT')) {
 if (!Object.prototype.hasOwnProperty.call(fileEnv, 'RIVET_APP_DATA_ROOT')) {
   mergedEnv.RIVET_APP_DATA_ROOT = path.join(rootDir, '.data', 'rivet-app');
 }
+
+mergedEnv.NODE_PATH = [executorNodeModulesPath, mergedEnv.NODE_PATH].filter(Boolean).join(path.delimiter);
 
 console.log('[dev] Starting local development services...');
 console.log('[dev] Open http://localhost:5174 once Vite is ready.');

@@ -4,31 +4,32 @@ RUN corepack enable && corepack prepare yarn@4.6.0 --activate
 
 WORKDIR /app
 
-# Copy upstream rivet source
-COPY rivet/ rivet/
+COPY wrapper/executor/package*.json /app/wrapper/executor/
 
-# Install upstream dependencies (node-modules linker for plain node resolution)
+WORKDIR /app/wrapper/executor
+RUN if [ -f package.json ]; then npm install --omit=dev; fi
+
+COPY rivet/ /app/rivet/
+
 WORKDIR /app/rivet
 RUN YARN_NODE_LINKER=node-modules YARN_CHECKSUM_BEHAVIOR=ignore yarn install --immutable || YARN_NODE_LINKER=node-modules YARN_CHECKSUM_BEHAVIOR=ignore yarn install
 
-# Build upstream packages in order
 RUN YARN_NODE_LINKER=node-modules yarn workspace @ironclad/rivet-core run build
 RUN YARN_NODE_LINKER=node-modules yarn workspace @ironclad/rivet-node run build
 
-# Bundle executor with esbuild only (skip pkg native binary — not needed in Docker)
 COPY ops/bundle-executor.cjs /app/ops/bundle-executor.cjs
 RUN NODE_PATH=/app/rivet/node_modules node /app/ops/bundle-executor.cjs
 
-# --- Production stage ---
 FROM node:20-alpine
 
 WORKDIR /app
 
-# Copy only what the executor bundle needs at runtime
 COPY --from=builder /app/rivet/packages/app-executor/bin/executor-bundle.cjs ./executor-bundle.cjs
+COPY --from=builder /app/wrapper/executor/node_modules ./node_modules
 
-# Create app data directory for plugins
 RUN mkdir -p /root/.local/share/com.ironcladapp.rivet/plugins
+
+ENV NODE_PATH=/app/node_modules
 
 EXPOSE 21889
 

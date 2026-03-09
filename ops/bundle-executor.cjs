@@ -6,6 +6,7 @@ const esbuild = require('esbuild');
 const path = require('path');
 
 const appExecutorDir = path.resolve(__dirname, '..', 'rivet', 'packages', 'app-executor');
+const wrapperExecutorDir = path.resolve(__dirname, '..', 'wrapper', 'executor');
 
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -177,6 +178,12 @@ const sendHostedTrace = (client, level, args) => {
       });`,
         'NodeCodeRunner console wrapping'
       );
+      contents = replaceOrThrow(
+        contents,
+        '      const require = import.meta ? createRequire(import.meta.url) : module.require;',
+        "      const require = createRequire(process.cwd() + '/executor-bundle.cjs');",
+        'NodeCodeRunner require resolution'
+      );
       return { contents, loader: 'ts' };
     });
   },
@@ -202,6 +209,7 @@ esbuild.build({
   format: 'cjs',
   target: 'node16',
   external: [],
+  nodePaths: [path.join(wrapperExecutorDir, 'node_modules')],
   plugins: [patchDockerHost, resolveRivet],
 }).then(() => {
   console.log('Executor bundled to bin/executor-bundle.cjs (pkg step skipped for Docker)');
