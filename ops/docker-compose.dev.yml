@@ -17,6 +17,8 @@ services:
   web:
     image: node:20-alpine
     working_dir: /workspace/wrapper/web
+    env_file:
+      - ../.env.dev
     environment:
       - VITE_RIVET_DEBUG_LOGS=${VITE_RIVET_DEBUG_LOGS:-false}
       - VITE_RIVET_API_BASE_URL=${VITE_RIVET_API_BASE_URL:-http://localhost:3100/api}
@@ -57,6 +59,8 @@ services:
     build:
       context: ..
       dockerfile: ops/Dockerfile.api
+    env_file:
+      - ../.env.dev
     ports:
       - "${RIVET_API_PORT:-3100}:3100"
     environment:
@@ -96,6 +100,8 @@ services:
     build:
       context: ..
       dockerfile: ops/Dockerfile.executor
+    env_file:
+      - ../.env.dev
     environment:
       - HOME=/root
       - RIVET_RUNTIME_LIBRARIES_ROOT=/data/runtime-libraries

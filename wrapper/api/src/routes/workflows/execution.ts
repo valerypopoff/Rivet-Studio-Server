@@ -2,7 +2,7 @@ import { Router, type Request, type Response } from 'express';
 import { loadProjectFromFile, NodeDatasetProvider, runGraph } from '@ironclad/rivet-node';
 
 import { asyncHandler } from '../../utils/asyncHandler.js';
-import { badRequest } from '../../utils/httpError.js';
+import { badRequest, createHttpError } from '../../utils/httpError.js';
 import { ensureWorkflowsRoot } from './fs-helpers.js';
 import {
   createPublishedWorkflowProjectReferenceLoader,
@@ -15,6 +15,28 @@ import { getRootPath } from '../../runtime-libraries/manifest.js';
 
 export const publishedWorkflowsRouter = Router();
 export const latestWorkflowsRouter = Router();
+
+function getBearerToken(req: Request): string | null {
+  const authorization = req.get('authorization');
+  if (!authorization) {
+    return null;
+  }
+
+  const match = authorization.match(/^Bearer\s+(.+)$/i);
+  return match ? match[1].trim() || null : null;
+}
+
+function requirePublishedWorkflowApiKey(req: Request): void {
+  const expectedApiKey = process.env.RIVET_ENDPOINT_API_KEY?.trim();
+  if (!expectedApiKey) {
+    return;
+  }
+
+  const providedApiKey = getBearerToken(req);
+  if (!providedApiKey || providedApiKey !== expectedApiKey) {
+    throw createHttpError(401, 'Unauthorized');
+  }
+}
 
 async function executeWorkflowEndpoint(
   loadPath: string,
@@ -65,6 +87,8 @@ async function executeWorkflowEndpoint(
 }
 
 publishedWorkflowsRouter.post('/:endpointName', asyncHandler(async (req, res) => {
+  requirePublishedWorkflowApiKey(req);
+
   const root = await ensureWorkflowsRoot();
   const endpointName = normalizeStoredEndpointName(String(req.params.endpointName ?? ''));
   if (!endpointName) {
