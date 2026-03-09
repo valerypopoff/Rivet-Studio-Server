@@ -44,6 +44,10 @@ if (Object.prototype.hasOwnProperty.call(fileEnv, 'RIVET_WORKFLOWS_HOST_PATH')) 
   mergedEnv.RIVET_WORKFLOWS_HOST_PATH = path.resolve(rootDir, fileEnv.RIVET_WORKFLOWS_HOST_PATH);
 }
 
+if (Object.prototype.hasOwnProperty.call(fileEnv, 'RIVET_RUNTIME_LIBS_HOST_PATH')) {
+  mergedEnv.RIVET_RUNTIME_LIBS_HOST_PATH = path.resolve(rootDir, fileEnv.RIVET_RUNTIME_LIBS_HOST_PATH);
+}
+
 if (!Object.prototype.hasOwnProperty.call(mergedEnv, 'COMPOSE_PARALLEL_LIMIT')) {
   mergedEnv.COMPOSE_PARALLEL_LIMIT = '1';
 }

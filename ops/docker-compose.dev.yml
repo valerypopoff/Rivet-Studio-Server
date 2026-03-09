@@ -79,7 +79,7 @@ services:
       - wrapper_api_node_modules:/app/node_modules
       - ${RIVET_WORKFLOWS_HOST_PATH:-../workflows}:/workflows
       - rivet_data:/data/rivet-app
-      - rivet_runtime_libs:/data/runtime-libraries
+      - ${RIVET_RUNTIME_LIBS_HOST_PATH:-rivet_runtime_libs}:/data/runtime-libraries
     command: >
       sh -lc "
         if [ ! -f node_modules/.package-lock.json ] || ! cmp -s package-lock.json node_modules/.package-lock.json; then npm ci && cp package-lock.json node_modules/.package-lock.json; fi &&
@@ -101,7 +101,7 @@ services:
       - RIVET_RUNTIME_LIBRARIES_ROOT=/data/runtime-libraries
     volumes:
       - rivet_data:/root/.local/share/com.ironcladapp.rivet
-      - rivet_runtime_libs:/data/runtime-libraries
+      - ${RIVET_RUNTIME_LIBS_HOST_PATH:-rivet_runtime_libs}:/data/runtime-libraries
     restart: unless-stopped
 
 volumes:

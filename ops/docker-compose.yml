@@ -49,7 +49,7 @@ services:
       - rivet_workspace:/workspace
       - ${RIVET_WORKFLOWS_HOST_PATH:-../workflows}:/workflows
       - rivet_data:/data/rivet-app
-      - rivet_runtime_libs:/data/runtime-libraries
+      - ${RIVET_RUNTIME_LIBS_HOST_PATH:-rivet_runtime_libs}:/data/runtime-libraries
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3100/api/config"]
       interval: 10s
@@ -66,7 +66,7 @@ services:
       - RIVET_RUNTIME_LIBRARIES_ROOT=/data/runtime-libraries
     volumes:
       - rivet_data:/root/.local/share/com.ironcladapp.rivet
-      - rivet_runtime_libs:/data/runtime-libraries
+      - ${RIVET_RUNTIME_LIBS_HOST_PATH:-rivet_runtime_libs}:/data/runtime-libraries
     restart: unless-stopped
 
 volumes:
