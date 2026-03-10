@@ -1,7 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { loadProjectFromFile, NodeDatasetProvider, runGraph } from '@ironclad/rivet-node';
 
-import { getLatestWorkflowRemoteDebugger } from '../../latestWorkflowRemoteDebugger.js';
+import { getLatestWorkflowRemoteDebugger, isLatestWorkflowRemoteDebuggerEnabled } from '../../latestWorkflowRemoteDebugger.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { badRequest, createHttpError } from '../../utils/httpError.js';
 import { ensureWorkflowsRoot } from './fs-helpers.js';
@@ -51,12 +51,15 @@ async function executeWorkflowEndpoint(
     const project = await loadProjectFromFile(loadPath);
     const datasetProvider = await NodeDatasetProvider.fromProjectFile(loadPath);
     const projectReferenceLoader = createPublishedWorkflowProjectReferenceLoader(root, referencePath);
+    const remoteDebugger = options?.enableRemoteDebugger && isLatestWorkflowRemoteDebuggerEnabled()
+      ? getLatestWorkflowRemoteDebugger()
+      : undefined;
     const outputs = await runGraph(project, {
       codeRunner: new ManagedCodeRunner(getRootPath()) as any,
       projectPath: referencePath,
       datasetProvider,
       projectReferenceLoader,
-      remoteDebugger: options?.enableRemoteDebugger ? getLatestWorkflowRemoteDebugger() : undefined,
+      remoteDebugger,
       inputs: {
         input: {
           type: 'any',

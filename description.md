@@ -13,7 +13,7 @@ In practical terms, the application provides:
 - a wrapper-owned workflow dashboard for organizing workflow projects
 - published workflow serving at the configured published-workflow base path (`RIVET_PUBLISHED_WORKFLOWS_BASE_PATH`, default `/workflows`, trailing slash tolerated)
 - latest working-version workflow serving at the configured latest-workflow base path (`RIVET_LATEST_WORKFLOWS_BASE_PATH`, default `/workflows-last`, trailing slash tolerated) for published projects
-- remote debugging for latest workflow endpoint runs over the browser-facing websocket URL `ws://host:port/ws/latest-debugger`
+- optional, token-protected remote debugging for latest workflow endpoint runs over the browser-facing websocket URL `ws://host:port/ws/latest-debugger`
 - the same workflow endpoint env var pair shared across frontend, backend, and nginx proxy routing
 - Dockerized backend, proxy, and executor services
 - a runtime library manager for installing npm packages available to Code nodes across both execution paths
@@ -195,8 +195,32 @@ The two public execution paths intentionally serve different targets:
 Remote debugging is intentionally scoped only to the latest-workflow execution path:
 
 - the browser-facing remote debugger websocket URL is `ws://host:port/ws/latest-debugger`
+- when token auth is enabled, the editor connects with `ws://host:port/ws/latest-debugger?token=YOUR_TOKEN`
 - runs triggered through `RIVET_LATEST_WORKFLOWS_BASE_PATH` attach to that debugger server
 - runs triggered through `RIVET_PUBLISHED_WORKFLOWS_BASE_PATH` remain debugger-free
+- the debugger server is only started when `RIVET_ENABLE_LATEST_REMOTE_DEBUGGER=true`
+- when that flag is enabled, `RIVET_LATEST_REMOTE_DEBUGGER_TOKEN` must also be set and must match the `token` query parameter on the websocket URL
+
+Latest-workflow remote debugger security and connection model:
+
+- the feature is disabled by default and should only be enabled intentionally
+- enabling it requires both `RIVET_ENABLE_LATEST_REMOTE_DEBUGGER=true` and a non-empty `RIVET_LATEST_REMOTE_DEBUGGER_TOKEN`
+- the browser or desktop editor must include that token directly in the websocket URL it uses to connect
+- the websocket handshake reaches the API as an HTTP upgrade request, so the API can read and validate the `token` query parameter before accepting the connection
+- if the debugger feature is disabled, the API rejects websocket upgrade attempts for `/ws/latest-debugger`
+- if the feature is enabled but the token is missing or incorrect, the API rejects the websocket upgrade with `401 Unauthorized`
+- the remote debugger websocket is intended for trusted operators and should be paired with `wss://` plus normal deployment protections such as private networking, VPN, or reverse-proxy access controls when exposed outside local development
+
+Typical user-facing connection examples:
+
+- local HTTP: `ws://localhost:8080/ws/latest-debugger?token=YOUR_TOKEN`
+- hosted HTTPS: `wss://your-host/ws/latest-debugger?token=YOUR_TOKEN`
+
+Operationally, this means:
+
+- published workflow endpoint execution remains stable and debugger-free
+- latest workflow endpoint execution can be remotely debugged only when the feature flag is on
+- possession of the debugger URL alone is not enough; the caller must also know the configured token
 
 Fully unpublished projects are not served by either public execution path.
 
@@ -421,7 +445,15 @@ This executor websocket path is separate from latest workflow endpoint remote de
 
 - editor Node-mode execution continues to use the executor websocket service
 - latest workflow endpoint remote debugging uses the API-hosted websocket endpoint `ws://host:port/ws/latest-debugger`
+- when enabled, latest workflow endpoint remote debugging requires a tokenized URL of the form `ws://host:port/ws/latest-debugger?token=YOUR_TOKEN`
+- the API validates that token during websocket upgrade before the debugger connection is accepted
 - published workflow endpoint execution does not attach any remote debugger
+
+This separation is important:
+
+- the executor websocket remains the channel for editor-driven Node execution mode
+- the latest-workflow debugger websocket exists specifically so browser-reachable workflow endpoint runs can stream debugger events from the API process
+- securing the latest-workflow debugger therefore happens at the API websocket boundary rather than inside the executor service
 
 That executor patching is used for hosted concerns such as:
 
