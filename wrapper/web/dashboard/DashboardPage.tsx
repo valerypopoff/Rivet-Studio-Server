@@ -185,6 +185,12 @@ export const DashboardPage: FC = () => {
 
   return (
     <div className="dashboard-page" style={{ ['--workflow-dashboard-sidebar-width' as string]: `${sidebarWidth}px` }}>
+      {showEditorLoading ? (
+        <div className="dashboard-app-loading">
+          <div className="dashboard-editor-loading-spinner" aria-hidden="true" />
+          <div className="dashboard-editor-loading-message">Loading...</div>
+        </div>
+      ) : null}
       {!sidebarCollapsed ? (
         <aside className="dashboard-sidebar">
           <WorkflowLibraryPanel
@@ -202,12 +208,6 @@ export const DashboardPage: FC = () => {
         </aside>
       ) : null}
       <main className="dashboard-main">
-        {showEditorLoading ? (
-          <div className="dashboard-editor-loading">
-            <div className="dashboard-editor-loading-spinner" aria-hidden="true" />
-            <div className="dashboard-editor-loading-message">Loading editor... Project open actions will be available in a moment.</div>
-          </div>
-        ) : null}
         {openProjectCount === 0 ? (
           <div className="dashboard-empty-state">
             <div className="dashboard-empty-state-message">Open or create a Rivet project in the left pane to start editing.</div>

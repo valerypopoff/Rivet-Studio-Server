@@ -75,7 +75,7 @@
   line-height: 1.6;
 }
 
-.dashboard-page .dashboard-editor-loading {
+.dashboard-page .dashboard-app-loading {
   position: absolute;
   inset: 0;
   display: flex;
@@ -86,8 +86,9 @@
   padding: 32px;
   color: var(--grey-lightest);
   text-align: center;
-  background: rgba(13, 17, 23, 0.78);
-  z-index: 5;
+  background: rgba(13, 17, 23, 0.9);
+  z-index: 500;
+  pointer-events: all;
 }
 
 .dashboard-page .dashboard-editor-loading-spinner {
