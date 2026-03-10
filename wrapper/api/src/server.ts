@@ -1,4 +1,5 @@
 import express, { type Request, type Response, type NextFunction } from 'express';
+import { createServer } from 'node:http';
 import cors from 'cors';
 import './loadRootEnv.js';
 import { nativeRouter } from './routes/native.js';
@@ -9,9 +10,11 @@ import { latestWorkflowsRouter, publishedWorkflowsRouter, workflowsRouter } from
 import { configRouter } from './routes/config.js';
 import { runtimeLibrariesRouter } from './routes/runtime-libraries.js';
 import { reconcileRuntimeLibraries } from './runtime-libraries/startup.js';
+import { initializeLatestWorkflowRemoteDebugger } from './latestWorkflowRemoteDebugger.js';
 import { LATEST_WORKFLOWS_BASE_PATH, PUBLISHED_WORKFLOWS_BASE_PATH } from './workflowEndpointPaths.js';
 
 const app = express();
+const server = createServer(app);
 const PORT = parseInt(process.env.PORT ?? '3100', 10);
 
 app.use(cors());
@@ -38,7 +41,9 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
   res.status(status).json({ error: err.message });
 });
 
-app.listen(PORT, () => {
+initializeLatestWorkflowRemoteDebugger(server);
+
+server.listen(PORT, () => {
   console.log(`[rivet-api] Listening on port ${PORT}`);
   console.log(`[rivet-api] Workspace root: ${process.env.RIVET_WORKSPACE_ROOT ?? '/workspace'}`);
   console.log(`[rivet-api] App data root: ${process.env.RIVET_APP_DATA_ROOT ?? '/data/rivet-app'}`);

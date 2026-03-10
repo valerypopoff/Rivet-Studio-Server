@@ -1,6 +1,7 @@
 import { Router, type Request, type Response } from 'express';
 import { loadProjectFromFile, NodeDatasetProvider, runGraph } from '@ironclad/rivet-node';
 
+import { getLatestWorkflowRemoteDebugger } from '../../latestWorkflowRemoteDebugger.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { badRequest, createHttpError } from '../../utils/httpError.js';
 import { ensureWorkflowsRoot } from './fs-helpers.js';
@@ -44,6 +45,7 @@ async function executeWorkflowEndpoint(
   root: string,
   req: Request,
   res: Response,
+  options?: { enableRemoteDebugger?: boolean },
 ): Promise<void> {
   try {
     const project = await loadProjectFromFile(loadPath);
@@ -54,12 +56,11 @@ async function executeWorkflowEndpoint(
       projectPath: referencePath,
       datasetProvider,
       projectReferenceLoader,
+      remoteDebugger: options?.enableRemoteDebugger ? getLatestWorkflowRemoteDebugger() : undefined,
       inputs: {
         input: {
           type: 'any',
-          value: {
-            payload: req.body ?? {},
-          },
+          value: req.body || {}          
         },
       },
     });
@@ -107,6 +108,7 @@ publishedWorkflowsRouter.post('/:endpointName', asyncHandler(async (req, res) =>
     root,
     req,
     res,
+    { enableRemoteDebugger: false },
   );
 }));
 
@@ -129,5 +131,6 @@ latestWorkflowsRouter.post('/:endpointName', asyncHandler(async (req, res) => {
     root,
     req,
     res,
+    { enableRemoteDebugger: true },
   );
 }));

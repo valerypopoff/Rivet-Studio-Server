@@ -13,6 +13,7 @@ In practical terms, the application provides:
 - a wrapper-owned workflow dashboard for organizing workflow projects
 - published workflow serving at the configured published-workflow base path (`RIVET_PUBLISHED_WORKFLOWS_BASE_PATH`, default `/workflows`, trailing slash tolerated)
 - latest working-version workflow serving at the configured latest-workflow base path (`RIVET_LATEST_WORKFLOWS_BASE_PATH`, default `/workflows-last`, trailing slash tolerated) for published projects
+- remote debugging for latest workflow endpoint runs over the browser-facing websocket URL `ws://host:port/ws/latest-debugger`
 - the same workflow endpoint env var pair shared across frontend, backend, and nginx proxy routing
 - Dockerized backend, proxy, and executor services
 - a runtime library manager for installing npm packages available to Code nodes across both execution paths
@@ -45,7 +46,7 @@ This is a wrapper-controlled Vite application that loads and renders the upstrea
 
 Provides hosted compatibility endpoints.
 
-This replaces desktop-native capabilities with server-side operations exposed over HTTP, including file access, workflow library management, runtime library management, published and latest workflow execution, and related hosted integrations.
+This replaces desktop-native capabilities with server-side operations exposed over HTTP, including file access, workflow library management, runtime library management, published and latest workflow execution, latest-workflow remote debugger websocket hosting, and related hosted integrations.
 
 ### `executor`
 
@@ -64,6 +65,7 @@ It routes:
 - requests under `RIVET_PUBLISHED_WORKFLOWS_BASE_PATH` (default `/workflows`) to last-published workflow execution endpoints
 - requests under `RIVET_LATEST_WORKFLOWS_BASE_PATH` (default `/workflows-last`) to latest working-version workflow execution endpoints for published workflows
 - websocket traffic to the executor/debugger service
+- browser-facing latest-workflow remote debugger traffic on `ws://host:port/ws/latest-debugger`
 
 ## Repository layout
 
@@ -155,6 +157,7 @@ Typical responsibilities include:
 - managing the dedicated workflow library under the host-backed `workflows/` directory
 - serving published workflows from stable snapshot files under the configured published-workflow base path
 - serving the latest working version of published workflows under the configured latest-workflow base path
+- hosting a websocket remote debugger endpoint for latest workflow executions only
 - loading referenced projects
 - running allowlisted shell commands
 - managing plugin installation/loading
@@ -188,6 +191,12 @@ The two public execution paths intentionally serve different targets:
 
 - `RIVET_PUBLISHED_WORKFLOWS_BASE_PATH/[endpoint-name]` (default `/workflows/[endpoint-name]`) serves the last published snapshot
 - `RIVET_LATEST_WORKFLOWS_BASE_PATH/[endpoint-name]` (default `/workflows-last/[endpoint-name]`) serves the current working project file for workflows that are published or have unpublished changes
+
+Remote debugging is intentionally scoped only to the latest-workflow execution path:
+
+- the browser-facing remote debugger websocket URL is `ws://host:port/ws/latest-debugger`
+- runs triggered through `RIVET_LATEST_WORKFLOWS_BASE_PATH` attach to that debugger server
+- runs triggered through `RIVET_PUBLISHED_WORKFLOWS_BASE_PATH` remain debugger-free
 
 Fully unpublished projects are not served by either public execution path.
 
@@ -407,6 +416,12 @@ Current model:
 - `wrapper/web/overrides/hooks/useGraphExecutor.ts` stays close to upstream and mainly owns hosted executor selection plus the hosted websocket endpoint
 - websocket lifecycle is handled by `wrapper/web/overrides/hooks/useRemoteDebugger.ts`
 - the hosted Docker executor bundle is patched in `ops/bundle-executor.cjs` for deployment-specific behavior
+
+This executor websocket path is separate from latest workflow endpoint remote debugging:
+
+- editor Node-mode execution continues to use the executor websocket service
+- latest workflow endpoint remote debugging uses the API-hosted websocket endpoint `ws://host:port/ws/latest-debugger`
+- published workflow endpoint execution does not attach any remote debugger
 
 That executor patching is used for hosted concerns such as:
 
