@@ -688,7 +688,7 @@
 .project-settings-help {
   font-size: 15px;
   color: var(--grey-light);
-  padding-right: 20%;
+  padding-right: 10%;
 }
 
 .project-settings-error {

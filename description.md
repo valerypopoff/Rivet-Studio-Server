@@ -218,12 +218,12 @@ That message bridge is responsible for wrapper-specific coordination such as:
 
 ### Workflow library contents
 
-- folders and `.rivet-project` files are loaded from `/api/workflows/*`
+- folders and `.rivet-project` files are loaded from `/api/workflows/tree`
 - projects may exist directly at the workflow root or inside folders
 - nested workflow folders are supported
-- the pane exposes a `+ New folder` action
-- the pane supports creating `.rivet-project` files inside folders
-- workflow create, rename, list, and move operations are implemented by `wrapper/api/src/routes/workflows.ts`
+- the pane exposes a `+ New folder` action at the bottom of the tree area
+- new workflow projects are created from the `+` action on each folder row
+- workflow list, create, rename, publish, unpublish, delete, and move operations are implemented under `wrapper/api/src/routes/workflows/index.ts`
 
 ### Folder and project interactions
 
@@ -246,11 +246,11 @@ Current behavior:
 - the section follows the currently selected workflow project in the pane
 - when there is no separate selected project, the currently opened workflow project becomes the displayed project
 - the section is hidden when there is no selected or opened workflow project
-- it shows the full project filename including `.rivet-project`
-- it shows the current publish-related status directly under the filename
-- it contains the wrapper-owned `Save` action when the displayed project is currently open in the editor
+- it shows the current publish-related status badge inline with the project name
+- it shows the project basename without the `.rivet-project` extension
+- its primary action is `Save` when the displayed project is currently open in the editor
 - it shows `Edit` instead when the displayed project is selected but not currently open in the editor
-- it contains a `More` action that opens the project settings popup
+- it contains a `Settings` action that opens the project settings popup
 
 This section is meant to stay visible independently of the scroll position of the workflow tree so the user always has access to the selected project's main actions.
 
@@ -259,22 +259,34 @@ This section is meant to stay visible independently of the scroll position of th
 - the wrapper-owned `Save` button in the `Projects` pane is driven by the editor's active tab rather than stale last-loaded state
 - when the active editor tab is a file-backed workflow project, the wrapper `Save` action saves that exact file path
 - hosted `Save As` reuses the current file-backed workflow project's directory as the default suggestion when available, so projects opened from nested workflow folders do not get flattened back to the workflow root by default
-- the dashboard maps `Ctrl+S` / `Cmd+S` to that same hosted save behavior
-- when the active editor is not a path-backed workflow project, or when no tabs are open, the wrapper `Save` button is hidden
-- after any successful save path, the embedded editor notifies the dashboard through the same save-completion signal so the workflow pane can immediately refresh derived publish state for the active project
+- `Ctrl+S` / `Cmd+S` handling is split by focus context
+- in the top-level dashboard page, the wrapper handles the shortcut only when focus is outside the editor iframe and only when there is an active file-backed workflow project
+- inside the editor iframe, `EditorMessageBridge.tsx` suppresses the browser default; on Windows it relies on upstream Rivet's existing save hotkey handling, while on non-Windows it performs the hosted save directly
+- after any successful save path, the embedded editor notifies the dashboard so the workflow pane can immediately refresh derived publish state for the active project
 
 ### Project settings popup
 
-The `More` action for the selected project opens a wrapper-owned project settings popup.
+The `Settings` action for the selected project opens a wrapper-owned project settings popup.
 
 Current popup behavior:
 
-- the header shows the full project filename including extension
-- the current publish-related status appears directly under the filename
-- the popup can be closed with the close button or by clicking outside it
+- the header shows the project basename without the file extension
+- the header includes an inline pencil action for rename
+- rename uses an in-place title editor instead of replacing the header with a separate form block
+- the current publish-related status badge and explanation appear in the modal body, not under the header title
+- the published/unpublished help text interpolates the actual endpoint path instead of showing a placeholder
+- the popup can be closed with the close button or by clicking outside it when no rename/save/delete operation is in progress
 - close/dismiss is the cancel behavior; there is no separate cancel button
-- the popup stays open after publish, unpublish, and publish-changes actions so the user can continue reviewing the project state
+- the popup is designed to stay open after publish, unpublish, publish-changes, and rename actions so the user can continue reviewing the project state
 - the popup includes project deletion with confirmation
+
+### Project rename behavior
+
+- rename is initiated from the project settings header, not from the tree row itself
+- the rename validator rejects empty names, path separators, and invalid filesystem characters
+- duplicate-name validation is scoped to the same folder and is case-insensitive
+- case-only renames are supported on case-insensitive filesystems such as Windows
+- renaming a project also renames its wrapper-managed sidecar files and notifies the editor/dashboard path-tracking layer
 
 ### Publish model in project settings
 
@@ -296,6 +308,10 @@ The practical rules are:
 - if the project file changes after publication and is saved, the status becomes `unpublished_changes`
 - `Publish changes` updates the stored published-state hash to the current endpoint-plus-file state
 - `Unpublish` clears the stored published-state hash and returns the project to `unpublished`
+- the settings UI is status-specific rather than always showing the endpoint editor
+- for `unpublished`, the modal first shows `Publish...`; clicking it reveals the endpoint-path editor and the inline `Publish` button
+- for `published`, the modal shows only `Unpublish`
+- for `unpublished_changes`, the modal shows `Publish changes` followed by `Unpublish`
 
 ### Endpoint editing rules
 
@@ -303,6 +319,7 @@ Endpoint editing is intentionally tied to publication state.
 
 Current behavior:
 
+- the endpoint field is hidden by default and becomes visible only after the user clicks `Publish...` for an unpublished project
 - the endpoint field is editable only while the project is `unpublished`
 - once the project is `published` or has `unpublished_changes`, the endpoint field is locked
 - to change the endpoint, the user must unpublish first, edit the endpoint, and then publish again
@@ -314,6 +331,8 @@ Deleting a workflow project from the project settings popup is a wrapper-managed
 
 Current behavior:
 
+- the delete action is only shown in the UI while the project is currently `unpublished`
+- the delete action is hidden while the unpublished project's publish-settings editor is expanded
 - the user must confirm deletion
 - if the project is published or has unpublished changes, the wrapper first unpublishes it
 - the project file is deleted from the workflow library
@@ -402,7 +421,7 @@ The runtime library manager is a wrapper-owned feature that lets users install a
 The feature is accessed through a trigger button at the bottom of the `Projects` pane in `WorkflowLibraryPanel.tsx`. Clicking it opens a modal (`RuntimeLibrariesModal.tsx`) that shows:
 
 - the list of currently installed runtime libraries with package name, version, and a remove action
-- an add form with package name and version fields
+- an `Add library` action that reveals the install form with package name and version fields
 - an install button that starts a background job
 - a live log panel that streams npm install output in real time via Server-Sent Events
 - a final success or failure verdict when the job completes
@@ -516,7 +535,7 @@ The following statements should remain true after major refactors unless there i
 - the editor still runs in the main dashboard area and remains functionally upstream Rivet
 - the workflow dashboard still owns project organization, not the core editor
 - file-backed workflow projects still save to their real on-disk paths through the hosted API
-- `Ctrl+S` / `Cmd+S` still save the active file-backed workflow project correctly
+- `Ctrl+S` / `Cmd+S` still save the active file-backed workflow project correctly, with dashboard-level handling outside the iframe and iframe-specific handling inside it
 - the selected project is still highlighted in the `Projects` pane
 - collapsed parent folders of the selected project still auto-expand so the selected item is visible
 - the pane still scrolls the selected project into view when needed
@@ -527,9 +546,15 @@ The following statements should remain true after major refactors unless there i
 - the workflow library is still constrained to the validated workflow root
 - the app still uses API-backed and websocket-backed hosted services instead of assuming desktop-native integrations
 - the active project section and project settings popup still reflect the currently selected workflow project, defaulting to the opened workflow project when nothing else is selected
+- the active project section still shows the status badge inline with the project basename and still offers `Save`/`Edit` plus `Settings`
+- the project settings popup still uses a basename-only header title with inline rename control
+- unpublished projects still expose `Publish...` before revealing endpoint editing, while published states still use status-specific action buttons
+- the project settings delete action is still only visible for unpublished projects and stays hidden while publish settings are being edited
+- published and unpublished-changes help text still show the real `/workflows/...` and `/workflows-last/...` endpoint paths
 - runtime libraries installed through the manager are available to Code nodes in both editor runs and published endpoint calls without restarting containers
 - a failed runtime library install does not break the currently active release or disrupt running workflows
 - the runtime library trigger button appears at the bottom of the `Projects` pane when the pane is open
+- the `+ New folder` action remains below the workflow tree rather than above it
 
 ## Current practical outcome
 

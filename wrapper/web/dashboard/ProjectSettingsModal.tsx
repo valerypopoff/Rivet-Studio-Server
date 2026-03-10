@@ -31,7 +31,15 @@ const renderStatusExplanation = (status: WorkflowProjectStatus, endpointName: st
     case 'unpublished':
       return 'The workflow is not published as an endpoint.';
     case 'published':
-      return `Workflow is accessible via the endpoint on /workflows/${endpointName}`;
+      return (
+        <>
+          Workflow is accessible via the endpoint on {`/workflows/${endpointName}`}.
+          <br />
+          <br />
+          To change the endpoint path, unpublish it.
+        </>
+      );
+
     case 'unpublished_changes':
       return (
         <>
