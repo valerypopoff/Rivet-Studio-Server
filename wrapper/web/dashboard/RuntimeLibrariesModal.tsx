@@ -284,7 +284,7 @@ export const RuntimeLibrariesModal: FC<RuntimeLibrariesModalProps> = ({
                   className="runtime-libraries-add-button"
                   onClick={() => setShowInstallForm(true)}
                 >
-                  Add library
+                  Add library...
                 </Button>
               )}
 
