@@ -1,11 +1,17 @@
 import { Router } from 'express';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { z } from 'zod';
+import { validateBody } from '../middleware/validate.js';
 import { getAppDataRoot, validatePath } from '../security.js';
-import { execCommand } from '../utils/exec.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
-import { badRequest } from '../utils/httpError.js';
+import { badRequest, createHttpError } from '../utils/httpError.js';
+import { exec } from '../utils/exec.js';
 export const pluginsRouter = Router();
+const pluginRequestSchema = z.object({
+    package: z.string().min(1, 'package is required'),
+    tag: z.string().min(1, 'tag is required'),
+});
 function getPluginDir(pkg, tag) {
     return path.join(getAppDataRoot(), 'plugins', `${pkg}-${tag}`);
 }
@@ -20,154 +26,129 @@ function validatePluginPackagePath(pluginFilesPath, candidatePath) {
     }
     return validatePath(resolvedCandidate);
 }
-// POST /api/plugins/install-package
-pluginsRouter.post('/install-package', asyncHandler(async (req, res) => {
-    const { package: pkg, tag } = req.body;
-    if (!pkg || !tag) {
-        res.status(400).json({ error: 'Missing package or tag' });
-        return;
-    }
-    let log = '';
-    const addLog = (msg) => { log += msg + '\n'; };
+async function checkPluginForUpdate(pkg, tag, addLog) {
     const pluginDir = getPluginDir(pkg, tag);
     const pluginFilesPath = path.join(pluginDir, 'package');
-    let needsReinstall = false;
+    const pkgJsonPath = path.join(pluginFilesPath, 'package.json');
+    const completedVersionFile = path.join(pluginFilesPath, '.install_complete_version');
     try {
-        const pkgJsonPath = path.join(pluginFilesPath, 'package.json');
-        const completedVersionFile = path.join(pluginFilesPath, '.install_complete_version');
-        try {
-            await fs.access(pluginFilesPath);
-            // Check for updates
-            const pkgJsonData = JSON.parse(await fs.readFile(pkgJsonPath, 'utf-8'));
-            const currentVersion = pkgJsonData.version;
-            addLog(`Checking for plugin updates: ${pkg}@${tag}`);
-            const npmResp = await fetch(`https://registry.npmjs.org/${pkg}/${tag}`);
-            if (!npmResp.ok) {
-                needsReinstall = true;
-            }
-            else {
-                const npmData = await npmResp.json();
-                const latestVersion = npmData.version;
-                // Simple version comparison
-                if (latestVersion !== currentVersion) {
-                    addLog(`Plugin update available: ${currentVersion} -> ${latestVersion}`);
-                    needsReinstall = true;
-                }
-                // Check node_modules exist
-                try {
-                    await fs.access(path.join(pluginFilesPath, 'node_modules'));
-                }
-                catch {
-                    needsReinstall = true;
-                }
-            }
-            // Check completed version marker
-            try {
-                const versionMarker = await fs.readFile(completedVersionFile, 'utf-8');
-                if (versionMarker.trim() !== tag) {
-                    needsReinstall = true;
-                }
-            }
-            catch {
-                needsReinstall = true;
-            }
-            // Skip reinstall if it's a git repo
-            try {
-                await fs.access(path.join(pluginFilesPath, '.git'));
-                needsReinstall = false;
-                addLog(`Plugin is a git repository, skipping reinstall: ${pkg}@${tag}`);
-            }
-            catch {
-                // Not a git repo
-            }
-        }
-        catch {
-            needsReinstall = true;
-        }
+        await fs.access(pluginFilesPath);
     }
     catch {
-        needsReinstall = true;
+        return true;
     }
-    if (needsReinstall) {
-        // Remove existing
-        try {
-            await fs.rm(pluginDir, { recursive: true, force: true });
-        }
-        catch {
-            // May not exist
-        }
-        addLog(`Downloading plugin from NPM: ${pkg}@${tag}`);
-        // Fetch package metadata
+    try {
+        await fs.access(path.join(pluginFilesPath, '.git'));
+        addLog(`Plugin is a git repository, skipping reinstall: ${pkg}@${tag}`);
+        return false;
+    }
+    catch {
+        // not a git checkout
+    }
+    addLog(`Checking for plugin updates: ${pkg}@${tag}`);
+    try {
+        const pkgJsonData = JSON.parse(await fs.readFile(pkgJsonPath, 'utf-8'));
         const npmResp = await fetch(`https://registry.npmjs.org/${pkg}/${tag}`);
         if (!npmResp.ok) {
-            res.status(400).json({ error: `Plugin not found on NPM: ${pkg}@${tag}` });
-            return;
+            return true;
         }
         const npmData = await npmResp.json();
-        const tarballUrl = npmData.dist?.tarball;
-        if (!tarballUrl) {
-            res.status(400).json({ error: `No tarball URL for plugin: ${pkg}@${tag}` });
-            return;
+        if (npmData.version !== pkgJsonData.version) {
+            addLog(`Plugin update available: ${pkgJsonData.version ?? '(unknown)'} -> ${npmData.version ?? '(unknown)'}`);
+            return true;
         }
-        addLog(`Downloading tarball: ${tarballUrl}`);
-        // Download tarball
-        const tarballResp = await fetch(tarballUrl);
-        if (!tarballResp.ok) {
-            res.status(400).json({ error: `Failed to download tarball: ${tarballUrl}` });
-            return;
-        }
-        const tarballBuffer = Buffer.from(await tarballResp.arrayBuffer());
-        // Create plugin dir and write tarball
-        await fs.mkdir(pluginDir, { recursive: true });
-        const tarPath = path.join(pluginDir, 'package.tgz');
-        await fs.writeFile(tarPath, tarballBuffer);
-        addLog('Extracting tarball...');
-        // Extract tarball
-        const tar = await import('tar');
-        await tar.extract({
-            file: tarPath,
-            cwd: pluginDir,
+        await fs.access(path.join(pluginFilesPath, 'node_modules'));
+        const versionMarker = await fs.readFile(completedVersionFile, 'utf-8');
+        return versionMarker.trim() !== tag;
+    }
+    catch {
+        return true;
+    }
+}
+async function downloadAndExtractPlugin(pkg, tag, addLog) {
+    const pluginDir = getPluginDir(pkg, tag);
+    const pluginFilesPath = path.join(pluginDir, 'package');
+    await fs.rm(pluginDir, { recursive: true, force: true });
+    addLog(`Downloading plugin from NPM: ${pkg}@${tag}`);
+    const npmResp = await fetch(`https://registry.npmjs.org/${pkg}/${tag}`);
+    if (!npmResp.ok) {
+        throw badRequest(`Plugin not found on NPM: ${pkg}@${tag}`);
+    }
+    const npmData = await npmResp.json();
+    const tarballUrl = npmData.dist?.tarball;
+    if (!tarballUrl) {
+        throw badRequest(`No tarball URL for plugin: ${pkg}@${tag}`);
+    }
+    addLog(`Downloading tarball: ${tarballUrl}`);
+    const tarballResp = await fetch(tarballUrl);
+    if (!tarballResp.ok) {
+        throw badRequest(`Failed to download tarball: ${tarballUrl}`);
+    }
+    const tarballBuffer = Buffer.from(await tarballResp.arrayBuffer());
+    await fs.mkdir(pluginDir, { recursive: true });
+    const tarPath = path.join(pluginDir, 'package.tgz');
+    await fs.writeFile(tarPath, tarballBuffer);
+    addLog('Extracting tarball...');
+    const tar = await import('tar');
+    await tar.extract({
+        file: tarPath,
+        cwd: pluginDir,
+    });
+    const pkgJsonPath = path.join(pluginFilesPath, 'package.json');
+    let hasPackageJson = true;
+    let skipInstall = false;
+    try {
+        const pkgJsonData = JSON.parse(await fs.readFile(pkgJsonPath, 'utf-8'));
+        skipInstall = Boolean(pkgJsonData?.rivet?.skipInstall);
+    }
+    catch {
+        hasPackageJson = false;
+        addLog('No package.json found or install skipped');
+    }
+    if (hasPackageJson && !skipInstall) {
+        addLog('Installing NPM dependencies...');
+        const installResult = await exec('pnpm', ['install', '--prod', '--ignore-scripts'], {
+            cwd: pluginFilesPath,
+            timeoutMs: 120_000,
         });
-        // Install dependencies
-        const pkgJsonPath = path.join(pluginFilesPath, 'package.json');
-        let hasPackageJson = true;
-        let skipInstall = false;
+        if (installResult.code !== 0) {
+            throw new Error(`${installResult.stderr}\n${installResult.stdout}`.trim());
+        }
+        addLog('Installed NPM dependencies');
+    }
+    else if (hasPackageJson) {
+        addLog('Skipping NPM dependencies install');
+    }
+    await fs.writeFile(path.join(pluginFilesPath, '.install_complete_version'), tag, 'utf-8');
+}
+function appendInstallLog(error, log) {
+    const message = error instanceof Error ? error.message : String(error);
+    const formatted = `${log}${message}`.trim();
+    const status = error?.status;
+    if (typeof status === 'number') {
+        return createHttpError(status, formatted);
+    }
+    return createHttpError(400, formatted);
+}
+pluginsRouter.post('/install-package', validateBody(pluginRequestSchema), asyncHandler(async (req, res) => {
+    const { package: pkg, tag } = req.body;
+    let log = '';
+    const addLog = (message) => {
+        log += `${message}\n`;
+    };
+    if (await checkPluginForUpdate(pkg, tag, addLog)) {
         try {
-            const pkgJsonData = JSON.parse(await fs.readFile(pkgJsonPath, 'utf-8'));
-            skipInstall = Boolean(pkgJsonData?.rivet?.skipInstall);
+            await downloadAndExtractPlugin(pkg, tag, addLog);
         }
-        catch {
-            hasPackageJson = false;
-            addLog('No package.json found or install skipped');
+        catch (error) {
+            throw appendInstallLog(error, log);
         }
-        if (hasPackageJson && !skipInstall) {
-            addLog('Installing NPM dependencies...');
-            const installResult = await execCommand('pnpm', ['install', '--prod', '--ignore-scripts'], {
-                cwd: pluginFilesPath,
-                timeoutMs: 120_000,
-            });
-            if (installResult.code !== 0) {
-                throw new Error(log + '\n' + installResult.stderr);
-            }
-            addLog('Installed NPM dependencies');
-        }
-        else if (hasPackageJson) {
-            addLog('Skipping NPM dependencies install');
-        }
-        // Write version marker
-        const completedVersionFile = path.join(pluginFilesPath, '.install_complete_version');
-        await fs.writeFile(completedVersionFile, tag, 'utf-8');
     }
     addLog(`Plugin ready: ${pkg}@${tag}`);
     res.json({ success: true, log });
 }));
-// POST /api/plugins/load-package-main
-pluginsRouter.post('/load-package-main', asyncHandler(async (req, res) => {
+pluginsRouter.post('/load-package-main', validateBody(pluginRequestSchema), asyncHandler(async (req, res) => {
     const { package: pkg, tag } = req.body;
-    if (!pkg || !tag) {
-        res.status(400).json({ error: 'Missing package or tag' });
-        return;
-    }
     const pluginDir = getPluginDir(pkg, tag);
     const pluginFilesPath = path.join(pluginDir, 'package');
     const pkgJsonPath = path.join(pluginFilesPath, 'package.json');

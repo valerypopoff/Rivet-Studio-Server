@@ -2,13 +2,16 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 import {
-  getRootPath,
+  emptyManifest,
   ensureDirectories,
-  readManifest,
-  writeManifest,
+  getRootPath,
+  nextReleaseId,
   readActiveRelease,
-  writeActiveRelease,
+  readManifest,
   releasesDir,
+  writeActiveRelease,
+  writeManifest,
+  type RuntimeLibraryManifest,
 } from './manifest.js';
 
 const MAX_RELEASES_TO_KEEP = 5;
@@ -19,8 +22,6 @@ export async function reconcileRuntimeLibraries(): Promise<void> {
     return;
   }
 
-  const root = getRootPath();
-
   try {
     ensureDirectories();
   } catch (err) {
@@ -28,6 +29,9 @@ export async function reconcileRuntimeLibraries(): Promise<void> {
     return;
   }
 
+  migrateCurrentReleaseIfNeeded();
+
+  const root = getRootPath();
   const manifest = readManifest();
   const activeRelease = readActiveRelease();
 
@@ -37,29 +41,25 @@ export async function reconcileRuntimeLibraries(): Promise<void> {
   }
 
   const releaseId = activeRelease ?? manifest.activeRelease;
-  if (!releaseId) return;
+  if (!releaseId) {
+    return;
+  }
 
-  // Validate the active release directory exists
   const releasePath = path.join(releasesDir(), releaseId);
   const nodeModulesPath = path.join(releasePath, 'node_modules');
-
   if (!fs.existsSync(releasePath) || !fs.existsSync(nodeModulesPath)) {
     console.warn(`[runtime-libraries] Active release ${releaseId} is missing or corrupt`);
 
-    // If we have a desired package set, we could reconstruct here,
-    // but for now just log and continue — the system will fall back
-    // to image-baked deps
     if (Object.keys(manifest.packages).length > 0) {
       console.warn('[runtime-libraries] Desired packages exist in manifest but active release is missing');
       console.warn('[runtime-libraries] Use the UI to reinstall packages or manually restore the release directory');
     }
 
-    // Clear the pointer so the fallback kicks in cleanly
     manifest.activeRelease = null;
     writeManifest(manifest);
 
     try {
-      fs.unlinkSync(path.join(root, 'active-release'));
+      fs.rmSync(path.join(root, 'active-release'), { force: true });
     } catch {
       // ignore if already missing
     }
@@ -67,7 +67,6 @@ export async function reconcileRuntimeLibraries(): Promise<void> {
     return;
   }
 
-  // Sync manifest.activeRelease with the pointer file
   if (manifest.activeRelease !== releaseId) {
     manifest.activeRelease = releaseId;
     manifest.lastSuccessfulRelease = releaseId;
@@ -79,26 +78,76 @@ export async function reconcileRuntimeLibraries(): Promise<void> {
   }
 
   console.log(`[runtime-libraries] Active release: ${releaseId} (${Object.keys(manifest.packages).length} packages)`);
-
-  // Clean up old releases
   cleanupOldReleases(releaseId);
+}
+
+function migrateCurrentReleaseIfNeeded(): void {
+  const root = getRootPath();
+  const currentPath = path.join(root, 'current');
+  const currentNodeModulesPath = path.join(currentPath, 'node_modules');
+  if (!fs.existsSync(currentNodeModulesPath) || readActiveRelease()) {
+    return;
+  }
+
+  const manifest = readManifest();
+  const releaseId = nextReleaseId();
+  const releasePath = path.join(releasesDir(), releaseId);
+
+  try {
+    fs.renameSync(currentPath, releasePath);
+    writeActiveRelease(releaseId);
+
+    const nextManifest = buildManifestFromRelease(releasePath, manifest);
+    nextManifest.activeRelease = releaseId;
+    nextManifest.lastSuccessfulRelease = releaseId;
+    writeManifest(nextManifest);
+
+    console.warn(`[runtime-libraries] Migrated current/ layout to legacy release ${releaseId}`);
+  } catch (err) {
+    console.error('[runtime-libraries] Failed to migrate current/ layout:', err);
+  }
+}
+
+function buildManifestFromRelease(releasePath: string, previousManifest: RuntimeLibraryManifest): RuntimeLibraryManifest {
+  const nextManifest = emptyManifest();
+  const packageJsonPath = path.join(releasePath, 'package.json');
+
+  try {
+    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')) as {
+      dependencies?: Record<string, string>;
+    };
+
+    for (const [name, version] of Object.entries(packageJson.dependencies ?? {})) {
+      nextManifest.packages[name] = {
+        name,
+        version,
+        installedAt: previousManifest.packages[name]?.installedAt,
+      };
+    }
+  } catch (err) {
+    console.warn('[runtime-libraries] Failed to rebuild manifest from package.json:', err);
+    nextManifest.packages = previousManifest.packages;
+  }
+
+  return nextManifest;
 }
 
 function cleanupOldReleases(activeReleaseId: string): void {
   try {
-    const dir = releasesDir();
-    const entries = fs.readdirSync(dir)
-      .filter((e) => /^\d{4}$/.test(e))
+    const entries = fs.readdirSync(releasesDir())
+      .filter((entry) => /^\d{4}$/.test(entry))
       .sort();
 
-    if (entries.length <= MAX_RELEASES_TO_KEEP) return;
+    if (entries.length <= MAX_RELEASES_TO_KEEP) {
+      return;
+    }
 
     const toRemove = entries
-      .filter((e) => e !== activeReleaseId)
+      .filter((entry) => entry !== activeReleaseId)
       .slice(0, entries.length - MAX_RELEASES_TO_KEEP);
 
     for (const entry of toRemove) {
-      const entryPath = path.join(dir, entry);
+      const entryPath = path.join(releasesDir(), entry);
       try {
         fs.rmSync(entryPath, { recursive: true, force: true });
         console.log(`[runtime-libraries] Cleaned up old release: ${entry}`);

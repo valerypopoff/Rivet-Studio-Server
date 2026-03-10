@@ -35,7 +35,6 @@ echo "[2/6] Checking aliased upstream file paths..."
 ALIASED_FILES=(
   "utils/tauri.ts"
   "utils/globals/ioProvider.ts"
-  "utils/globals/datasetProvider.ts"
   "state/settings.ts"
   "hooks/useExecutorSidecar.ts"
   "hooks/useGraphExecutor.ts"

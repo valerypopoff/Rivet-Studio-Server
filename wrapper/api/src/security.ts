@@ -1,6 +1,5 @@
 import path from 'node:path';
 
-import './loadRootEnv.js';
 import { badRequest } from './utils/httpError.js';
 
 const repoRoot = path.resolve(process.cwd(), '..', '..');
@@ -42,7 +41,8 @@ export function validatePath(inputPath: string): string {
   const isAllowed = ALLOWED_ROOTS.some((root) => cmp(resolved, root + path.sep) || resolved.length === root.length && cmp(resolved, root));
 
   if (!isAllowed) {
-    throw badRequest(`Path not allowed: ${inputPath} (resolved: ${resolved})`);
+    console.error('Rejected path outside allowed roots:', { inputPath, resolved });
+    throw badRequest('Path not allowed');
   }
 
   return resolved;

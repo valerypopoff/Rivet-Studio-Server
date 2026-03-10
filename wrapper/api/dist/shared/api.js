@@ -1,34 +1,25 @@
 import { RIVET_API_BASE_URL } from './hosted-env';
 const API = RIVET_API_BASE_URL;
-export async function apiReadText(path) {
-    const resp = await fetch(`${API}/native/read-text`, {
+async function apiPost(endpoint, body) {
+    const response = await fetch(`${API}${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path }),
+        body: JSON.stringify(body),
     });
-    if (!resp.ok)
-        throw new Error(`Failed to read file: ${resp.statusText}`);
-    const data = await resp.json();
+    if (!response.ok) {
+        throw new Error(`API error: ${response.statusText}`);
+    }
+    return response.json();
+}
+export async function apiReadText(path) {
+    const data = await apiPost('/native/read-text', { path });
     return data.contents;
 }
 export async function apiWriteText(path, contents) {
-    const resp = await fetch(`${API}/native/write-text`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path, contents }),
-    });
-    if (!resp.ok)
-        throw new Error(`Failed to write file: ${resp.statusText}`);
+    await apiPost('/native/write-text', { path, contents });
 }
 export async function apiReadBinary(path) {
-    const resp = await fetch(`${API}/native/read-binary`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path }),
-    });
-    if (!resp.ok)
-        throw new Error(`Failed to read binary file: ${resp.statusText}`);
-    const data = await resp.json();
+    const data = await apiPost('/native/read-binary', { path });
     const binary = atob(data.contents);
     const bytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i++) {
@@ -37,13 +28,11 @@ export async function apiReadBinary(path) {
     return bytes;
 }
 export async function apiExists(path) {
-    const resp = await fetch(`${API}/native/exists`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ path }),
-    });
-    if (!resp.ok)
+    try {
+        const data = await apiPost('/native/exists', { path });
+        return data.exists;
+    }
+    catch {
         return false;
-    const data = await resp.json();
-    return data.exists;
+    }
 }

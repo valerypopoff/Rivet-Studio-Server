@@ -7,6 +7,7 @@ export declare function normalizeWorkflowProjectSettingsDraft(value: unknown): W
 export declare function normalizeStoredWorkflowProjectSettings(value: unknown): StoredWorkflowProjectSettings;
 export declare function getDerivedWorkflowProjectStatus(settings: StoredWorkflowProjectSettings, currentStateHash: string): WorkflowProjectStatus;
 export declare function normalizeStoredEndpointName(value: string): string;
+export declare function normalizeWorkflowEndpointLookupName(value: string): string;
 export declare function isWorkflowEndpointPublished(settings: StoredWorkflowProjectSettings, endpointName: string): boolean;
 export declare function ensureWorkflowEndpointNameIsUnique(root: string, currentProjectPath: string, endpointName: string): Promise<void>;
 export declare function createWorkflowPublicationStateHash(projectPath: string, endpointName: string): Promise<string>;

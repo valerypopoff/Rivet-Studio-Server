@@ -2,37 +2,78 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { Router } from 'express';
+import { z } from 'zod';
+import { validateBody } from '../../middleware/validate.js';
 import { validatePath } from '../../security.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { badRequest, conflict } from '../../utils/httpError.js';
 import { createBlankProjectFile, ensureWorkflowsRoot, getProjectSidecarPaths, pathExists, PROJECT_EXTENSION, resolveWorkflowRelativePath, sanitizeWorkflowName, } from './fs-helpers.js';
 import { createWorkflowPublicationStateHash, deletePublishedWorkflowSnapshot, ensureWorkflowEndpointNameIsUnique, normalizeWorkflowProjectSettingsDraft, readStoredWorkflowProjectSettings, writePublishedWorkflowSnapshot, writeStoredWorkflowProjectSettings, } from './publication.js';
-import { latestWorkflowsRouter, publishedWorkflowsRouter } from './execution.js';
+import { internalPublishedWorkflowsRouter, latestWorkflowsRouter, publishedWorkflowsRouter } from './execution.js';
 import { getWorkflowFolder, getWorkflowProject, listWorkflowFolders, listWorkflowProjects, moveWorkflowFolder, moveWorkflowProject } from './tree.js';
 export const workflowsRouter = Router();
+const moveSchema = z.object({
+    itemType: z.enum(['project', 'folder']),
+    sourceRelativePath: z.unknown(),
+    destinationFolderRelativePath: z.unknown().optional(),
+});
+const createFolderSchema = z.object({
+    name: z.unknown(),
+    parentRelativePath: z.unknown().optional(),
+});
+const renameFolderSchema = z.object({
+    relativePath: z.unknown(),
+    newName: z.unknown(),
+});
+const deleteFolderSchema = z.object({
+    relativePath: z.unknown(),
+});
+const createProjectSchema = z.object({
+    folderRelativePath: z.unknown().optional(),
+    name: z.unknown(),
+});
+const renameProjectSchema = z.object({
+    relativePath: z.unknown(),
+    newName: z.unknown(),
+});
+const publishProjectSchema = z.object({
+    relativePath: z.unknown(),
+    settings: z.unknown().optional(),
+});
+const pathOnlySchema = z.object({
+    relativePath: z.unknown(),
+});
+const pathsDifferOnlyByCase = (leftPath, rightPath) => leftPath !== rightPath && leftPath.toLowerCase() === rightPath.toLowerCase();
+const renamePath = async (currentPath, nextPath) => {
+    if (!pathsDifferOnlyByCase(currentPath, nextPath)) {
+        await fs.rename(currentPath, nextPath);
+        return;
+    }
+    const temporaryPath = validatePath(path.join(path.dirname(currentPath), `.${randomUUID()}-${path.basename(nextPath)}`));
+    await fs.rename(currentPath, temporaryPath);
+    await fs.rename(temporaryPath, nextPath);
+};
 workflowsRouter.get('/tree', asyncHandler(async (_req, res) => {
     const root = await ensureWorkflowsRoot();
     const folders = await listWorkflowFolders(root);
     const projects = await listWorkflowProjects(root);
     res.json({ root, folders, projects });
 }));
-workflowsRouter.post('/move', asyncHandler(async (req, res) => {
-    const { itemType, sourceRelativePath, destinationFolderRelativePath } = req.body ?? {};
+workflowsRouter.post('/move', validateBody(moveSchema), asyncHandler(async (req, res) => {
+    const { itemType, sourceRelativePath, destinationFolderRelativePath } = req.body;
     const root = await ensureWorkflowsRoot();
     if (itemType === 'project') {
-        const result = await moveWorkflowProject(root, sourceRelativePath, destinationFolderRelativePath);
-        res.json(result);
+        res.json(await moveWorkflowProject(root, sourceRelativePath, destinationFolderRelativePath));
         return;
     }
     if (itemType === 'folder') {
-        const result = await moveWorkflowFolder(root, sourceRelativePath, destinationFolderRelativePath);
-        res.json(result);
+        res.json(await moveWorkflowFolder(root, sourceRelativePath, destinationFolderRelativePath));
         return;
     }
     throw badRequest('Invalid itemType');
 }));
-workflowsRouter.post('/folders', asyncHandler(async (req, res) => {
-    const { name, parentRelativePath } = req.body ?? {};
+workflowsRouter.post('/folders', validateBody(createFolderSchema), asyncHandler(async (req, res) => {
+    const { name, parentRelativePath } = req.body;
     const folderName = sanitizeWorkflowName(name, 'folder name');
     const root = await ensureWorkflowsRoot();
     const parentFolderPath = resolveWorkflowRelativePath(root, parentRelativePath, {
@@ -40,38 +81,30 @@ workflowsRouter.post('/folders', asyncHandler(async (req, res) => {
         allowEmpty: true,
     });
     const folderPath = validatePath(path.join(parentFolderPath, folderName));
-    try {
-        await fs.access(folderPath);
+    if (await pathExists(folderPath)) {
         res.status(409).json({ error: `Folder already exists: ${folderName}` });
         return;
-    }
-    catch {
     }
     await fs.mkdir(folderPath, { recursive: false });
     res.status(201).json({ folder: await getWorkflowFolder(root, folderPath) });
 }));
-workflowsRouter.patch('/folders', asyncHandler(async (req, res) => {
-    const { relativePath, newName } = req.body ?? {};
+workflowsRouter.patch('/folders', validateBody(renameFolderSchema), asyncHandler(async (req, res) => {
+    const { relativePath, newName } = req.body;
     const root = await ensureWorkflowsRoot();
     const currentFolderPath = resolveWorkflowRelativePath(root, relativePath, {
         allowProjectFile: false,
     });
     const sanitizedName = sanitizeWorkflowName(newName, 'new folder name');
     const renamedFolderPath = validatePath(path.join(path.dirname(currentFolderPath), sanitizedName));
-    if (renamedFolderPath !== currentFolderPath) {
-        try {
-            await fs.access(renamedFolderPath);
-            res.status(409).json({ error: `Folder already exists: ${sanitizedName}` });
-            return;
-        }
-        catch {
-        }
+    if (renamedFolderPath !== currentFolderPath && await pathExists(renamedFolderPath)) {
+        res.status(409).json({ error: `Folder already exists: ${sanitizedName}` });
+        return;
     }
-    await fs.rename(currentFolderPath, renamedFolderPath);
+    await renamePath(currentFolderPath, renamedFolderPath);
     res.json({ folder: await getWorkflowFolder(root, renamedFolderPath) });
 }));
-workflowsRouter.delete('/folders', asyncHandler(async (req, res) => {
-    const { relativePath } = req.body ?? {};
+workflowsRouter.delete('/folders', validateBody(deleteFolderSchema), asyncHandler(async (req, res) => {
+    const { relativePath } = req.body;
     const root = await ensureWorkflowsRoot();
     const folderPath = resolveWorkflowRelativePath(root, relativePath, {
         allowProjectFile: false,
@@ -83,8 +116,8 @@ workflowsRouter.delete('/folders', asyncHandler(async (req, res) => {
     await fs.rmdir(folderPath);
     res.json({ deleted: true });
 }));
-workflowsRouter.post('/projects', asyncHandler(async (req, res) => {
-    const { folderRelativePath, name } = req.body ?? {};
+workflowsRouter.post('/projects', validateBody(createProjectSchema), asyncHandler(async (req, res) => {
+    const { folderRelativePath, name } = req.body;
     const root = await ensureWorkflowsRoot();
     const folderPath = resolveWorkflowRelativePath(root, folderRelativePath, {
         allowProjectFile: false,
@@ -93,20 +126,15 @@ workflowsRouter.post('/projects', asyncHandler(async (req, res) => {
     const projectName = sanitizeWorkflowName(name, 'project name');
     const fileName = `${projectName}${PROJECT_EXTENSION}`;
     const filePath = validatePath(path.join(folderPath, fileName));
-    try {
-        await fs.access(filePath);
+    if (await pathExists(filePath)) {
         res.status(409).json({ error: `Project already exists: ${fileName}` });
         return;
     }
-    catch {
-    }
     await fs.writeFile(filePath, createBlankProjectFile(projectName), 'utf8');
-    res.status(201).json({
-        project: await getWorkflowProject(root, filePath),
-    });
+    res.status(201).json({ project: await getWorkflowProject(root, filePath) });
 }));
-workflowsRouter.patch('/projects', asyncHandler(async (req, res) => {
-    const { relativePath, newName } = req.body ?? {};
+workflowsRouter.patch('/projects', validateBody(renameProjectSchema), asyncHandler(async (req, res) => {
+    const { relativePath, newName } = req.body;
     const root = await ensureWorkflowsRoot();
     const currentProjectPath = resolveWorkflowRelativePath(root, relativePath, {
         allowProjectFile: true,
@@ -116,23 +144,19 @@ workflowsRouter.patch('/projects', asyncHandler(async (req, res) => {
     }
     const projectName = sanitizeWorkflowName(newName, 'new project name');
     const renamedProjectPath = validatePath(path.join(path.dirname(currentProjectPath), `${projectName}${PROJECT_EXTENSION}`));
-    if (renamedProjectPath !== currentProjectPath) {
-        try {
-            await fs.access(renamedProjectPath);
-            res.status(409).json({ error: `Project already exists: ${path.basename(renamedProjectPath)}` });
-            return;
-        }
-        catch {
-        }
+    const isCaseOnlyRename = pathsDifferOnlyByCase(currentProjectPath, renamedProjectPath);
+    if (renamedProjectPath !== currentProjectPath && !isCaseOnlyRename && await pathExists(renamedProjectPath)) {
+        res.status(409).json({ error: `Project already exists: ${path.basename(renamedProjectPath)}` });
+        return;
     }
-    await fs.rename(currentProjectPath, renamedProjectPath);
+    await renamePath(currentProjectPath, renamedProjectPath);
     const currentSidecars = getProjectSidecarPaths(currentProjectPath);
     const renamedSidecars = getProjectSidecarPaths(renamedProjectPath);
     if (await pathExists(currentSidecars.dataset)) {
-        await fs.rename(currentSidecars.dataset, renamedSidecars.dataset);
+        await renamePath(currentSidecars.dataset, renamedSidecars.dataset);
     }
     if (await pathExists(currentSidecars.settings)) {
-        await fs.rename(currentSidecars.settings, renamedSidecars.settings);
+        await renamePath(currentSidecars.settings, renamedSidecars.settings);
     }
     res.json({
         project: await getWorkflowProject(root, renamedProjectPath),
@@ -144,8 +168,8 @@ workflowsRouter.patch('/projects', asyncHandler(async (req, res) => {
         ],
     });
 }));
-workflowsRouter.post('/projects/publish', asyncHandler(async (req, res) => {
-    const { relativePath, settings } = req.body ?? {};
+workflowsRouter.post('/projects/publish', validateBody(publishProjectSchema), asyncHandler(async (req, res) => {
+    const { relativePath, settings } = req.body;
     const root = await ensureWorkflowsRoot();
     const projectPath = resolveWorkflowRelativePath(root, relativePath, {
         allowProjectFile: true,
@@ -166,12 +190,10 @@ workflowsRouter.post('/projects/publish', asyncHandler(async (req, res) => {
         publishedSnapshotId,
         publishedStateHash,
     });
-    res.json({
-        project: await getWorkflowProject(root, projectPath),
-    });
+    res.json({ project: await getWorkflowProject(root, projectPath) });
 }));
-workflowsRouter.post('/projects/unpublish', asyncHandler(async (req, res) => {
-    const { relativePath } = req.body ?? {};
+workflowsRouter.post('/projects/unpublish', validateBody(pathOnlySchema), asyncHandler(async (req, res) => {
+    const { relativePath } = req.body;
     const root = await ensureWorkflowsRoot();
     const projectPath = resolveWorkflowRelativePath(root, relativePath, {
         allowProjectFile: true,
@@ -188,12 +210,10 @@ workflowsRouter.post('/projects/unpublish', asyncHandler(async (req, res) => {
         publishedSnapshotId: null,
         publishedStateHash: null,
     });
-    res.json({
-        project: await getWorkflowProject(root, projectPath),
-    });
+    res.json({ project: await getWorkflowProject(root, projectPath) });
 }));
-workflowsRouter.delete('/projects', asyncHandler(async (req, res) => {
-    const { relativePath } = req.body ?? {};
+workflowsRouter.delete('/projects', validateBody(pathOnlySchema), asyncHandler(async (req, res) => {
+    const { relativePath } = req.body;
     const root = await ensureWorkflowsRoot();
     const projectPath = resolveWorkflowRelativePath(root, relativePath, {
         allowProjectFile: true,
@@ -214,4 +234,4 @@ workflowsRouter.delete('/projects', asyncHandler(async (req, res) => {
     }
     res.json({ deleted: true });
 }));
-export { latestWorkflowsRouter, publishedWorkflowsRouter };
+export { internalPublishedWorkflowsRouter, latestWorkflowsRouter, publishedWorkflowsRouter };

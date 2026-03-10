@@ -9,6 +9,7 @@ WORKDIR /app
 
 # Copy API source
 COPY wrapper/api/ .
+COPY wrapper/shared/ /shared/
 
 # Install dependencies
 RUN npm ci
@@ -18,6 +19,6 @@ RUN mkdir -p /workspace /workflows /data/rivet-app/plugins /data/rivet-app/logs 
 
 ENV RIVET_RUNTIME_LIBRARIES_ROOT=/data/runtime-libraries
 
-EXPOSE 3100
+EXPOSE 80
 
 CMD ["npx", "tsx", "src/server.ts"]

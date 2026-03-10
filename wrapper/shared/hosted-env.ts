@@ -1,13 +1,4 @@
-// Runtime environment constants for hosted mode
-// These use window.location so they work regardless of the deployment host/port
-
-function normalizeBasePath(value: string | undefined, fallback: string): string {
-  const trimmed = value?.trim();
-  const candidate = trimmed && trimmed.length > 0 ? trimmed : fallback;
-  const withLeadingSlash = candidate.startsWith('/') ? candidate : `/${candidate}`;
-  const withoutTrailingSlash = withLeadingSlash.replace(/\/+$/, '');
-  return withoutTrailingSlash || fallback;
-}
+import { normalizeBasePath } from './normalize-base-path';
 
 const wsProtocol = typeof window !== 'undefined' && window.location.protocol === 'https:' ? 'wss:' : 'ws:';
 const wsBase = typeof window !== 'undefined' ? `${wsProtocol}//${window.location.host}` : 'ws://localhost';

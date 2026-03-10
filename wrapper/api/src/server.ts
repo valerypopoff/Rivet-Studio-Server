@@ -1,28 +1,31 @@
+import 'dotenv/config';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import { createServer } from 'node:http';
 import cors from 'cors';
-import './loadRootEnv.js';
 import { nativeRouter } from './routes/native.js';
 import { shellRouter } from './routes/shell.js';
 import { pluginsRouter } from './routes/plugins.js';
 import { projectsRouter } from './routes/projects.js';
-import { latestWorkflowsRouter, publishedWorkflowsRouter, workflowsRouter } from './routes/workflows/index.js';
+import { internalPublishedWorkflowsRouter, latestWorkflowsRouter, publishedWorkflowsRouter, workflowsRouter } from './routes/workflows/index.js';
 import { configRouter } from './routes/config.js';
 import { runtimeLibrariesRouter } from './routes/runtime-libraries.js';
 import { reconcileRuntimeLibraries } from './runtime-libraries/startup.js';
 import { initializeLatestWorkflowRemoteDebugger } from './latestWorkflowRemoteDebugger.js';
 import { LATEST_WORKFLOWS_BASE_PATH, PUBLISHED_WORKFLOWS_BASE_PATH } from './workflowEndpointPaths.js';
+import { requireAuth } from './middleware/auth.js';
 
 const app = express();
 const server = createServer(app);
 const PORT = parseInt(process.env.PORT ?? '3100', 10);
 
-app.use(cors());
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '100mb' }));
 
 // Mount routes
 app.use(PUBLISHED_WORKFLOWS_BASE_PATH, publishedWorkflowsRouter);
 app.use(LATEST_WORKFLOWS_BASE_PATH, latestWorkflowsRouter);
+app.use('/internal/workflows', internalPublishedWorkflowsRouter);
+app.use('/api', requireAuth);
 app.use('/api/native', nativeRouter);
 app.use('/api/shell', shellRouter);
 app.use('/api/plugins', pluginsRouter);
@@ -38,6 +41,11 @@ app.use((_req: Request, res: Response) => {
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
   const status = (err as any).status ?? 500;
   console.error('Unhandled API error:', err);
+  if (status >= 500) {
+    res.status(status).json({ error: 'Internal server error' });
+    return;
+  }
+
   res.status(status).json({ error: err.message });
 });
 

@@ -2,11 +2,9 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { validatePath } from '../../security.js';
-import { badRequest } from '../../utils/httpError.js';
+import { badRequest, conflict } from '../../utils/httpError.js';
 import {
-  ensurePathDoesNotExist,
   getProjectSidecarPaths,
-  getWorkflowProjectSettingsPath,
   listProjectPathsRecursive,
   pathExists,
   PROJECT_EXTENSION,
@@ -104,18 +102,20 @@ export async function moveWorkflowProject(
     };
   }
 
-  await ensurePathDoesNotExist(targetProjectPath, `Project already exists: ${path.basename(targetProjectPath)}`);
+  if (await pathExists(targetProjectPath)) {
+    throw conflict(`Project already exists: ${path.basename(targetProjectPath)}`);
+  }
 
   const sourceSidecars = getProjectSidecarPaths(sourceProjectPath);
   const targetSidecars = getProjectSidecarPaths(targetProjectPath);
   const sourceDatasetExists = await pathExists(sourceSidecars.dataset);
-  if (sourceDatasetExists) {
-    await ensurePathDoesNotExist(targetSidecars.dataset, `Dataset file already exists for project: ${path.basename(targetProjectPath)}`);
+  if (sourceDatasetExists && await pathExists(targetSidecars.dataset)) {
+    throw conflict(`Dataset file already exists for project: ${path.basename(targetProjectPath)}`);
   }
 
   const sourceSettingsExists = await pathExists(sourceSidecars.settings);
-  if (sourceSettingsExists) {
-    await ensurePathDoesNotExist(targetSidecars.settings, `Settings file already exists for project: ${path.basename(targetProjectPath)}`);
+  if (sourceSettingsExists && await pathExists(targetSidecars.settings)) {
+    throw conflict(`Settings file already exists for project: ${path.basename(targetProjectPath)}`);
   }
 
   await fs.rename(sourceProjectPath, targetProjectPath);
@@ -164,10 +164,11 @@ export async function moveWorkflowFolder(
     };
   }
 
-  await ensurePathDoesNotExist(targetFolderPath, `Folder already exists: ${path.basename(targetFolderPath)}`);
+  if (await pathExists(targetFolderPath)) {
+    throw conflict(`Folder already exists: ${path.basename(targetFolderPath)}`);
+  }
 
   const movedProjectPaths = await getFolderProjectPathMoves(sourceFolderPath, targetFolderPath);
-
   await fs.rename(sourceFolderPath, targetFolderPath);
 
   return {

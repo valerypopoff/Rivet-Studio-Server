@@ -1,26 +1,51 @@
 import { Router } from 'express';
 import { loadProjectFromFile, NodeDatasetProvider, runGraph } from '@ironclad/rivet-node';
+import { getLatestWorkflowRemoteDebugger, isLatestWorkflowRemoteDebuggerEnabled } from '../../latestWorkflowRemoteDebugger.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
-import { badRequest } from '../../utils/httpError.js';
+import { badRequest, createHttpError } from '../../utils/httpError.js';
 import { ensureWorkflowsRoot } from './fs-helpers.js';
 import { createPublishedWorkflowProjectReferenceLoader, findLatestWorkflowByEndpoint, findPublishedWorkflowByEndpoint, normalizeStoredEndpointName, } from './publication.js';
+import { ManagedCodeRunner } from '../../runtime-libraries/managed-code-runner.js';
+import { getRootPath } from '../../runtime-libraries/manifest.js';
 export const publishedWorkflowsRouter = Router();
+export const internalPublishedWorkflowsRouter = Router();
 export const latestWorkflowsRouter = Router();
-async function executeWorkflowEndpoint(loadPath, referencePath, root, req, res) {
+function getBearerToken(req) {
+    const authorization = req.get('authorization');
+    if (!authorization) {
+        return null;
+    }
+    const match = authorization.match(/^Bearer\s+(.+)$/i);
+    return match ? match[1].trim() || null : null;
+}
+function requirePublishedWorkflowApiKey(req) {
+    const expectedApiKey = process.env.RIVET_ENDPOINT_API_KEY?.trim();
+    if (!expectedApiKey) {
+        return;
+    }
+    const providedApiKey = getBearerToken(req);
+    if (!providedApiKey || providedApiKey !== expectedApiKey) {
+        throw createHttpError(401, 'Unauthorized');
+    }
+}
+async function executeWorkflowEndpoint(loadPath, referencePath, root, req, res, options) {
     try {
         const project = await loadProjectFromFile(loadPath);
         const datasetProvider = await NodeDatasetProvider.fromProjectFile(loadPath);
         const projectReferenceLoader = createPublishedWorkflowProjectReferenceLoader(root, referencePath);
+        const remoteDebugger = options?.enableRemoteDebugger && isLatestWorkflowRemoteDebuggerEnabled()
+            ? getLatestWorkflowRemoteDebugger()
+            : undefined;
         const outputs = await runGraph(project, {
+            codeRunner: new ManagedCodeRunner(getRootPath()),
             projectPath: referencePath,
             datasetProvider,
             projectReferenceLoader,
+            remoteDebugger,
             inputs: {
                 input: {
                     type: 'any',
-                    value: {
-                        payload: req.body ?? {},
-                    },
+                    value: req.body || {}
                 },
             },
         });
@@ -32,11 +57,11 @@ async function executeWorkflowEndpoint(loadPath, referencePath, root, req, res) 
         res.status(200).json(outputs);
     }
     catch (error) {
+        console.error('Workflow execution failed:', error);
         const errorPayload = error instanceof Error
             ? {
                 name: error.name,
                 message: error.message,
-                stack: error.stack,
             }
             : {
                 message: String(error),
@@ -44,7 +69,10 @@ async function executeWorkflowEndpoint(loadPath, referencePath, root, req, res) 
         res.status(500).json({ error: errorPayload });
     }
 }
-publishedWorkflowsRouter.post('/:endpointName', asyncHandler(async (req, res) => {
+async function handlePublishedWorkflowRequest(req, res, options) {
+    if (options?.requireApiKey !== false) {
+        requirePublishedWorkflowApiKey(req);
+    }
     const root = await ensureWorkflowsRoot();
     const endpointName = normalizeStoredEndpointName(String(req.params.endpointName ?? ''));
     if (!endpointName) {
@@ -55,7 +83,13 @@ publishedWorkflowsRouter.post('/:endpointName', asyncHandler(async (req, res) =>
         res.status(404).json({ error: 'Published workflow not found' });
         return;
     }
-    await executeWorkflowEndpoint(publishedWorkflow.publishedProjectPath, publishedWorkflow.projectPath, root, req, res);
+    await executeWorkflowEndpoint(publishedWorkflow.publishedProjectPath, publishedWorkflow.projectPath, root, req, res, { enableRemoteDebugger: false });
+}
+publishedWorkflowsRouter.post('/:endpointName', asyncHandler(async (req, res) => {
+    await handlePublishedWorkflowRequest(req, res);
+}));
+internalPublishedWorkflowsRouter.post('/:endpointName', asyncHandler(async (req, res) => {
+    await handlePublishedWorkflowRequest(req, res, { requireApiKey: false });
 }));
 latestWorkflowsRouter.post('/:endpointName', asyncHandler(async (req, res) => {
     const root = await ensureWorkflowsRoot();
@@ -68,5 +102,5 @@ latestWorkflowsRouter.post('/:endpointName', asyncHandler(async (req, res) => {
         res.status(404).json({ error: 'Latest workflow not found' });
         return;
     }
-    await executeWorkflowEndpoint(latestWorkflow.projectPath, latestWorkflow.projectPath, root, req, res);
+    await executeWorkflowEndpoint(latestWorkflow.projectPath, latestWorkflow.projectPath, root, req, res, { enableRemoteDebugger: true });
 }));

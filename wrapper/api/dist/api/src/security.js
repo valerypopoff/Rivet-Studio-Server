@@ -30,7 +30,8 @@ export function validatePath(inputPath) {
         : (a, b) => a.startsWith(b);
     const isAllowed = ALLOWED_ROOTS.some((root) => cmp(resolved, root + path.sep) || resolved.length === root.length && cmp(resolved, root));
     if (!isAllowed) {
-        throw badRequest(`Path not allowed: ${inputPath} (resolved: ${resolved})`);
+        console.error('Rejected path outside allowed roots:', { inputPath, resolved });
+        throw badRequest('Path not allowed');
     }
     return resolved;
 }

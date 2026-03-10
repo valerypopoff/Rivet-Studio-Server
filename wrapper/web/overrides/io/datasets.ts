@@ -2,7 +2,7 @@
 // Routes .rivet-data file operations through API backend instead of Tauri fs
 
 import { type Project, deserializeDatasets, serializeDatasets } from '@ironclad/rivet-core';
-import { datasetProvider } from '../utils/globals/datasetProvider.js';
+import { datasetProvider } from '../../../../rivet/packages/app/src/utils/globals/datasetProvider';
 import { apiExists, apiReadText, apiWriteText } from '../../../shared/api';
 
 export async function saveDatasetsFile(projectFilePath: string, project: Project) {

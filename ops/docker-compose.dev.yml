@@ -69,9 +69,9 @@ services:
     env_file:
       - ../.env.dev
     ports:
-      - "${RIVET_API_PORT:-3100}:3100"
+      - "${RIVET_API_PORT:-3100}:80"
     environment:
-      - PORT=3100
+      - PORT=80
       - RIVET_WORKSPACE_ROOT=/workspace
       - RIVET_WORKFLOWS_ROOT=/workflows
       - RIVET_APP_DATA_ROOT=/data/rivet-app
@@ -89,6 +89,7 @@ services:
     volumes:
       - ..:/workspace
       - ../wrapper/api:/app
+      - ../wrapper/shared:/shared
       - wrapper_api_node_modules:/app/node_modules
       - ${RIVET_WORKFLOWS_HOST_PATH:-../workflows}:/workflows
       - rivet_data:/data/rivet-app
@@ -99,7 +100,7 @@ services:
         npm run dev
       "
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3100/api/config"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80/api/config"]
       interval: 10s
       timeout: 5s
       retries: 12

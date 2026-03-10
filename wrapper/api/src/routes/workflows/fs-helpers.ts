@@ -8,6 +8,7 @@ import { badRequest, conflict } from '../../utils/httpError.js';
 export const PROJECT_EXTENSION = '.rivet-project';
 export const PROJECT_SETTINGS_SUFFIX = '.wrapper-settings.json';
 export const PUBLISHED_SNAPSHOTS_DIR = '.published';
+export const WORKFLOW_DATASET_SUFFIX = '.rivet-data';
 
 export async function ensureWorkflowsRoot(): Promise<string> {
   const root = getWorkflowsRoot();
@@ -88,17 +89,6 @@ export async function pathExists(filePath: string): Promise<boolean> {
   }
 }
 
-export async function ensurePathDoesNotExist(filePath: string, errorMessage: string): Promise<void> {
-  try {
-    await fs.access(filePath);
-    throw conflict(errorMessage);
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
-      throw error;
-    }
-  }
-}
-
 export function getWorkflowProjectSettingsPath(projectPath: string): string {
   return `${projectPath}${PROJECT_SETTINGS_SUFFIX}`;
 }
@@ -116,7 +106,7 @@ export function getPublishedWorkflowSnapshotDatasetPath(root: string, snapshotId
 }
 
 export function getWorkflowDatasetPath(projectPath: string): string {
-  return projectPath.replace(PROJECT_EXTENSION, '.rivet-data');
+  return projectPath.replace(PROJECT_EXTENSION, WORKFLOW_DATASET_SUFFIX);
 }
 
 export function getProjectSidecarPaths(projectPath: string): { dataset: string; settings: string } {

@@ -244,21 +244,3 @@ export async function removeFile(
   });
   if (!resp.ok) throw new Error(`removeFile failed: ${resp.statusText}`);
 }
-
-export async function renameFile(
-  oldPath: string,
-  newPath: string,
-  options?: FsOptions,
-): Promise<void> {
-  // No-op for now
-  console.warn('renameFile not implemented in hosted shim');
-}
-
-export async function copyFile(
-  source: string,
-  destination: string,
-  options?: FsOptions,
-): Promise<void> {
-  // No-op for now
-  console.warn('copyFile not implemented in hosted shim');
-}

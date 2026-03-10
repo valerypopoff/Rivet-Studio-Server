@@ -90,17 +90,20 @@ export function getDerivedWorkflowProjectStatus(settings, currentStateHash) {
     return 'unpublished';
 }
 export function normalizeStoredEndpointName(value) {
-    const trimmed = value.trim().toLowerCase();
+    const trimmed = value.trim();
     if (!trimmed) {
         return '';
     }
-    if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(trimmed)) {
-        throw badRequest('Endpoint name must contain only lowercase letters, numbers, and hyphens');
+    if (!/^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$/.test(trimmed)) {
+        throw badRequest('Endpoint name must contain only letters, numbers, and hyphens');
     }
     return trimmed;
 }
+export function normalizeWorkflowEndpointLookupName(value) {
+    return normalizeStoredEndpointName(value).toLowerCase();
+}
 export function isWorkflowEndpointPublished(settings, endpointName) {
-    if (settings.publishedEndpointName !== endpointName) {
+    if (normalizeWorkflowEndpointLookupName(settings.publishedEndpointName) !== normalizeWorkflowEndpointLookupName(endpointName)) {
         return false;
     }
     if (settings.publishedStateHash) {
@@ -112,6 +115,7 @@ export async function ensureWorkflowEndpointNameIsUnique(root, currentProjectPat
     if (!endpointName) {
         throw badRequest('Endpoint name is required');
     }
+    const requestedLookupName = normalizeWorkflowEndpointLookupName(endpointName);
     const projectPaths = await listProjectPathsRecursive(root);
     for (const projectPath of projectPaths) {
         if (projectPath === currentProjectPath) {
@@ -119,7 +123,8 @@ export async function ensureWorkflowEndpointNameIsUnique(root, currentProjectPat
         }
         const projectName = path.basename(projectPath, PROJECT_EXTENSION);
         const settings = await readStoredWorkflowProjectSettings(projectPath, projectName);
-        if (settings.endpointName === endpointName || settings.publishedEndpointName === endpointName) {
+        if (normalizeWorkflowEndpointLookupName(settings.endpointName) === requestedLookupName ||
+            normalizeWorkflowEndpointLookupName(settings.publishedEndpointName) === requestedLookupName) {
             throw conflict(`Endpoint name is already used by ${path.basename(projectPath)}`);
         }
     }

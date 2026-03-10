@@ -8,7 +8,7 @@ import { useLatest } from 'ahooks';
 import { useAtom } from 'jotai';
 import { remoteDebuggerState, type RemoteDebuggerState } from '../../../../rivet/packages/app/src/state/execution.js';
 import { useEffect } from 'react';
-import { datasetProvider } from '../utils/globals/datasetProvider.js';
+import { datasetProvider } from '../../../../rivet/packages/app/src/utils/globals/datasetProvider';
 import { logHostedDebug, RIVET_REMOTE_DEBUGGER_DEFAULT_WS, RIVET_EXECUTOR_WS_URL } from '../../../shared/hosted-env';
 
 // ─── Message handler (set by useRemoteExecutor) ─────────────────────────

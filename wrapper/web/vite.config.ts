@@ -9,6 +9,7 @@ import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFileSync } from 'node:fs';
+import { createBrowserSubpathAliases, createModuleOverrideAliases, createTauriShimAliases } from './vite-aliases';
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 
@@ -80,11 +81,10 @@ const resolveWrapperImport = (specifier: string) => {
   }
 };
 
-const wrapperExactDependencyAliases = wrapperAliasedDependencies
-  .map((dependency) => ({
-    find: new RegExp(`^${escapeRegExp(dependency)}$`),
-    replacement: resolveWrapperImport(dependency),
-  }));
+const wrapperExactDependencyAliases = wrapperAliasedDependencies.map((dependency) => ({
+  find: new RegExp(`^${escapeRegExp(dependency)}$`),
+  replacement: resolveWrapperImport(dependency),
+}));
 
 const browserSafeGoogleModule = resolve(overrideDir, 'core/plugins/google/google.ts');
 
@@ -96,7 +96,6 @@ const resolveBrowserSafeGoogleCoreModule = (): PluginOption => ({
     }
 
     const normalizedImporter = normalizePath(importer);
-
     if (
       (source === '../google.js' || source === '../google.ts') &&
       normalizedImporter === normalizePath(resolve(upstreamCore, 'src/plugins/google/nodes/ChatGoogleNode.ts'))
@@ -108,17 +107,6 @@ const resolveBrowserSafeGoogleCoreModule = (): PluginOption => ({
   },
 });
 
-// These packages need explicit browser-safe entry points because their default upstream
-// resolution paths can pull in Node-oriented modules that break the hosted web bundle.
-const wrapperTargetedSubpathAliases = [
-  { find: /^assemblyai$/, replacement: resolve(__dirname, 'node_modules/assemblyai/dist/browser.mjs') },
-  { find: /^@google\/genai$/, replacement: resolve(__dirname, 'node_modules/@google/genai/dist/web/index.mjs') },
-  { find: /^nanoid$/, replacement: resolve(__dirname, 'node_modules/nanoid/index.browser.js') },
-  { find: /^nanoid\/non-secure$/, replacement: resolve(__dirname, 'node_modules/nanoid/non-secure/index.js') },
-  { find: /^yaml$/, replacement: resolve(__dirname, 'node_modules/yaml/browser/index.js') },
-  { find: /^yaml\/util$/, replacement: resolve(__dirname, 'node_modules/yaml/browser/dist/util.js') },
-];
-
 const resolveWrapperDependency = (): PluginOption => ({
   name: 'resolve-wrapper-dependency',
   async resolveId(source, importer) {
@@ -127,7 +115,6 @@ const resolveWrapperDependency = (): PluginOption => ({
     }
 
     const normalizedImporter = normalizePath(importer);
-
     if (!normalizedVendoredRoots.some((root) => normalizedImporter.startsWith(root))) {
       return null;
     }
@@ -146,7 +133,6 @@ const resolveWrapperDependency = (): PluginOption => ({
   },
 });
 
-// https://vitejs.dev/config/
 export default defineConfig({
   root: __dirname,
   envDir: resolve(__dirname, '../..'),
@@ -159,47 +145,11 @@ export default defineConfig({
 
   resolve: {
     preserveSymlinks: true,
-
     alias: [
-      // === Tauri package shims (most specific first) ===
-      // These must stay first so upstream Tauri imports are intercepted before any broader
-      // alias rule can resolve them to the real desktop-only packages.
-      { find: '@tauri-apps/api/app', replacement: resolve(shimDir, 'tauri-noop-shims.ts') },
-      { find: '@tauri-apps/api/dialog', replacement: resolve(shimDir, 'tauri-apps-api-dialog.ts') },
-      { find: '@tauri-apps/api/fs', replacement: resolve(shimDir, 'tauri-apps-api-fs.ts') },
-      { find: '@tauri-apps/api/globalShortcut', replacement: resolve(shimDir, 'tauri-noop-shims.ts') },
-      { find: '@tauri-apps/api/http', replacement: resolve(shimDir, 'tauri-apps-api-http.ts') },
-      { find: '@tauri-apps/api/path', replacement: resolve(shimDir, 'tauri-apps-api-path.ts') },
-      { find: '@tauri-apps/api/process', replacement: resolve(shimDir, 'tauri-noop-shims.ts') },
-      { find: '@tauri-apps/api/shell', replacement: resolve(shimDir, 'tauri-apps-api-shell.ts') },
-      { find: '@tauri-apps/api/updater', replacement: resolve(shimDir, 'tauri-noop-shims.ts') },
-      { find: '@tauri-apps/api/window', replacement: resolve(shimDir, 'tauri-apps-api-window.ts') },
-      { find: '@tauri-apps/api', replacement: resolve(shimDir, 'tauri-apps-api.ts') },
-
-      // === Upstream module overrides (file-level aliases) ===
-      // ^\.\.?\/ restricts to relative imports only, which lets us override upstream files with
-      // generic names like settings or datasets without accidentally hijacking bare package imports.
-      { find: /^\.\.?\/(?:.*\/)?tauri(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'utils/tauri.ts') },
-      { find: /^\.\.?\/(?:.*\/)?ioProvider(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'utils/globals/ioProvider.ts') },
-      { find: /^\.\.?\/(?:.*\/)?datasetProvider(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'utils/globals/datasetProvider.ts') },
-      { find: /^\.\.?\/(?:.*\/)?settings(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'state/settings.ts') },
-      { find: /^\.\.?\/(?:.*\/)?useExecutorSidecar(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'hooks/useExecutorSidecar.ts') },
-      { find: /^\.\.?\/(?:.*\/)?useGraphExecutor(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'hooks/useGraphExecutor.ts') },
-      { find: /^\.\.?\/(?:.*\/)?useRemoteDebugger(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'hooks/useRemoteDebugger.ts') },
-      { find: /^\.\.?\/(?:.*\/)?useRemoteExecutor(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'hooks/useRemoteExecutor.ts') },
-      { find: /^\.\.?\/(?:.*\/)?useLoadPackagePlugin(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'hooks/useLoadPackagePlugin.ts') },
-      { find: /^\.\.?\/(?:.*\/)?useSyncCurrentStateIntoOpenedProjects(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'hooks/useSyncCurrentStateIntoOpenedProjects.ts') },
-      { find: /^\.\.?\/(?:.*\/)?TauriNativeApi(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'model/native/TauriNativeApi.ts') },
-      { find: /^\.\.?\/(?:.*\/)?TauriProjectReferenceLoader(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'model/TauriProjectReferenceLoader.ts') },
-      { find: /^\.\.?\/(?:.*\/)?datasets(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'io/datasets.ts') },
-      { find: /^\.\.?\/(?:.*\/)?TauriIOProvider(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'io/TauriIOProvider.ts') },
-
-      // Vendored upstream code must resolve shared dependencies from wrapper/web/node_modules,
-      // not from whatever nested node_modules the upstream packages would otherwise find.
+      ...createTauriShimAliases(shimDir),
+      ...createModuleOverrideAliases(overrideDir),
       ...wrapperExactDependencyAliases,
-      ...wrapperTargetedSubpathAliases,
-
-      // === Upstream library path aliases (match upstream vite.config) ===
+      ...createBrowserSubpathAliases(__dirname),
       { find: '@ironclad/rivet-core', replacement: resolve(__dirname, '../../rivet/packages/core/src/index.ts') },
       { find: '@ironclad/trivet', replacement: resolve(__dirname, '../../rivet/packages/trivet/src/index.ts') },
     ],
@@ -234,8 +184,6 @@ export default defineConfig({
         icon: true,
       },
     }),
-    // Bad ESM
-    // Ensure worker bundles land in wrapper/web/dist when Vite root points to upstream app.
     (monacoEditorPlugin as any).default({
       publicPath: 'monacoeditorwork',
       customDistPath: (_root: string, buildOutDir: string) => resolve(buildOutDir, 'monacoeditorwork'),

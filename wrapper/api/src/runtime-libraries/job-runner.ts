@@ -4,18 +4,17 @@ import { createRequire } from 'node:module';
 import { EventEmitter } from 'node:events';
 
 import {
-  readManifest,
-  writeManifest,
-  readActiveRelease,
-  writeActiveRelease,
+  ensureDirectories,
   nextReleaseId,
+  readManifest,
   releasesDir,
   stagingDir,
-  ensureDirectories,
-  type RuntimeLibraryManifest,
+  writeActiveRelease,
+  writeManifest,
   type RuntimeLibraryEntry,
+  type RuntimeLibraryManifest,
 } from './manifest.js';
-import { execStreaming } from './exec-streaming.js';
+import { execStreaming } from '../utils/exec.js';
 
 export type JobStatus = 'queued' | 'running' | 'validating' | 'activating' | 'succeeded' | 'failed';
 export type JobType = 'install' | 'remove';
@@ -40,7 +39,10 @@ class JobRunner extends EventEmitter {
   }
 
   getJob(id: string): JobState | null {
-    if (this.activeJob?.id === id) return this.activeJob;
+    if (this.activeJob?.id === id) {
+      return this.activeJob;
+    }
+
     return null;
   }
 
@@ -65,7 +67,7 @@ class JobRunner extends EventEmitter {
     };
 
     this.activeJob = job;
-    this.runInstall(job);
+    void this.runInstall(job);
     return job;
   }
 
@@ -84,7 +86,7 @@ class JobRunner extends EventEmitter {
     };
 
     this.activeJob = job;
-    this.runRemove(job);
+    void this.runRemove(job);
     return job;
   }
 
@@ -105,8 +107,6 @@ class JobRunner extends EventEmitter {
       this.appendLog(job, '--- Starting install job ---');
 
       const manifest = readManifest();
-
-      // Build candidate package set: merge existing + new
       const candidatePackages = { ...manifest.packages };
       for (const pkg of job.packages) {
         candidatePackages[pkg.name] = {
@@ -130,13 +130,13 @@ class JobRunner extends EventEmitter {
       this.appendLog(job, '--- Starting remove job ---');
 
       const manifest = readManifest();
-
       const candidatePackages = { ...manifest.packages };
       for (const pkg of job.packages) {
         if (!(pkg.name in candidatePackages)) {
           this.appendLog(job, `Warning: ${pkg.name} is not installed, skipping`);
           continue;
         }
+
         delete candidatePackages[pkg.name];
         this.appendLog(job, `Removing: ${pkg.name}`);
       }
@@ -154,11 +154,9 @@ class JobRunner extends EventEmitter {
   ): Promise<void> {
     const staging = stagingDir();
 
-    // Clean staging directory
     fs.rmSync(staging, { recursive: true, force: true });
     fs.mkdirSync(staging, { recursive: true });
 
-    // Generate package.json for candidate
     const dependencies: Record<string, string> = {};
     for (const entry of Object.values(candidatePackages)) {
       dependencies[entry.name] = entry.version;
@@ -175,15 +173,12 @@ class JobRunner extends EventEmitter {
     fs.writeFileSync(path.join(staging, 'package.json'), JSON.stringify(packageJson, null, 2), 'utf8');
     this.appendLog(job, `Generated package.json with ${Object.keys(dependencies).length} dependencies`);
 
-    // Handle empty dependency set (all packages removed)
     if (Object.keys(dependencies).length === 0) {
       this.appendLog(job, 'No dependencies to install, creating empty release');
       fs.mkdirSync(path.join(staging, 'node_modules'), { recursive: true });
     } else {
-      // Run npm install
       this.appendLog(job, 'Running npm install...');
       const exitCode = await this.npmInstall(job, staging);
-
       if (exitCode !== 0) {
         this.failJob(job, new Error(`npm install failed with exit code ${exitCode}`));
         return;
@@ -192,33 +187,28 @@ class JobRunner extends EventEmitter {
       this.appendLog(job, 'npm install completed successfully');
     }
 
-    // Validate
     this.setStatus(job, 'validating');
     this.appendLog(job, 'Validating installed packages...');
-
     const validationErrors = this.validateCandidate(staging, candidatePackages);
     if (validationErrors.length > 0) {
       for (const err of validationErrors) {
         this.appendLog(job, `Validation error: ${err}`);
       }
-      this.failJob(job, new Error('Validation failed: ' + validationErrors.join('; ')));
+
+      this.failJob(job, new Error(`Validation failed: ${validationErrors.join('; ')}`));
       return;
     }
 
     this.appendLog(job, 'Validation passed');
 
-    // Promote to release
     this.setStatus(job, 'activating');
     const releaseId = nextReleaseId();
     const releasePath = path.join(releasesDir(), releaseId);
 
     this.appendLog(job, `Promoting to release ${releaseId}...`);
     fs.renameSync(staging, releasePath);
-
-    // Update active release pointer
     writeActiveRelease(releaseId);
 
-    // Update manifest
     manifest.packages = candidatePackages;
     manifest.activeRelease = releaseId;
     manifest.lastSuccessfulRelease = releaseId;
@@ -232,51 +222,43 @@ class JobRunner extends EventEmitter {
 
   private npmInstall(job: JobState, cwd: string): Promise<number> {
     return new Promise((resolve) => {
-      const exec = execStreaming('npm', ['install', '--production', '--no-audit', '--no-fund'], {
+      const child = execStreaming('npm', ['install', '--production', '--no-audit', '--no-fund'], {
         cwd,
-        timeoutMs: 300_000, // 5 minute timeout
+        timeoutMs: 300_000,
       });
 
-      exec.on('data', (_source, data) => {
-        // Split multi-line output into separate log entries
-        const lines = data.split('\n').filter((l: string) => l.trim());
+      child.on('data', (_source, data) => {
+        const lines = data.split('\n').filter((line) => line.trim());
         for (const line of lines) {
           this.appendLog(job, line);
         }
       });
 
-      exec.on('exit', (code) => {
+      child.on('exit', (code) => {
         resolve(code);
       });
 
-      exec.on('error', (err) => {
+      child.on('error', (err) => {
         this.appendLog(job, `Process error: ${err.message}`);
         resolve(1);
       });
     });
   }
 
-  private validateCandidate(
-    candidateDir: string,
-    packages: Record<string, RuntimeLibraryEntry>,
-  ): string[] {
-    const errors: string[] = [];
+  private validateCandidate(candidateDir: string, packages: Record<string, RuntimeLibraryEntry>): string[] {
     const packageNames = Object.keys(packages);
-
     if (packageNames.length === 0) {
-      return errors; // Empty package set is valid
+      return [];
     }
 
     const nodeModulesPath = path.join(candidateDir, 'node_modules');
     if (!fs.existsSync(nodeModulesPath)) {
-      errors.push('node_modules directory not found');
-      return errors;
+      return ['node_modules directory not found'];
     }
 
-    // Use createRequire to validate each package resolves
+    const errors: string[] = [];
     const virtualEntry = path.join(nodeModulesPath, '__validate.cjs');
     try {
-      // createRequire needs a file path inside the resolution root
       const req = createRequire(virtualEntry);
       for (const name of packageNames) {
         try {
@@ -300,7 +282,6 @@ class JobRunner extends EventEmitter {
     this.appendLog(job, '--- Job failed ---');
     this.setStatus(job, 'failed');
 
-    // Clean up staging directory on failure
     try {
       fs.rmSync(stagingDir(), { recursive: true, force: true });
     } catch {
@@ -309,5 +290,4 @@ class JobRunner extends EventEmitter {
   }
 }
 
-// Singleton job runner
 export const jobRunner = new JobRunner();

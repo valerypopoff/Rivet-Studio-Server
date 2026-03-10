@@ -2,6 +2,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 
+import { activeReleaseNodeModulesPath } from './manifest.js';
+
 interface CodeRunnerOptions {
   includeFetch: boolean;
   includeRequire: boolean;
@@ -88,20 +90,10 @@ export class ManagedCodeRunner {
   }
 
   private createManagedRequire(): NodeRequire {
-    // Try to read the active release pointer
-    const activeReleasePath = path.join(this.runtimeLibrariesRoot, 'active-release');
-    try {
-      const pointer = fs.readFileSync(activeReleasePath, 'utf8').trim();
-      if (pointer) {
-        const nodeModulesPath = path.join(this.runtimeLibrariesRoot, 'releases', pointer, 'node_modules');
-        if (fs.existsSync(nodeModulesPath)) {
-          // Create require from the active release's node_modules
-          const virtualEntry = path.join(nodeModulesPath, '__virtual.cjs');
-          return createRequire(virtualEntry);
-        }
-      }
-    } catch {
-      // Fall through to default
+    const nodeModulesPath = activeReleaseNodeModulesPath();
+    if (nodeModulesPath && fs.existsSync(nodeModulesPath)) {
+      const virtualEntry = path.join(nodeModulesPath, '__virtual.cjs');
+      return createRequire(virtualEntry);
     }
 
     // Fallback: standard require using NODE_PATH

@@ -87,9 +87,12 @@ export function writeActiveRelease(releaseId: string): void {
 export function nextReleaseId(): string {
   const dir = releasesDir();
   try {
-    const entries = fs.readdirSync(dir).filter((e) => /^\d{4}$/.test(e)).sort();
-    if (entries.length === 0) return '0001';
-    const last = parseInt(entries[entries.length - 1], 10);
+    const entries = fs.readdirSync(dir).filter((entry) => /^\d{4}$/.test(entry)).sort();
+    if (entries.length === 0) {
+      return '0001';
+    }
+
+    const last = parseInt(entries[entries.length - 1]!, 10);
     return String(last + 1).padStart(4, '0');
   } catch {
     return '0001';
@@ -97,9 +100,15 @@ export function nextReleaseId(): string {
 }
 
 export function activeReleaseNodeModulesPath(): string | null {
-  const id = readActiveRelease();
-  if (!id) return null;
-  const nmPath = path.join(releasesDir(), id, 'node_modules');
-  if (!fs.existsSync(nmPath)) return null;
-  return nmPath;
+  const releaseId = readActiveRelease();
+  if (!releaseId) {
+    return null;
+  }
+
+  const nodeModulesPath = path.join(releasesDir(), releaseId, 'node_modules');
+  if (!fs.existsSync(nodeModulesPath)) {
+    return null;
+  }
+
+  return nodeModulesPath;
 }

@@ -27,7 +27,7 @@ import { produce } from 'immer';
 import { userInputModalQuestionsState, userInputModalSubmitState } from '../../../../rivet/packages/app/src/state/userInput';
 import { pluginsState } from '../../../../rivet/packages/app/src/state/plugins';
 import { entries } from '../../../../rivet/packages/core/src/utils/typeSafety';
-import { datasetProvider } from '../utils/globals/datasetProvider.js';
+import { datasetProvider } from '../../../../rivet/packages/app/src/utils/globals/datasetProvider';
 import { type RunDataByNodeId, lastRunDataByNodeState } from '../../../../rivet/packages/app/src/state/dataFlow';
 import { useAtomValue, useSetAtom, useAtom } from 'jotai';
 import { logHostedDebug } from '../../../shared/hosted-env';

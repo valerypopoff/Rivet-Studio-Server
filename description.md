@@ -156,6 +156,7 @@ Typical responsibilities include:
 - listing files and directories inside allowed roots
 - managing the dedicated workflow library under the host-backed `workflows/` directory
 - serving published workflows from stable snapshot files under the configured published-workflow base path
+- serving trusted internal published-workflow calls on `/internal/workflows/:endpointName` without bearer auth
 - serving the latest working version of published workflows under the configured latest-workflow base path
 - hosting a websocket remote debugger endpoint for latest workflow executions only
 - loading referenced projects
@@ -191,6 +192,13 @@ The two public execution paths intentionally serve different targets:
 
 - `RIVET_PUBLISHED_WORKFLOWS_BASE_PATH/[endpoint-name]` (default `/workflows/[endpoint-name]`) serves the last published snapshot
 - `RIVET_LATEST_WORKFLOWS_BASE_PATH/[endpoint-name]` (default `/workflows-last/[endpoint-name]`) serves the current working project file for workflows that are published or have unpublished changes
+
+There is also an API-container-only internal published-workflow route:
+
+- `/internal/workflows/[endpoint-name]` serves the same published snapshot as `/workflows/[endpoint-name]`
+- it is mounted directly on the API service and is not exposed through nginx
+- it intentionally skips `RIVET_ENDPOINT_API_KEY` bearer-token enforcement and is meant only for trusted intra-stack callers such as other containers on the same Docker network
+- because the API service listens on port 80 inside the Docker network, trusted intra-stack callers can use hostnames like `http://api/internal/workflows/[endpoint-name]` without specifying a port
 
 Remote debugging is intentionally scoped only to the latest-workflow execution path:
 
@@ -418,7 +426,8 @@ Current runtime expectations:
 - published/latest workflow endpoint base path values are normalized before use, so both `/workflows` and `/workflows/` resolve to the same route prefix
 - hosted websocket defaults are derived from the browser origin in `wrapper/shared/hosted-env.ts`, with `/ws/executor/internal` for the executor and `/ws/latest-debugger` as the latest-workflow debugger default
 - in the dev Docker stack, the API service loads `.env.dev` via `env_file`, so `RIVET_ENABLE_LATEST_REMOTE_DEBUGGER` and `RIVET_LATEST_REMOTE_DEBUGGER_TOKEN` are available there when defined
-- in the current production `ops/docker-compose.yml`, those latest-debugger-specific env vars are not explicitly forwarded into the API container's `environment` block, so enabling the secured latest debugger in that stack requires additional deploy wiring
+- in the current production `ops/docker-compose.yml`, `RIVET_ENABLE_LATEST_REMOTE_DEBUGGER` and `RIVET_LATEST_REMOTE_DEBUGGER_TOKEN` are forwarded into the API container, so the secured latest debugger can be enabled there without extra compose changes
+- the API service listens on port 80 inside the Docker network, while Docker still maps the host-facing API port from `RIVET_API_PORT` (default `3100`) to that internal port
 - API security allows workflow-library operations only inside that validated workflow root
 - hosted `Save As` falls back to `/workflows/...` for unsaved projects, but for already file-backed workflow projects it suggests the current project directory so nested workflow locations are preserved by default
 
@@ -551,7 +560,7 @@ Both paths read the pointer file synchronously per invocation. Because `createRe
 
 Runtime library state lives in a dedicated Docker named volume (`rivet_runtime_libs`) mounted at `/data/runtime-libraries` in both the API and executor containers. The `RIVET_RUNTIME_LIBRARIES_ROOT` environment variable is the single source of truth for the path.
 
-Installed libraries survive container restarts and image rebuilds. On startup, the API runs a reconciliation step that validates the active release directory exists, syncs the manifest with the pointer file, and cleans up old releases (keeping the last 5).
+Installed libraries survive container restarts and image rebuilds. On startup, the API runs a reconciliation step that validates the active release directory exists, syncs the manifest with the pointer file, cleans up old releases (keeping the last 5), and migrates any leftover `current/` layout from the brief refactor window back into the numbered-release format.
 
 In dev mode, `scripts/dev.mjs` sets `RIVET_RUNTIME_LIBRARIES_ROOT` to `.data/runtime-libraries` under the repo root.
 
@@ -564,7 +573,7 @@ When no managed runtime libraries are installed (no `active-release` file exists
 - `wrapper/api/src/runtime-libraries/manifest.ts` — manifest and pointer file read/write helpers
 - `wrapper/api/src/runtime-libraries/job-runner.ts` — staging, npm install, validation, promotion
 - `wrapper/api/src/runtime-libraries/managed-code-runner.ts` — `ManagedCodeRunner` implementing the `CodeRunner` interface
-- `wrapper/api/src/runtime-libraries/exec-streaming.ts` — streaming `child_process.spawn` wrapper
+- `wrapper/api/src/utils/exec.ts` — shared `child_process.spawn` helpers for non-streaming and streaming process execution
 - `wrapper/api/src/runtime-libraries/startup.ts` — startup reconciliation and old release cleanup
 - `wrapper/api/src/routes/runtime-libraries.ts` — API route handler
 - `wrapper/web/dashboard/RuntimeLibrariesModal.tsx` — modal component
@@ -621,6 +630,8 @@ The following statements should remain true after major refactors unless there i
 - the project settings delete action is still only visible for unpublished projects and stays hidden while publish settings are being edited
 - published and unpublished-changes help text still show the real configured published/latest workflow endpoint paths
 - published endpoint names still preserve the user's entered casing in the settings UI while endpoint matching remains case-insensitive
+- trusted intra-stack callers can still invoke published workflows through `/internal/workflows/[endpoint-name]` on the API service without bearer auth, while the external published route remains separately configurable
+- trusted intra-stack callers can continue to use the portless Docker-network URL form `http://api/internal/workflows/[endpoint-name]`
 - latest workflow endpoint debugging still remains opt-in, latest-only, and token-protected when enabled
 - `GET /api/config` still suppresses the default latest debugger websocket URL when the secured debugger feature is disabled
 - the hosted debugger connect UI still defaults to `/ws/latest-debugger` from browser origin and still requires manual token appending when token protection is enabled

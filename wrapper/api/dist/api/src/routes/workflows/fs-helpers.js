@@ -2,10 +2,11 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { getWorkflowsRoot, validatePath } from '../../security.js';
-import { badRequest, conflict } from '../../utils/httpError.js';
+import { badRequest } from '../../utils/httpError.js';
 export const PROJECT_EXTENSION = '.rivet-project';
 export const PROJECT_SETTINGS_SUFFIX = '.wrapper-settings.json';
 export const PUBLISHED_SNAPSHOTS_DIR = '.published';
+export const WORKFLOW_DATASET_SUFFIX = '.rivet-data';
 export async function ensureWorkflowsRoot() {
     const root = getWorkflowsRoot();
     await fs.mkdir(root, { recursive: true });
@@ -63,17 +64,6 @@ export async function pathExists(filePath) {
         return false;
     }
 }
-export async function ensurePathDoesNotExist(filePath, errorMessage) {
-    try {
-        await fs.access(filePath);
-        throw conflict(errorMessage);
-    }
-    catch (error) {
-        if (error.code !== 'ENOENT') {
-            throw error;
-        }
-    }
-}
 export function getWorkflowProjectSettingsPath(projectPath) {
     return `${projectPath}${PROJECT_SETTINGS_SUFFIX}`;
 }
@@ -87,7 +77,7 @@ export function getPublishedWorkflowSnapshotDatasetPath(root, snapshotId) {
     return getWorkflowDatasetPath(getPublishedWorkflowSnapshotPath(root, snapshotId));
 }
 export function getWorkflowDatasetPath(projectPath) {
-    return projectPath.replace(PROJECT_EXTENSION, '.rivet-data');
+    return projectPath.replace(PROJECT_EXTENSION, WORKFLOW_DATASET_SUFFIX);
 }
 export function getProjectSidecarPaths(projectPath) {
     return {

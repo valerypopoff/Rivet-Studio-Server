@@ -15,6 +15,7 @@ import { ManagedCodeRunner } from '../../runtime-libraries/managed-code-runner.j
 import { getRootPath } from '../../runtime-libraries/manifest.js';
 
 export const publishedWorkflowsRouter = Router();
+export const internalPublishedWorkflowsRouter = Router();
 export const latestWorkflowsRouter = Router();
 
 function getBearerToken(req: Request): string | null {
@@ -76,11 +77,11 @@ async function executeWorkflowEndpoint(
 
     res.status(200).json(outputs);
   } catch (error) {
+    console.error('Workflow execution failed:', error);
     const errorPayload = error instanceof Error
       ? {
           name: error.name,
           message: error.message,
-          stack: error.stack,
         }
       : {
           message: String(error),
@@ -90,8 +91,14 @@ async function executeWorkflowEndpoint(
   }
 }
 
-publishedWorkflowsRouter.post('/:endpointName', asyncHandler(async (req, res) => {
-  requirePublishedWorkflowApiKey(req);
+async function handlePublishedWorkflowRequest(
+  req: Request,
+  res: Response,
+  options?: { requireApiKey?: boolean },
+): Promise<void> {
+  if (options?.requireApiKey !== false) {
+    requirePublishedWorkflowApiKey(req);
+  }
 
   const root = await ensureWorkflowsRoot();
   const endpointName = normalizeStoredEndpointName(String(req.params.endpointName ?? ''));
@@ -113,6 +120,14 @@ publishedWorkflowsRouter.post('/:endpointName', asyncHandler(async (req, res) =>
     res,
     { enableRemoteDebugger: false },
   );
+}
+
+publishedWorkflowsRouter.post('/:endpointName', asyncHandler(async (req, res) => {
+  await handlePublishedWorkflowRequest(req, res);
+}));
+
+internalPublishedWorkflowsRouter.post('/:endpointName', asyncHandler(async (req, res) => {
+  await handlePublishedWorkflowRequest(req, res, { requireApiKey: false });
 }));
 
 latestWorkflowsRouter.post('/:endpointName', asyncHandler(async (req, res) => {
