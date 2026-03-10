@@ -127,21 +127,25 @@ export function getDerivedWorkflowProjectStatus(
 }
 
 export function normalizeStoredEndpointName(value: string): string {
-  const trimmed = value.trim().toLowerCase();
+  const trimmed = value.trim();
 
   if (!trimmed) {
     return '';
   }
 
-  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(trimmed)) {
-    throw badRequest('Endpoint name must contain only lowercase letters, numbers, and hyphens');
+  if (!/^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$/.test(trimmed)) {
+    throw badRequest('Endpoint name must contain only letters, numbers, and hyphens');
   }
 
   return trimmed;
 }
 
+export function normalizeWorkflowEndpointLookupName(value: string): string {
+  return normalizeStoredEndpointName(value).toLowerCase();
+}
+
 export function isWorkflowEndpointPublished(settings: StoredWorkflowProjectSettings, endpointName: string): boolean {
-  if (settings.publishedEndpointName !== endpointName) {
+  if (normalizeWorkflowEndpointLookupName(settings.publishedEndpointName) !== normalizeWorkflowEndpointLookupName(endpointName)) {
     return false;
   }
 
@@ -157,6 +161,8 @@ export async function ensureWorkflowEndpointNameIsUnique(root: string, currentPr
     throw badRequest('Endpoint name is required');
   }
 
+  const requestedLookupName = normalizeWorkflowEndpointLookupName(endpointName);
+
   const projectPaths = await listProjectPathsRecursive(root);
 
   for (const projectPath of projectPaths) {
@@ -167,7 +173,10 @@ export async function ensureWorkflowEndpointNameIsUnique(root: string, currentPr
     const projectName = path.basename(projectPath, PROJECT_EXTENSION);
     const settings = await readStoredWorkflowProjectSettings(projectPath, projectName);
 
-    if (settings.endpointName === endpointName || settings.publishedEndpointName === endpointName) {
+    if (
+      normalizeWorkflowEndpointLookupName(settings.endpointName) === requestedLookupName ||
+      normalizeWorkflowEndpointLookupName(settings.publishedEndpointName) === requestedLookupName
+    ) {
       throw conflict(`Endpoint name is already used by ${path.basename(projectPath)}`);
     }
   }

@@ -173,8 +173,8 @@ For each project, the wrapper may also manage nearby sidecar files:
 
 That wrapper settings sidecar currently stores hosted dashboard metadata such as:
 
-- the endpoint name used for publication
-- the currently published endpoint name that remains live until the next publish or unpublish
+- the endpoint name used for publication, preserving the casing the user entered
+- the currently published endpoint name that remains live until the next publish or unpublish, also preserving the entered casing
 - the published snapshot identifier for the last live version
 - the last published state hash used to derive publish status
 
@@ -276,6 +276,7 @@ Current popup behavior:
 - rename uses an in-place title editor instead of replacing the header with a separate form block
 - the current publish-related status badge and explanation appear in the modal body, not under the header title
 - the published/unpublished help text interpolates the actual endpoint path instead of showing a placeholder
+- the endpoint field preserves the exact casing the user entered instead of forcing lowercase for display or storage
 - the popup can be closed with the close button or by clicking outside it when no rename/save/delete operation is in progress
 - close/dismiss is the cancel behavior; there is no separate cancel button
 - the popup is designed to stay open after publish, unpublish, publish-changes, and rename actions so the user can continue reviewing the project state
@@ -304,6 +305,8 @@ The practical rules are:
 - a newly created project starts as `unpublished`
 - `Publish` requires an endpoint name
 - the endpoint name must be URL-path compatible and unique among workflow projects
+- endpoint names preserve the user's entered casing for storage and display
+- endpoint uniqueness and incoming endpoint request matching remain case-insensitive, so names that differ only by letter case still conflict
 - publishing stores a published-state hash based on the endpoint name and the current project file contents
 - if the project remains unchanged since publication, the status is `published`
 - if the project file changes after publication and is saved, the status becomes `unpublished_changes`
@@ -554,6 +557,7 @@ The following statements should remain true after major refactors unless there i
 - unpublished projects still expose `Publish...` before revealing endpoint editing, while published states still use status-specific action buttons
 - the project settings delete action is still only visible for unpublished projects and stays hidden while publish settings are being edited
 - published and unpublished-changes help text still show the real configured published/latest workflow endpoint paths
+- published endpoint names still preserve the user's entered casing in the settings UI while endpoint matching remains case-insensitive
 - runtime libraries installed through the manager are available to Code nodes in both editor runs and published endpoint calls without restarting containers
 - a failed runtime library install does not break the currently active release or disrupt running workflows
 - the runtime library trigger button appears at the bottom of the `Projects` pane when the pane is open

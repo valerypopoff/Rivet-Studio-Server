@@ -22,7 +22,7 @@ import type {
 } from './types';
 
 const PROJECT_FILE_EXTENSION = '.rivet-project';
-const ENDPOINT_NAME_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const ENDPOINT_NAME_PATTERN = /^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$/;
 
 const STATUS_LABELS: Record<WorkflowProjectStatus, string> = {
   unpublished: 'Unpublished',
@@ -98,22 +98,20 @@ export const ProjectSettingsModal: FC<ProjectSettingsModalProps> = ({
     setShowPublishSettings(false);
   }, [activeProject, isOpen]);
 
-  const normalizedDraftEndpointName = useMemo(
-    () => settingsDraft.endpointName.trim().toLowerCase(),
-    [settingsDraft.endpointName],
-  );
+  const trimmedDraftEndpointName = useMemo(() => settingsDraft.endpointName.trim(), [settingsDraft.endpointName]);
+  const endpointLookupName = useMemo(() => trimmedDraftEndpointName.toLowerCase(), [trimmedDraftEndpointName]);
 
   const endpointDuplicateProject = useMemo(() => {
-    if (!normalizedDraftEndpointName) {
+    if (!endpointLookupName) {
       return null;
     }
 
     return allProjects.find(
       (project) =>
         project.absolutePath !== activeProject.absolutePath &&
-        project.settings.endpointName === normalizedDraftEndpointName,
+        project.settings.endpointName.trim().toLowerCase() === endpointLookupName,
     ) ?? null;
-  }, [activeProject.absolutePath, allProjects, normalizedDraftEndpointName]);
+  }, [activeProject.absolutePath, allProjects, endpointLookupName]);
 
   const normalizedProjectNameDraft = useMemo(() => {
     const trimmed = projectNameDraft.trim();
@@ -166,12 +164,12 @@ export const ProjectSettingsModal: FC<ProjectSettingsModalProps> = ({
   }, [duplicateProjectNameInFolder, editingProjectName, normalizedProjectNameDraft]);
 
   const endpointValidationError = useMemo(() => {
-    if (!normalizedDraftEndpointName) {
+    if (!trimmedDraftEndpointName) {
       return 'Endpoint name is required to publish.';
     }
 
-    if (!ENDPOINT_NAME_PATTERN.test(normalizedDraftEndpointName)) {
-      return 'Endpoint name must contain only lowercase letters, numbers, and hyphens.';
+    if (!ENDPOINT_NAME_PATTERN.test(trimmedDraftEndpointName)) {
+      return 'Endpoint name must contain only letters, numbers, and hyphens.';
     }
 
     if (endpointDuplicateProject) {
@@ -179,7 +177,7 @@ export const ProjectSettingsModal: FC<ProjectSettingsModalProps> = ({
     }
 
     return null;
-  }, [endpointDuplicateProject, normalizedDraftEndpointName]);
+  }, [endpointDuplicateProject, trimmedDraftEndpointName]);
 
   const displayedProjectStatus: WorkflowProjectStatus = activeProject.settings.status;
   const baseFileName = useMemo(() => activeProject.fileName.replace(/\.[^.]+$/, ''), [activeProject.fileName]);
