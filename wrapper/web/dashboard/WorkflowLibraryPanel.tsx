@@ -101,7 +101,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
         const next = { ...prev };
         for (const folderId of collectFolderIds(tree.folders)) {
           if (next[folderId] == null) {
-            next[folderId] = true;
+            next[folderId] = false;
           }
         }
         return next;
@@ -454,7 +454,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   };
 
   const renderFolder = (folder: WorkflowFolderItem): JSX.Element => {
-    const expanded = expandedFolders[folder.id] ?? true;
+    const expanded = expandedFolders[folder.id] ?? false;
 
     return (
       <div className="folder" key={folder.id}>
