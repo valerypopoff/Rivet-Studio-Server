@@ -3,8 +3,13 @@ services:
     image: nginx:alpine
     ports:
       - "${RIVET_PORT:-8080}:80"
+    environment:
+      - RIVET_PUBLISHED_WORKFLOWS_BASE_PATH=${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH:-/workflows}
+      - RIVET_LATEST_WORKFLOWS_BASE_PATH=${RIVET_LATEST_WORKFLOWS_BASE_PATH:-/workflows-last}
     volumes:
-      - ./nginx.dev.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx.dev.conf:/etc/nginx/templates/default.conf.template:ro
+      - ./normalize-workflow-paths.sh:/normalize-workflow-paths.sh:ro
+    entrypoint: ["/bin/sh", "/normalize-workflow-paths.sh"]
     depends_on:
       web:
         condition: service_healthy
@@ -22,6 +27,8 @@ services:
     environment:
       - VITE_RIVET_DEBUG_LOGS=${VITE_RIVET_DEBUG_LOGS:-false}
       - VITE_RIVET_API_BASE_URL=${VITE_RIVET_API_BASE_URL:-http://localhost:3100/api}
+      - RIVET_PUBLISHED_WORKFLOWS_BASE_PATH=${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH:-/workflows}
+      - RIVET_LATEST_WORKFLOWS_BASE_PATH=${RIVET_LATEST_WORKFLOWS_BASE_PATH:-/workflows-last}
       - CHOKIDAR_USEPOLLING=true
       - CHOKIDAR_INTERVAL=300
     volumes:
@@ -69,6 +76,8 @@ services:
       - RIVET_WORKFLOWS_ROOT=/workflows
       - RIVET_APP_DATA_ROOT=/data/rivet-app
       - RIVET_RUNTIME_LIBRARIES_ROOT=/data/runtime-libraries
+      - RIVET_PUBLISHED_WORKFLOWS_BASE_PATH=${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH:-/workflows}
+      - RIVET_LATEST_WORKFLOWS_BASE_PATH=${RIVET_LATEST_WORKFLOWS_BASE_PATH:-/workflows-last}
       - CHOKIDAR_USEPOLLING=true
       - CHOKIDAR_INTERVAL=300
       - RIVET_ENV_ALLOWLIST=${RIVET_ENV_ALLOWLIST:-}

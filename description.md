@@ -11,8 +11,9 @@ In practical terms, the application provides:
 - the upstream Rivet editor running in the browser
 - hosted file open/save behavior through an API instead of desktop-native access
 - a wrapper-owned workflow dashboard for organizing workflow projects
-- published workflow serving at `/workflows/[endpoint-name]`
-- latest working-version workflow serving at `/workflows-last/[endpoint-name]` for published projects
+- published workflow serving at the configured published-workflow base path (`RIVET_PUBLISHED_WORKFLOWS_BASE_PATH`, default `/workflows`, trailing slash tolerated)
+- latest working-version workflow serving at the configured latest-workflow base path (`RIVET_LATEST_WORKFLOWS_BASE_PATH`, default `/workflows-last`, trailing slash tolerated) for published projects
+- the same workflow endpoint env var pair shared across frontend, backend, and nginx proxy routing
 - Dockerized backend, proxy, and executor services
 - a runtime library manager for installing npm packages available to Code nodes across both execution paths
 - browser-compatible replacements for desktop-only integrations
@@ -60,8 +61,8 @@ It routes:
 
 - browser requests to the web app
 - `/api/*` traffic to the compatibility backend
-- `/workflows/*` traffic to last-published workflow execution endpoints
-- `/workflows-last/*` traffic to latest working-version workflow execution endpoints for published workflows
+- requests under `RIVET_PUBLISHED_WORKFLOWS_BASE_PATH` (default `/workflows`) to last-published workflow execution endpoints
+- requests under `RIVET_LATEST_WORKFLOWS_BASE_PATH` (default `/workflows-last`) to latest working-version workflow execution endpoints for published workflows
 - websocket traffic to the executor/debugger service
 
 ## Repository layout
@@ -152,8 +153,8 @@ Typical responsibilities include:
 - reading and writing project files on the server
 - listing files and directories inside allowed roots
 - managing the dedicated workflow library under the host-backed `workflows/` directory
-- serving published workflows from stable snapshot files under `/workflows/[endpoint-name]`
-- serving the latest working version of published workflows under `/workflows-last/[endpoint-name]`
+- serving published workflows from stable snapshot files under the configured published-workflow base path
+- serving the latest working version of published workflows under the configured latest-workflow base path
 - loading referenced projects
 - running allowlisted shell commands
 - managing plugin installation/loading
@@ -185,8 +186,8 @@ Published workflow snapshots themselves are stored separately under the workflow
 
 The two public execution paths intentionally serve different targets:
 
-- `/workflows/[endpoint-name]` serves the last published snapshot
-- `/workflows-last/[endpoint-name]` serves the current working project file for workflows that are published or have unpublished changes
+- `RIVET_PUBLISHED_WORKFLOWS_BASE_PATH/[endpoint-name]` (default `/workflows/[endpoint-name]`) serves the last published snapshot
+- `RIVET_LATEST_WORKFLOWS_BASE_PATH/[endpoint-name]` (default `/workflows-last/[endpoint-name]`) serves the current working project file for workflows that are published or have unpublished changes
 
 Fully unpublished projects are not served by either public execution path.
 
@@ -364,7 +365,9 @@ The workflow dashboard is backed by a dedicated filesystem root configured throu
 Current runtime expectations:
 
 - Docker Compose mounts a host-backed `workflows/` directory into the API container at `/workflows`
-- when using root `npm run dev`, `RIVET_WORKFLOWS_HOST_PATH` from the repo-root `.env.dev` is resolved relative to the repo root before Docker Compose starts
+- when using root `npm run dev`, `RIVET_WORKFLOWS_HOST_PATH` and the published/latest workflow endpoint base path vars are read from the repo-root `.env.dev`
+- the frontend reads those workflow endpoint vars directly through Vite's allowed env prefixes instead of using a separate `VITE_...` workflow-path variable pair
+- published/latest workflow endpoint base path values are normalized before use, so both `/workflows` and `/workflows/` resolve to the same route prefix
 - API security allows workflow-library operations only inside that validated workflow root
 - hosted `Save As` falls back to `/workflows/...` for unsaved projects, but for already file-backed workflow projects it suggests the current project directory so nested workflow locations are preserved by default
 
@@ -550,7 +553,7 @@ The following statements should remain true after major refactors unless there i
 - the project settings popup still uses a basename-only header title with inline rename control
 - unpublished projects still expose `Publish...` before revealing endpoint editing, while published states still use status-specific action buttons
 - the project settings delete action is still only visible for unpublished projects and stays hidden while publish settings are being edited
-- published and unpublished-changes help text still show the real `/workflows/...` and `/workflows-last/...` endpoint paths
+- published and unpublished-changes help text still show the real configured published/latest workflow endpoint paths
 - runtime libraries installed through the manager are available to Code nodes in both editor runs and published endpoint calls without restarting containers
 - a failed runtime library install does not break the currently active release or disrupt running workflows
 - the runtime library trigger button appears at the bottom of the `Projects` pane when the pane is open

@@ -5,6 +5,10 @@ import { type ChangeEvent, type FC, type KeyboardEvent as ReactKeyboardEvent, us
 import { toast } from 'react-toastify';
 
 import {
+  RIVET_LATEST_WORKFLOWS_BASE_PATH,
+  RIVET_PUBLISHED_WORKFLOWS_BASE_PATH,
+} from '../../shared/hosted-env';
+import {
   deleteWorkflowProject,
   publishWorkflowProject,
   renameWorkflowProject,
@@ -33,7 +37,7 @@ const renderStatusExplanation = (status: WorkflowProjectStatus, endpointName: st
     case 'published':
       return (
         <>
-          Workflow is accessible via the endpoint on {`/workflows/${endpointName}`}.
+          Workflow is accessible via the endpoint on {`${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH}/${endpointName}`}.
           <br />
           <br />
           To change the endpoint path, unpublish it.
@@ -43,10 +47,10 @@ const renderStatusExplanation = (status: WorkflowProjectStatus, endpointName: st
     case 'unpublished_changes':
       return (
         <>
-          Workflow has changes that are not live. The published workflow version is still accessible on {`/workflows/${endpointName}`}.
+          Workflow has changes that are not live. The published workflow version is still accessible on {`${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH}/${endpointName}`}.
           <br />
           <br />
-          The unpublished changes are accessible on {`/workflows-last/${endpointName}`}.
+          The unpublished changes are accessible on {`${RIVET_LATEST_WORKFLOWS_BASE_PATH}/${endpointName}`}.
         </>
       );
     default:

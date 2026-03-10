@@ -3,8 +3,13 @@ services:
     image: nginx:alpine
     ports:
       - "${RIVET_PORT:-8080}:80"
+    environment:
+      - RIVET_PUBLISHED_WORKFLOWS_BASE_PATH=${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH:-/workflows}
+      - RIVET_LATEST_WORKFLOWS_BASE_PATH=${RIVET_LATEST_WORKFLOWS_BASE_PATH:-/workflows-last}
     volumes:
-      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./nginx.conf:/etc/nginx/templates/default.conf.template:ro
+      - ./normalize-workflow-paths.sh:/normalize-workflow-paths.sh:ro
+    entrypoint: ["/bin/sh", "/normalize-workflow-paths.sh"]
     depends_on:
       web:
         condition: service_healthy
@@ -20,6 +25,8 @@ services:
       dockerfile: ops/Dockerfile.web
       args:
         VITE_RIVET_DEBUG_LOGS: ${VITE_RIVET_DEBUG_LOGS:-false}
+        RIVET_PUBLISHED_WORKFLOWS_BASE_PATH: ${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH:-/workflows}
+        RIVET_LATEST_WORKFLOWS_BASE_PATH: ${RIVET_LATEST_WORKFLOWS_BASE_PATH:-/workflows-last}
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/"]
       interval: 10s
@@ -39,6 +46,8 @@ services:
       - RIVET_WORKFLOWS_ROOT=/workflows
       - RIVET_APP_DATA_ROOT=/data/rivet-app
       - RIVET_RUNTIME_LIBRARIES_ROOT=/data/runtime-libraries
+      - RIVET_PUBLISHED_WORKFLOWS_BASE_PATH=${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH:-/workflows}
+      - RIVET_LATEST_WORKFLOWS_BASE_PATH=${RIVET_LATEST_WORKFLOWS_BASE_PATH:-/workflows-last}
       - RIVET_ENV_ALLOWLIST=${RIVET_ENV_ALLOWLIST:-}
       - RIVET_SHELL_ALLOWLIST=${RIVET_SHELL_ALLOWLIST:-}
       - RIVET_EXTRA_ROOTS=${RIVET_EXTRA_ROOTS:-}

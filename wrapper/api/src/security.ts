@@ -1,5 +1,6 @@
 import path from 'node:path';
 
+import './loadRootEnv.js';
 import { badRequest } from './utils/httpError.js';
 
 const repoRoot = path.resolve(process.cwd(), '..', '..');

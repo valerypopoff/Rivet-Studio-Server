@@ -1,5 +1,6 @@
 import express, { type Request, type Response, type NextFunction } from 'express';
 import cors from 'cors';
+import './loadRootEnv.js';
 import { nativeRouter } from './routes/native.js';
 import { shellRouter } from './routes/shell.js';
 import { pluginsRouter } from './routes/plugins.js';
@@ -8,6 +9,7 @@ import { latestWorkflowsRouter, publishedWorkflowsRouter, workflowsRouter } from
 import { configRouter } from './routes/config.js';
 import { runtimeLibrariesRouter } from './routes/runtime-libraries.js';
 import { reconcileRuntimeLibraries } from './runtime-libraries/startup.js';
+import { LATEST_WORKFLOWS_BASE_PATH, PUBLISHED_WORKFLOWS_BASE_PATH } from './workflowEndpointPaths.js';
 
 const app = express();
 const PORT = parseInt(process.env.PORT ?? '3100', 10);
@@ -16,8 +18,8 @@ app.use(cors());
 app.use(express.json({ limit: '100mb' }));
 
 // Mount routes
-app.use('/workflows', publishedWorkflowsRouter);
-app.use('/workflows-last', latestWorkflowsRouter);
+app.use(PUBLISHED_WORKFLOWS_BASE_PATH, publishedWorkflowsRouter);
+app.use(LATEST_WORKFLOWS_BASE_PATH, latestWorkflowsRouter);
 app.use('/api/native', nativeRouter);
 app.use('/api/shell', shellRouter);
 app.use('/api/plugins', pluginsRouter);

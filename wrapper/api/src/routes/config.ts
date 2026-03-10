@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import path from 'node:path';
 import { getAppDataRoot, isEnvAllowed } from '../security.js';
+import { LATEST_WORKFLOWS_BASE_PATH, PUBLISHED_WORKFLOWS_BASE_PATH } from '../workflowEndpointPaths.js';
 
 export const configRouter = Router();
 
@@ -11,6 +12,8 @@ configRouter.get('/config', (_req, res) => {
     executorWsUrl: process.env.RIVET_EXECUTOR_WS_URL ?? 'ws://localhost/ws/executor/internal',
     remoteDebuggerDefaultWs: process.env.RIVET_REMOTE_DEBUGGER_DEFAULT_WS ?? 'ws://localhost/ws/executor',
     apiBaseUrl: '/api',
+    publishedWorkflowsBasePath: PUBLISHED_WORKFLOWS_BASE_PATH,
+    latestWorkflowsBasePath: LATEST_WORKFLOWS_BASE_PATH,
   });
 });
 

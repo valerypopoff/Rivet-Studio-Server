@@ -149,6 +149,8 @@ const resolveWrapperDependency = (): PluginOption => ({
 // https://vitejs.dev/config/
 export default defineConfig({
   root: __dirname,
+  envDir: resolve(__dirname, '../..'),
+  envPrefix: ['VITE_', 'RIVET_'],
   publicDir: resolve(upstreamApp, 'public'),
 
   optimizeDeps: {
