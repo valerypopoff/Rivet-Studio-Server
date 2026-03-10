@@ -65,7 +65,7 @@ It routes:
 - requests under `RIVET_PUBLISHED_WORKFLOWS_BASE_PATH` (default `/workflows`) to last-published workflow execution endpoints
 - requests under `RIVET_LATEST_WORKFLOWS_BASE_PATH` (default `/workflows-last`) to latest working-version workflow execution endpoints for published workflows
 - websocket traffic to the executor/debugger service
-- browser-facing latest-workflow remote debugger traffic on `ws://host:port/ws/latest-debugger`
+- browser-facing latest-workflow remote debugger traffic on `/ws/latest-debugger`, proxied to the API service
 
 ## Repository layout
 
@@ -195,21 +195,33 @@ The two public execution paths intentionally serve different targets:
 Remote debugging is intentionally scoped only to the latest-workflow execution path:
 
 - the browser-facing remote debugger websocket URL is `ws://host:port/ws/latest-debugger`
-- when token auth is enabled, the editor connects with `ws://host:port/ws/latest-debugger?token=YOUR_TOKEN`
+- when the secured debugger is enabled, the editor connects with `ws://host:port/ws/latest-debugger?token=YOUR_TOKEN`
 - runs triggered through `RIVET_LATEST_WORKFLOWS_BASE_PATH` attach to that debugger server
 - runs triggered through `RIVET_PUBLISHED_WORKFLOWS_BASE_PATH` remain debugger-free
 - the debugger server is only started when `RIVET_ENABLE_LATEST_REMOTE_DEBUGGER=true`
 - when that flag is enabled, `RIVET_LATEST_REMOTE_DEBUGGER_TOKEN` must also be set and must match the `token` query parameter on the websocket URL
+- `GET /api/config` only advertises a default remote debugger websocket URL when the feature is enabled
+
+Current hosted-editor wiring detail:
+
+- the hosted Remote Debugger connect panel currently seeds its default URL from `wrapper/shared/hosted-env.ts`, which resolves to `/ws/latest-debugger` from the current browser origin
+- the hosted editor does not currently source its initial debugger URL from `GET /api/config`
+- when token protection is enabled, the user must currently append `?token=YOUR_TOKEN` manually in the Remote Debugger URL field
 
 Latest-workflow remote debugger security and connection model:
 
 - the feature is disabled by default and should only be enabled intentionally
 - enabling it requires both `RIVET_ENABLE_LATEST_REMOTE_DEBUGGER=true` and a non-empty `RIVET_LATEST_REMOTE_DEBUGGER_TOKEN`
-- the browser or desktop editor must include that token directly in the websocket URL it uses to connect
-- the websocket handshake reaches the API as an HTTP upgrade request, so the API can read and validate the `token` query parameter before accepting the connection
-- if the debugger feature is disabled, the API rejects websocket upgrade attempts for `/ws/latest-debugger`
-- if the feature is enabled but the token is missing or incorrect, the API rejects the websocket upgrade with `401 Unauthorized`
-- the remote debugger websocket is intended for trusted operators and should be paired with `wss://` plus normal deployment protections such as private networking, VPN, or reverse-proxy access controls when exposed outside local development
+- the feature is intentionally scoped only to the latest-workflow execution path
+- the browser-facing remote debugger websocket URL is `ws://host:port/ws/latest-debugger`
+- when the secured debugger is enabled, the editor connects with `ws://host:port/ws/latest-debugger?token=YOUR_TOKEN`
+- runs triggered through `RIVET_LATEST_WORKFLOWS_BASE_PATH` attach to that debugger server
+- runs triggered through `RIVET_PUBLISHED_WORKFLOWS_BASE_PATH` remain debugger-free
+- the debugger server is only started when `RIVET_ENABLE_LATEST_REMOTE_DEBUGGER=true`
+- when that flag is enabled, `RIVET_LATEST_REMOTE_DEBUGGER_TOKEN` must also be set and must match the `token` query parameter on the websocket URL
+- `/api/config` only advertises a default remote debugger websocket URL when the feature is enabled
+- the hosted debugger connect UI still defaults to `/ws/latest-debugger` from browser origin and still requires manual token appending when token protection is enabled
+- any production Docker wiring for the secured latest debugger must still ensure `RIVET_ENABLE_LATEST_REMOTE_DEBUGGER` and `RIVET_LATEST_REMOTE_DEBUGGER_TOKEN` actually reach the API container
 
 Typical user-facing connection examples:
 
@@ -313,7 +325,7 @@ Current popup behavior:
 - the popup can be closed with the close button or by clicking outside it when no rename/save/delete operation is in progress
 - close/dismiss is the cancel behavior; there is no separate cancel button
 - the popup is designed to stay open after publish, unpublish, publish-changes, and rename actions so the user can continue reviewing the project state
-- the popup includes project deletion with confirmation
+- the popup includes project deletion with confirmation, but the delete action is currently exposed in the UI only while the project is `unpublished` and the publish-settings editor is not expanded
 
 ### Project rename behavior
 
@@ -371,7 +383,7 @@ Current behavior:
 - the delete action is only shown in the UI while the project is currently `unpublished`
 - the delete action is hidden while the unpublished project's publish-settings editor is expanded
 - the user must confirm deletion
-- if the project is published or has unpublished changes, the wrapper first unpublishes it
+- regardless of current publication state, the backend delete route removes any published snapshot before deleting the project file
 - the project file is deleted from the workflow library
 - the `.rivet-data` sidecar is also deleted if it exists
 - the `.wrapper-settings.json` sidecar is also deleted if it exists
@@ -402,8 +414,11 @@ Current runtime expectations:
 
 - Docker Compose mounts a host-backed `workflows/` directory into the API container at `/workflows`
 - when using root `npm run dev`, `RIVET_WORKFLOWS_HOST_PATH` and the published/latest workflow endpoint base path vars are read from the repo-root `.env.dev`
-- the frontend reads those workflow endpoint vars directly through Vite's allowed env prefixes instead of using a separate `VITE_...` workflow-path variable pair
+- the frontend reads the workflow endpoint base path vars directly as `RIVET_PUBLISHED_WORKFLOWS_BASE_PATH` and `RIVET_LATEST_WORKFLOWS_BASE_PATH` instead of using a separate `VITE_...` workflow-path variable pair
 - published/latest workflow endpoint base path values are normalized before use, so both `/workflows` and `/workflows/` resolve to the same route prefix
+- hosted websocket defaults are derived from the browser origin in `wrapper/shared/hosted-env.ts`, with `/ws/executor/internal` for the executor and `/ws/latest-debugger` as the latest-workflow debugger default
+- in the dev Docker stack, the API service loads `.env.dev` via `env_file`, so `RIVET_ENABLE_LATEST_REMOTE_DEBUGGER` and `RIVET_LATEST_REMOTE_DEBUGGER_TOKEN` are available there when defined
+- in the current production `ops/docker-compose.yml`, those latest-debugger-specific env vars are not explicitly forwarded into the API container's `environment` block, so enabling the secured latest debugger in that stack requires additional deploy wiring
 - API security allows workflow-library operations only inside that validated workflow root
 - hosted `Save As` falls back to `/workflows/...` for unsaved projects, but for already file-backed workflow projects it suggests the current project directory so nested workflow locations are preserved by default
 
@@ -589,22 +604,27 @@ The following statements should remain true after major refactors unless there i
 - the workflow dashboard still owns project organization, not the core editor
 - file-backed workflow projects still save to their real on-disk paths through the hosted API
 - `Ctrl+S` / `Cmd+S` still save the active file-backed workflow project correctly, with dashboard-level handling outside the iframe and iframe-specific handling inside it
-- the selected project is still highlighted in the `Projects` pane
-- collapsed parent folders of the selected project still auto-expand so the selected item is visible
-- the pane still scrolls the selected project into view when needed
+- the active project in the `Projects` pane is still computed as `selectedProjectPath || openedProjectPath`
+- the active project row is still highlighted in the `Projects` pane
+- collapsed parent folders of the active project still auto-expand so the active item is visible
+- the pane still scrolls the active project row into view when needed
 - workflow folders and projects are still creatable from the dashboard
 - workflow folders and projects are still movable on disk through drag and drop
 - moving an already-open project still preserves later save behavior without forcing a reopen
 - project settings metadata still follows workflow moves because the wrapper moves the related settings sidecar together with the project
 - the workflow library is still constrained to the validated workflow root
 - the app still uses API-backed and websocket-backed hosted services instead of assuming desktop-native integrations
-- the active project section and project settings popup still reflect the currently selected workflow project, defaulting to the opened workflow project when nothing else is selected
+- the active project section and project settings popup still reflect the active workflow project, defaulting to the opened workflow project when nothing else is selected
 - the active project section still shows the status badge inline with the project basename and still offers `Save`/`Edit` plus `Settings`
 - the project settings popup still uses a basename-only header title with inline rename control
 - unpublished projects still expose `Publish...` before revealing endpoint editing, while published states still use status-specific action buttons
 - the project settings delete action is still only visible for unpublished projects and stays hidden while publish settings are being edited
 - published and unpublished-changes help text still show the real configured published/latest workflow endpoint paths
 - published endpoint names still preserve the user's entered casing in the settings UI while endpoint matching remains case-insensitive
+- latest workflow endpoint debugging still remains opt-in, latest-only, and token-protected when enabled
+- `GET /api/config` still suppresses the default latest debugger websocket URL when the secured debugger feature is disabled
+- the hosted debugger connect UI still defaults to `/ws/latest-debugger` from browser origin and still requires manual token appending when token protection is enabled
+- any production Docker wiring for the secured latest debugger must still ensure `RIVET_ENABLE_LATEST_REMOTE_DEBUGGER` and `RIVET_LATEST_REMOTE_DEBUGGER_TOKEN` actually reach the API container
 - runtime libraries installed through the manager are available to Code nodes in both editor runs and published endpoint calls without restarting containers
 - a failed runtime library install does not break the currently active release or disrupt running workflows
 - the runtime library trigger button appears at the bottom of the `Projects` pane when the pane is open
