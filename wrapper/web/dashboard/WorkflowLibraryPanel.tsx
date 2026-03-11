@@ -263,6 +263,19 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     setDragOverRoot(false);
   };
 
+  const toggleFolderExpanded = (folderId: string) => {
+    setExpandedFolders((prev) => ({ ...prev, [folderId]: !(prev[folderId] ?? false) }));
+  };
+
+  const handleFolderRowClick = (folder: WorkflowFolderItem) => (event: React.MouseEvent<HTMLElement>) => {
+    const target = event.target as HTMLElement | null;
+    if (target?.closest('.folder-actions')) {
+      return;
+    }
+
+    toggleFolderExpanded(folder.id);
+  };
+
   const handleMoveDraggedItem = async (destinationFolderRelativePath: string) => {
     if (!canDropIntoFolder(draggedItem, destinationFolderRelativePath) || !draggedItem) {
       return;
@@ -461,6 +474,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
         <div
           className={`folder-row${dropTargetFolderPath === folder.relativePath ? ' drag-over' : ''}${draggedItem?.itemType === 'folder' && draggedItem.absolutePath === folder.absolutePath ? ' dragging' : ''}`}
           draggable={editorReady}
+          onClick={handleFolderRowClick(folder)}
           onDragStart={handleDragStart({
             itemType: 'folder',
             absolutePath: folder.absolutePath,
@@ -479,7 +493,6 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
           <button
             type="button"
             className="folder-toggle"
-            onClick={() => setExpandedFolders((prev) => ({ ...prev, [folder.id]: !expanded }))}
             title={folder.name}
             aria-label={expanded ? `Collapse ${folder.name}` : `Expand ${folder.name}`}
           >
@@ -489,7 +502,10 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
             <button
               type="button"
               className="folder-name-button"
-              onDoubleClick={() => void handleRenameFolder(folder)}
+              onDoubleClick={(event) => {
+                event.stopPropagation();
+                void handleRenameFolder(folder);
+              }}
               title={folder.name}
             >
               <div className="folder-main">
@@ -502,7 +518,10 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
             <button
               type="button"
               className="icon-button"
-              onClick={() => void handleAddProject(folder)}
+              onClick={(event) => {
+                event.stopPropagation();
+                void handleAddProject(folder);
+              }}
               title={`Create project in ${folder.name}`}
               aria-label={`Create project in ${folder.name}`}
             >
