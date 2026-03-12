@@ -29,17 +29,7 @@ yarn-error.log*
 **/__pycache__
 **/.DS_Store
 
-# Keep Yarn metadata needed by rivet, but exclude heavy caches
-rivet/.yarn/**
-!rivet/.yarn/plugins/**
-!rivet/.yarn/releases/**
-!rivet/.yarn/patches/**
-!rivet/.yarn/versions/**
-rivet/.yarn/install-state.gz
 
-# Local PnP artifacts generated during host dev
-rivet/.pnp.cjs
-rivet/.pnp.loader.mjs
 
 # Editor/temp
 .vscode
