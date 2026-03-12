@@ -1,6 +1,3 @@
-# Upstream vendor repo (do not sync)
-rivet/
-
 # Local env files
 .env.dev
 
