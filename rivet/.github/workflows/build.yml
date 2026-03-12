@@ -1,0 +1,29 @@
+﻿name: Build
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: '20.4.x'
+      - name: Install dependencies
+        run: yarn --immutable
+      - name: Build
+        run: yarn build
+        env:
+          NODE_OPTIONS: --max_old_space_size=6000
+      - name: Test
+        run: yarn test
+      - name: Lint
+        run: yarn lint
+      - name: Prettier
+        run: yarn prettier --check
