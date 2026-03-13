@@ -131,6 +131,8 @@ internalPublishedWorkflowsRouter.post('/:endpointName', asyncHandler(async (req,
 }));
 
 latestWorkflowsRouter.post('/:endpointName', asyncHandler(async (req, res) => {
+  requirePublishedWorkflowApiKey(req);
+
   const root = await ensureWorkflowsRoot();
   const endpointName = normalizeStoredEndpointName(String(req.params.endpointName ?? ''));
   if (!endpointName) {

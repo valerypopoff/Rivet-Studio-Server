@@ -68,3 +68,9 @@ Browser → nginx (proxy)
 - Env var access is allowlist-only
 - Shell commands are allowlist-only (git, pnpm by default)
 - Path traversal prevention on all path parameters
+
+### Optional external UI gate
+- Set `RIVET_ENDPOINT_API_KEY` to your shared secret.
+- Set `RIVET_UI_TOKEN_FREE_HOSTS` to a comma-separated list of internal hostnames that should bypass the UI token check.
+- All other hosts require `?token=<RIVET_ENDPOINT_API_KEY>` once, then the proxy stores it in an HTTP-only cookie for `/`, `/api/*`, and `/ws/executor*`.
+- Workflow execution routes under `RIVET_PUBLISHED_WORKFLOWS_BASE_PATH` and `RIVET_LATEST_WORKFLOWS_BASE_PATH` are not affected by this gate.

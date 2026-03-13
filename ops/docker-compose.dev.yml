@@ -6,6 +6,8 @@ services:
     environment:
       - RIVET_PUBLISHED_WORKFLOWS_BASE_PATH=${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH:-/workflows}
       - RIVET_LATEST_WORKFLOWS_BASE_PATH=${RIVET_LATEST_WORKFLOWS_BASE_PATH:-/workflows-last}
+      - RIVET_ENDPOINT_API_KEY=${RIVET_ENDPOINT_API_KEY:-}
+      - RIVET_UI_TOKEN_FREE_HOSTS=${RIVET_UI_TOKEN_FREE_HOSTS:-}
     volumes:
       - ./nginx.dev.conf:/etc/nginx/templates/default.conf.template:ro
       - ./normalize-workflow-paths.sh:/normalize-workflow-paths.sh:ro

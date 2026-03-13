@@ -64,6 +64,7 @@ It routes:
 - `/api/*` traffic to the compatibility backend
 - requests under `RIVET_PUBLISHED_WORKFLOWS_BASE_PATH` (default `/workflows`) to last-published workflow execution endpoints
 - requests under `RIVET_LATEST_WORKFLOWS_BASE_PATH` (default `/workflows-last`) to latest working-version workflow execution endpoints for published workflows
+- browser editor/admin traffic on `/`, `/api/*`, and `/ws/executor*`, with optional host-based token gating at the nginx layer
 - websocket traffic to the executor/debugger service
 - browser-facing latest-workflow remote debugger traffic on `/ws/latest-debugger`, proxied to the API service
 
@@ -158,6 +159,7 @@ Typical responsibilities include:
 - serving published workflows from stable snapshot files under the configured published-workflow base path
 - serving trusted internal published-workflow calls on `/internal/workflows/:endpointName` without bearer auth
 - serving the latest working version of published workflows under the configured latest-workflow base path
+- enforcing `Authorization: Bearer <RIVET_ENDPOINT_API_KEY>` on both external published and latest workflow execution endpoints when that env var is set
 - hosting a websocket remote debugger endpoint for latest workflow executions only
 - loading referenced projects
 - running allowlisted shell commands
@@ -192,6 +194,7 @@ The two public execution paths intentionally serve different targets:
 
 - `RIVET_PUBLISHED_WORKFLOWS_BASE_PATH/[endpoint-name]` (default `/workflows/[endpoint-name]`) serves the last published snapshot
 - `RIVET_LATEST_WORKFLOWS_BASE_PATH/[endpoint-name]` (default `/workflows-last/[endpoint-name]`) serves the current working project file for workflows that are published or have unpublished changes
+- both public execution paths enforce `Authorization: Bearer <RIVET_ENDPOINT_API_KEY>` when `RIVET_ENDPOINT_API_KEY` is non-empty
 
 There is also an API-container-only internal published-workflow route:
 
@@ -199,6 +202,13 @@ There is also an API-container-only internal published-workflow route:
 - it is mounted directly on the API service and is not exposed through nginx
 - it intentionally skips `RIVET_ENDPOINT_API_KEY` bearer-token enforcement and is meant only for trusted intra-stack callers such as other containers on the same Docker network
 - because the API service listens on port 80 inside the Docker network, trusted intra-stack callers can use hostnames like `http://api/internal/workflows/[endpoint-name]` without specifying a port
+
+The nginx layer can independently gate browser access to the editor/admin surface:
+
+- `RIVET_UI_TOKEN_FREE_HOSTS` is a comma-separated list of hostnames that bypass the UI token check
+- all other hosts require `?token=<RIVET_ENDPOINT_API_KEY>` once on `/`
+- after a successful tokenized `/` request, nginx stores the token in an HTTP-only cookie so `/api/*` and `/ws/executor*` continue to work for that browser session
+- this nginx UI gate does not change workflow execution route auth; those routes are still controlled by the API bearer-token check described above
 
 Remote debugging is intentionally scoped only to the latest-workflow execution path:
 
@@ -424,6 +434,8 @@ Current runtime expectations:
 - when using root `npm run dev`, `RIVET_WORKFLOWS_HOST_PATH` and the published/latest workflow endpoint base path vars are read from the repo-root `.env.dev`
 - the frontend reads the workflow endpoint base path vars directly as `RIVET_PUBLISHED_WORKFLOWS_BASE_PATH` and `RIVET_LATEST_WORKFLOWS_BASE_PATH` instead of using a separate `VITE_...` workflow-path variable pair
 - published/latest workflow endpoint base path values are normalized before use, so both `/workflows` and `/workflows/` resolve to the same route prefix
+- when `RIVET_ENDPOINT_API_KEY` is set, both public workflow execution route families require a matching bearer token while `/internal/workflows/[endpoint-name]` remains exempt
+- when both `RIVET_ENDPOINT_API_KEY` and `RIVET_UI_TOKEN_FREE_HOSTS` are set, nginx allows browser editor/admin access without `?token=` only on the listed token-free hosts
 - hosted websocket defaults are derived from the browser origin in `wrapper/shared/hosted-env.ts`, with `/ws/executor/internal` for the executor and `/ws/latest-debugger` as the latest-workflow debugger default
 - in the dev Docker stack, the API service loads `.env.dev` via `env_file`, so `RIVET_ENABLE_LATEST_REMOTE_DEBUGGER` and `RIVET_LATEST_REMOTE_DEBUGGER_TOKEN` are available there when defined
 - in the current production `ops/docker-compose.yml`, `RIVET_ENABLE_LATEST_REMOTE_DEBUGGER` and `RIVET_LATEST_REMOTE_DEBUGGER_TOKEN` are forwarded into the API container, so the secured latest debugger can be enabled there without extra compose changes
