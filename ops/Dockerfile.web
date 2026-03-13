@@ -1,5 +1,15 @@
 FROM node:20-alpine AS builder
 
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG ALL_PROXY
+ARG NO_PROXY
+
+ENV HTTP_PROXY=$HTTP_PROXY
+ENV HTTPS_PROXY=$HTTPS_PROXY
+ENV ALL_PROXY=$ALL_PROXY
+ENV NO_PROXY=$NO_PROXY
+
 RUN corepack enable && corepack prepare yarn@4.6.0 --activate
 
 WORKDIR /app
@@ -34,6 +44,16 @@ RUN npx vite build --config vite.config.ts
 
 # --- Production stage ---
 FROM node:20-alpine
+
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG ALL_PROXY
+ARG NO_PROXY
+
+ENV HTTP_PROXY=$HTTP_PROXY
+ENV HTTPS_PROXY=$HTTPS_PROXY
+ENV ALL_PROXY=$ALL_PROXY
+ENV NO_PROXY=$NO_PROXY
 
 RUN npm install -g serve
 

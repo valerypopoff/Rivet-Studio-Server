@@ -26,9 +26,18 @@ services:
       context: ..
       dockerfile: ops/Dockerfile.web
       args:
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        ALL_PROXY: ${ALL_PROXY:-}
+        NO_PROXY: ${NO_PROXY:-}
         VITE_RIVET_DEBUG_LOGS: ${VITE_RIVET_DEBUG_LOGS:-false}
         RIVET_PUBLISHED_WORKFLOWS_BASE_PATH: ${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH:-/workflows}
         RIVET_LATEST_WORKFLOWS_BASE_PATH: ${RIVET_LATEST_WORKFLOWS_BASE_PATH:-/workflows-latest}
+    environment:
+      - HTTP_PROXY=${HTTP_PROXY:-}
+      - HTTPS_PROXY=${HTTPS_PROXY:-}
+      - ALL_PROXY=${ALL_PROXY:-}
+      - NO_PROXY=${NO_PROXY:-}
     healthcheck:
       test: ["CMD", "wget", "-q", "--spider", "http://localhost:3000/"]
       interval: 10s
@@ -40,9 +49,18 @@ services:
     build:
       context: ..
       dockerfile: ops/Dockerfile.api
+      args:
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        ALL_PROXY: ${ALL_PROXY:-}
+        NO_PROXY: ${NO_PROXY:-}
     ports:
       - "${RIVET_API_PORT:-3100}:80"
     environment:
+      - HTTP_PROXY=${HTTP_PROXY:-}
+      - HTTPS_PROXY=${HTTPS_PROXY:-}
+      - ALL_PROXY=${ALL_PROXY:-}
+      - NO_PROXY=${NO_PROXY:-}
       - PORT=80
       - RIVET_WORKSPACE_ROOT=/workspace
       - RIVET_WORKFLOWS_ROOT=/workflows
@@ -76,6 +94,10 @@ services:
       context: ..
       dockerfile: ops/Dockerfile.executor
     environment:
+      - HTTP_PROXY=${HTTP_PROXY:-}
+      - HTTPS_PROXY=${HTTPS_PROXY:-}
+      - ALL_PROXY=${ALL_PROXY:-}
+      - NO_PROXY=${NO_PROXY:-}
       - HOME=/root
       - RIVET_RUNTIME_LIBRARIES_ROOT=/data/runtime-libraries
     volumes:
