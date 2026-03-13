@@ -30,6 +30,10 @@ services:
         HTTPS_PROXY: ${HTTPS_PROXY:-}
         ALL_PROXY: ${ALL_PROXY:-}
         NO_PROXY: ${NO_PROXY:-}
+        http_proxy: ${http_proxy:-${HTTP_PROXY:-}}
+        https_proxy: ${https_proxy:-${HTTPS_PROXY:-}}
+        all_proxy: ${all_proxy:-${ALL_PROXY:-}}
+        no_proxy: ${no_proxy:-${NO_PROXY:-}}
         VITE_RIVET_DEBUG_LOGS: ${VITE_RIVET_DEBUG_LOGS:-false}
         RIVET_PUBLISHED_WORKFLOWS_BASE_PATH: ${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH:-/workflows}
         RIVET_LATEST_WORKFLOWS_BASE_PATH: ${RIVET_LATEST_WORKFLOWS_BASE_PATH:-/workflows-latest}
@@ -38,6 +42,10 @@ services:
       - HTTPS_PROXY=${HTTPS_PROXY:-}
       - ALL_PROXY=${ALL_PROXY:-}
       - NO_PROXY=${NO_PROXY:-}
+      - http_proxy=${http_proxy:-${HTTP_PROXY:-}}
+      - https_proxy=${https_proxy:-${HTTPS_PROXY:-}}
+      - all_proxy=${all_proxy:-${ALL_PROXY:-}}
+      - no_proxy=${no_proxy:-${NO_PROXY:-}}
       - npm_config_cache=/root/.npm
       - YARN_CACHE_FOLDER=/root/.cache/yarn
     healthcheck:
@@ -56,6 +64,10 @@ services:
         HTTPS_PROXY: ${HTTPS_PROXY:-}
         ALL_PROXY: ${ALL_PROXY:-}
         NO_PROXY: ${NO_PROXY:-}
+        http_proxy: ${http_proxy:-${HTTP_PROXY:-}}
+        https_proxy: ${https_proxy:-${HTTPS_PROXY:-}}
+        all_proxy: ${all_proxy:-${ALL_PROXY:-}}
+        no_proxy: ${no_proxy:-${NO_PROXY:-}}
     ports:
       - "${RIVET_API_PORT:-3100}:80"
     environment:
@@ -63,6 +75,10 @@ services:
       - HTTPS_PROXY=${HTTPS_PROXY:-}
       - ALL_PROXY=${ALL_PROXY:-}
       - NO_PROXY=${NO_PROXY:-}
+      - http_proxy=${http_proxy:-${HTTP_PROXY:-}}
+      - https_proxy=${https_proxy:-${HTTPS_PROXY:-}}
+      - all_proxy=${all_proxy:-${ALL_PROXY:-}}
+      - no_proxy=${no_proxy:-${NO_PROXY:-}}
       - npm_config_cache=/root/.npm
       - PORT=80
       - RIVET_WORKSPACE_ROOT=/workspace
@@ -101,6 +117,10 @@ services:
       - HTTPS_PROXY=${HTTPS_PROXY:-}
       - ALL_PROXY=${ALL_PROXY:-}
       - NO_PROXY=${NO_PROXY:-}
+      - http_proxy=${http_proxy:-${HTTP_PROXY:-}}
+      - https_proxy=${https_proxy:-${HTTPS_PROXY:-}}
+      - all_proxy=${all_proxy:-${ALL_PROXY:-}}
+      - no_proxy=${no_proxy:-${NO_PROXY:-}}
       - npm_config_cache=/root/.npm
       - YARN_CACHE_FOLDER=/root/.cache/yarn
       - HOME=/root

@@ -31,6 +31,10 @@ services:
       - HTTPS_PROXY=${HTTPS_PROXY:-}
       - ALL_PROXY=${ALL_PROXY:-}
       - NO_PROXY=${NO_PROXY:-}
+      - http_proxy=${http_proxy:-${HTTP_PROXY:-}}
+      - https_proxy=${https_proxy:-${HTTPS_PROXY:-}}
+      - all_proxy=${all_proxy:-${ALL_PROXY:-}}
+      - no_proxy=${no_proxy:-${NO_PROXY:-}}
       - npm_config_cache=/root/.npm
       - YARN_CACHE_FOLDER=/root/.cache/yarn
       - VITE_RIVET_DEBUG_LOGS=${VITE_RIVET_DEBUG_LOGS:-false}
@@ -84,6 +88,10 @@ services:
         HTTPS_PROXY: ${HTTPS_PROXY:-}
         ALL_PROXY: ${ALL_PROXY:-}
         NO_PROXY: ${NO_PROXY:-}
+        http_proxy: ${http_proxy:-${HTTP_PROXY:-}}
+        https_proxy: ${https_proxy:-${HTTPS_PROXY:-}}
+        all_proxy: ${all_proxy:-${ALL_PROXY:-}}
+        no_proxy: ${no_proxy:-${NO_PROXY:-}}
     env_file:
       - ../.env.dev
     ports:
@@ -93,6 +101,10 @@ services:
       - HTTPS_PROXY=${HTTPS_PROXY:-}
       - ALL_PROXY=${ALL_PROXY:-}
       - NO_PROXY=${NO_PROXY:-}
+      - http_proxy=${http_proxy:-${HTTP_PROXY:-}}
+      - https_proxy=${https_proxy:-${HTTPS_PROXY:-}}
+      - all_proxy=${all_proxy:-${ALL_PROXY:-}}
+      - no_proxy=${no_proxy:-${NO_PROXY:-}}
       - npm_config_cache=/root/.npm
       - PORT=80
       - RIVET_WORKSPACE_ROOT=/workspace
@@ -146,6 +158,10 @@ services:
         HTTPS_PROXY: ${HTTPS_PROXY:-}
         ALL_PROXY: ${ALL_PROXY:-}
         NO_PROXY: ${NO_PROXY:-}
+        http_proxy: ${http_proxy:-${HTTP_PROXY:-}}
+        https_proxy: ${https_proxy:-${HTTPS_PROXY:-}}
+        all_proxy: ${all_proxy:-${ALL_PROXY:-}}
+        no_proxy: ${no_proxy:-${NO_PROXY:-}}
     env_file:
       - ../.env.dev
     environment:
@@ -153,6 +169,10 @@ services:
       - HTTPS_PROXY=${HTTPS_PROXY:-}
       - ALL_PROXY=${ALL_PROXY:-}
       - NO_PROXY=${NO_PROXY:-}
+      - http_proxy=${http_proxy:-${HTTP_PROXY:-}}
+      - https_proxy=${https_proxy:-${HTTPS_PROXY:-}}
+      - all_proxy=${all_proxy:-${ALL_PROXY:-}}
+      - no_proxy=${no_proxy:-${NO_PROXY:-}}
       - npm_config_cache=/root/.npm
       - YARN_CACHE_FOLDER=/root/.cache/yarn
       - HOME=/root
