@@ -105,7 +105,14 @@ services:
         npm run dev
       "
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80/api/config"]
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('node:http').get('http://127.0.0.1:80/api/config', (res) => process.exit(res.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))",
+        ]
+      start_period: 120s
       interval: 10s
       timeout: 5s
       retries: 12

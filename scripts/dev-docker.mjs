@@ -7,16 +7,6 @@ const envPath = path.join(rootDir, '.env.dev');
 const composeBase = 'docker compose -f ops/docker-compose.dev.yml';
 const diagnosticServices = 'api web executor proxy';
 
-const commandsByAction = {
-  build: [`${composeBase} build api executor`],
-  up: [`${composeBase} up --build`],
-  down: [`${composeBase} down`],
-  config: [`${composeBase} config`],
-  ps: [`${composeBase} ps`],
-  logs: [`${composeBase} logs -f --tail=120 ${diagnosticServices}`],
-  dev: [`${composeBase} up --build -d --wait --wait-timeout 240`],
-};
-
 function run(command, env, options = {}) {
   const allowFailure = options.allowFailure === true;
 
@@ -42,7 +32,7 @@ function run(command, env, options = {}) {
 
 async function printFailureDiagnostics(env) {
   console.error('[dev-docker] Docker compose reported a failure. Collecting container status and recent logs...');
-  await run(commandsByAction.ps[0], env, { allowFailure: true });
+  await run(`${composeBase} ps`, env, { allowFailure: true });
   await run(`${composeBase} logs --tail=120 ${diagnosticServices}`, env, { allowFailure: true });
 }
 
@@ -73,6 +63,18 @@ async function main() {
   if (!Object.prototype.hasOwnProperty.call(mergedEnv, 'COMPOSE_PARALLEL_LIMIT')) {
     mergedEnv.COMPOSE_PARALLEL_LIMIT = '1';
   }
+
+  const waitTimeoutSeconds = parseInt(mergedEnv.RIVET_DOCKER_WAIT_TIMEOUT ?? '900', 10);
+
+  const commandsByAction = {
+    build: [`${composeBase} build api executor`],
+    up: [`${composeBase} up --build`],
+    down: [`${composeBase} down`],
+    config: [`${composeBase} config`],
+    ps: [`${composeBase} ps`],
+    logs: [`${composeBase} logs -f --tail=120 ${diagnosticServices}`],
+    dev: [`${composeBase} up --build -d --wait --wait-timeout ${waitTimeoutSeconds}`],
+  };
 
   const commands = commandsByAction[action];
 
