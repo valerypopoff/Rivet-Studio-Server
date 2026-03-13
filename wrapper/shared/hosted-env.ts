@@ -15,7 +15,7 @@ export const RIVET_PUBLISHED_WORKFLOWS_BASE_PATH = normalizeBasePath(
 );
 export const RIVET_LATEST_WORKFLOWS_BASE_PATH = normalizeBasePath(
   viteEnv?.RIVET_LATEST_WORKFLOWS_BASE_PATH,
-  '/workflows-last',
+  '/workflows-latest',
 );
 
 export function logHostedDebug(

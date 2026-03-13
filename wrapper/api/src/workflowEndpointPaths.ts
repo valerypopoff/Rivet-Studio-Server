@@ -7,5 +7,5 @@ export const PUBLISHED_WORKFLOWS_BASE_PATH = normalizeBasePath(
 
 export const LATEST_WORKFLOWS_BASE_PATH = normalizeBasePath(
   process.env.RIVET_LATEST_WORKFLOWS_BASE_PATH,
-  '/workflows-last',
+  '/workflows-latest',
 );

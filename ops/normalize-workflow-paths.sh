@@ -61,7 +61,7 @@ build_host_regex() {
 }
 
 export RIVET_PUBLISHED_WORKFLOWS_BASE_PATH="$(normalize_path "${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH:-}" "/workflows")"
-export RIVET_LATEST_WORKFLOWS_BASE_PATH="$(normalize_path "${RIVET_LATEST_WORKFLOWS_BASE_PATH:-}" "/workflows-last")"
+export RIVET_LATEST_WORKFLOWS_BASE_PATH="$(normalize_path "${RIVET_LATEST_WORKFLOWS_BASE_PATH:-}" "/workflows-latest")"
 export RIVET_UI_TOKEN_FREE_HOSTS_REGEX="$(build_host_regex "${RIVET_UI_TOKEN_FREE_HOSTS:-}" "${RIVET_ENDPOINT_API_KEY:-}")"
 
 exec /docker-entrypoint.sh nginx -g 'daemon off;'

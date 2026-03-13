@@ -16,6 +16,24 @@ docker compose up -d --build
 
 Access at `http://localhost:8080` (or the port set in `RIVET_PORT`).
 
+### Development (with Docker)
+
+From the repo root:
+
+```bash
+npm run dev
+```
+
+This starts the Docker development stack in detached mode, waits for healthy services, and prints container diagnostics if startup fails.
+
+Useful follow-up commands:
+
+```bash
+npm run dev:docker:ps
+npm run dev:docker:logs
+npm run dev:down
+```
+
 ### Development (without Docker)
 
 1. **Install upstream deps & build core packages:**
