@@ -121,6 +121,7 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - OPENAI_ORG_ID=${OPENAI_ORG_ID:-}
       - OPENAI_ENDPOINT=${OPENAI_ENDPOINT:-}
+      - NODE_OPTIONS=${NODE_OPTIONS:-} --import=/opt/proxy-bootstrap/bootstrap.mjs
     volumes:
       - ..:/workspace
       - ../wrapper/api:/app

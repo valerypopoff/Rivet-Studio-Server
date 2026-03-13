@@ -23,6 +23,9 @@ RUN corepack enable && corepack prepare yarn@4.6.0 --activate
 
 WORKDIR /app
 
+COPY ops/proxy-bootstrap/ /opt/proxy-bootstrap/
+RUN --mount=type=cache,target=/root/.npm npm --prefix /opt/proxy-bootstrap ci
+
 COPY rivet/ /app/rivet/
 
 WORKDIR /app/rivet
@@ -56,6 +59,7 @@ ENV no_proxy=$no_proxy
 
 WORKDIR /app
 
+COPY --from=builder /opt/proxy-bootstrap /opt/proxy-bootstrap
 COPY --from=builder /app/rivet/packages/app-executor/bin/executor-bundle.cjs ./executor-bundle.cjs
 
 RUN mkdir -p /root/.local/share/com.ironcladapp.rivet/plugins
@@ -64,4 +68,4 @@ ENV RIVET_RUNTIME_LIBRARIES_ROOT=/data/runtime-libraries
 
 EXPOSE 21889
 
-CMD ["node", "executor-bundle.cjs", "--port", "21889"]
+CMD ["sh", "-lc", "NODE_OPTIONS=\"${NODE_OPTIONS:+$NODE_OPTIONS }--import=/opt/proxy-bootstrap/bootstrap.mjs\" node executor-bundle.cjs --port 21889"]

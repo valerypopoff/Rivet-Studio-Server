@@ -26,6 +26,10 @@ RUN npm install -g pnpm
 
 WORKDIR /app
 
+# Install proxy bootstrap for Node fetch/undici traffic.
+COPY ops/proxy-bootstrap/ /opt/proxy-bootstrap/
+RUN --mount=type=cache,target=/root/.npm npm --prefix /opt/proxy-bootstrap ci
+
 # Copy API source
 COPY wrapper/api/ .
 COPY wrapper/shared/ /shared/
@@ -40,4 +44,4 @@ ENV RIVET_RUNTIME_LIBRARIES_ROOT=/data/runtime-libraries
 
 EXPOSE 80
 
-CMD ["npx", "tsx", "src/server.ts"]
+CMD ["sh", "-lc", "NODE_OPTIONS=\"${NODE_OPTIONS:+$NODE_OPTIONS }--import=/opt/proxy-bootstrap/bootstrap.mjs\" npx tsx src/server.ts"]
