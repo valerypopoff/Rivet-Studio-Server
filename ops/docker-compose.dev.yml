@@ -41,12 +41,16 @@ services:
         corepack enable &&
         corepack prepare yarn@4.6.0 --activate &&
         cd /workspace/rivet &&
-        if [ ! -d node_modules ] || [ -z \"$(ls -A node_modules 2>/dev/null)\" ]; then
+        if [ ! -f node_modules/.yarn.lock ] || ! cmp -s yarn.lock node_modules/.yarn.lock; then
           YARN_NODE_LINKER=node-modules YARN_CHECKSUM_BEHAVIOR=ignore yarn install --immutable ||
           YARN_NODE_LINKER=node-modules YARN_CHECKSUM_BEHAVIOR=ignore yarn install;
+          cp yarn.lock node_modules/.yarn.lock;
         fi &&
         cd /workspace/wrapper/web &&
-        if [ ! -d node_modules ] || [ -z \"$(ls -A node_modules 2>/dev/null)\" ]; then npm ci --legacy-peer-deps; fi &&
+        if [ ! -f node_modules/.package-lock.json ] || ! cmp -s package-lock.json node_modules/.package-lock.json; then
+          npm ci --legacy-peer-deps &&
+          cp package-lock.json node_modules/.package-lock.json;
+        fi &&
         npm run dev -- --host 0.0.0.0 --strictPort
       "
     healthcheck:
