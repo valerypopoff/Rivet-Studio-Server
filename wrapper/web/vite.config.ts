@@ -81,6 +81,24 @@ const resolveWrapperImport = (specifier: string) => {
   }
 };
 
+const resolveVendoredImport = (specifier: string, importer: string) => {
+  const importerRequire = createRequire(importer);
+
+  if (specifier === 'yaml') {
+    return resolve(__dirname, 'node_modules/yaml/browser/index.js');
+  }
+
+  if (specifier === 'yaml/util') {
+    return resolve(__dirname, 'node_modules/yaml/browser/dist/util.js');
+  }
+
+  try {
+    return importerRequire.resolve(specifier);
+  } catch {
+    return resolveWrapperImport(specifier);
+  }
+};
+
 const wrapperExactDependencyAliases = wrapperAliasedDependencies.map((dependency) => ({
   find: new RegExp(`^${escapeRegExp(dependency)}$`),
   replacement: resolveWrapperImport(dependency),
@@ -125,7 +143,7 @@ const resolveWrapperDependency = (): PluginOption => ({
 
     try {
       const { path, suffix } = splitImportSuffix(source);
-      const resolved = resolveWrapperImport(path);
+      const resolved = resolveVendoredImport(path, importer);
       return this.resolve(`${resolved}${suffix}`, importer, { skipSelf: true });
     } catch {
       return null;
