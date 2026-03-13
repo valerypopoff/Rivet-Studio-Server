@@ -1,5 +1,3 @@
-- Check if Runtime websocket defaults env varsd are actually used and how
-
 - Как-то помнить используемые библиотеки чтобы предупреждать что в лайве форкфлоу с такой-то библиотекой а ты собираешься удалить ее?
 
 

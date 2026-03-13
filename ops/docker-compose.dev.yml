@@ -31,6 +31,8 @@ services:
       - HTTPS_PROXY=${HTTPS_PROXY:-}
       - ALL_PROXY=${ALL_PROXY:-}
       - NO_PROXY=${NO_PROXY:-}
+      - npm_config_cache=/root/.npm
+      - YARN_CACHE_FOLDER=/root/.cache/yarn
       - VITE_RIVET_DEBUG_LOGS=${VITE_RIVET_DEBUG_LOGS:-false}
       - RIVET_PUBLISHED_WORKFLOWS_BASE_PATH=${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH:-/workflows}
       - RIVET_LATEST_WORKFLOWS_BASE_PATH=${RIVET_LATEST_WORKFLOWS_BASE_PATH:-/workflows-latest}
@@ -40,6 +42,8 @@ services:
       - ..:/workspace
       - rivet_node_modules:/workspace/rivet/node_modules
       - wrapper_web_node_modules:/workspace/wrapper/web/node_modules
+      - npm_cache:/root/.npm
+      - yarn_cache:/root/.cache/yarn
     command: >
       sh -lc "
         corepack enable &&
@@ -89,6 +93,7 @@ services:
       - HTTPS_PROXY=${HTTPS_PROXY:-}
       - ALL_PROXY=${ALL_PROXY:-}
       - NO_PROXY=${NO_PROXY:-}
+      - npm_config_cache=/root/.npm
       - PORT=80
       - RIVET_WORKSPACE_ROOT=/workspace
       - RIVET_WORKFLOWS_ROOT=/workflows
@@ -109,6 +114,7 @@ services:
       - ../wrapper/api:/app
       - ../wrapper/shared:/shared
       - wrapper_api_node_modules:/app/node_modules
+      - npm_cache:/root/.npm
       - ${RIVET_WORKFLOWS_HOST_PATH:-../workflows}:/workflows
       - rivet_data:/data/rivet-app
       - ${RIVET_RUNTIME_LIBS_HOST_PATH:-rivet_runtime_libs}:/data/runtime-libraries
@@ -147,9 +153,13 @@ services:
       - HTTPS_PROXY=${HTTPS_PROXY:-}
       - ALL_PROXY=${ALL_PROXY:-}
       - NO_PROXY=${NO_PROXY:-}
+      - npm_config_cache=/root/.npm
+      - YARN_CACHE_FOLDER=/root/.cache/yarn
       - HOME=/root
       - RIVET_RUNTIME_LIBRARIES_ROOT=/data/runtime-libraries
     volumes:
+      - npm_cache:/root/.npm
+      - yarn_cache:/root/.cache/yarn
       - rivet_data:/root/.local/share/com.ironcladapp.rivet
       - ${RIVET_RUNTIME_LIBS_HOST_PATH:-rivet_runtime_libs}:/data/runtime-libraries
     restart: unless-stopped
@@ -160,6 +170,10 @@ volumes:
   wrapper_web_node_modules:
     driver: local
   wrapper_api_node_modules:
+    driver: local
+  npm_cache:
+    driver: local
+  yarn_cache:
     driver: local
   rivet_data:
     driver: local

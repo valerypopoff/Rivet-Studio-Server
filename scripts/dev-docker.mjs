@@ -10,13 +10,14 @@ const diagnosticServices = 'api web executor proxy';
 
 function run(command, env, options = {}) {
   const allowFailure = options.allowFailure === true;
+  const stdio = options.stdio ?? 'inherit';
 
   return new Promise((resolve, reject) => {
     const child = spawn(command, {
       cwd: rootDir,
       env,
       shell: true,
-      stdio: 'inherit',
+      stdio,
     });
 
     child.on('error', reject);
@@ -26,6 +27,40 @@ function run(command, env, options = {}) {
         resolve(exitCode);
       } else {
         reject(new Error(`Command failed with exit code ${exitCode}: ${command}`));
+      }
+    });
+  });
+}
+
+function runCapture(command, env, options = {}) {
+  const allowFailure = options.allowFailure === true;
+
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, {
+      cwd: rootDir,
+      env,
+      shell: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    child.stdout.on('data', (chunk) => {
+      stdout += String(chunk);
+    });
+
+    child.stderr.on('data', (chunk) => {
+      stderr += String(chunk);
+    });
+
+    child.on('error', reject);
+    child.on('exit', (code) => {
+      const exitCode = code == null ? 1 : code;
+      if (exitCode === 0 || allowFailure) {
+        resolve({ exitCode, stdout, stderr });
+      } else {
+        reject(new Error(`Command failed with exit code ${exitCode}: ${command}\n${stderr}`.trim()));
       }
     });
   });
@@ -74,6 +109,14 @@ function ensurePortAvailable(port) {
   });
 }
 
+async function isComposeServiceRunning(service, env) {
+  const result = await runCapture(`${composeBase} ps --status running --services ${service}`, env, { allowFailure: true });
+  return result.stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .includes(service);
+}
+
 async function main() {
   const action = process.argv[2] == null ? 'dev' : process.argv[2];
   const fileEnv = parseEnvFile(envPath);
@@ -112,20 +155,24 @@ async function main() {
     config: [`${composeBase} config`],
     ps: [`${composeBase} ps`],
     logs: [`${composeBase} logs -f --tail=120 ${diagnosticServices}`],
-    dev: [`${composeBase} up --build -d --wait --wait-timeout ${waitTimeoutSeconds}`],
+    dev: [`${composeBase} up -d --wait --wait-timeout ${waitTimeoutSeconds}`],
+    recreate: [`${composeBase} up -d --force-recreate --wait --wait-timeout ${waitTimeoutSeconds}`],
   };
 
   const commands = commandsByAction[action];
 
   if (!commands) {
     console.error(`Unknown action: ${action}`);
-    console.error('Usage: node scripts/dev-docker.mjs [dev|build|up|down|config|ps|logs]');
+    console.error('Usage: node scripts/dev-docker.mjs [dev|recreate|build|up|down|config|ps|logs]');
     process.exit(1);
   }
 
   try {
     if (action === 'dev' || action === 'up') {
-      await ensurePortAvailable(proxyPort);
+      const proxyAlreadyRunning = await isComposeServiceRunning('proxy', mergedEnv);
+      if (!proxyAlreadyRunning) {
+        await ensurePortAvailable(proxyPort);
+      }
     }
 
     for (const command of commands) {

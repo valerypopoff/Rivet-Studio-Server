@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.7
 FROM node:20-alpine AS builder
 
 ARG HTTP_PROXY
@@ -17,7 +18,7 @@ WORKDIR /app
 COPY rivet/ /app/rivet/
 
 WORKDIR /app/rivet
-RUN YARN_NODE_LINKER=node-modules YARN_CHECKSUM_BEHAVIOR=ignore yarn install --immutable || YARN_NODE_LINKER=node-modules YARN_CHECKSUM_BEHAVIOR=ignore yarn install
+RUN --mount=type=cache,target=/root/.cache/yarn YARN_NODE_LINKER=node-modules YARN_CHECKSUM_BEHAVIOR=ignore yarn install --immutable || YARN_NODE_LINKER=node-modules YARN_CHECKSUM_BEHAVIOR=ignore yarn install
 
 RUN YARN_NODE_LINKER=node-modules yarn workspace @ironclad/rivet-core run build
 RUN YARN_NODE_LINKER=node-modules yarn workspace @ironclad/rivet-node run build

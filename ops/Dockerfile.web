@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.7
 FROM node:20-alpine AS builder
 
 ARG HTTP_PROXY
@@ -19,7 +20,7 @@ COPY rivet/ rivet/
 
 # Install upstream dependencies
 WORKDIR /app/rivet
-RUN YARN_NODE_LINKER=node-modules YARN_CHECKSUM_BEHAVIOR=ignore yarn install --immutable || YARN_NODE_LINKER=node-modules YARN_CHECKSUM_BEHAVIOR=ignore yarn install
+RUN --mount=type=cache,target=/root/.cache/yarn YARN_NODE_LINKER=node-modules YARN_CHECKSUM_BEHAVIOR=ignore yarn install --immutable || YARN_NODE_LINKER=node-modules YARN_CHECKSUM_BEHAVIOR=ignore yarn install
 
 # Build upstream core + trivet (needed for wrapper frontend)
 RUN YARN_NODE_LINKER=node-modules yarn workspace @ironclad/rivet-core run build
@@ -31,7 +32,7 @@ COPY wrapper/ wrapper/
 
 # Install wrapper web dependencies
 WORKDIR /app/wrapper/web
-RUN npm install --legacy-peer-deps
+RUN --mount=type=cache,target=/root/.npm npm install --legacy-peer-deps
 
 # Build wrapper frontend
 ARG VITE_RIVET_DEBUG_LOGS=false

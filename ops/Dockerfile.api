@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.7
 FROM node:20-alpine
 
 ARG HTTP_PROXY
@@ -21,8 +22,8 @@ WORKDIR /app
 COPY wrapper/api/ .
 COPY wrapper/shared/ /shared/
 
-# Install dependencies
-RUN npm ci
+# Install dependencies with a persistent BuildKit cache.
+RUN --mount=type=cache,target=/root/.npm npm ci
 
 # Create workspace and data directories
 RUN mkdir -p /workspace /workflows /data/rivet-app/plugins /data/rivet-app/logs /data/runtime-libraries
