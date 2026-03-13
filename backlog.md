@@ -1,3 +1,4 @@
+- Check if Runtime websocket defaults env varsd are actually used and how
 
 - Как-то помнить используемые библиотеки чтобы предупреждать что в лайве форкфлоу с такой-то библиотекой а ты собираешься удалить ее?
 
@@ -8,6 +9,7 @@
 
 - Приготовить сетап для запуска в проде в докере
 
+- Сделать скрипт который скачивает в папку rivet какую-то последнюю стабильную версию ривета из их гитхаба
 
 - Pass a webhook for a workflow right in the URL parameters like:
 host/workflows/name?webhook1=https://example.com/api/v1/webhook1&webhook2=https://example.com/api/v1/webhook2

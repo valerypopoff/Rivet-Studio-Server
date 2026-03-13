@@ -59,7 +59,7 @@ const commandsByAction = {
   up: [`${composeBase} up --build`],
   down: [`${composeBase} down`],
   config: [`${composeBase} config`],
-  dev: [`${composeBase} up --build`],
+  dev: [`${composeBase} up --build -d`],
 };
 
 const commands = commandsByAction[action];
