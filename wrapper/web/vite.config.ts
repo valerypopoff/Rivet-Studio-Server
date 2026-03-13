@@ -152,84 +152,85 @@ const resolveWrapperDependency = (): PluginOption => ({
 });
 
 export default defineConfig({
-  root: __dirname,
-  envDir: resolve(__dirname, '../..'),
-  envPrefix: ['VITE_', 'RIVET_'],
-  publicDir: resolve(upstreamApp, 'public'),
+    root: __dirname,
+    envDir: resolve(__dirname, '../..'),
+    envPrefix: ['VITE_', 'RIVET_'],
+    publicDir: resolve(upstreamApp, 'public'),
 
-  optimizeDeps: {
-    exclude: ['@ironclad/rivet-core', '@ironclad/trivet'],
-  },
+    optimizeDeps: {
+      exclude: ['@ironclad/rivet-core', '@ironclad/trivet'],
+    },
 
-  resolve: {
-    preserveSymlinks: true,
-    alias: [
-      ...createTauriShimAliases(shimDir),
-      ...createModuleOverrideAliases(overrideDir),
-      ...wrapperExactDependencyAliases,
-      ...createBrowserSubpathAliases(__dirname),
-      { find: '@ironclad/rivet-core', replacement: resolve(__dirname, '../../rivet/packages/core/src/index.ts') },
-      { find: '@ironclad/trivet', replacement: resolve(__dirname, '../../rivet/packages/trivet/src/index.ts') },
-    ],
-  },
+    resolve: {
+      preserveSymlinks: true,
+      alias: [
+        ...createTauriShimAliases(shimDir),
+        ...createModuleOverrideAliases(overrideDir),
+        ...wrapperExactDependencyAliases,
+        ...createBrowserSubpathAliases(__dirname),
+        { find: '@ironclad/rivet-core', replacement: resolve(__dirname, '../../rivet/packages/core/src/index.ts') },
+        { find: '@ironclad/trivet', replacement: resolve(__dirname, '../../rivet/packages/trivet/src/index.ts') },
+      ],
+    },
 
-  define: {
-    'import.meta.env.VITE_HOSTED_MODE': JSON.stringify('true'),
-  },
+    define: {
+      'import.meta.env.VITE_HOSTED_MODE': JSON.stringify('true'),
+    },
 
-  build: {
-    chunkSizeWarningLimit: 10000,
-    outDir: webDistDir,
-    emptyOutDir: true,
-    rollupOptions: {
-      output: {
-        manualChunks: (id) => {
-          if (id.includes('gpt-tokenizer')) {
-            return 'gpt-tokenizer';
-          }
+    build: {
+      chunkSizeWarningLimit: 10000,
+      outDir: webDistDir,
+      emptyOutDir: true,
+      rollupOptions: {
+        output: {
+          manualChunks: (id) => {
+            if (id.includes('gpt-tokenizer')) {
+              return 'gpt-tokenizer';
+            }
+          },
         },
       },
     },
-  },
 
-  plugins: [
-    resolveBrowserSafeGoogleCoreModule(),
-    resolveWrapperDependency(),
-    react(),
-    viteTsconfigPaths({ root: upstreamApp }),
-    svgr({
-      svgrOptions: {
-        icon: true,
-      },
-    }),
-    (monacoEditorPlugin as any).default({
-      publicPath: 'monacoeditorwork',
-      customDistPath: (_root: string, buildOutDir: string) => resolve(buildOutDir, 'monacoeditorwork'),
-    }),
-    topLevelAwait(),
-    splitVendorChunkPlugin(),
-  ],
+    plugins: [
+      resolveBrowserSafeGoogleCoreModule(),
+      resolveWrapperDependency(),
+      react(),
+      viteTsconfigPaths({ root: upstreamApp }),
+      svgr({
+        svgrOptions: {
+          icon: true,
+        },
+      }),
+      (monacoEditorPlugin as any).default({
+        publicPath: 'monacoeditorwork',
+        customDistPath: (_root: string, buildOutDir: string) => resolve(buildOutDir, 'monacoeditorwork'),
+      }),
+      topLevelAwait(),
+      splitVendorChunkPlugin(),
+    ],
 
-  worker: {
-    format: 'es',
-  },
-
-  server: {
-    port: 5174,
-    watch: {
-      usePolling: true,
-      interval: 300,
+    worker: {
+      format: 'es',
     },
-    proxy: {
-      '/api': {
-        target: 'http://localhost:3100',
-        changeOrigin: true,
+
+    server: {
+      allowedHosts: true,
+      port: 5174,
+      watch: {
+        usePolling: true,
+        interval: 300,
       },
-      '/ws': {
-        target: 'ws://localhost:21889',
-        ws: true,
-        rewrite: (path) => path.replace(/^\/ws\/executor(\/internal)?/, ''),
+      proxy: {
+        '/api': {
+          target: 'http://localhost:3100',
+          changeOrigin: true,
+        },
+        '/ws': {
+          target: 'ws://localhost:21889',
+          ws: true,
+          rewrite: (path) => path.replace(/^\/ws\/executor(\/internal)?/, ''),
+        },
       },
     },
-  },
 });

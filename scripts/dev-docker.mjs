@@ -1,4 +1,5 @@
 import path from 'node:path';
+import net from 'node:net';
 import { spawn } from 'node:child_process';
 import { parseEnvFile } from './lib/env.mjs';
 
@@ -36,6 +37,43 @@ async function printFailureDiagnostics(env) {
   await run(`${composeBase} logs --tail=120 ${diagnosticServices}`, env, { allowFailure: true });
 }
 
+function assertValidPort(value, fallback) {
+  const parsed = parseInt(value == null ? '' : value, 10);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 65535) {
+    return fallback;
+  }
+
+  return parsed;
+}
+
+function ensurePortAvailable(port) {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+
+    server.once('error', (error) => {
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'EADDRINUSE') {
+        reject(new Error(`[dev-docker] Host port ${port} is already in use. Set RIVET_PORT in .env.dev to a free port, or stop the process currently listening on ${port}.`));
+        return;
+      }
+
+      reject(error);
+    });
+
+    server.once('listening', () => {
+      server.close((closeError) => {
+        if (closeError) {
+          reject(closeError);
+          return;
+        }
+
+        resolve();
+      });
+    });
+
+    server.listen(port, '0.0.0.0');
+  });
+}
+
 async function main() {
   const action = process.argv[2] == null ? 'dev' : process.argv[2];
   const fileEnv = parseEnvFile(envPath);
@@ -65,6 +103,7 @@ async function main() {
   }
 
   const waitTimeoutSeconds = parseInt(mergedEnv.RIVET_DOCKER_WAIT_TIMEOUT ?? '900', 10);
+  const proxyPort = assertValidPort(mergedEnv.RIVET_PORT, 8080);
 
   const commandsByAction = {
     build: [`${composeBase} build api executor`],
@@ -85,6 +124,10 @@ async function main() {
   }
 
   try {
+    if (action === 'dev' || action === 'up') {
+      await ensurePortAvailable(proxyPort);
+    }
+
     for (const command of commands) {
       await run(command, mergedEnv);
     }
