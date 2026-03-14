@@ -4,8 +4,8 @@ import { z } from 'zod';
 import { validateBody } from '../middleware/validate.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
 import { conflict } from '../utils/httpError.js';
-import { ensureDirectories, readActiveRelease, readManifest } from '../runtime-libraries/manifest.js';
-import { jobRunner } from '../runtime-libraries/job-runner.js';
+import { currentNodeModulesPath, ensureDirectories, readManifest } from '../runtime-libraries/manifest.js';
+import { jobRunner, type JobStatus } from '../runtime-libraries/job-runner.js';
 
 export const runtimeLibrariesRouter = Router();
 
@@ -25,12 +25,10 @@ const removeSchema = z.object({
 runtimeLibrariesRouter.get('/', asyncHandler(async (_req, res) => {
   ensureDirectories();
   const manifest = readManifest();
-  const activeRelease = readActiveRelease();
 
   res.json({
     packages: manifest.packages,
-    activeRelease,
-    lastSuccessfulRelease: manifest.lastSuccessfulRelease,
+    hasActiveLibraries: Boolean(currentNodeModulesPath()),
     updatedAt: manifest.updatedAt,
     activeJob: jobRunner.getActiveJob(),
   });
@@ -105,7 +103,7 @@ runtimeLibrariesRouter.get('/jobs/:jobId/stream', (req: Request, res: Response) 
     res.write(`data: ${JSON.stringify({ type: 'log', message })}\n\n`);
   };
 
-  const onStatus = (jobId: string, status: string) => {
+  const onStatus = (jobId: string, status: JobStatus) => {
     if (jobId !== req.params.jobId) {
       return;
     }

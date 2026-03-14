@@ -1,22 +1,16 @@
 import { RIVET_API_BASE_URL } from '../../shared/hosted-env';
+import type { RuntimeLibraryEntry, JobStatus } from '../../shared/runtime-library-types';
+
+export type { RuntimeLibraryEntry, JobStatus };
 
 const API = `${RIVET_API_BASE_URL}/runtime-libraries`;
 
-export interface RuntimeLibraryEntry {
-  name: string;
-  version: string;
-  installedAt?: string;
-}
-
 export interface RuntimeLibrariesState {
   packages: Record<string, RuntimeLibraryEntry>;
-  activeRelease: string | null;
-  lastSuccessfulRelease: string | null;
+  hasActiveLibraries: boolean;
   updatedAt: string;
   activeJob: JobState | null;
 }
-
-export type JobStatus = 'queued' | 'running' | 'validating' | 'activating' | 'succeeded' | 'failed';
 
 export interface JobState {
   id: string;

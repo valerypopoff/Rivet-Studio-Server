@@ -1,8 +1,13 @@
 import { useCallback, useEffect, useRef, useState, type FC } from 'react';
-import { ToastContainer } from 'react-toastify';
+import { toast, ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { WorkflowLibraryPanel } from './WorkflowLibraryPanel';
 import type { WorkflowProjectPathMove } from './types';
+import {
+  isEditorToDashboardEvent,
+  isValidBridgeOrigin,
+} from '../../shared/editor-bridge';
+import { useEditorCommandQueue } from './useEditorCommandQueue';
 import './DashboardPage.css';
 
 const WORKFLOW_DASHBOARD_SIDEBAR_WIDTH = '300px';
@@ -15,12 +20,6 @@ const isSaveShortcutEvent = (event: KeyboardEvent) =>
   !event.altKey &&
   !event.shiftKey &&
   (event.code === 'KeyS' || event.key.toLowerCase() === 's');
-
-type EditorCommand =
-  | { type: 'open-project'; path: string; replaceCurrent: boolean }
-  | { type: 'save-project' }
-  | { type: 'delete-workflow-project'; path: string }
-  | { type: 'workflow-paths-moved'; moves: WorkflowProjectPathMove[] };
 
 type SidebarGhostState = {
   fromX: number;
@@ -36,7 +35,6 @@ type SidebarGhostState = {
 
 export const DashboardPage: FC = () => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const pendingEditorCommandRef = useRef<EditorCommand | null>(null);
   const restoreButtonRef = useRef<HTMLButtonElement>(null);
   const [openedProjectPath, setOpenedProjectPath] = useState('');
   const [activeWorkflowProjectPath, setActiveWorkflowProjectPath] = useState('');
@@ -49,17 +47,7 @@ export const DashboardPage: FC = () => {
   const [sidebarAnimating, setSidebarAnimating] = useState(false);
   const [sidebarGhost, setSidebarGhost] = useState<SidebarGhostState>(null);
 
-  const postEditorCommand = useCallback(
-    (command: EditorCommand) => {
-      if (!editorReady || !iframeRef.current?.contentWindow) {
-        pendingEditorCommandRef.current = command;
-        return;
-      }
-
-      iframeRef.current.contentWindow.postMessage(command, '*');
-    },
-    [editorReady],
-  );
+  const postEditorCommand = useEditorCommandQueue(iframeRef, editorReady);
 
   const handleOpenProject = useCallback((path: string, options?: { replaceCurrent?: boolean }) => {
     postEditorCommand({ type: 'open-project', path, replaceCurrent: Boolean(options?.replaceCurrent) });
@@ -85,15 +73,6 @@ export const DashboardPage: FC = () => {
     },
     [postEditorCommand],
   );
-
-  useEffect(() => {
-    if (!editorReady || !pendingEditorCommandRef.current || !iframeRef.current?.contentWindow) {
-      return;
-    }
-
-    iframeRef.current.contentWindow.postMessage(pendingEditorCommandRef.current, '*');
-    pendingEditorCommandRef.current = null;
-  }, [editorReady]);
 
   useEffect(() => {
     if (openProjectCount === 0) {
@@ -185,29 +164,34 @@ export const DashboardPage: FC = () => {
 
   useEffect(() => {
     const handler = (event: MessageEvent) => {
-      if (event.source !== iframeRef.current?.contentWindow) return;
-      if (event.data?.type === 'editor-ready') {
-        setEditorReady(true);
+      if (
+        !isValidBridgeOrigin(event, iframeRef.current?.contentWindow ?? null) ||
+        !isEditorToDashboardEvent(event.data)
+      ) {
         return;
       }
 
-      if (event.data?.type === 'project-opened' && typeof event.data.path === 'string') {
-        setOpenedProjectPath(event.data.path);
-        return;
-      }
-
-      if (event.data?.type === 'active-project-path-changed' && typeof event.data.path === 'string') {
-        setOpenedProjectPath(event.data.path);
-        return;
-      }
-
-      if (event.data?.type === 'open-project-count-changed' && typeof event.data.count === 'number') {
-        setOpenProjectCount(event.data.count);
-        return;
-      }
-
-      if (event.data?.type === 'project-saved' && typeof event.data.path === 'string') {
-        setProjectSaveSequence((prev) => prev + 1);
+      switch (event.data.type) {
+        case 'editor-ready':
+          setEditorReady(true);
+          break;
+        case 'project-opened':
+          setOpenedProjectPath(event.data.path);
+          setActiveWorkflowProjectPath(event.data.path);
+          break;
+        case 'active-project-path-changed':
+          setOpenedProjectPath(event.data.path);
+          setActiveWorkflowProjectPath(event.data.path);
+          break;
+        case 'open-project-count-changed':
+          setOpenProjectCount(event.data.count);
+          break;
+        case 'project-saved':
+          setProjectSaveSequence((prev) => prev + 1);
+          break;
+        case 'project-open-failed':
+          toast.error(`Failed to open project: ${event.data.error}`);
+          break;
       }
     };
     window.addEventListener('message', handler);

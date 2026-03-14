@@ -1,10 +1,9 @@
 import Button from '@atlaskit/button';
 import { useCallback, useEffect, useMemo, useRef, useState, type FC } from 'react';
-import ChevronDownIcon from 'majesticons/line/chevron-down-line.svg?react';
-import ChevronRightIcon from 'majesticons/line/chevron-right-line.svg?react';
 import CollapseLeftIcon from '../icons/arrow-collapse-left.svg?react';
 import { toast } from 'react-toastify';
 import { ActiveProjectSection } from './ActiveProjectSection';
+import { WorkflowFolderTree } from './WorkflowFolderTree';
 import { ProjectSettingsModal } from './ProjectSettingsModal';
 import { RuntimeLibrariesModal } from './RuntimeLibrariesModal';
 import {
@@ -20,37 +19,16 @@ import type {
   WorkflowProjectItem,
   WorkflowProjectPathMove,
 } from './types';
+import {
+  collectFolderIds,
+  DraggedWorkflowItem,
+  flattenFolders,
+  flattenProjects,
+  getParentRelativePath,
+  normalizeWorkflowPath,
+  ROOT_DROP_TARGET,
+} from './workflowLibraryHelpers';
 import './WorkflowLibraryPanel.css';
-
-const normalizePath = (path: string) => path.replace(/\\/g, '/').replace(/\/+$/, '');
-
-const ROOT_DROP_TARGET = '__root__';
-const PROJECT_FILE_EXTENSION = '.rivet-project';
-
-type DraggedWorkflowItem = {
-  itemType: 'folder' | 'project';
-  absolutePath: string;
-  relativePath: string;
-  parentRelativePath: string;
-};
-
-const flattenFolders = (items: WorkflowFolderItem[]): WorkflowFolderItem[] =>
-  items.flatMap((folder) => [folder, ...flattenFolders(folder.folders ?? [])]);
-
-const flattenProjects = (items: WorkflowFolderItem[]): WorkflowProjectItem[] =>
-  items.flatMap((folder) => [...folder.projects, ...flattenProjects(folder.folders ?? [])]);
-
-const collectFolderIds = (items: WorkflowFolderItem[]): string[] =>
-  items.flatMap((folder) => [folder.id, ...collectFolderIds(folder.folders ?? [])]);
-
-const countProjectsInFolder = (folder: WorkflowFolderItem): number =>
-  folder.projects.length + (folder.folders ?? []).reduce((count, childFolder) => count + countProjectsInFolder(childFolder), 0);
-
-const getParentRelativePath = (relativePath: string) => {
-  const normalized = relativePath.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
-  const lastSlashIndex = normalized.lastIndexOf('/');
-  return lastSlashIndex === -1 ? '' : normalized.slice(0, lastSlashIndex);
-};
 
 interface WorkflowLibraryPanelProps {
   onOpenProject: (path: string, options?: { replaceCurrent?: boolean }) => void;
@@ -190,11 +168,11 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
       return [];
     }
 
-    const normalizedActivePath = normalizePath(activePath);
+    const normalizedActivePath = normalizeWorkflowPath(activePath);
 
     return flattenedFolders
       .filter((folder) => {
-        const normalizedFolderPath = normalizePath(folder.absolutePath);
+        const normalizedFolderPath = normalizeWorkflowPath(folder.absolutePath);
         return normalizedActivePath === normalizedFolderPath || normalizedActivePath.startsWith(`${normalizedFolderPath}/`);
       })
       .sort((left, right) => left.absolutePath.length - right.absolutePath.length)
@@ -366,33 +344,6 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     await handleMoveDraggedItem('');
   };
 
-  const renderProjectRow = (project: WorkflowProjectItem) => (
-    <button
-      key={project.id}
-      ref={(node) => {
-        projectRowRefs.current[project.absolutePath] = node;
-      }}
-      className={`project-row project-row-status-${project.settings.status}${activePath === project.absolutePath ? ' active' : ''}${draggedItem?.itemType === 'project' && draggedItem.absolutePath === project.absolutePath ? ' dragging' : ''}`}
-      draggable={editorReady}
-      disabled={!editorReady}
-      onDragStart={handleDragStart({
-        itemType: 'project',
-        absolutePath: project.absolutePath,
-        relativePath: project.relativePath,
-        parentRelativePath: getParentRelativePath(project.relativePath),
-      })}
-      onDragEnd={handleDragEnd}
-      onClick={() => setSelectedProjectPath(project.absolutePath)}
-      onDoubleClick={() => onOpenProject(project.absolutePath)}
-      title={editorReady ? project.fileName : 'Loading editor...'}
-    >
-      <div className="project-main">
-        {project.settings.status !== 'unpublished' ? <span className={`project-status-dot ${project.settings.status}`} aria-hidden="true" /> : null}
-        <div className="label">{project.name}</div>
-      </div>
-    </button>
-  );
-
   const handleCreateFolder = async () => {
     const name = prompt('New folder name:');
     if (!name) {
@@ -483,91 +434,6 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     setSettingsModalProject(null);
   };
 
-  const renderFolder = (folder: WorkflowFolderItem): JSX.Element => {
-    const expanded = expandedFolders[folder.id] ?? false;
-    const projectCount = countProjectsInFolder(folder);
-
-    return (
-      <div className="folder" key={folder.id}>
-        <div
-          className={`folder-row${dropTargetFolderPath === folder.relativePath ? ' drag-over' : ''}${draggedItem?.itemType === 'folder' && draggedItem.absolutePath === folder.absolutePath ? ' dragging' : ''}`}
-          draggable={editorReady}
-          role="button"
-          tabIndex={0}
-          aria-expanded={expanded}
-          aria-label={`${expanded ? 'Collapse' : 'Expand'} ${folder.name}`}
-          onClick={handleFolderRowClick(folder)}
-          onKeyDown={handleFolderRowKeyDown(folder)}
-          onDragStart={handleDragStart({
-            itemType: 'folder',
-            absolutePath: folder.absolutePath,
-            relativePath: folder.relativePath,
-            parentRelativePath: getParentRelativePath(folder.relativePath),
-          })}
-          onDragEnd={handleDragEnd}
-          onDragOver={handleFolderDragOver(folder)}
-          onDragLeave={() => {
-            if (dropTargetFolderPath === folder.relativePath) {
-              setDropTargetFolderPath(null);
-            }
-          }}
-          onDrop={(event) => void handleFolderDrop(folder)(event)}
-        >
-          <span className="folder-toggle" aria-hidden="true">
-            {expanded ? <ChevronDownIcon /> : <ChevronRightIcon />}
-          </span>
-          <div className="folder-content">
-            <button
-              type="button"
-              className="folder-name-button"
-              onDoubleClick={(event) => {
-                event.stopPropagation();
-                void handleRenameFolder(folder);
-              }}
-              title={folder.name}
-            >
-              <div className="folder-main">
-                <div className="label">{folder.name}</div>
-                <div className="folder-project-count" aria-label={`${projectCount} project${projectCount === 1 ? '' : 's'} in ${folder.name}`}>
-                  {projectCount}
-                </div>
-              </div>
-            </button>
-          </div>
-          <div className="folder-actions">
-            <button
-              type="button"
-              className="icon-button"
-              onClick={(event) => {
-                event.stopPropagation();
-                void handleAddProject(folder);
-              }}
-              title={`Create project in ${folder.name}`}
-              aria-label={`Create project in ${folder.name}`}
-            >
-              +
-            </button>
-          </div>
-        </div>
-
-        {expanded ? (
-          <div className="folder-children">
-            {(folder.folders ?? []).map((childFolder) => renderFolder(childFolder))}
-            {(folder.folders ?? []).length === 0 && folder.projects.length === 0 ? (
-              <div className="state folder-empty-state">
-                <span>No Rivet projects in this folder.</span>
-                <button type="button" className="state-action" onClick={() => void handleDeleteFolder(folder)}>
-                  Delete
-                </button>
-              </div>
-            ) : null}
-            {folder.projects.map((project) => renderProjectRow(project))}
-          </div>
-        ) : null}
-      </div>
-    );
-  };
-
   let bodyContent: JSX.Element | null = null;
   if (loading) {
     bodyContent = <div className="state">Loading folders...</div>;
@@ -577,10 +443,41 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     bodyContent = <div className="state">No workflow projects yet. Use + New folder to create the first folder.</div>;
   } else {
     bodyContent = (
-      <>
-        {rootProjects.length > 0 ? <div className="projects">{rootProjects.map((project) => renderProjectRow(project))}</div> : null}
-        {folders.map((folder) => renderFolder(folder))}
-      </>
+      <WorkflowFolderTree
+        folders={folders}
+        rootProjects={rootProjects}
+        activePath={activePath}
+        draggedItem={draggedItem}
+        dropTargetFolderPath={dropTargetFolderPath}
+        expandedFolders={expandedFolders}
+        editorReady={editorReady}
+        setProjectRowRef={(path, node) => {
+          projectRowRefs.current[path] = node;
+        }}
+        onProjectSelect={setSelectedProjectPath}
+        onProjectOpen={onOpenProject}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        onFolderClick={handleFolderRowClick}
+        onFolderKeyDown={handleFolderRowKeyDown}
+        onFolderDragOver={handleFolderDragOver}
+        onFolderDrop={(folder) => (event) => void handleFolderDrop(folder)(event)}
+        onFolderDragLeave={(folder) => {
+          if (dropTargetFolderPath === folder.relativePath) {
+            setDropTargetFolderPath(null);
+          }
+        }}
+        onFolderRename={(folder) => {
+          void handleRenameFolder(folder);
+        }}
+        onFolderAddProject={(folder) => {
+          void handleAddProject(folder);
+        }}
+        onFolderDelete={(folder) => {
+          void handleDeleteFolder(folder);
+        }}
+        getParentRelativePath={getParentRelativePath}
+      />
     );
   }
 

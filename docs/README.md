@@ -1,12 +1,22 @@
-# Self-Hosted Rivet — Operational Runbook
+# Self-Hosted Rivet - Operational Runbook
+
+## Additional docs
+
+- [Architecture](./architecture.md)
+- [Development](./development.md)
+- [Editor bridge](./editor-bridge.md)
+- [Workflow publication](./workflow-publication.md)
+- [Runtime libraries](./runtime-libraries.md)
 
 ## Quick Start
 
 ### Prerequisites
-- Docker & Docker Compose
-- Upstream `rivet/` source in repo root
+
+- Docker and Docker Compose
+- upstream `rivet/` source in repo root
 
 ### Deploy
+
 ```bash
 cd ops
 cp .env.example .env
@@ -14,17 +24,15 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-Access at `http://localhost:8080` (or the port set in `RIVET_PORT`).
+Access the app at `http://localhost:8080` unless `RIVET_PORT` changes it.
 
-### Development (with Docker)
+### Development with Docker
 
 From the repo root:
 
 ```bash
 npm run dev
 ```
-
-This starts the Docker development stack in detached mode, waits for healthy services, and prints container diagnostics if startup fails.
 
 Useful follow-up commands:
 
@@ -34,64 +42,32 @@ npm run dev:docker:logs
 npm run dev:down
 ```
 
-### Development (without Docker)
+### Development without Docker
 
-1. **Install upstream deps & build core packages:**
-   ```bash
-   cd rivet && yarn install
-   yarn workspace @ironclad/rivet-core run build
-   yarn workspace @ironclad/trivet run build
-   ```
+1. Install upstream deps and build shared packages.
+2. Run `npm --prefix wrapper/api run dev`.
+3. Run `npm --prefix wrapper/web run dev`.
+4. Run the upstream executor when Node execution mode is needed.
 
-2. **Start API backend:**
-   ```bash
-   cd wrapper/api && npm install && npm run dev
-   ```
+## Runtime shape
 
-3. **Start wrapper frontend dev server:**
-   ```bash
-   cd wrapper/web && npm install && npm run dev
-   ```
-
-4. **Start executor (optional, for Node executor mode):**
-   ```bash
-   cd rivet && yarn workspace @ironclad/rivet-node run build
-   yarn workspace @ironclad/rivet-app-executor run build
-   node packages/app-executor/bin/executor.mjs --port 21889
-   ```
-
-### Update Upstream
-```bash
-# Replace rivet/ with new upstream
-bash ops/update-check.sh
-# If passes: rebuild & deploy
-docker compose up -d --build
+```text
+Browser -> nginx (proxy)
+           |- / -> web
+           |- /api/* -> api
+           `- /ws/executor* -> executor
 ```
-
-## Architecture
-
-```
-Browser → nginx (proxy)
-           ├── / → web (static frontend)
-           ├── /api/* → api (Node.js backend)
-           └── /ws/executor* → executor (WebSocket, port 21889)
-```
-
-## Volumes
-- `rivet_workspace` — project files, mounted at `/workspace` in api
-- `rivet_data` — shared plugin cache + logs, mounted in both api and executor
 
 ## Security
-- Filesystem access restricted to configured roots
-- Env var access is allowlist-only
-- Shell commands are allowlist-only (git, pnpm by default)
-- Path traversal prevention on all path parameters
+
+- filesystem access is restricted to configured roots
+- env var access is allowlist-only
+- shell commands are allowlist-only
+- path traversal is rejected on path parameters
 
 ### Optional external UI gate
-- Set `RIVET_KEY` to your shared secret.
-- Set `RIVET_REQUIRE_WORKFLOW_KEY=true` if workflow execution endpoints should require `Authorization: Bearer <RIVET_KEY>`.
-- Set `RIVET_REQUIRE_UI_GATE_KEY=true` if the browser UI and related websockets should require the token gate.
-- Set `RIVET_UI_TOKEN_FREE_HOSTS` to a comma-separated list of internal hostnames that should bypass the UI token check when the UI gate is enabled.
-- Those same hosts also bypass bearer-token auth for public workflow execution routes under `RIVET_PUBLISHED_WORKFLOWS_BASE_PATH` and `RIVET_LATEST_WORKFLOWS_BASE_PATH`.
-- When the UI gate is enabled, other hosts see a small browser prompt for the key on `/`; after successful entry, the key is posted to a proxy-backed auth endpoint and the proxy stores a derived HTTP-only session cookie for `/`, `/api/*`, `/ws/executor*`, and `/ws/latest-debugger`.
-- Public workflow execution routes still follow `RIVET_REQUIRE_WORKFLOW_KEY`, but requests from hosts listed in `RIVET_UI_TOKEN_FREE_HOSTS` bypass that bearer check.
+
+- set `RIVET_KEY` to the shared secret
+- set `RIVET_REQUIRE_WORKFLOW_KEY=true` to require `Authorization: Bearer <RIVET_KEY>` on workflow execution routes
+- set `RIVET_REQUIRE_UI_GATE_KEY=true` to gate the browser UI and related websockets
+- set `RIVET_UI_TOKEN_FREE_HOSTS` for internal hosts that should bypass the UI gate

@@ -4,6 +4,7 @@
 # Dependency + build artifacts
 node_modules/
 wrapper/**/node_modules/
+wrapper/api/dist/
 wrapper/web/dist/
 
 # Local runtime data

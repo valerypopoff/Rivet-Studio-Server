@@ -20,6 +20,7 @@ import type {
   WorkflowProjectSettingsDraft,
   WorkflowProjectStatus,
 } from './types';
+import { getParentRelativePath } from './workflowLibraryHelpers';
 
 const PROJECT_FILE_EXTENSION = '.rivet-project';
 const ENDPOINT_NAME_PATTERN = /^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$/;
@@ -56,12 +57,6 @@ const renderStatusExplanation = (status: WorkflowProjectStatus, endpointName: st
     default:
       return null;
   }
-};
-
-const getParentRelativePath = (relativePath: string) => {
-  const normalized = relativePath.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
-  const lastSlashIndex = normalized.lastIndexOf('/');
-  return lastSlashIndex === -1 ? '' : normalized.slice(0, lastSlashIndex);
 };
 
 type ProjectSettingsModalProps = {
@@ -359,7 +354,7 @@ export const ProjectSettingsModal: FC<ProjectSettingsModalProps> = ({
                         isDisabled={renamingProject || savingSettings || deletingProject}
                         aria-label="Rename project"
                       >
-                        ✎
+                        Edit
                       </Button>
                     ) : null}
                   </div>
@@ -372,7 +367,7 @@ export const ProjectSettingsModal: FC<ProjectSettingsModalProps> = ({
                   disabled={!canCloseModal}
                   aria-label="Close project settings"
                 >
-                  ×
+                  x
                 </button>
               </div>
 

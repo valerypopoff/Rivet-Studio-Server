@@ -1,17 +1,17 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-export interface RuntimeLibraryEntry {
-  name: string;
-  version: string;
-  installedAt?: string;
-}
+import type { RuntimeLibraryEntry } from '../../../shared/runtime-library-types.js';
+
+export type { RuntimeLibraryEntry };
 
 export interface RuntimeLibraryManifest {
   packages: Record<string, RuntimeLibraryEntry>;
-  activeRelease: string | null;
-  lastSuccessfulRelease: string | null;
   updatedAt: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value != null && typeof value === 'object' && !Array.isArray(value);
 }
 
 function getRuntimeLibrariesRoot(): string {
@@ -26,12 +26,8 @@ function manifestPath(): string {
   return path.join(getRuntimeLibrariesRoot(), 'manifest.json');
 }
 
-function activeReleasePath(): string {
-  return path.join(getRuntimeLibrariesRoot(), 'active-release');
-}
-
-export function releasesDir(): string {
-  return path.join(getRuntimeLibrariesRoot(), 'releases');
+export function currentDir(): string {
+  return path.join(getRuntimeLibrariesRoot(), 'current');
 }
 
 export function stagingDir(): string {
@@ -40,23 +36,53 @@ export function stagingDir(): string {
 
 export function ensureDirectories(): void {
   const root = getRuntimeLibrariesRoot();
-  fs.mkdirSync(path.join(root, 'releases'), { recursive: true });
+  fs.mkdirSync(root, { recursive: true });
   fs.mkdirSync(path.join(root, 'staging'), { recursive: true });
 }
 
 export function emptyManifest(): RuntimeLibraryManifest {
   return {
     packages: {},
-    activeRelease: null,
-    lastSuccessfulRelease: null,
     updatedAt: new Date().toISOString(),
+  };
+}
+
+export function normalizeManifest(value: unknown): RuntimeLibraryManifest {
+  const defaults = emptyManifest();
+  if (!isRecord(value)) {
+    return defaults;
+  }
+
+  const rawPackages = isRecord(value.packages) ? value.packages : {};
+  const packages = Object.fromEntries(
+    Object.entries(rawPackages)
+      .map(([packageName, entry]) => {
+        if (!packageName || !isRecord(entry) || typeof entry.version !== 'string' || !entry.version.trim()) {
+          return null;
+        }
+
+        return [
+          packageName,
+          {
+            name: packageName,
+            version: entry.version,
+            ...(typeof entry.installedAt === 'string' ? { installedAt: entry.installedAt } : {}),
+          } satisfies RuntimeLibraryEntry,
+        ] as const;
+      })
+      .filter((entry): entry is readonly [string, RuntimeLibraryEntry] => entry != null),
+  );
+
+  return {
+    packages,
+    updatedAt: typeof value.updatedAt === 'string' ? value.updatedAt : defaults.updatedAt,
   };
 }
 
 export function readManifest(): RuntimeLibraryManifest {
   try {
     const raw = fs.readFileSync(manifestPath(), 'utf8');
-    return JSON.parse(raw) as RuntimeLibraryManifest;
+    return normalizeManifest(JSON.parse(raw) as unknown);
   } catch {
     return emptyManifest();
   }
@@ -69,43 +95,8 @@ export function writeManifest(manifest: RuntimeLibraryManifest): void {
   fs.renameSync(tmp, manifestPath());
 }
 
-export function readActiveRelease(): string | null {
-  try {
-    const id = fs.readFileSync(activeReleasePath(), 'utf8').trim();
-    return id || null;
-  } catch {
-    return null;
-  }
-}
-
-export function writeActiveRelease(releaseId: string): void {
-  const tmp = activeReleasePath() + '.tmp';
-  fs.writeFileSync(tmp, releaseId, 'utf8');
-  fs.renameSync(tmp, activeReleasePath());
-}
-
-export function nextReleaseId(): string {
-  const dir = releasesDir();
-  try {
-    const entries = fs.readdirSync(dir).filter((entry) => /^\d{4}$/.test(entry)).sort();
-    if (entries.length === 0) {
-      return '0001';
-    }
-
-    const last = parseInt(entries[entries.length - 1]!, 10);
-    return String(last + 1).padStart(4, '0');
-  } catch {
-    return '0001';
-  }
-}
-
-export function activeReleaseNodeModulesPath(): string | null {
-  const releaseId = readActiveRelease();
-  if (!releaseId) {
-    return null;
-  }
-
-  const nodeModulesPath = path.join(releasesDir(), releaseId, 'node_modules');
+export function currentNodeModulesPath(): string | null {
+  const nodeModulesPath = path.join(currentDir(), 'node_modules');
   if (!fs.existsSync(nodeModulesPath)) {
     return null;
   }

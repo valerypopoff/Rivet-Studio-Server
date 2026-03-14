@@ -56,7 +56,7 @@ The work should happen in this order:
 4. Reduce operational and generated-code noise so the repository has a clear source of truth.
 5. Only then do smaller cleanup passes.
 
-## Phase 0: Add a Wrapper Regression Harness
+## Phase 0: Add a Wrapper Regression Harness - DONE
 
 This phase is mandatory before meaningful structural refactors.
 
@@ -95,7 +95,7 @@ This phase is mandatory before meaningful structural refactors.
 - clearer product contract for open-source contributors
 - fewer manual regressions during architecture cleanup
 
-## Phase 1: Consolidate Workflow Backend Logic
+## Phase 1: Consolidate Workflow Backend Logic - DONE
 
 The workflow feature set is the most important wrapper-owned product logic, and it is currently spread across `index.ts`, `tree.ts`, `publication.ts`, `execution.ts`, and `fs-helpers.ts`.
 
@@ -131,7 +131,7 @@ The route file should become thin request/response glue only.
 - easier testing of workflow logic without HTTP-level boilerplate
 - lower risk when adding future features like import/export or bulk operations
 
-## Phase 2: Replace the Ad Hoc Dashboard/Editor Protocol With a Typed Bridge
+## Phase 2: Replace the Ad Hoc Dashboard/Editor Protocol With a Typed Bridge - DONE
 
 The dashboard and embedded editor coordination is one of the most fragile parts of the app. `DashboardPage.tsx` and `EditorMessageBridge.tsx` exchange stringly typed `postMessage` commands and events with duplicated assumptions on both sides.
 
@@ -164,7 +164,7 @@ Then build small send/receive helpers so both sides depend on the same contract.
 - smaller React components
 - easier onboarding for contributors because the integration contract becomes explicit
 
-## Phase 3: Split Large Frontend Components by Responsibility
+## Phase 3: Split Large Frontend Components by Responsibility - DONE
 
 The dashboard works, but some wrapper-owned components still bundle too much state, orchestration, and rendering together.
 
@@ -201,7 +201,7 @@ Split each large component into:
 - easier review of future UI changes
 - easier targeted testing of behavior like drag/drop and active-project resolution
 
-## Phase 4: Simplify Runtime Library Management Without Weakening Reliability
+## Phase 4: Simplify Runtime Library Management Without Weakening Reliability - DONE
 
 The runtime library feature is valuable, but its internal implementation still carries more release-management machinery than the product needs.
 
@@ -231,7 +231,7 @@ Any simplification here must preserve the current important property: a failed i
 - easier recovery and reasoning
 - fewer moving parts for operators
 
-## Phase 5: Narrow and Normalize API Route Shapes
+## Phase 5: Narrow and Normalize API Route Shapes - DONE
 
 The API has improved, but route organization still reflects implementation history more than a stable public wrapper contract.
 
@@ -254,7 +254,7 @@ The API has improved, but route organization still reflects implementation histo
 - fewer hidden compatibility layers
 - easier future auth and audit work
 
-## Phase 6: Clean Up Source-of-Truth Boundaries
+## Phase 6: Clean Up Source-of-Truth Boundaries - DONE
 
 For an open-source project, the repository needs to make it obvious which files are authored source and which are generated output.
 
@@ -276,7 +276,7 @@ For an open-source project, the repository needs to make it obvious which files 
 - fewer false positives when searching the repo
 - clearer open-source contributor experience
 
-## Phase 7: Reduce Incidental Ops and Dev Complexity
+## Phase 7: Reduce Incidental Ops and Dev Complexity - DONE
 
 The product architecture is already clear, but the local/dev/ops tooling can be simplified further so the codebase is easier to run and reason about.
 
@@ -299,7 +299,7 @@ The product architecture is already clear, but the local/dev/ops tooling can be 
 - fewer environment-specific surprises
 - less maintenance burden in repo-level scripts
 
-## Phase 8: Documentation Restructure for Open Source Readability
+## Phase 8: Documentation Restructure for Open Source Readability - DONE
 
 This is not just cleanup. It directly affects maintainability.
 

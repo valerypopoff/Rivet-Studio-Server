@@ -1,7 +1,6 @@
 import { type FC, useEffect, useRef } from 'react';
 import { useOpenWorkflowProject } from './useOpenWorkflowProject';
 import { getError } from '@ironclad/rivet-core';
-import { toast } from 'react-toastify';
 import { useLoadProject } from '../../../rivet/packages/app/src/hooks/useLoadProject';
 import { useSaveProject } from '../../../rivet/packages/app/src/hooks/useSaveProject';
 import { useAtom, useAtomValue } from 'jotai';
@@ -13,6 +12,11 @@ import {
   projectState,
 } from '../../../rivet/packages/app/src/state/savedGraphs';
 import type { WorkflowProjectPathMove } from './types';
+import {
+  isDashboardToEditorCommand,
+  isValidBridgeOrigin,
+  postMessageToDashboard,
+} from '../../shared/editor-bridge';
 
 const isWindowsPlatform = typeof navigator !== 'undefined' && /Win/.test(navigator.platform ?? '');
 const isSaveShortcutEvent = (event: KeyboardEvent) =>
@@ -42,7 +46,7 @@ export const EditorMessageBridge: FC = () => {
   };
 
   useEffect(() => {
-    window.parent.postMessage({ type: 'editor-ready' }, '*');
+    postMessageToDashboard({ type: 'editor-ready' });
   }, []);
 
   useEffect(() => {
@@ -54,7 +58,7 @@ export const EditorMessageBridge: FC = () => {
         return;
       }
 
-      window.parent.postMessage({ type: 'project-saved', path: savedPath }, '*');
+      postMessageToDashboard({ type: 'project-saved', path: savedPath });
     };
 
     window.addEventListener('rivet-project-saved', handler as EventListener);
@@ -87,98 +91,105 @@ export const EditorMessageBridge: FC = () => {
 
   useEffect(() => {
     const handler = async (event: MessageEvent) => {
-      if (event.data?.type === 'save-project') {
-        await saveCurrentProject();
+      if (!isValidBridgeOrigin(event, window.parent)) {
         return;
       }
 
-      if (event.data?.type === 'delete-workflow-project' && typeof event.data.path === 'string') {
-        const deletedPath = event.data.path;
-        const deletedProjectId = openedProjectIds.find((projectId) => openedProjects[projectId]?.fsPath === deletedPath);
+      if (!isDashboardToEditorCommand(event.data)) {
+        return;
+      }
 
-        if (!deletedProjectId) {
-          if (loadedProject.path === deletedPath) {
-            setLoadedProject({ loaded: false, path: '' });
+      switch (event.data.type) {
+        case 'save-project': {
+          await saveCurrentProject();
+          break;
+        }
+
+        case 'delete-workflow-project': {
+          const deletedPath = event.data.path;
+          const deletedProjectId = openedProjectIds.find((projectId) => openedProjects[projectId]?.fsPath === deletedPath);
+
+          if (!deletedProjectId) {
+            if (loadedProject.path === deletedPath) {
+              setLoadedProject({ loaded: false, path: '' });
+            }
+            break;
           }
-          return;
-        }
 
-        const deletedProjectIndex = openedProjectIds.indexOf(deletedProjectId);
-        const nextOpenedProjectIds = openedProjectIds.filter((projectId) => projectId !== deletedProjectId);
-        const remainingProjects = Object.fromEntries(
-          Object.entries(openedProjects).filter(([projectId]) => projectId !== deletedProjectId),
-        ) as Record<string, OpenedProjectInfo>;
+          const deletedProjectIndex = openedProjectIds.indexOf(deletedProjectId);
+          const nextOpenedProjectIds = openedProjectIds.filter((projectId) => projectId !== deletedProjectId);
+          const remainingProjects = Object.fromEntries(
+            Object.entries(openedProjects).filter(([projectId]) => projectId !== deletedProjectId),
+          ) as Record<string, OpenedProjectInfo>;
 
-        setProjects({
-          openedProjects: remainingProjects,
-          openedProjectsSortedIds: nextOpenedProjectIds,
-        });
-
-        if (nextOpenedProjectIds.length === 0) {
-          setLoadedProject({ loaded: false, path: '' });
-          return;
-        }
-
-        const fallbackProjectId = nextOpenedProjectIds[deletedProjectIndex] ?? nextOpenedProjectIds[deletedProjectIndex - 1];
-
-        if (deletedProjectId === currentProject.metadata.id && fallbackProjectId && remainingProjects[fallbackProjectId]) {
-          await loadProjectRef.current(remainingProjects[fallbackProjectId]!);
-        } else if (loadedProject.path === deletedPath) {
-          setLoadedProject({
-            loaded: true,
-            path: remainingProjects[fallbackProjectId!]?.fsPath ?? '',
+          setProjects({
+            openedProjects: remainingProjects,
+            openedProjectsSortedIds: nextOpenedProjectIds,
           });
+
+          if (nextOpenedProjectIds.length === 0) {
+            setLoadedProject({ loaded: false, path: '' });
+            break;
+          }
+
+          const fallbackProjectId = nextOpenedProjectIds[deletedProjectIndex] ?? nextOpenedProjectIds[deletedProjectIndex - 1];
+
+          if (deletedProjectId === currentProject.metadata.id && fallbackProjectId && remainingProjects[fallbackProjectId]) {
+            await loadProjectRef.current(remainingProjects[fallbackProjectId]!);
+          } else if (loadedProject.path === deletedPath) {
+            setLoadedProject({
+              loaded: true,
+              path: remainingProjects[fallbackProjectId!]?.fsPath ?? '',
+            });
+          }
+
+          break;
         }
 
-        return;
-      }
+        case 'workflow-paths-moved': {
+          const moves: WorkflowProjectPathMove[] = event.data.moves;
+          if (moves.length === 0) {
+            break;
+          }
 
-      if (event.data?.type === 'workflow-paths-moved' && Array.isArray(event.data.moves)) {
-        const moves: WorkflowProjectPathMove[] = event.data.moves.filter(
-          (move: WorkflowProjectPathMove) =>
-            move && typeof move.fromAbsolutePath === 'string' && typeof move.toAbsolutePath === 'string',
-        );
+          const moveMap = new Map(moves.map((move) => [move.fromAbsolutePath, move.toAbsolutePath]));
+          const openedProjectsRecord = openedProjects as Record<string, OpenedProjectInfo>;
+          const nextOpenedProjects = Object.fromEntries(
+            Object.entries(openedProjectsRecord).map(([projectId, projectInfo]) => [
+              projectId,
+              projectInfo.fsPath && moveMap.has(projectInfo.fsPath)
+                ? {
+                    ...projectInfo,
+                    fsPath: moveMap.get(projectInfo.fsPath)!,
+                  }
+                : projectInfo,
+            ]),
+          ) as Record<string, OpenedProjectInfo>;
 
-        if (moves.length === 0) {
-          return;
+          setOpenedProjects(nextOpenedProjects);
+
+          if (loadedProject.path && moveMap.has(loadedProject.path)) {
+            setLoadedProject({
+              ...loadedProject,
+              path: moveMap.get(loadedProject.path)!,
+            });
+          }
+
+          break;
         }
 
-        const moveMap = new Map(moves.map((move) => [move.fromAbsolutePath, move.toAbsolutePath]));
-        const openedProjectsRecord = openedProjects as Record<string, OpenedProjectInfo>;
-        const nextOpenedProjects = Object.fromEntries(
-          Object.entries(openedProjectsRecord).map(([projectId, projectInfo]) => [
-            projectId,
-            projectInfo.fsPath && moveMap.has(projectInfo.fsPath)
-              ? {
-                  ...projectInfo,
-                  fsPath: moveMap.get(projectInfo.fsPath)!,
-                }
-              : projectInfo,
-          ]),
-        ) as Record<string, OpenedProjectInfo>;
+        case 'open-project': {
+          try {
+            await openProjectRef.current(event.data.path, { replaceCurrent: Boolean(event.data.replaceCurrent) });
+            postMessageToDashboard({ type: 'project-opened', path: event.data.path });
+          } catch (error) {
+            const message = getError(error).message;
+            console.error('Failed to open workflow project:', error);
+            postMessageToDashboard({ type: 'project-open-failed', path: event.data.path, error: message });
+          }
 
-        setOpenedProjects(nextOpenedProjects);
-
-        if (loadedProject.path && moveMap.has(loadedProject.path)) {
-          setLoadedProject({
-            ...loadedProject,
-            path: moveMap.get(loadedProject.path)!,
-          });
+          break;
         }
-
-        return;
-      }
-
-      if (event.data?.type !== 'open-project' || typeof event.data.path !== 'string') return;
-
-      try {
-        await openProjectRef.current(event.data.path, { replaceCurrent: Boolean(event.data.replaceCurrent) });
-        window.parent.postMessage({ type: 'project-opened', path: event.data.path }, '*');
-      } catch (error) {
-        const message = getError(error).message;
-        console.error('Failed to open workflow project:', error);
-        toast.error(`Failed to open project: ${message}`);
-        window.parent.postMessage({ type: 'project-open-failed', path: event.data.path, error: message }, '*');
       }
     };
 
@@ -190,23 +201,17 @@ export const EditorMessageBridge: FC = () => {
     const activeProjectInfo = openedProjects[currentProject.metadata.id];
     const activeProjectPath = openedProjectIds.length > 0 ? activeProjectInfo?.fsPath ?? '' : '';
 
-    window.parent.postMessage(
-      {
-        type: 'active-project-path-changed',
-        path: activeProjectPath,
-      },
-      '*',
-    );
+    postMessageToDashboard({
+      type: 'active-project-path-changed',
+      path: activeProjectPath,
+    });
   }, [currentProject.metadata.id, openedProjectIds, openedProjects]);
 
   useEffect(() => {
-    window.parent.postMessage(
-      {
-        type: 'open-project-count-changed',
-        count: openedProjectIds.length,
-      },
-      '*',
-    );
+    postMessageToDashboard({
+      type: 'open-project-count-changed',
+      count: openedProjectIds.length,
+    });
   }, [openedProjectIds.length]);
 
   return null;

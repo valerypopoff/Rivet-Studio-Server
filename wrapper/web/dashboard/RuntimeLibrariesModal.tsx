@@ -48,7 +48,6 @@ export const RuntimeLibrariesModal: FC<RuntimeLibrariesModalProps> = ({
 
   const logPanelRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
-  const dismissedJobIdRef = useRef<string | null>(null);
   const wasOpenRef = useRef(false);
 
   const isJobActive = activeJob != null &&
@@ -65,7 +64,6 @@ export const RuntimeLibrariesModal: FC<RuntimeLibrariesModalProps> = ({
       // If there's an active job in progress, start streaming
       if (
         data.activeJob &&
-        data.activeJob.id !== dismissedJobIdRef.current &&
         data.activeJob.status !== 'succeeded' &&
         data.activeJob.status !== 'failed'
       ) {
@@ -85,7 +83,6 @@ export const RuntimeLibrariesModal: FC<RuntimeLibrariesModalProps> = ({
       wasOpenRef.current = true;
       refresh();
     } else if (wasOpenRef.current) {
-      dismissedJobIdRef.current = activeJob?.id ?? null;
       eventSourceRef.current?.close();
       setActiveJob(null);
       setLogs([]);
@@ -125,6 +122,9 @@ export const RuntimeLibrariesModal: FC<RuntimeLibrariesModalProps> = ({
           refresh();
         }
       },
+      () => {
+        setError('Lost connection to the runtime library job stream.');
+      },
     );
 
     eventSourceRef.current = source;
@@ -134,7 +134,6 @@ export const RuntimeLibrariesModal: FC<RuntimeLibrariesModalProps> = ({
     if (!addName.trim()) return;
 
     try {
-      dismissedJobIdRef.current = null;
       setError(null);
       setJobResult(null);
       setLogs([]);
@@ -151,7 +150,6 @@ export const RuntimeLibrariesModal: FC<RuntimeLibrariesModalProps> = ({
 
   const handleRemove = useCallback(async (packageName: string) => {
     try {
-      dismissedJobIdRef.current = null;
       setError(null);
       setJobResult(null);
       setLogs([]);
@@ -198,7 +196,7 @@ export const RuntimeLibrariesModal: FC<RuntimeLibrariesModalProps> = ({
                 onClick={onClose}
                 aria-label="Close runtime libraries"
               >
-                ×
+                x
               </button>
             </div>
 
@@ -281,6 +279,7 @@ export const RuntimeLibrariesModal: FC<RuntimeLibrariesModalProps> = ({
                   appearance="primary"
                   className="runtime-libraries-add-button button-size-l"
                   onClick={() => setShowInstallForm(true)}
+                  isDisabled={isJobActive}
                 >
                   Add library...
                 </Button>

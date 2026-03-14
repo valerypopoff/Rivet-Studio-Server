@@ -181,7 +181,7 @@ const sendHostedTrace = (client, level, args) => {
       contents = replaceOrThrow(
         contents,
         '      const require = import.meta ? createRequire(import.meta.url) : module.require;',
-        `      // Dynamic runtime-library resolution: reads the active-release pointer
+        `      // Dynamic runtime-library resolution: reads the current/ directory
       // on each code-node invocation so hot-installed packages are available
       // without restarting the executor process.
       //
@@ -194,12 +194,9 @@ const sendHostedTrace = (client, level, args) => {
         const __fs = __defaultRequire('fs');
         const __path = __defaultRequire('path');
         const __rtRoot = process.env.RIVET_RUNTIME_LIBRARIES_ROOT || '/data/runtime-libraries';
-        const __pointer = __fs.readFileSync(__path.join(__rtRoot, 'active-release'), 'utf8').trim();
-        if (__pointer) {
-          const __nmPath = __path.join(__rtRoot, 'releases', __pointer, 'node_modules');
-          if (__fs.existsSync(__nmPath)) {
-            __rtLibRequire = createRequire(__path.join(__nmPath, '__virtual.cjs'));
-          }
+        const __nmPath = __path.join(__rtRoot, 'current', 'node_modules');
+        if (__fs.existsSync(__nmPath)) {
+          __rtLibRequire = createRequire(__path.join(__nmPath, '__virtual.cjs'));
         }
       } catch {}
       const require = __rtLibRequire ?? __defaultRequire;`,

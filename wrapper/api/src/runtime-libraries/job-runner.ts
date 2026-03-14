@@ -4,19 +4,18 @@ import { createRequire } from 'node:module';
 import { EventEmitter } from 'node:events';
 
 import {
+  currentDir,
   ensureDirectories,
-  nextReleaseId,
   readManifest,
-  releasesDir,
   stagingDir,
-  writeActiveRelease,
   writeManifest,
   type RuntimeLibraryEntry,
   type RuntimeLibraryManifest,
 } from './manifest.js';
 import { execStreaming } from '../utils/exec.js';
+import type { JobStatus } from '../../../shared/runtime-library-types.js';
 
-export type JobStatus = 'queued' | 'running' | 'validating' | 'activating' | 'succeeded' | 'failed';
+export type { JobStatus };
 export type JobType = 'install' | 'remove';
 
 export interface JobState {
@@ -202,19 +201,13 @@ class JobRunner extends EventEmitter {
     this.appendLog(job, 'Validation passed');
 
     this.setStatus(job, 'activating');
-    const releaseId = nextReleaseId();
-    const releasePath = path.join(releasesDir(), releaseId);
-
-    this.appendLog(job, `Promoting to release ${releaseId}...`);
-    fs.renameSync(staging, releasePath);
-    writeActiveRelease(releaseId);
+    this.appendLog(job, 'Promoting staged libraries...');
+    this.activateStaging(staging);
 
     manifest.packages = candidatePackages;
-    manifest.activeRelease = releaseId;
-    manifest.lastSuccessfulRelease = releaseId;
     writeManifest(manifest);
 
-    this.appendLog(job, `Release ${releaseId} is now active`);
+    this.appendLog(job, 'Current runtime libraries are now active');
     this.appendLog(job, '--- Job completed successfully ---');
     this.setStatus(job, 'succeeded');
     job.finishedAt = new Date().toISOString();
@@ -272,6 +265,32 @@ class JobRunner extends EventEmitter {
     }
 
     return errors;
+  }
+
+  private activateStaging(staging: string): void {
+    const current = currentDir();
+    const backup = `${current}.previous`;
+
+    fs.rmSync(backup, { recursive: true, force: true });
+
+    try {
+      if (fs.existsSync(current)) {
+        fs.renameSync(current, backup);
+      }
+
+      fs.renameSync(staging, current);
+      fs.rmSync(backup, { recursive: true, force: true });
+    } catch (error) {
+      if (!fs.existsSync(current) && fs.existsSync(backup)) {
+        try {
+          fs.renameSync(backup, current);
+        } catch {
+          // ignore restoration failure and surface the original error
+        }
+      }
+
+      throw error;
+    }
   }
 
   private failJob(job: JobState, err: unknown): void {

@@ -105,9 +105,17 @@ This area owns:
 - runtime library management (install, remove, validation, staged promotion)
 - allowed environment/config exposure
 
+The wrapper API also carries most wrapper regression coverage under `wrapper/api/src/tests/`.
+
 ### `wrapper/shared/`
 
-Shared wrapper-owned contracts and environment helpers.
+Shared wrapper-owned contracts, typed bridge messages, and environment helpers.
+
+This area owns:
+
+- hosted environment derivation
+- shared workflow-related types
+- the typed editor/dashboard bridge contract in `wrapper/shared/editor-bridge.ts`
 
 ### `ops/`
 
@@ -275,7 +283,13 @@ The dashboard and the embedded editor are deliberately split into two cooperatin
 
 - the dashboard owns wrapper UI, workflow browsing, popup state, and high-level file-management actions
 - the embedded editor owns actual Rivet project editing and tab state
-- the two sides coordinate through `postMessage` in `DashboardPage.tsx` and `EditorMessageBridge.tsx`
+- the two sides coordinate through the shared typed message contract in `wrapper/shared/editor-bridge.ts`, implemented by `DashboardPage.tsx` and `EditorMessageBridge.tsx`
+
+Bridge behavior is intentionally defensive:
+
+- both sides validate inbound messages by shape before acting on them
+- the bridge only accepts messages from the expected window/origin/source combination
+- outbound messages target the current browser origin instead of wildcard `*`
 
 That message bridge is responsible for wrapper-specific coordination such as:
 
@@ -293,7 +307,9 @@ That message bridge is responsible for wrapper-specific coordination such as:
 - the pane exposes a root-level `+ New folder` action at the bottom of the tree area
 - nested folders can then be formed by dragging folders into other folders
 - new workflow projects are created from the `+` action on each folder row
-- workflow list, create, rename, publish, unpublish, delete, and move operations are implemented under `wrapper/api/src/routes/workflows/index.ts`
+- workflow list, create, rename, publish, unpublish, delete, and move operations are routed from `wrapper/api/src/routes/workflows/index.ts`
+- the actual workflow logic is split across `workflow-query.ts`, `workflow-mutations.ts`, `publication.ts`, `execution.ts`, and shared helpers in `fs-helpers.ts`
+- dot-prefixed names and relative path segments are rejected so wrapper-internal paths such as `.published` never appear as user workflow items
 
 ### Folder and project interactions
 
@@ -303,6 +319,8 @@ That message bridge is responsible for wrapper-specific coordination such as:
 - double-clicking the folder name triggers rename from the tree row
 - single-clicking a project row selects it in the pane without opening it in the editor
 - double-clicking a project row opens it in the editor and normally activates or adds an editor tab instead of replacing the current tab
+- project rename and move operations carry `.rivet-data` and `.wrapper-settings.json` sidecars with the project instead of leaving metadata behind
+- project rename and move operations reject conflicting sidecar targets before mutating disk, so half-moved project state is avoided
 
 ### Active project visibility
 
@@ -524,6 +542,7 @@ The feature is accessed through the `Runtime libraries` button at the bottom of 
 - an install button that starts a background job
 - a live log panel that streams npm install output in real time via Server-Sent Events
 - a final success or failure verdict when the job completes
+- if the modal is reopened while a job is still running, it reconnects to that in-progress job and resumes the streamed log view
 
 Controls are disabled while a job is running. Feedback stays inside the modal rather than producing global toasts.
 
@@ -531,7 +550,7 @@ Controls are disabled while a job is running. Feedback stays inside the modal ra
 
 Runtime library management is served by `wrapper/api/src/routes/runtime-libraries.ts` under `/api/runtime-libraries`:
 
-- `GET /` returns the current manifest (installed packages, active release, active job)
+- `GET /` returns the current manifest-derived state (`packages`, `hasActiveLibraries`, `updatedAt`, and `activeJob`)
 - `POST /install` starts a background install job (returns 202)
 - `POST /remove` starts a background removal job (returns 202)
 - `GET /jobs/:jobId` returns job state
@@ -539,21 +558,17 @@ Runtime library management is served by `wrapper/api/src/routes/runtime-librarie
 
 Only one mutating job runs at a time. Concurrent requests receive a 409 Conflict response.
 
-### Versioned release model
+### Runtime library activation model
 
-Runtime libraries are managed through a versioned release system under `RIVET_RUNTIME_LIBRARIES_ROOT` (default `/data/runtime-libraries`):
+Runtime libraries are managed under `RIVET_RUNTIME_LIBRARIES_ROOT` (default `/data/runtime-libraries`):
 
 ```
 <root>/
-  manifest.json          - desired package set, active release id, metadata
-  active-release         - plain-text pointer file with the current release id
-  releases/
-    0001/
-      package.json
-      node_modules/
-    0002/
-      ...
-  staging/               - build area for candidate releases
+  manifest.json
+  current/
+    package.json
+    node_modules/
+  staging/
 ```
 
 The install/remove flow:
@@ -562,37 +577,36 @@ The install/remove flow:
 2. create a fresh staging directory with a generated `package.json`
 3. run `npm install --production` with streamed output
 4. validate the candidate using `createRequire()` and `require.resolve()` for each package
-5. promote to a new numbered release via directory rename
-6. update the `active-release` pointer file (write-to-temp-then-rename for near-atomic switch)
-7. update `manifest.json`
+5. swap `staging/` into `current/`, keeping a restorable backup during activation
+6. update `manifest.json`
 
-A failed install never modifies the active release. The staging directory is cleaned up on failure. The previous good release remains active and both execution paths continue working.
+A failed install never replaces the active `current/` set. The staging directory is cleaned up on failure. If activation fails mid-swap, the previous `current/` directory is restored and both execution paths continue working.
 
 ### Shared runtime resolution
 
-Both execution paths resolve packages from the same active release:
+Both execution paths resolve packages from the same active `current/` set:
 
-- **Published endpoints (API container)**: `executeWorkflowEndpoint()` passes a `ManagedCodeRunner` instance to `runGraph()` via the existing `codeRunner` option. On each `runCode()` call, `ManagedCodeRunner` reads the `active-release` pointer file and creates a `require` function rooted in that release's `node_modules`. Falls back to standard `NODE_PATH` resolution when no managed release exists.
+- **Published endpoints (API container)**: `executeWorkflowEndpoint()` passes a `ManagedCodeRunner` instance to `runGraph()` via the existing `codeRunner` option. On each `runCode()` call, `ManagedCodeRunner` resolves `current/node_modules` and creates a `require` function rooted there. Falls back to standard `NODE_PATH` resolution when no managed runtime-library set exists.
 
-- **Editor execution (executor container)**: The `bundle-executor.cjs` build-time patch replaces `NodeCodeRunner`'s `createRequire` call with dynamic resolution that reads the `active-release` pointer file on every Code node invocation. Falls back to the original executor bundle resolution when no managed release exists.
+- **Editor execution (executor container)**: The `bundle-executor.cjs` build-time patch replaces `NodeCodeRunner`'s `createRequire` call with dynamic resolution that resolves `current/node_modules` on every Code node invocation. Falls back to the original executor bundle resolution when no managed runtime-library set exists.
 
-Both paths read the pointer file synchronously per invocation. Because `createRequire()` is called fresh each time (not cached), new releases take effect immediately without process restarts.
+Both paths resolve the active runtime-library location per invocation. Because `createRequire()` is called fresh each time, newly activated libraries take effect immediately without process restarts.
 
 ### Persistence
 
 Runtime library state lives in a dedicated Docker named volume (`rivet_runtime_libs`) mounted at `/data/runtime-libraries` in both the API and executor containers. The `RIVET_RUNTIME_LIBRARIES_ROOT` environment variable is the single source of truth for the path.
 
-Installed libraries survive container restarts and image rebuilds. On startup, the API runs a reconciliation step that validates the active release directory exists, syncs the manifest with the pointer file, cleans up old releases (keeping the last 5), and migrates any leftover `current/` layout from the brief refactor window back into the numbered-release format.
+Installed libraries survive container restarts and image rebuilds. On startup, the API runs a reconciliation step that validates `current/node_modules` exists when the manifest lists packages, clears stale manifest state when the active runtime-library set is missing, and migrates the older `active-release` plus `releases/NNNN/` layout into `current/` when present. Manifest reads are normalized defensively so malformed or stale JSON does not leave the runtime-library state half-valid in memory.
 
 In dev mode, `scripts/dev.mjs` sets `RIVET_RUNTIME_LIBRARIES_ROOT` to `.data/runtime-libraries` under the repo root.
 
 ### Fallback behavior
 
-When no managed runtime libraries are installed (no `active-release` file exists), both execution paths continue working using image-baked dependencies via `NODE_PATH`. This ensures backward compatibility with existing setups where `wrapper/executor/package.json` dependencies (such as `sharp`) are installed at Docker build time.
+When no managed runtime libraries are installed (no valid `current/node_modules` exists), both execution paths continue working using image-baked dependencies via `NODE_PATH`. This ensures backward compatibility with existing setups where `wrapper/executor/package.json` dependencies (such as `sharp`) are installed at Docker build time.
 
 ### Implementation files
 
-- `wrapper/api/src/runtime-libraries/manifest.ts` - manifest and pointer file read/write helpers
+- `wrapper/api/src/runtime-libraries/manifest.ts` - manifest read/write, normalization, and `current/` / `staging/` path helpers
 - `wrapper/api/src/runtime-libraries/job-runner.ts` - staging, npm install, validation, promotion
 - `wrapper/api/src/runtime-libraries/managed-code-runner.ts` - `ManagedCodeRunner` implementing the `CodeRunner` interface
 - `wrapper/api/src/utils/exec.ts` - shared `child_process.spawn` helpers for non-streaming and streaming process execution
@@ -658,8 +672,10 @@ The following statements should remain true after major refactors unless there i
 - `GET /api/config` still suppresses the default latest debugger websocket URL when the secured debugger feature is disabled
 - the hosted debugger connect UI still defaults to `/ws/latest-debugger` from browser origin
 - `RIVET_UI_TOKEN_FREE_HOSTS` still bypasses the editor and latest-debugger websocket gate for listed internal hosts
+- the editor/dashboard bridge still uses a shared typed contract and origin/source validation instead of trusting arbitrary `postMessage` payloads
 - runtime libraries installed through the manager are available to Code nodes in both editor runs and published endpoint calls without restarting containers
 - a failed runtime library install does not break the currently active release or disrupt running workflows
+- reopening the runtime libraries modal during an active install/remove job still reconnects to the same job stream and shows its current logs/status
 - the runtime library trigger button appears at the bottom of the `Projects` pane when the pane is open
 - the `+ New folder` action remains below the workflow tree rather than above it
 

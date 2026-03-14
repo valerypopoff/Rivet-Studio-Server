@@ -31,6 +31,10 @@ export function sanitizeWorkflowName(value: unknown, label: string): string {
     throw badRequest(`Invalid ${label}`);
   }
 
+  if (trimmed.startsWith('.')) {
+    throw badRequest(`${label} must not start with a dot`);
+  }
+
   if (/[\\/]/.test(trimmed)) {
     throw badRequest(`${label} must not contain path separators`);
   }
@@ -69,7 +73,7 @@ export function resolveWorkflowRelativePath(
   }
 
   const segments = normalized.split('/');
-  if (segments.some((segment) => !segment || segment === '.' || segment === '..')) {
+  if (segments.some((segment) => !segment || segment === '.' || segment === '..' || segment.startsWith('.'))) {
     throw badRequest('Invalid relativePath');
   }
 
@@ -80,6 +84,14 @@ export function resolveWorkflowRelativePath(
   return validatePath(path.join(root, ...segments));
 }
 
+export function requireProjectPath(resolvedPath: string): string {
+  if (!resolvedPath.endsWith(PROJECT_EXTENSION)) {
+    throw badRequest('Expected project path');
+  }
+
+  return resolvedPath;
+}
+
 export async function pathExists(filePath: string): Promise<boolean> {
   try {
     await fs.access(filePath);
@@ -87,6 +99,23 @@ export async function pathExists(filePath: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+export const pathsDifferOnlyByCase = (leftPath: string, rightPath: string) =>
+  leftPath !== rightPath && leftPath.toLowerCase() === rightPath.toLowerCase();
+
+export async function renamePathHandlingCaseChange(currentPath: string, nextPath: string): Promise<void> {
+  if (!pathsDifferOnlyByCase(currentPath, nextPath)) {
+    await fs.rename(currentPath, nextPath);
+    return;
+  }
+
+  const temporaryPath = validatePath(
+    path.join(path.dirname(currentPath), `.${randomUUID()}-${path.basename(nextPath)}`),
+  );
+
+  await fs.rename(currentPath, temporaryPath);
+  await fs.rename(temporaryPath, nextPath);
 }
 
 export function getWorkflowProjectSettingsPath(projectPath: string): string {
@@ -114,6 +143,70 @@ export function getProjectSidecarPaths(projectPath: string): { dataset: string; 
     dataset: getWorkflowDatasetPath(projectPath),
     settings: getWorkflowProjectSettingsPath(projectPath),
   };
+}
+
+export async function moveProjectWithSidecars(sourceProjectPath: string, targetProjectPath: string): Promise<void> {
+  const sourceSidecars = getProjectSidecarPaths(sourceProjectPath);
+  const targetSidecars = getProjectSidecarPaths(targetProjectPath);
+  const sourceDatasetExists = await pathExists(sourceSidecars.dataset);
+  const sourceSettingsExists = await pathExists(sourceSidecars.settings);
+  const projectRename = (fromPath: string, toPath: string) => renamePathHandlingCaseChange(fromPath, toPath);
+
+  if (sourceProjectPath !== targetProjectPath && await pathExists(targetProjectPath)) {
+    throw conflict(`Project already exists: ${path.basename(targetProjectPath)}`);
+  }
+
+  if (sourceDatasetExists && sourceSidecars.dataset !== targetSidecars.dataset && await pathExists(targetSidecars.dataset)) {
+    throw conflict(`Dataset file already exists for project: ${path.basename(targetProjectPath)}`);
+  }
+
+  if (sourceSettingsExists && sourceSidecars.settings !== targetSidecars.settings && await pathExists(targetSidecars.settings)) {
+    throw conflict(`Settings file already exists for project: ${path.basename(targetProjectPath)}`);
+  }
+
+  let datasetMoved = false;
+  let settingsMoved = false;
+
+  try {
+    await projectRename(sourceProjectPath, targetProjectPath);
+
+    if (sourceDatasetExists && sourceSidecars.dataset !== targetSidecars.dataset) {
+      await projectRename(sourceSidecars.dataset, targetSidecars.dataset);
+      datasetMoved = true;
+    }
+
+    if (sourceSettingsExists && sourceSidecars.settings !== targetSidecars.settings) {
+      await projectRename(sourceSidecars.settings, targetSidecars.settings);
+      settingsMoved = true;
+    }
+  } catch (error) {
+    if (settingsMoved) {
+      await renamePathHandlingCaseChange(targetSidecars.settings, sourceSidecars.settings).catch(() => {});
+    }
+
+    if (datasetMoved) {
+      await renamePathHandlingCaseChange(targetSidecars.dataset, sourceSidecars.dataset).catch(() => {});
+    }
+
+    if (sourceProjectPath !== targetProjectPath && await pathExists(targetProjectPath) && !await pathExists(sourceProjectPath)) {
+      await renamePathHandlingCaseChange(targetProjectPath, sourceProjectPath).catch(() => {});
+    }
+
+    throw error;
+  }
+}
+
+export async function deleteProjectWithSidecars(projectPath: string): Promise<void> {
+  await fs.rm(projectPath, { force: false });
+
+  const sidecars = getProjectSidecarPaths(projectPath);
+  if (await pathExists(sidecars.dataset)) {
+    await fs.rm(sidecars.dataset, { force: false });
+  }
+
+  if (await pathExists(sidecars.settings)) {
+    await fs.rm(sidecars.settings, { force: false });
+  }
 }
 
 export async function listProjectPathsRecursive(folderPath: string): Promise<string[]> {

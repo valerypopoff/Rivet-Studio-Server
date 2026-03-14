@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 
-import { activeReleaseNodeModulesPath } from './manifest.js';
+import { currentNodeModulesPath } from './manifest.js';
 
 interface CodeRunnerOptions {
   includeFetch: boolean;
@@ -90,7 +90,7 @@ export class ManagedCodeRunner {
   }
 
   private createManagedRequire(): NodeRequire {
-    const nodeModulesPath = activeReleaseNodeModulesPath();
+    const nodeModulesPath = currentNodeModulesPath();
     if (nodeModulesPath && fs.existsSync(nodeModulesPath)) {
       const virtualEntry = path.join(nodeModulesPath, '__virtual.cjs');
       return createRequire(virtualEntry);

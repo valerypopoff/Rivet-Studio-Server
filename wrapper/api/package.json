@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "build": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\" && tsc",
-    "start": "node dist/api/src/server.js"
+    "start": "node dist/api/src/server.js",
+    "test": "tsx --test src/tests/editor-bridge.test.ts src/tests/native-io.test.ts src/tests/plugin-installer.test.ts src/tests/runtime-libraries.test.ts src/tests/workflow-services.test.ts"
   },
   "dependencies": {
     "@ironclad/rivet-node": "^1.25.0",

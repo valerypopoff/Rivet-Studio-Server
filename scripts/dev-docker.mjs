@@ -1,10 +1,9 @@
 import path from 'node:path';
 import net from 'node:net';
 import { spawn } from 'node:child_process';
-import { parseEnvFile } from './lib/env.mjs';
+import { loadDevEnv } from './lib/dev-env.mjs';
 
 const rootDir = process.cwd();
-const envPath = path.join(rootDir, '.env.dev');
 const composeBase = 'docker compose -f ops/docker-compose.dev.yml';
 const diagnosticServices = 'api web executor proxy';
 
@@ -119,27 +118,7 @@ async function isComposeServiceRunning(service, env) {
 
 async function main() {
   const action = process.argv[2] == null ? 'dev' : process.argv[2];
-  const fileEnv = parseEnvFile(envPath);
-  const mergedEnv = {
-    ...process.env,
-    ...fileEnv,
-  };
-
-  if (!Object.prototype.hasOwnProperty.call(fileEnv, 'RIVET_WORKSPACE_ROOT')) {
-    mergedEnv.RIVET_WORKSPACE_ROOT = rootDir;
-  }
-
-  if (!Object.prototype.hasOwnProperty.call(fileEnv, 'RIVET_APP_DATA_ROOT')) {
-    mergedEnv.RIVET_APP_DATA_ROOT = path.join(rootDir, '.data', 'rivet-app');
-  }
-
-  if (Object.prototype.hasOwnProperty.call(fileEnv, 'RIVET_WORKFLOWS_HOST_PATH')) {
-    mergedEnv.RIVET_WORKFLOWS_HOST_PATH = path.resolve(rootDir, fileEnv.RIVET_WORKFLOWS_HOST_PATH);
-  }
-
-  if (Object.prototype.hasOwnProperty.call(fileEnv, 'RIVET_RUNTIME_LIBS_HOST_PATH')) {
-    mergedEnv.RIVET_RUNTIME_LIBS_HOST_PATH = path.resolve(rootDir, fileEnv.RIVET_RUNTIME_LIBS_HOST_PATH);
-  }
+  const { mergedEnv } = loadDevEnv(rootDir);
 
   if (!Object.prototype.hasOwnProperty.call(mergedEnv, 'COMPOSE_PARALLEL_LIMIT')) {
     mergedEnv.COMPOSE_PARALLEL_LIMIT = '1';
