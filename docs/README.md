@@ -90,5 +90,5 @@ Browser → nginx (proxy)
 ### Optional external UI gate
 - Set `RIVET_ENDPOINT_API_KEY` to your shared secret.
 - Set `RIVET_UI_TOKEN_FREE_HOSTS` to a comma-separated list of internal hostnames that should bypass the UI token check.
-- All other hosts require `?token=<RIVET_ENDPOINT_API_KEY>` once, then the proxy stores it in an HTTP-only cookie for `/`, `/api/*`, and `/ws/executor*`.
+- All other hosts require `?token=<RIVET_ENDPOINT_API_KEY>` once, then the proxy stores it in an HTTP-only cookie for `/`, `/api/*`, `/ws/executor*`, and `/ws/latest-debugger`.
 - Workflow execution routes under `RIVET_PUBLISHED_WORKFLOWS_BASE_PATH` and `RIVET_LATEST_WORKFLOWS_BASE_PATH` are not affected by this gate.

@@ -12,22 +12,6 @@ export function isLatestWorkflowRemoteDebuggerEnabled(): boolean {
   return process.env.RIVET_ENABLE_LATEST_REMOTE_DEBUGGER?.trim().toLowerCase() === 'true';
 }
 
-function getLatestWorkflowRemoteDebuggerToken(): string {
-  const token = process.env.RIVET_LATEST_REMOTE_DEBUGGER_TOKEN?.trim();
-
-  if (!token) {
-    throw new Error('RIVET_LATEST_REMOTE_DEBUGGER_TOKEN must be set when RIVET_ENABLE_LATEST_REMOTE_DEBUGGER is true');
-  }
-
-  return token;
-}
-
-function getDebuggerRequestToken(requestUrl: string | undefined): string | null {
-  const url = new URL(requestUrl ?? '', 'http://localhost');
-  const token = url.searchParams.get('token')?.trim();
-  return token || null;
-}
-
 function rejectWebSocketUpgrade(socket: Duplex, statusCode: 401 | 404, statusText: string): void {
   socket.write(`HTTP/1.1 ${statusCode} ${statusText}\r\nConnection: close\r\n\r\n`);
   socket.destroy();
@@ -44,7 +28,6 @@ export function initializeLatestWorkflowRemoteDebugger(httpServer: HttpServer): 
     return null;
   }
 
-  const requiredToken = debuggerEnabled ? getLatestWorkflowRemoteDebuggerToken() : null;
   const webSocketServer = debuggerEnabled ? new WebSocketServer({ noServer: true }) : null;
 
   if (!latestWorkflowRemoteDebuggerUpgradeHandlerInitialized) {
@@ -57,11 +40,6 @@ export function initializeLatestWorkflowRemoteDebugger(httpServer: HttpServer): 
 
       if (!debuggerEnabled || !webSocketServer) {
         rejectWebSocketUpgrade(socket, 404, 'Not Found');
-        return;
-      }
-
-      if (getDebuggerRequestToken(request.url) !== requiredToken) {
-        rejectWebSocketUpgrade(socket, 401, 'Unauthorized');
         return;
       }
 

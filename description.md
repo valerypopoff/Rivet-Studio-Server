@@ -13,7 +13,7 @@ In practical terms, the application provides:
 - a wrapper-owned workflow dashboard for organizing workflow projects
 - published workflow serving at the configured published-workflow base path (`RIVET_PUBLISHED_WORKFLOWS_BASE_PATH`, default `/workflows`, trailing slash tolerated)
 - latest working-version workflow serving at the configured latest-workflow base path (`RIVET_LATEST_WORKFLOWS_BASE_PATH`, default `/workflows-last`, trailing slash tolerated) for published projects
-- optional, token-protected remote debugging for latest workflow endpoint runs over the browser-facing websocket URL `ws://host:port/ws/latest-debugger`
+- optional remote debugging for latest workflow endpoint runs over the browser-facing websocket URL `ws://host:port/ws/latest-debugger`
 - the same workflow endpoint env var pair shared across frontend, backend, and nginx proxy routing
 - Dockerized backend, proxy, and executor services
 - a runtime library manager for installing npm packages available to Code nodes across both execution paths
@@ -207,50 +207,46 @@ The nginx layer can independently gate browser access to the editor/admin surfac
 
 - `RIVET_UI_TOKEN_FREE_HOSTS` is a comma-separated list of hostnames that bypass the UI token check
 - all other hosts require `?token=<RIVET_ENDPOINT_API_KEY>` once on `/`
-- after a successful tokenized `/` request, nginx stores the token in an HTTP-only cookie so `/api/*` and `/ws/executor*` continue to work for that browser session
+- after a successful tokenized `/` request, nginx stores the token in an HTTP-only cookie so `/api/*`, `/ws/executor*`, and `/ws/latest-debugger` continue to work for that browser session
 - this nginx UI gate does not change workflow execution route auth; those routes are still controlled by the API bearer-token check described above
 
 Remote debugging is intentionally scoped only to the latest-workflow execution path:
 
 - the browser-facing remote debugger websocket URL is `ws://host:port/ws/latest-debugger`
-- when the secured debugger is enabled, the editor connects with `ws://host:port/ws/latest-debugger?token=YOUR_TOKEN`
 - runs triggered through `RIVET_LATEST_WORKFLOWS_BASE_PATH` attach to that debugger server
 - runs triggered through `RIVET_PUBLISHED_WORKFLOWS_BASE_PATH` remain debugger-free
 - the debugger server is only started when `RIVET_ENABLE_LATEST_REMOTE_DEBUGGER=true`
-- when that flag is enabled, `RIVET_LATEST_REMOTE_DEBUGGER_TOKEN` must also be set and must match the `token` query parameter on the websocket URL
 - `GET /api/config` only advertises a default remote debugger websocket URL when the feature is enabled
 
 Current hosted-editor wiring detail:
 
 - the hosted Remote Debugger connect panel currently seeds its default URL from `wrapper/shared/hosted-env.ts`, which resolves to `/ws/latest-debugger` from the current browser origin
 - the hosted editor does not currently source its initial debugger URL from `GET /api/config`
-- when token protection is enabled, the user must currently append `?token=YOUR_TOKEN` manually in the Remote Debugger URL field
+- the default debugger URL no longer needs a separate debugger-specific token
 
 Latest-workflow remote debugger security and connection model:
 
 - the feature is disabled by default and should only be enabled intentionally
-- enabling it requires both `RIVET_ENABLE_LATEST_REMOTE_DEBUGGER=true` and a non-empty `RIVET_LATEST_REMOTE_DEBUGGER_TOKEN`
+- enabling it requires `RIVET_ENABLE_LATEST_REMOTE_DEBUGGER=true`
 - the feature is intentionally scoped only to the latest-workflow execution path
 - the browser-facing remote debugger websocket URL is `ws://host:port/ws/latest-debugger`
-- when the secured debugger is enabled, the editor connects with `ws://host:port/ws/latest-debugger?token=YOUR_TOKEN`
 - runs triggered through `RIVET_LATEST_WORKFLOWS_BASE_PATH` attach to that debugger server
 - runs triggered through `RIVET_PUBLISHED_WORKFLOWS_BASE_PATH` remain debugger-free
 - the debugger server is only started when `RIVET_ENABLE_LATEST_REMOTE_DEBUGGER=true`
-- when that flag is enabled, `RIVET_LATEST_REMOTE_DEBUGGER_TOKEN` must also be set and must match the `token` query parameter on the websocket URL
 - `/api/config` only advertises a default remote debugger websocket URL when the feature is enabled
-- the hosted debugger connect UI still defaults to `/ws/latest-debugger` from browser origin and still requires manual token appending when token protection is enabled
-- any production Docker wiring for the secured latest debugger must still ensure `RIVET_ENABLE_LATEST_REMOTE_DEBUGGER` and `RIVET_LATEST_REMOTE_DEBUGGER_TOKEN` actually reach the API container
+- the hosted debugger connect UI defaults to `/ws/latest-debugger` from browser origin
+- access to that websocket now follows the same nginx UI gate as the editor surface, including `RIVET_UI_TOKEN_FREE_HOSTS`
 
 Typical user-facing connection examples:
 
-- local HTTP: `ws://localhost:8080/ws/latest-debugger?token=YOUR_TOKEN`
-- hosted HTTPS: `wss://your-host/ws/latest-debugger?token=YOUR_TOKEN`
+- local HTTP: `ws://localhost:8080/ws/latest-debugger`
+- hosted HTTPS: `wss://your-host/ws/latest-debugger`
 
 Operationally, this means:
 
 - published workflow endpoint execution remains stable and debugger-free
 - latest workflow endpoint execution can be remotely debugged only when the feature flag is on
-- possession of the debugger URL alone is not enough; the caller must also know the configured token
+- access to the debugger websocket is controlled by the same nginx UI gate as the editor surface
 
 Fully unpublished projects are not served by either public execution path.
 
@@ -437,8 +433,8 @@ Current runtime expectations:
 - when `RIVET_ENDPOINT_API_KEY` is set, both public workflow execution route families require a matching bearer token while `/internal/workflows/[endpoint-name]` remains exempt
 - when both `RIVET_ENDPOINT_API_KEY` and `RIVET_UI_TOKEN_FREE_HOSTS` are set, nginx allows browser editor/admin access without `?token=` only on the listed token-free hosts
 - hosted websocket defaults are derived from the browser origin in `wrapper/shared/hosted-env.ts`, with `/ws/executor/internal` for the executor and `/ws/latest-debugger` as the latest-workflow debugger default
-- in the dev Docker stack, the API service loads `.env.dev` via `env_file`, so `RIVET_ENABLE_LATEST_REMOTE_DEBUGGER` and `RIVET_LATEST_REMOTE_DEBUGGER_TOKEN` are available there when defined
-- in the current production `ops/docker-compose.yml`, `RIVET_ENABLE_LATEST_REMOTE_DEBUGGER` and `RIVET_LATEST_REMOTE_DEBUGGER_TOKEN` are forwarded into the API container, so the secured latest debugger can be enabled there without extra compose changes
+- in the dev Docker stack, the API service loads `.env.dev` via `env_file`, so `RIVET_ENABLE_LATEST_REMOTE_DEBUGGER` is available there when defined
+- in the current production `ops/docker-compose.yml`, `RIVET_ENABLE_LATEST_REMOTE_DEBUGGER` is forwarded into the API container so the latest debugger can be enabled there without extra compose changes
 - the API service listens on port 80 inside the Docker network, while Docker still maps the host-facing API port from `RIVET_API_PORT` (default `3100`) to that internal port
 - API security allows workflow-library operations only inside that validated workflow root
 - hosted `Save As` falls back to `/workflows/...` for unsaved projects, but for already file-backed workflow projects it suggests the current project directory so nested workflow locations are preserved by default
@@ -481,15 +477,14 @@ This executor websocket path is separate from latest workflow endpoint remote de
 
 - editor Node-mode execution continues to use the executor websocket service
 - latest workflow endpoint remote debugging uses the API-hosted websocket endpoint `ws://host:port/ws/latest-debugger`
-- when enabled, latest workflow endpoint remote debugging requires a tokenized URL of the form `ws://host:port/ws/latest-debugger?token=YOUR_TOKEN`
-- the API validates that token during websocket upgrade before the debugger connection is accepted
+- when enabled, latest workflow endpoint remote debugging uses the same nginx UI gate as the editor surface
 - published workflow endpoint execution does not attach any remote debugger
 
 This separation is important:
 
 - the executor websocket remains the channel for editor-driven Node execution mode
 - the latest-workflow debugger websocket exists specifically so browser-reachable workflow endpoint runs can stream debugger events from the API process
-- securing the latest-workflow debugger therefore happens at the API websocket boundary rather than inside the executor service
+- securing the latest-workflow debugger therefore happens at the nginx UI gate rather than inside the executor service
 
 That executor patching is used for hosted concerns such as:
 
@@ -644,10 +639,10 @@ The following statements should remain true after major refactors unless there i
 - published endpoint names still preserve the user's entered casing in the settings UI while endpoint matching remains case-insensitive
 - trusted intra-stack callers can still invoke published workflows through `/internal/workflows/[endpoint-name]` on the API service without bearer auth, while the external published route remains separately configurable
 - trusted intra-stack callers can continue to use the portless Docker-network URL form `http://api/internal/workflows/[endpoint-name]`
-- latest workflow endpoint debugging still remains opt-in, latest-only, and token-protected when enabled
+- latest workflow endpoint debugging still remains opt-in and latest-only when enabled
 - `GET /api/config` still suppresses the default latest debugger websocket URL when the secured debugger feature is disabled
-- the hosted debugger connect UI still defaults to `/ws/latest-debugger` from browser origin and still requires manual token appending when token protection is enabled
-- any production Docker wiring for the secured latest debugger must still ensure `RIVET_ENABLE_LATEST_REMOTE_DEBUGGER` and `RIVET_LATEST_REMOTE_DEBUGGER_TOKEN` actually reach the API container
+- the hosted debugger connect UI still defaults to `/ws/latest-debugger` from browser origin
+- `RIVET_UI_TOKEN_FREE_HOSTS` still bypasses the editor and latest-debugger websocket gate for listed internal hosts
 - runtime libraries installed through the manager are available to Code nodes in both editor runs and published endpoint calls without restarting containers
 - a failed runtime library install does not break the currently active release or disrupt running workflows
 - the runtime library trigger button appears at the bottom of the `Projects` pane when the pane is open

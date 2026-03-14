@@ -338,11 +338,10 @@ Add a section to this refactor.md (or a separate `AUTH-PLAN.md`) listing the exa
 
 ### 6.1 DONE Forward debugger env vars in production compose
 
-The production `ops/docker-compose.yml` doesn't forward `RIVET_ENABLE_LATEST_REMOTE_DEBUGGER` or `RIVET_LATEST_REMOTE_DEBUGGER_TOKEN` to the API container. Add them to the `api.environment` block with empty defaults so they can be set when needed:
+The production `ops/docker-compose.yml` needs to forward `RIVET_ENABLE_LATEST_REMOTE_DEBUGGER` to the API container so the latest debugger can be enabled when needed:
 
 ```yaml
 - RIVET_ENABLE_LATEST_REMOTE_DEBUGGER=${RIVET_ENABLE_LATEST_REMOTE_DEBUGGER:-false}
-- RIVET_LATEST_REMOTE_DEBUGGER_TOKEN=${RIVET_LATEST_REMOTE_DEBUGGER_TOKEN:-}
 ```
 
 ### 6.2 DONE Add `RIVET_ENDPOINT_API_KEY` to production compose
