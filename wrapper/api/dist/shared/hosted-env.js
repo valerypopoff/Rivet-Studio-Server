@@ -8,7 +8,7 @@ export const RIVET_EXECUTOR_WS_URL = `${wsBase}/ws/executor/internal`;
 export const RIVET_REMOTE_DEBUGGER_DEFAULT_WS = `${wsBase}/ws/latest-debugger`;
 export const RIVET_DEBUG_LOGS = viteEnv?.VITE_RIVET_DEBUG_LOGS === 'true';
 export const RIVET_PUBLISHED_WORKFLOWS_BASE_PATH = normalizeBasePath(viteEnv?.RIVET_PUBLISHED_WORKFLOWS_BASE_PATH, '/workflows');
-export const RIVET_LATEST_WORKFLOWS_BASE_PATH = normalizeBasePath(viteEnv?.RIVET_LATEST_WORKFLOWS_BASE_PATH, '/workflows-last');
+export const RIVET_LATEST_WORKFLOWS_BASE_PATH = normalizeBasePath(viteEnv?.RIVET_LATEST_WORKFLOWS_BASE_PATH, '/workflows-latest');
 export function logHostedDebug(method, ...args) {
     if (!RIVET_DEBUG_LOGS) {
         return;

@@ -28,10 +28,77 @@ function getBearerToken(req: Request): string | null {
   return match ? match[1].trim() || null : null;
 }
 
+function isEnvFlagEnabled(value: string | undefined, defaultValue = false): boolean {
+  if (value == null) {
+    return defaultValue;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return defaultValue;
+  }
+
+  if (normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on') {
+    return true;
+  }
+
+  if (normalized === '0' || normalized === 'false' || normalized === 'no' || normalized === 'off') {
+    return false;
+  }
+
+  return defaultValue;
+}
+
+function normalizeHostName(value: string | null | undefined): string {
+  const rawHost = (value ?? '').split(',')[0]?.trim().toLowerCase() ?? '';
+  if (!rawHost) {
+    return '';
+  }
+
+  if (rawHost.startsWith('[')) {
+    const closingBracketIndex = rawHost.indexOf(']');
+    return closingBracketIndex === -1 ? rawHost : rawHost.slice(0, closingBracketIndex + 1);
+  }
+
+  const colonIndex = rawHost.indexOf(':');
+  return colonIndex === -1 ? rawHost : rawHost.slice(0, colonIndex);
+}
+
+function getRequestHostName(req: Request): string {
+  return normalizeHostName(req.get('x-forwarded-host') || req.get('host'));
+}
+
+function getTokenFreeHosts(): Set<string> {
+  return new Set(
+    (process.env.RIVET_UI_TOKEN_FREE_HOSTS ?? '')
+      .split(',')
+      .map((host) => normalizeHostName(host))
+      .filter(Boolean),
+  );
+}
+
+function shouldBypassWorkflowApiKeyForHost(req: Request): boolean {
+  const requestHost = getRequestHostName(req);
+  if (!requestHost) {
+    return false;
+  }
+
+  return getTokenFreeHosts().has(requestHost);
+}
+
 function requirePublishedWorkflowApiKey(req: Request): void {
-  const expectedApiKey = process.env.RIVET_ENDPOINT_API_KEY?.trim();
-  if (!expectedApiKey) {
+  const isWorkflowKeyRequired = isEnvFlagEnabled(process.env.RIVET_REQUIRE_WORKFLOW_KEY, false);
+  if (!isWorkflowKeyRequired) {
     return;
+  }
+
+  if (shouldBypassWorkflowApiKeyForHost(req)) {
+    return;
+  }
+
+  const expectedApiKey = process.env.RIVET_KEY?.trim();
+  if (!expectedApiKey) {
+    throw createHttpError(500, 'Workflow execution key is required but RIVET_KEY is not configured');
   }
 
   const providedApiKey = getBearerToken(req);

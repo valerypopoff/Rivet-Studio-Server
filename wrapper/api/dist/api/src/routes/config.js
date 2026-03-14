@@ -4,13 +4,27 @@ import { LATEST_WORKFLOW_REMOTE_DEBUGGER_PATH, isLatestWorkflowRemoteDebuggerEna
 import { getAppDataRoot, isEnvAllowed } from '../security.js';
 import { LATEST_WORKFLOWS_BASE_PATH, PUBLISHED_WORKFLOWS_BASE_PATH } from '../workflowEndpointPaths.js';
 export const configRouter = Router();
+function getPublicOrigin(req) {
+    const host = req.get('host');
+    if (!host) {
+        return 'http://localhost';
+    }
+    const forwardedProto = req.get('x-forwarded-proto');
+    const protocol = forwardedProto?.split(',')[0]?.trim() || req.protocol || 'http';
+    return `${protocol}://${host}`;
+}
+function toWebSocketOrigin(origin) {
+    return origin.startsWith('https://') ? `wss://${origin.slice('https://'.length)}` : `ws://${origin.slice('http://'.length)}`;
+}
 // GET /api/config — return runtime configuration
-configRouter.get('/config', (_req, res) => {
+configRouter.get('/config', (req, res) => {
+    const publicOrigin = getPublicOrigin(req);
+    const publicWsOrigin = toWebSocketOrigin(publicOrigin);
     res.json({
         hostedMode: true,
-        executorWsUrl: process.env.RIVET_EXECUTOR_WS_URL ?? 'ws://localhost/ws/executor/internal',
+        executorWsUrl: process.env.RIVET_EXECUTOR_WS_URL ?? `${publicWsOrigin}/ws/executor/internal`,
         remoteDebuggerDefaultWs: isLatestWorkflowRemoteDebuggerEnabled()
-            ? (process.env.RIVET_REMOTE_DEBUGGER_DEFAULT_WS ?? `ws://localhost${LATEST_WORKFLOW_REMOTE_DEBUGGER_PATH}`)
+            ? (process.env.RIVET_REMOTE_DEBUGGER_DEFAULT_WS ?? `${publicWsOrigin}${LATEST_WORKFLOW_REMOTE_DEBUGGER_PATH}`)
             : '',
         apiBaseUrl: '/api',
         publishedWorkflowsBasePath: PUBLISHED_WORKFLOWS_BASE_PATH,

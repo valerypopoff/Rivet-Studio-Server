@@ -21,6 +21,34 @@ normalize_path() {
   printf '%s' "$normalized"
 }
 
+normalize_bool() {
+  value="$1"
+  fallback="${2:-0}"
+  trimmed=$(printf '%s' "${value}" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]')
+
+  if [ -z "$trimmed" ]; then
+    printf '%s' "$fallback"
+    return
+  fi
+
+  case "$trimmed" in
+    1|true|yes|on) printf '1' ;;
+    0|false|no|off) printf '0' ;;
+    *) printf '%s' "$fallback" ;;
+  esac
+}
+
+has_nonempty_value() {
+  value="$1"
+  trimmed=$(printf '%s' "${value}" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+
+  if [ -n "$trimmed" ]; then
+    printf '1'
+  else
+    printf '0'
+  fi
+}
+
 build_host_regex() {
   value="$1"
   api_key="${2:-}"
@@ -62,6 +90,8 @@ build_host_regex() {
 
 export RIVET_PUBLISHED_WORKFLOWS_BASE_PATH="$(normalize_path "${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH:-}" "/workflows")"
 export RIVET_LATEST_WORKFLOWS_BASE_PATH="$(normalize_path "${RIVET_LATEST_WORKFLOWS_BASE_PATH:-}" "/workflows-latest")"
-export RIVET_UI_TOKEN_FREE_HOSTS_REGEX="$(build_host_regex "${RIVET_UI_TOKEN_FREE_HOSTS:-}" "${RIVET_ENDPOINT_API_KEY:-}")"
+export RIVET_REQUIRE_UI_GATE_KEY="$(normalize_bool "${RIVET_REQUIRE_UI_GATE_KEY:-}" "0")"
+export RIVET_UI_GATE_KEY_PRESENT="$(has_nonempty_value "${RIVET_KEY:-}")"
+export RIVET_UI_TOKEN_FREE_HOSTS_REGEX="$(build_host_regex "${RIVET_UI_TOKEN_FREE_HOSTS:-}" "${RIVET_KEY:-}")"
 
 exec /docker-entrypoint.sh nginx -g 'daemon off;'

@@ -3,10 +3,13 @@ services:
     image: nginx:alpine
     ports:
       - "${RIVET_PORT:-8080}:80"
+    env_file:
+      - ../.env.dev
     environment:
       - RIVET_PUBLISHED_WORKFLOWS_BASE_PATH=${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH:-/workflows}
       - RIVET_LATEST_WORKFLOWS_BASE_PATH=${RIVET_LATEST_WORKFLOWS_BASE_PATH:-/workflows-latest}
-      - RIVET_ENDPOINT_API_KEY=${RIVET_ENDPOINT_API_KEY:-}
+      - RIVET_KEY=${RIVET_KEY:-}
+      - RIVET_REQUIRE_UI_GATE_KEY=${RIVET_REQUIRE_UI_GATE_KEY:-false}
       - RIVET_UI_TOKEN_FREE_HOSTS=${RIVET_UI_TOKEN_FREE_HOSTS:-}
     volumes:
       - ./nginx.dev.conf:/etc/nginx/templates/default.conf.template:ro

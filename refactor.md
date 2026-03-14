@@ -344,12 +344,12 @@ The production `ops/docker-compose.yml` needs to forward `RIVET_ENABLE_LATEST_RE
 - RIVET_ENABLE_LATEST_REMOTE_DEBUGGER=${RIVET_ENABLE_LATEST_REMOTE_DEBUGGER:-false}
 ```
 
-### 6.2 DONE Add `RIVET_ENDPOINT_API_KEY` to production compose
+### 6.2 DONE Add `RIVET_KEY` to production compose
 
 Currently missing from `ops/docker-compose.yml` API environment block. Add:
 
 ```yaml
-- RIVET_ENDPOINT_API_KEY=${RIVET_ENDPOINT_API_KEY:-}
+- RIVET_KEY=${RIVET_KEY:-}
 ```
 
 ---

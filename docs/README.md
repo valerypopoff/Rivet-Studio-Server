@@ -88,7 +88,10 @@ Browser → nginx (proxy)
 - Path traversal prevention on all path parameters
 
 ### Optional external UI gate
-- Set `RIVET_ENDPOINT_API_KEY` to your shared secret.
-- Set `RIVET_UI_TOKEN_FREE_HOSTS` to a comma-separated list of internal hostnames that should bypass the UI token check.
-- All other hosts require `?token=<RIVET_ENDPOINT_API_KEY>` once, then the proxy stores it in an HTTP-only cookie for `/`, `/api/*`, `/ws/executor*`, and `/ws/latest-debugger`.
-- Workflow execution routes under `RIVET_PUBLISHED_WORKFLOWS_BASE_PATH` and `RIVET_LATEST_WORKFLOWS_BASE_PATH` are not affected by this gate.
+- Set `RIVET_KEY` to your shared secret.
+- Set `RIVET_REQUIRE_WORKFLOW_KEY=true` if workflow execution endpoints should require `Authorization: Bearer <RIVET_KEY>`.
+- Set `RIVET_REQUIRE_UI_GATE_KEY=true` if the browser UI and related websockets should require the token gate.
+- Set `RIVET_UI_TOKEN_FREE_HOSTS` to a comma-separated list of internal hostnames that should bypass the UI token check when the UI gate is enabled.
+- Those same hosts also bypass bearer-token auth for public workflow execution routes under `RIVET_PUBLISHED_WORKFLOWS_BASE_PATH` and `RIVET_LATEST_WORKFLOWS_BASE_PATH`.
+- When the UI gate is enabled, all other hosts require `?token=<RIVET_KEY>` once, then the proxy stores it in an HTTP-only cookie for `/`, `/api/*`, `/ws/executor*`, and `/ws/latest-debugger`.
+- Public workflow execution routes still follow `RIVET_REQUIRE_WORKFLOW_KEY`, but requests from hosts listed in `RIVET_UI_TOKEN_FREE_HOSTS` bypass that bearer check.
