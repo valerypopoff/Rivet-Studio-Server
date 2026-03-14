@@ -13,6 +13,7 @@
   background: var(--grey-darkest);
   border-right: 1px solid var(--grey);
   min-width: 0;
+  overflow: hidden;
 }
 
 .dashboard-page .dashboard-sidebar-resizer {
@@ -123,6 +124,32 @@
   z-index: 6000;
 }
 
+.dashboard-page .dashboard-sidebar-ghost {
+  position: fixed;
+  z-index: 350;
+  border-right: 1px solid rgba(255, 255, 255, 0.14);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.12)),
+    var(--grey-darker);
+  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.28);
+  transform-origin: left top;
+  transition:
+    transform 460ms cubic-bezier(0.22, 0.8, 0.24, 1),
+    opacity 460ms ease,
+    border-radius 460ms ease,
+    box-shadow 460ms ease;
+  pointer-events: none;
+}
+
+.dashboard-page .dashboard-sidebar-ghost.dashboard-sidebar-ghost-active {
+  transform:
+    translate(var(--dashboard-sidebar-ghost-translate-x), var(--dashboard-sidebar-ghost-translate-y))
+    scale(var(--dashboard-sidebar-ghost-scale-x), var(--dashboard-sidebar-ghost-scale-y));
+  opacity: 0.86;
+  border-radius: 8px;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22);
+}
+
 .dashboard-page .dashboard-restore-sidebar-button {
   position: fixed;
   left: 12px;
@@ -137,6 +164,19 @@
   min-height: var(--workflow-button-height-m);
   font-size: var(--workflow-button-font-size-s);
   font-weight: 600;
+  opacity: 0;
+  transform: translateY(8px) scale(0.96);
+  transition:
+    opacity 180ms ease,
+    transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    background 120ms ease;
+  pointer-events: none;
+}
+
+.dashboard-page .dashboard-restore-sidebar-button.dashboard-restore-sidebar-button-visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
 }
 
 .Toastify__toast-container {

@@ -8,6 +8,7 @@ import './DashboardPage.css';
 const WORKFLOW_DASHBOARD_SIDEBAR_WIDTH = '300px';
 const MIN_SIDEBAR_WIDTH = 240;
 const MAX_SIDEBAR_WIDTH = 560;
+const SIDEBAR_COLLAPSE_DURATION_MS = 260;
 
 const isSaveShortcutEvent = (event: KeyboardEvent) =>
   (event.ctrlKey || event.metaKey) &&
@@ -21,9 +22,22 @@ type EditorCommand =
   | { type: 'delete-workflow-project'; path: string }
   | { type: 'workflow-paths-moved'; moves: WorkflowProjectPathMove[] };
 
+type SidebarGhostState = {
+  fromX: number;
+  fromY: number;
+  fromWidth: number;
+  fromHeight: number;
+  toX: number;
+  toY: number;
+  toWidth: number;
+  toHeight: number;
+  active: boolean;
+} | null;
+
 export const DashboardPage: FC = () => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const pendingEditorCommandRef = useRef<EditorCommand | null>(null);
+  const restoreButtonRef = useRef<HTMLButtonElement>(null);
   const [openedProjectPath, setOpenedProjectPath] = useState('');
   const [activeWorkflowProjectPath, setActiveWorkflowProjectPath] = useState('');
   const [editorReady, setEditorReady] = useState(false);
@@ -32,6 +46,8 @@ export const DashboardPage: FC = () => {
   const [sidebarWidth, setSidebarWidth] = useState(() => parseInt(WORKFLOW_DASHBOARD_SIDEBAR_WIDTH, 10) || 300);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarResizing, setSidebarResizing] = useState(false);
+  const [sidebarAnimating, setSidebarAnimating] = useState(false);
+  const [sidebarGhost, setSidebarGhost] = useState<SidebarGhostState>(null);
 
   const postEditorCommand = useCallback(
     (command: EditorCommand) => {
@@ -82,6 +98,8 @@ export const DashboardPage: FC = () => {
   useEffect(() => {
     if (openProjectCount === 0) {
       setSidebarCollapsed(false);
+      setSidebarAnimating(false);
+      setSidebarGhost(null);
     }
   }, [openProjectCount]);
 
@@ -151,6 +169,21 @@ export const DashboardPage: FC = () => {
   }, [sidebarCollapsed]);
 
   useEffect(() => {
+    if (!sidebarAnimating) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setSidebarAnimating(false);
+      setSidebarGhost(null);
+    }, SIDEBAR_COLLAPSE_DURATION_MS);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [sidebarAnimating]);
+
+  useEffect(() => {
     const handler = (event: MessageEvent) => {
       if (event.source !== iframeRef.current?.contentWindow) return;
       if (event.data?.type === 'editor-ready') {
@@ -182,6 +215,40 @@ export const DashboardPage: FC = () => {
   }, []);
 
   const showEditorLoading = !editorReady;
+  const showSidebar = openProjectCount === 0 || !sidebarCollapsed;
+  const showRestoreButton = openProjectCount > 0;
+
+  const handleCollapseSidebar = useCallback(() => {
+    const restoreButtonRect = restoreButtonRef.current?.getBoundingClientRect();
+
+    if (restoreButtonRect) {
+      setSidebarGhost({
+        fromX: 0,
+        fromY: 0,
+        fromWidth: sidebarWidth,
+        fromHeight: window.innerHeight,
+        toX: restoreButtonRect.left,
+        toY: restoreButtonRect.top,
+        toWidth: restoreButtonRect.width,
+        toHeight: restoreButtonRect.height,
+        active: false,
+      });
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          setSidebarGhost((prev) => prev ? { ...prev, active: true } : prev);
+        });
+      });
+    }
+
+    setSidebarAnimating(true);
+    setSidebarCollapsed(true);
+  }, [sidebarWidth]);
+
+  const handleRestoreSidebar = useCallback(() => {
+    setSidebarCollapsed(false);
+    setSidebarAnimating(false);
+    setSidebarGhost(null);
+  }, []);
 
   return (
     <div className="dashboard-page" style={{ ['--workflow-dashboard-sidebar-width' as string]: `${sidebarWidth}px` }}>
@@ -191,7 +258,7 @@ export const DashboardPage: FC = () => {
           <div className="dashboard-editor-loading-message">Loading...</div>
         </div>
       ) : null}
-      {!sidebarCollapsed ? (
+      {showSidebar ? (
         <aside className="dashboard-sidebar">
           <WorkflowLibraryPanel
             onOpenProject={handleOpenProject}
@@ -202,7 +269,7 @@ export const DashboardPage: FC = () => {
             openedProjectPath={openedProjectPath}
             editorReady={editorReady}
             projectSaveSequence={projectSaveSequence}
-            onCollapse={openProjectCount === 0 ? undefined : () => setSidebarCollapsed(true)}
+            onCollapse={openProjectCount === 0 ? undefined : handleCollapseSidebar}
           />
           <div className="dashboard-sidebar-resizer" role="separator" aria-orientation="vertical" aria-label="Resize folders pane" />
         </aside>
@@ -221,8 +288,29 @@ export const DashboardPage: FC = () => {
         />
       </main>
       {sidebarResizing ? <div className="dashboard-resize-overlay" aria-hidden="true" /> : null}
-      {sidebarCollapsed && openProjectCount > 0 ? (
-        <button type="button" className="dashboard-restore-sidebar-button" onClick={() => setSidebarCollapsed(false)}>
+      {sidebarGhost ? (
+        <div
+          aria-hidden="true"
+          className={`dashboard-sidebar-ghost${sidebarGhost.active ? ' dashboard-sidebar-ghost-active' : ''}`}
+          style={{
+            left: `${sidebarGhost.fromX}px`,
+            top: `${sidebarGhost.fromY}px`,
+            width: `${sidebarGhost.fromWidth}px`,
+            height: `${sidebarGhost.fromHeight}px`,
+            ['--dashboard-sidebar-ghost-translate-x' as string]: `${sidebarGhost.toX - sidebarGhost.fromX}px`,
+            ['--dashboard-sidebar-ghost-translate-y' as string]: `${sidebarGhost.toY - sidebarGhost.fromY}px`,
+            ['--dashboard-sidebar-ghost-scale-x' as string]: `${sidebarGhost.toWidth / Math.max(sidebarGhost.fromWidth, 1)}`,
+            ['--dashboard-sidebar-ghost-scale-y' as string]: `${sidebarGhost.toHeight / Math.max(sidebarGhost.fromHeight, 1)}`,
+          }}
+        />
+      ) : null}
+      {showRestoreButton ? (
+        <button
+          ref={restoreButtonRef}
+          type="button"
+          className={`dashboard-restore-sidebar-button${sidebarCollapsed ? ' dashboard-restore-sidebar-button-visible' : ''}`}
+          onClick={handleRestoreSidebar}
+        >
           Show projects
         </button>
       ) : null}

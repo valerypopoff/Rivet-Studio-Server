@@ -1,9 +1,8 @@
 import Button from '@atlaskit/button';
 import { useCallback, useEffect, useMemo, useRef, useState, type FC } from 'react';
-import FolderIcon from 'majesticons/line/folder-line.svg?react';
 import ChevronDownIcon from 'majesticons/line/chevron-down-line.svg?react';
 import ChevronRightIcon from 'majesticons/line/chevron-right-line.svg?react';
-import ExpandLeftIcon from 'majesticons/line/menu-expand-left-line.svg?react';
+import CollapseLeftIcon from '../icons/arrow-collapse-left.svg?react';
 import { toast } from 'react-toastify';
 import { ActiveProjectSection } from './ActiveProjectSection';
 import { ProjectSettingsModal } from './ProjectSettingsModal';
@@ -276,6 +275,21 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     toggleFolderExpanded(folder.id);
   };
 
+  const handleFolderRowKeyDown =
+    (folder: WorkflowFolderItem) => (event: React.KeyboardEvent<HTMLDivElement>) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest('.folder-actions')) {
+        return;
+      }
+
+      if (event.key !== 'Enter' && event.key !== ' ') {
+        return;
+      }
+
+      event.preventDefault();
+      toggleFolderExpanded(folder.id);
+    };
+
   const handleMoveDraggedItem = async (destinationFolderRelativePath: string) => {
     if (!canDropIntoFolder(draggedItem, destinationFolderRelativePath) || !draggedItem) {
       return;
@@ -474,7 +488,12 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
         <div
           className={`folder-row${dropTargetFolderPath === folder.relativePath ? ' drag-over' : ''}${draggedItem?.itemType === 'folder' && draggedItem.absolutePath === folder.absolutePath ? ' dragging' : ''}`}
           draggable={editorReady}
+          role="button"
+          tabIndex={0}
+          aria-expanded={expanded}
+          aria-label={`${expanded ? 'Collapse' : 'Expand'} ${folder.name}`}
           onClick={handleFolderRowClick(folder)}
+          onKeyDown={handleFolderRowKeyDown(folder)}
           onDragStart={handleDragStart({
             itemType: 'folder',
             absolutePath: folder.absolutePath,
@@ -490,14 +509,9 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
           }}
           onDrop={(event) => void handleFolderDrop(folder)(event)}
         >
-          <button
-            type="button"
-            className="folder-toggle"
-            title={folder.name}
-            aria-label={expanded ? `Collapse ${folder.name}` : `Expand ${folder.name}`}
-          >
+          <span className="folder-toggle" aria-hidden="true">
             {expanded ? <ChevronDownIcon /> : <ChevronRightIcon />}
-          </button>
+          </span>
           <div className="folder-content">
             <button
               type="button"
@@ -509,7 +523,6 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
               title={folder.name}
             >
               <div className="folder-main">
-                <FolderIcon />
                 <div className="label">{folder.name}</div>
               </div>
             </button>
@@ -573,12 +586,12 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
             <Button
               appearance="subtle"
               spacing="compact"
-              className="icon-button collapse-button button-size-s"
+              className="collapse-button button-size-s"
               onClick={onCollapse}
               title="Collapse folders pane"
               aria-label="Collapse folders pane"
             >
-              <ExpandLeftIcon />
+              <CollapseLeftIcon />
             </Button>
           ) : null}
         </div>
