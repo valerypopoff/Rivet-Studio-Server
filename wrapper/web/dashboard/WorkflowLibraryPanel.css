@@ -580,6 +580,19 @@
   gap: 8px;
 }
 
+.workflow-library-panel .folder-project-count {
+  flex: 0 0 auto;
+  min-width: 22px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--grey-light);
+  font-size: var(--workflow-library-font-size-xs);
+  font-weight: 700;
+  line-height: 1.4;
+  text-align: center;
+}
+
 .workflow-library-panel .project-status-dot {
   width: 8px;
   height: 8px;

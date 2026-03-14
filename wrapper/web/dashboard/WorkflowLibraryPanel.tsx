@@ -43,6 +43,9 @@ const flattenProjects = (items: WorkflowFolderItem[]): WorkflowProjectItem[] =>
 const collectFolderIds = (items: WorkflowFolderItem[]): string[] =>
   items.flatMap((folder) => [folder.id, ...collectFolderIds(folder.folders ?? [])]);
 
+const countProjectsInFolder = (folder: WorkflowFolderItem): number =>
+  folder.projects.length + (folder.folders ?? []).reduce((count, childFolder) => count + countProjectsInFolder(childFolder), 0);
+
 const getParentRelativePath = (relativePath: string) => {
   const normalized = relativePath.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
   const lastSlashIndex = normalized.lastIndexOf('/');
@@ -482,6 +485,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
 
   const renderFolder = (folder: WorkflowFolderItem): JSX.Element => {
     const expanded = expandedFolders[folder.id] ?? false;
+    const projectCount = countProjectsInFolder(folder);
 
     return (
       <div className="folder" key={folder.id}>
@@ -524,6 +528,9 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
             >
               <div className="folder-main">
                 <div className="label">{folder.name}</div>
+                <div className="folder-project-count" aria-label={`${projectCount} project${projectCount === 1 ? '' : 's'} in ${folder.name}`}>
+                  {projectCount}
+                </div>
               </div>
             </button>
           </div>
