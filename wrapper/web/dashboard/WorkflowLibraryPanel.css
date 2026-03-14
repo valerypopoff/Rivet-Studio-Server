@@ -632,7 +632,6 @@
 }
 
 .workflow-library-panel .projects {
-  padding-left: 6px;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -640,7 +639,7 @@
 }
 
 .workflow-library-panel .project-row {
-  padding-left: 32px;
+  padding-left: 38px;
 }
 
 .workflow-library-panel .project-row {
