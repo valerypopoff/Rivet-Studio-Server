@@ -196,7 +196,7 @@ export const RuntimeLibrariesModal: FC<RuntimeLibrariesModalProps> = ({
                 onClick={onClose}
                 aria-label="Close runtime libraries"
               >
-                x
+                ×
               </button>
             </div>
 

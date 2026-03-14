@@ -1,4 +1,5 @@
 import Button, { LoadingButton } from '@atlaskit/button';
+import EditIcon from '@atlaskit/icon/glyph/editor/edit';
 import ModalDialog, { ModalBody, ModalTransition } from '@atlaskit/modal-dialog';
 import TextField from '@atlaskit/textfield';
 import { type ChangeEvent, type FC, type KeyboardEvent as ReactKeyboardEvent, useEffect, useMemo, useState, type ReactNode } from 'react';
@@ -352,6 +353,7 @@ export const ProjectSettingsModal: FC<ProjectSettingsModalProps> = ({
                         className="project-settings-rename-button button-size-m"
                         onClick={handleStartProjectRename}
                         isDisabled={renamingProject || savingSettings || deletingProject}
+                        iconBefore={<EditIcon label="" size="medium" />}
                         aria-label="Rename project"
                       >
                         Edit
@@ -367,7 +369,7 @@ export const ProjectSettingsModal: FC<ProjectSettingsModalProps> = ({
                   disabled={!canCloseModal}
                   aria-label="Close project settings"
                 >
-                  x
+                  ×
                 </button>
               </div>
 
