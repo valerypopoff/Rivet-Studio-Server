@@ -13,6 +13,7 @@ import {
 } from './publication.js';
 import { ManagedCodeRunner } from '../../runtime-libraries/managed-code-runner.js';
 import { getRootPath } from '../../runtime-libraries/manifest.js';
+import { isTrustedTokenFreeHostRequest } from '../../auth.js';
 
 export const publishedWorkflowsRouter = Router();
 export const internalPublishedWorkflowsRouter = Router();
@@ -49,50 +50,13 @@ function isEnvFlagEnabled(value: string | undefined, defaultValue = false): bool
   return defaultValue;
 }
 
-function normalizeHostName(value: string | null | undefined): string {
-  const rawHost = (value ?? '').split(',')[0]?.trim().toLowerCase() ?? '';
-  if (!rawHost) {
-    return '';
-  }
-
-  if (rawHost.startsWith('[')) {
-    const closingBracketIndex = rawHost.indexOf(']');
-    return closingBracketIndex === -1 ? rawHost : rawHost.slice(0, closingBracketIndex + 1);
-  }
-
-  const colonIndex = rawHost.indexOf(':');
-  return colonIndex === -1 ? rawHost : rawHost.slice(0, colonIndex);
-}
-
-function getRequestHostName(req: Request): string {
-  return normalizeHostName(req.get('x-forwarded-host') || req.get('host'));
-}
-
-function getTokenFreeHosts(): Set<string> {
-  return new Set(
-    (process.env.RIVET_UI_TOKEN_FREE_HOSTS ?? '')
-      .split(',')
-      .map((host) => normalizeHostName(host))
-      .filter(Boolean),
-  );
-}
-
-function shouldBypassWorkflowApiKeyForHost(req: Request): boolean {
-  const requestHost = getRequestHostName(req);
-  if (!requestHost) {
-    return false;
-  }
-
-  return getTokenFreeHosts().has(requestHost);
-}
-
 function requirePublishedWorkflowApiKey(req: Request): void {
   const isWorkflowKeyRequired = isEnvFlagEnabled(process.env.RIVET_REQUIRE_WORKFLOW_KEY, false);
   if (!isWorkflowKeyRequired) {
     return;
   }
 
-  if (shouldBypassWorkflowApiKeyForHost(req)) {
+  if (isTrustedTokenFreeHostRequest(req)) {
     return;
   }
 

@@ -7,6 +7,7 @@ import { ensureWorkflowsRoot } from './fs-helpers.js';
 import { createPublishedWorkflowProjectReferenceLoader, findLatestWorkflowByEndpoint, findPublishedWorkflowByEndpoint, normalizeStoredEndpointName, } from './publication.js';
 import { ManagedCodeRunner } from '../../runtime-libraries/managed-code-runner.js';
 import { getRootPath } from '../../runtime-libraries/manifest.js';
+import { isTrustedTokenFreeHostRequest } from '../../auth.js';
 export const publishedWorkflowsRouter = Router();
 export const internalPublishedWorkflowsRouter = Router();
 export const latestWorkflowsRouter = Router();
@@ -34,40 +35,12 @@ function isEnvFlagEnabled(value, defaultValue = false) {
     }
     return defaultValue;
 }
-function normalizeHostName(value) {
-    const rawHost = (value ?? '').split(',')[0]?.trim().toLowerCase() ?? '';
-    if (!rawHost) {
-        return '';
-    }
-    if (rawHost.startsWith('[')) {
-        const closingBracketIndex = rawHost.indexOf(']');
-        return closingBracketIndex === -1 ? rawHost : rawHost.slice(0, closingBracketIndex + 1);
-    }
-    const colonIndex = rawHost.indexOf(':');
-    return colonIndex === -1 ? rawHost : rawHost.slice(0, colonIndex);
-}
-function getRequestHostName(req) {
-    return normalizeHostName(req.get('x-forwarded-host') || req.get('host'));
-}
-function getTokenFreeHosts() {
-    return new Set((process.env.RIVET_UI_TOKEN_FREE_HOSTS ?? '')
-        .split(',')
-        .map((host) => normalizeHostName(host))
-        .filter(Boolean));
-}
-function shouldBypassWorkflowApiKeyForHost(req) {
-    const requestHost = getRequestHostName(req);
-    if (!requestHost) {
-        return false;
-    }
-    return getTokenFreeHosts().has(requestHost);
-}
 function requirePublishedWorkflowApiKey(req) {
     const isWorkflowKeyRequired = isEnvFlagEnabled(process.env.RIVET_REQUIRE_WORKFLOW_KEY, false);
     if (!isWorkflowKeyRequired) {
         return;
     }
-    if (shouldBypassWorkflowApiKeyForHost(req)) {
+    if (isTrustedTokenFreeHostRequest(req)) {
         return;
     }
     const expectedApiKey = process.env.RIVET_KEY?.trim();

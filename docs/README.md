@@ -93,5 +93,5 @@ Browser → nginx (proxy)
 - Set `RIVET_REQUIRE_UI_GATE_KEY=true` if the browser UI and related websockets should require the token gate.
 - Set `RIVET_UI_TOKEN_FREE_HOSTS` to a comma-separated list of internal hostnames that should bypass the UI token check when the UI gate is enabled.
 - Those same hosts also bypass bearer-token auth for public workflow execution routes under `RIVET_PUBLISHED_WORKFLOWS_BASE_PATH` and `RIVET_LATEST_WORKFLOWS_BASE_PATH`.
-- When the UI gate is enabled, all other hosts require `?token=<RIVET_KEY>` once, then the proxy stores it in an HTTP-only cookie for `/`, `/api/*`, `/ws/executor*`, and `/ws/latest-debugger`.
+- When the UI gate is enabled, other hosts see a small browser prompt for the key on `/`; after successful entry, the key is posted to a proxy-backed auth endpoint and the proxy stores a derived HTTP-only session cookie for `/`, `/api/*`, `/ws/executor*`, and `/ws/latest-debugger`.
 - Public workflow execution routes still follow `RIVET_REQUIRE_WORKFLOW_KEY`, but requests from hosts listed in `RIVET_UI_TOKEN_FREE_HOSTS` bypass that bearer check.

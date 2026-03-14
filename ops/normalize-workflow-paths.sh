@@ -49,6 +49,21 @@ has_nonempty_value() {
   fi
 }
 
+sha256_hex() {
+  value="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    printf '%s' "$value" | sha256sum | awk '{print $1}'
+    return
+  fi
+
+  if command -v openssl >/dev/null 2>&1; then
+    printf '%s' "$value" | openssl dgst -sha256 -binary | od -An -vtx1 | tr -d ' \n'
+    return
+  fi
+
+  printf ''
+}
+
 build_host_regex() {
   value="$1"
   api_key="${2:-}"
@@ -93,5 +108,7 @@ export RIVET_LATEST_WORKFLOWS_BASE_PATH="$(normalize_path "${RIVET_LATEST_WORKFL
 export RIVET_REQUIRE_UI_GATE_KEY="$(normalize_bool "${RIVET_REQUIRE_UI_GATE_KEY:-}" "0")"
 export RIVET_UI_GATE_KEY_PRESENT="$(has_nonempty_value "${RIVET_KEY:-}")"
 export RIVET_UI_TOKEN_FREE_HOSTS_REGEX="$(build_host_regex "${RIVET_UI_TOKEN_FREE_HOSTS:-}" "${RIVET_KEY:-}")"
+export RIVET_PROXY_AUTH_TOKEN="$(sha256_hex "${RIVET_KEY:-}:proxy-auth")"
+export RIVET_UI_SESSION_TOKEN="$(sha256_hex "${RIVET_KEY:-}:ui-session")"
 
 exec /docker-entrypoint.sh nginx -g 'daemon off;'

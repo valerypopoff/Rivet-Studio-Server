@@ -2,6 +2,7 @@ import type { Server as HttpServer } from 'node:http';
 import type { Duplex } from 'node:stream';
 import { startDebuggerServer, type RivetDebuggerServer } from '@ironclad/rivet-node';
 import { WebSocketServer } from 'ws';
+import { isTrustedProxyRequest } from './auth.js';
 
 export const LATEST_WORKFLOW_REMOTE_DEBUGGER_PATH = '/ws/latest-debugger';
 
@@ -35,6 +36,11 @@ export function initializeLatestWorkflowRemoteDebugger(httpServer: HttpServer): 
       const url = new URL(request.url ?? '', 'http://localhost');
 
       if (url.pathname !== LATEST_WORKFLOW_REMOTE_DEBUGGER_PATH) {
+        return;
+      }
+
+      if (!isTrustedProxyRequest(request)) {
+        rejectWebSocketUpgrade(socket, 401, 'Unauthorized');
         return;
       }
 

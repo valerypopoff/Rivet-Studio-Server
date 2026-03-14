@@ -14,6 +14,7 @@ services:
     volumes:
       - ./nginx.dev.conf:/etc/nginx/templates/default.conf.template:ro
       - ./normalize-workflow-paths.sh:/normalize-workflow-paths.sh:ro
+      - ./ui-gate-prompt.html:/usr/share/nginx/html/ui-gate-prompt.html:ro
     entrypoint: ["/bin/sh", "/normalize-workflow-paths.sh"]
     depends_on:
       web:
@@ -150,7 +151,7 @@ services:
           "CMD",
           "node",
           "-e",
-          "require('node:http').get('http://127.0.0.1:80/api/config', (res) => process.exit(res.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))",
+          "require('node:http').get('http://127.0.0.1:80/healthz', (res) => process.exit(res.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))",
         ]
       start_period: 120s
       interval: 10s

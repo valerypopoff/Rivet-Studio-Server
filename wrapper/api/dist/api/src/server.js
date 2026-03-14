@@ -8,6 +8,7 @@ import { pluginsRouter } from './routes/plugins.js';
 import { projectsRouter } from './routes/projects.js';
 import { internalPublishedWorkflowsRouter, latestWorkflowsRouter, publishedWorkflowsRouter, workflowsRouter } from './routes/workflows/index.js';
 import { configRouter } from './routes/config.js';
+import { uiAuthRouter } from './routes/ui-auth.js';
 import { runtimeLibrariesRouter } from './routes/runtime-libraries.js';
 import { reconcileRuntimeLibraries } from './runtime-libraries/startup.js';
 import { initializeLatestWorkflowRemoteDebugger } from './latestWorkflowRemoteDebugger.js';
@@ -18,7 +19,12 @@ const server = createServer(app);
 const PORT = parseInt(process.env.PORT ?? '3100', 10);
 app.use(cors({ origin: true, credentials: true }));
 app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ extended: false }));
+app.get('/healthz', (_req, res) => {
+    res.status(200).json({ ok: true });
+});
 // Mount routes
+app.use('/', uiAuthRouter);
 app.use(PUBLISHED_WORKFLOWS_BASE_PATH, publishedWorkflowsRouter);
 app.use(LATEST_WORKFLOWS_BASE_PATH, latestWorkflowsRouter);
 app.use('/internal/workflows', internalPublishedWorkflowsRouter);
