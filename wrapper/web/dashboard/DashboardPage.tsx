@@ -295,7 +295,7 @@ export const DashboardPage: FC = () => {
           className={`dashboard-restore-sidebar-button${sidebarCollapsed ? ' dashboard-restore-sidebar-button-visible' : ''}`}
           onClick={handleRestoreSidebar}
         >
-          Show projects
+          Show main panel
         </button>
       ) : null}
       <ToastContainer
