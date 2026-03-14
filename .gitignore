@@ -1,5 +1,6 @@
 # Local env files
 .env.dev
+.claude/
 
 # Dependency + build artifacts
 node_modules/

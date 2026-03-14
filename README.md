@@ -2,11 +2,11 @@
 
 ## Additional docs
 
-- [Architecture](./architecture.md)
-- [Development](./development.md)
-- [Editor bridge](./editor-bridge.md)
-- [Workflow publication](./workflow-publication.md)
-- [Runtime libraries](./runtime-libraries.md)
+- [Architecture](./docs/architecture.md)
+- [Development](./docs/development.md)
+- [Editor bridge](./docs/editor-bridge.md)
+- [Workflow publication](./docs/workflow-publication.md)
+- [Runtime libraries](./docs/runtime-libraries.md)
 
 ## Quick Start
 
