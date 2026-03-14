@@ -701,16 +701,12 @@
 }
 
 .project-settings-rename-button {
-  min-width: var(--workflow-button-height-s);
   width: var(--workflow-button-height-s);
-  height: var(--workflow-button-height-s);
   margin-left: 2px;
-  line-height: 1;
 }
 
 .project-settings-rename-button span {
   color: white !important;
-  font-size: var(--workflow-button-font-size-s);
   transform: scaleX(-1);
 }
 

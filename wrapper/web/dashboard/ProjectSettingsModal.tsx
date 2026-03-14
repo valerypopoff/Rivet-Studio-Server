@@ -354,7 +354,7 @@ export const ProjectSettingsModal: FC<ProjectSettingsModalProps> = ({
                       <Button
                         appearance="subtle"
                         spacing="compact"
-                        className="project-settings-rename-button"
+                        className="project-settings-rename-button button-size-m"
                         onClick={handleStartProjectRename}
                         isDisabled={renamingProject || savingSettings || deletingProject}
                         aria-label="Rename project"
