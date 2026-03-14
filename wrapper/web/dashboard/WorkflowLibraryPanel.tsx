@@ -551,7 +551,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
         </div>
 
         {expanded ? (
-          <div className="projects">
+          <div className="folder-children">
             {(folder.folders ?? []).map((childFolder) => renderFolder(childFolder))}
             {(folder.folders ?? []).length === 0 && folder.projects.length === 0 ? (
               <div className="state folder-empty-state">

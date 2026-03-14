@@ -651,8 +651,16 @@
   margin-bottom: 15px;
 }
 
+.workflow-library-panel .folder-children {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 15px;
+  padding-left: 24px;
+}
+
 .workflow-library-panel .project-row {
-  padding-left: 38px;
+  padding-left: 15px;
 }
 
 .workflow-library-panel .project-row {
