@@ -1,9 +1,27 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { loadProjectFromString } from '@ironclad/rivet-node';
 import { validatePath } from '../../security.js';
 import { badRequest, conflict } from '../../utils/httpError.js';
 import { getProjectSidecarPaths, listProjectPathsRecursive, pathExists, PROJECT_EXTENSION, resolveWorkflowRelativePath, } from './fs-helpers.js';
 import { getWorkflowProjectSettings } from './publication.js';
+async function getWorkflowProjectStats(filePath) {
+    try {
+        const fileContents = await fs.readFile(filePath, 'utf8');
+        const project = loadProjectFromString(fileContents);
+        const graphs = Object.values(project.graphs ?? {});
+        return {
+            graphCount: graphs.length,
+            totalNodeCount: graphs.reduce((count, graph) => count + (graph.nodes?.length ?? 0), 0),
+        };
+    }
+    catch {
+        return {
+            graphCount: 0,
+            totalNodeCount: 0,
+        };
+    }
+}
 export async function listWorkflowFolders(root) {
     const entries = await fs.readdir(root, { withFileTypes: true });
     return Promise.all(entries
@@ -52,6 +70,7 @@ export async function getWorkflowProject(root, filePath) {
         absolutePath: filePath,
         updatedAt: stats.mtime.toISOString(),
         settings: await getWorkflowProjectSettings(filePath, projectName),
+        stats: await getWorkflowProjectStats(filePath),
     };
 }
 export async function moveWorkflowProject(root, sourceRelativePath, destinationFolderRelativePath) {

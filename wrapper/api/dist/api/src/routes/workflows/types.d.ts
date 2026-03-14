@@ -1,5 +1,5 @@
 import type { WorkflowProjectStatus as SharedWorkflowProjectStatus } from '../../../../shared/workflow-types.js';
-export type { WorkflowFolderItem, WorkflowProjectItem, WorkflowProjectPathMove, WorkflowProjectSettings, WorkflowProjectSettingsDraft, WorkflowProjectStatus, } from '../../../../shared/workflow-types.js';
+export type { WorkflowFolderItem, WorkflowProjectItem, WorkflowProjectPathMove, WorkflowProjectSettings, WorkflowProjectSettingsDraft, WorkflowProjectStats, WorkflowProjectStatus, } from '../../../../shared/workflow-types.js';
 export type StoredWorkflowProjectSettings = {
     endpointName: string;
     publishedEndpointName: string;

@@ -6,6 +6,10 @@ export type WorkflowProjectSettings = {
 export type WorkflowProjectSettingsDraft = {
     endpointName: string;
 };
+export type WorkflowProjectStats = {
+    graphCount: number;
+    totalNodeCount: number;
+};
 export type WorkflowProjectItem = {
     id: string;
     name: string;
@@ -14,6 +18,7 @@ export type WorkflowProjectItem = {
     absolutePath: string;
     updatedAt: string;
     settings: WorkflowProjectSettings;
+    stats?: WorkflowProjectStats;
 };
 export type WorkflowFolderItem = {
     id: string;

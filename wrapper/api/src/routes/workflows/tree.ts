@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { loadProjectFromString } from '@ironclad/rivet-node';
 
 import { validatePath } from '../../security.js';
 import { badRequest, conflict } from '../../utils/httpError.js';
@@ -11,7 +12,25 @@ import {
   resolveWorkflowRelativePath,
 } from './fs-helpers.js';
 import { getWorkflowProjectSettings } from './publication.js';
-import type { WorkflowFolderItem, WorkflowProjectItem, WorkflowProjectPathMove } from './types.js';
+import type { WorkflowFolderItem, WorkflowProjectItem, WorkflowProjectPathMove, WorkflowProjectStats } from './types.js';
+
+async function getWorkflowProjectStats(filePath: string): Promise<WorkflowProjectStats> {
+  try {
+    const fileContents = await fs.readFile(filePath, 'utf8');
+    const project = loadProjectFromString(fileContents);
+    const graphs = Object.values(project.graphs ?? {});
+
+    return {
+      graphCount: graphs.length,
+      totalNodeCount: graphs.reduce((count, graph) => count + (graph.nodes?.length ?? 0), 0),
+    };
+  } catch {
+    return {
+      graphCount: 0,
+      totalNodeCount: 0,
+    };
+  }
+}
 
 export async function listWorkflowFolders(root: string): Promise<WorkflowFolderItem[]> {
   const entries = await fs.readdir(root, { withFileTypes: true });
@@ -74,6 +93,7 @@ export async function getWorkflowProject(root: string, filePath: string): Promis
     absolutePath: filePath,
     updatedAt: stats.mtime.toISOString(),
     settings: await getWorkflowProjectSettings(filePath, projectName),
+    stats: await getWorkflowProjectStats(filePath),
   };
 }
 

@@ -38,6 +38,9 @@ export const ActiveProjectSection: FC<ActiveProjectSectionProps> = ({
 
   const statusLabel = STATUS_LABELS[activeProject.settings.status];
   const baseName = activeProject.fileName.replace(/\.[^.]+$/, '');
+  const graphCount = activeProject.stats?.graphCount ?? 0;
+  const totalNodeCount = activeProject.stats?.totalNodeCount ?? 0;
+  const projectStatsLabel = `${graphCount} ${graphCount === 1 ? 'graph' : 'graphs'}, ${totalNodeCount} ${totalNodeCount === 1 ? 'node' : 'nodes'} total`;
 
   return (
     <div className="active-project-section">
@@ -49,6 +52,7 @@ export const ActiveProjectSection: FC<ActiveProjectSectionProps> = ({
             </span>
             <span className="active-project-name">{baseName}</span>
           </div>
+          <div className="active-project-stats">{projectStatsLabel}</div>
           <div className="active-project-actions-row">
             <LoadingButton
               appearance="primary"

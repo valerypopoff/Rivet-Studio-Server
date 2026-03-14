@@ -1,0 +1,1244 @@
+version: 4
+data:
+  attachedData:
+    trivet:
+      testSuites: []
+      version: 1
+  graphs:
+    29f17ff8-3aa4-4294-8a92-13116d5a8a9b:
+      metadata:
+        description: ""
+        id: 29f17ff8-3aa4-4294-8a92-13116d5a8a9b
+        name: Main Graph
+      nodes:
+        '[0-sF-SyslVNji1GDCuCDN]:comment "Comment"':
+          data:
+            backgroundColor: rgba(0,0,0,0.05)
+            color: rgba(255,255,255,1)
+            height: 905.917192375282
+            text: "### Assemble the response JSON"
+          visualData: 3509.0040558270707/672.1672908849965/1636.7062217172397/174//
+        '[2r6MGriPzIS8-lyLn0poJ]:code "Code - Reformat messages"':
+          data:
+            allowConsole: false
+            allowFetch: false
+            allowProcess: false
+            allowRequire: false
+            allowRivet: false
+            code: |-
+              function transformStoryPayload(input) {
+                return {
+                  ...input,
+                  messages: (input.messages || []).map((msg) => ({
+                    characterId: msg.characterID,
+                    type: "text",
+                    payload: {
+                      text: msg.text,
+                    },
+                  })),
+                };
+              }
+
+              let payload = inputs.input.value
+
+              payload = transformStoryPayload(payload)
+
+              return {
+                output: {
+                  type: inputs.input.type,
+                  value: payload
+                }
+              };
+            inputNames:
+              - input
+            outputNames:
+              - output
+          outgoingConnections:
+            - output->"Code - maybe add StageCompleted event"
+              pse382K5RM4UdvP7oiGIv/input
+          visualData: 4136.690034613416/943.308863506934/376.3275122134519/171//
+        '[7jI6nnS863NLzUKLTwxYL]:comment "Comment"':
+          data:
+            backgroundColor: rgba(0,0,0,0.05)
+            color: rgba(255,255,255,1)
+            height: 1251.0052406916425
+            text: "### Build the prompt"
+          visualData: 231.71656566824305/1027.951014190179/2044.2010718180145/182//
+        '[7nsFV8E9FLurFQbV6olZC]:subGraph "Subgraph"':
+          data:
+            graphId: HOR0fk7xvEoCdUXjuKy2D
+            useAsGraphPartialOutput: false
+            useErrorOutput: false
+          outgoingConnections:
+            - otherMessages->"Text - messageHistory"
+              wCg71kVghvAVCUZnyDSMV/otherMessages
+            - userMessage->"Text - userMessage" 88huQf1aVmnFytz5swdcG/userMessage
+          visualData: 338.10249207002994/265.2276211800848/405.046904315197/194/var(--node-color-2)/var(--node-color-2)
+        '[88huQf1aVmnFytz5swdcG]:text "Text - userMessage"':
+          data:
+            jsonTemplate: ""
+            normalizeLineEndings: true
+            text: "# Protagonist vs Other characters (not relevant to a storyteller)\r
+
+              The protagonist must be written in the first person. It can be
+              direct speech, an internal monologue, or a personal statement. All
+              other characters must be written through dialogue/actions without
+              first-person narration.\r
+
+              \r
+
+              Internal text and first-person narration are reserved exclusively
+              for the protagonist. For example, all other characters must not
+              use narrative forms like \"I did,\" and should instead be
+              described as \"he did\" or shown through direct speech with
+              narrative cues.\r
+
+              \r
+
+              # Narrative cues in direct speech\r
+
+              In direct speech, any narrative cues conveying an action, pause,
+              gesture, emotional state, or intonation should be enclosed in
+              asterisks (markdown italic), for example: *lowered her eyes*,
+              *paused*, *his voice trembled*. Do not highlight narrative cues if
+              it's not a direct speech.\r
+
+              \r
+
+              ## Examples with direct speech and narrative cues\r
+
+              — Отойди, — *говорю я, смотрю прямо на Джека и стараюсь, чтобы
+              голос не дрожал*. Мне не нужно, чтобы меня учили как жить — просто
+              хочу понять, что здесь по‑настоящему.\r
+
+              \r
+
+              — Как дела? — *спросил он тихо, и в голосе слышалась привычка
+              разделять не заказы, а людей по намерениям*. *Его руки аккуратно
+              вытерли стакан, и за стойкой уже появился один свободный стул.*\r
+
+              \r
+
+              ## Example with no direct speech: no narrative cues needed\r
+
+              Я вошёл в помещение, снял куртку и постарался выглядеть как можно
+              менее заметно — уставший и готовый раствориться. Сел на
+              предложенный стул и задержал взгляд на полках с книгами.\r
+
+              \r
+
+              \r
+
+              # Characters vs storyteller\r
+
+              A storyteller should describe what happens but not what characters
+              say. A storyteller should never say the character's lines.
+              Character lines must be said by characters themselves, not by the
+              storyteller.\r
+
+              \r
+
+              A storyteller must always narrate in the third person. Characters
+              (including the protagonist) should speak from the first person.\r
+
+              \r
+
+              # How to start a message sequence\r
+
+              Based on what the user entered for the protagonist, choose
+              either:\r
+
+              1. A storyteller message + protagonist message (so that a
+              storyteller introduces what a protagonist does)\r
+
+              2. A protagonist message (without a storyteller's introduction)\r
+
+              \r
+
+              After the first generated protagonist message, do not use the
+              protagonist character anymore. Continue with messages from other
+              characters or a storyteller if needed.\r
+
+              \r
+
+              # User message\r
+
+              Here's what the user entered for the protagonist:\r
+
+              `{{userMessage}}`\r
+
+              \r
+
+              Don't just repeat what the user entered. The user tends to enter a
+              short phrase to save time. Rephrase it so it sounds well-written
+              and book-like. \r
+
+              \r
+
+              Go ahead and generate an output to continue the story and unfold
+              the plot. Your output must be in Russian language.\r
+
+              \r
+
+              \r
+
+              \r
+
+              \r
+
+              \r
+
+              \r
+
+              \r
+
+              \r
+
+              \r
+
+              \r
+
+              \r
+
+              \r\n"
+          outgoingConnections:
+            - output->"Object - input" KOQ3Z2mDGf9NFmHfJjgX4/userMessage
+          visualData: 876.317022738748/527.3068641531456/330/190//
+        '[91rnP_8svcIpZDYSYUW9D]:graphOutput "Graph Output"':
+          data:
+            dataType: object
+            id: output
+          visualData: 5299.232225335962/933.6428949244364/330/171/var(--node-color-3)/var(--node-color-3)
+        '[B22q_-m_RUssJuwmZjovB]:number "Number - messages per stage"':
+          data:
+            round: false
+            roundTo: 0
+            value: 20
+          outgoingConnections:
+            - value->"Text - propmpt" c3Pi-moR9Vmr59QeVi4wU/messagesPerStage
+          visualData: 979.6230351768298/1490.8258181479923/294.7675648512145/148/var(--node-color-4)/var(--node-color-4)
+        '[Cfv0YD2TUjAdtsPdUL9pd]:passthrough "Passthrough - currentStageID"':
+          outgoingConnections:
+            - output1->"Code - maybe add StageCompleted event"
+              pse382K5RM4UdvP7oiGIv/stageID
+          visualData: 2941.8177655673726/2536.504142320726/308.7779450199191/179//
+        '[KOQ3Z2mDGf9NFmHfJjgX4]:object "Object - input"':
+          data:
+            jsonTemplate: |-
+              [
+                  {
+                    "role": "user",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "{{messageHistory}}"
+                      }
+                    ]
+                  },
+                  {
+                    "role": "developer",
+                    "content": [
+                      {
+                        "type": "input_text",
+                        "text": "{{userMessage}}"
+                      }
+                    ]
+                  }
+                ]
+          outgoingConnections:
+            - output->"Subgraph" KU7nXxhwIah8VmCsFfc7E/input
+          visualData: 1307.6076097529271/270.2582460403585/367.2965410008103/191//
+        '[KU7nXxhwIah8VmCsFfc7E]:subGraph "Subgraph"':
+          data:
+            graphId: Pqid50szUfix8TQRraU7V
+            useAsGraphPartialOutput: false
+            useErrorOutput: false
+          outgoingConnections:
+            - rawJSON->"Code - add summarizeTokenUsage"
+              _AL-4-ottIvXdX0Zvi0zc/rawLLMOutput
+            - response->"Code - add summarizeTokenUsage"
+              _AL-4-ottIvXdX0Zvi0zc/response
+          visualData: 2892.0389628640346/953.1254405200481/330/181/var(--node-color-2)/var(--node-color-2)
+        '[L4wwMibv6ND2UJ-NQZbhY]:code "Code - flatten genres"':
+          data:
+            allowConsole: false
+            allowFetch: false
+            allowProcess: false
+            allowRequire: false
+            allowRivet: false
+            code: |-
+              return {
+                output: {
+                  type: typeof(""),
+                  value: inputs.input.value.map(x => x.name).join(', ')
+                }
+              };
+            inputNames:
+              - input
+            outputNames:
+              - output
+          outgoingConnections:
+            - output->"Text - propmpt" c3Pi-moR9Vmr59QeVi4wU/genres
+          visualData: 966.4863950915551/1157.280437032603/321.8850488237654/147//
+        '[Qr9e2MuQdur-P-YS4YmGc]:text "TODO"':
+          data:
+            normalizeLineEndings: true
+            text: "- Разрешить генерировать новых NPC и возвращать объект с их созданием\r
+
+              \r
+
+              - Сделать отсечку N последних сообщений в истории\r
+
+              \r
+
+              - Сделать messages per stage динамическим\r
+
+              \r
+
+              - Передавать количество сообщений уже сгенерированных в текущем
+              плот стейдже. \r
+
+              \r
+
+              - Обсудить непонятки с 1 и 3 лицом. Вроде как рассказчик всегда
+              должен говорить от треьего лица, а протагонист от первого. Сейчас
+              в описаниях книг можно встретить \"Стиль: повествование от первого
+              лица\". Надо чтобы та кне делали, потому что это не имеет смысла в
+              интерактивной истории.\r
+
+              \r
+
+              - Вместо\r
+
+              {\r
+
+              \    \"type\": \"StageCompleted\",\r
+
+              \    \"payload\": {\r
+
+              \        \"stageId\": \"....\"\r
+
+              \    },\r
+
+              }\r
+
+              возвращать\r
+
+              concludeCurrentStage"
+          disabled: true
+          visualData: -731.3665008093408/373.1570597365097/330/177//
+        '[R-Aebrn1skSQcJpOnUhwS]:object "Object - test"':
+          data:
+            code: ""
+            jsonTemplate: >-
+              {
+                "story": {
+                  "id": "69b30bb7fffe1496867db27e",
+                  "bookId": "a3f3690e-f1d7-427d-817c-b4c5af861d55",
+                  "title": "Гарри Поттер и настоечный бар в Тбилиси",
+                  "coverImage": "",
+                  "backgroundImage": "/backgrounds/a3f3690e-f1d7-427d-817c-b4c5af861d55.jpg",
+                  "imageStyle": "Photorealism",
+                  "narrationStyle": "К вечеру Тбилиси становился особенно похож на город, который что-то скрывает — не из злого умысла, а просто по привычке. Узкие улицы поднимались и ломались под странными углами, деревянные балконы нависали друг над другом, как старые сплетницы, а теплый ветер нес запах серы, кофе и виноградной кожи. Гарри шел без карты, потому что карта здесь была бы скорее оскорблением, чем помощью. Такие города не находят — они сами решают, кого пустить дальше, за поворот, в переулок, где нет вывески, но есть свет в мутном окне и тень человека, который слишком долго протирает один и тот же стакан.\n\nНастоечный бар оказался именно там, где ему и следовало быть: между лавкой часовщика, давно забывшего о времени, и внутренним двориком, где на веревке сохли травы, похожие на ингредиенты для очень старого заклинания. Внутри пахло полынью, сливой, медом и чем-то еще — терпким, темным, почти неуловимым, как воспоминание о заклинании, которое ты однажды пережил, но так и не выучил. Бармен, высокий грузин с лицом человека, способного налить и чачу, и правду в одинаково опасных пропорциях, посмотрел на Гарри без малейшего удивления.\n— Тебе покрепче или по-честному? — спросил он.\nИ почему-то Гарри сразу понял, что в этом заведении это были два совершенно разных напитка.",
+                  "genres": [],
+                  "world": {
+                    "description": "Мир этой истории — это Тбилиси, существующий сразу в двух регистрах. Для обычных людей он остается городом лестниц, дворов, треснувшей штукатурки, серных бань, кошек на подоконниках и баров, где наливают слишком щедро и разговаривают слишком откровенно. Но под этой видимой жизнью лежит другой слой: старый магический юг, неофициальный, неучтенный, почти не попавший в европейские министерские архивы. Здесь магия не любит башни, мантии и громкие титулы; она живет в подвалах, на кухнях, в лавках травников, в винных погребах, в семейных рецептах, которые передают шепотом и никогда не записывают полностью. В этом мире заклинание может быть спрятано в тосте, защита — в вышивке на скатерти, а сильнейшие зелья подаются не в котлах, а в маленьких рюмках с настойкой на айве, полыни или черной сливе.\n\nМагическое сообщество здесь устроено не как строгая система, а как сеть личных обязательств, слухов, долгов и старых союзов. В Лондоне волшебство привыкло к правилам и печатям, а в Тбилиси оно держится на репутации: кто кого знает, кто кому однажды помог, кто чью семью не предал в плохой год. Поэтому бары, подвалы и частные дома значат больше, чем официальные учреждения. Настоечный бар в этой истории — не просто место, где пьют, а нечто вроде нейтральной территории, клуба, аптеки, архива и исповедальни сразу. Сюда приходят не только за храбростью или забытьем, но и за ответами: о пропавших артефактах, о странных гостях из других магических столиц, о местных духах, с которыми лучше не спорить, и о той древней, упрямой магии Кавказа, что старше многих известных школ и не особенно нуждается в том, чтобы кто-то признавал ее официально."
+                  },
+                  "startSituation": {
+                    "description": "Гарри Поттер приезжает в Тбилиси, надеясь ненадолго спрятаться от собственного прошлого и жизни, в которой от него всегда чего-то ждут; в старом городе он случайно находит маленький настоечный бар, который кажется просто уютным местом для своих, но быстро чувствует, что здесь все не так просто: хозяин знает о нем больше, чем должен, посетители говорят намеками, а местная магия — древняя, домашняя и завязанная на памяти, долгах и семейных секретах — совсем не похожа на ту, к которой он привык. Пока Гарри только присматривается к этому новому миру и пытается остаться в стороне, но уже ясно, что бар связан с какой-то скрытой историей, в которую его скоро втянет сам город."
+                  },
+                  "plot": {
+                    "id": "69b30bb8fffe1496867db286",
+                    "name": "Гарри Поттер и настоечный бар в Тбилиси",
+                    "description": "После войны и всех прежних подвигов Гарри Поттер приезжает в Тбилиси не как герой, а как человек, который хотел бы ненадолго исчезнуть из собственной биографии. Он находит — или, скорее, бар находит его — маленький настоечный бар в старом городе, где подают напитки по семейным рецептам, способные не только согреть или оглушить, но и вытянуть на поверхность то, что человек прячет даже от самого себя. Гарри рассчитывает отсидеться там несколько тихих вечеров, но быстро понимает, что это место связано с исчезновением редкого магического артефакта, за которым охотятся сразу несколько сил: иностранные чиновники, местные хранители старой магии и кто-то, кто слишком хорошо знает его прошлое.\n\nПостепенно история превращается из камерной барной легенды в расследование, где важнее не дуэли и погони, а доверие, слухи, старые долги и умение понять чужой город, прежде чем пытаться его спасать. Гарри приходится разбираться не только с угрозой, нависшей над баром и его хозяевами, но и с самой природой местной магии — древней, личной, непредсказуемой, не похожей на все, к чему его учили в Британии. В итоге сюжет становится историей о человеке, который приехал спрятаться, а вместо этого снова оказался втянут в чужую беду — только на этот раз ему нужно не победить зло привычным способом, а научиться слушать, кому здесь принадлежит сила, память и право рассказывать собственные легенды.",
+                    "stages": [
+                      {
+                        "id": "69b30bb7fffe1496867db27f",
+                        "name": "Побег в Тбилиси",
+                        "description": "Гарри приезжает в Тбилиси, hoping temporarily disappear from своей прошлой жизни, славы и постоянного чувства долга. Он ищет не приключений, а тишины, а потому оказывается в старом районе города, где случайно находит странный настоечный бар."
+                      },
+                      {
+                        "id": "69b30bb7fffe1496867db280",
+                        "name": "Бар, который знает слишком много",
+                        "description": "С первых же вечеров Гарри понимает, что бар необычный: здесь настойки действуют не совсем как алкоголь, посетители говорят загадками, а хозяин явно видит в нем больше, чем простого иностранца. Постепенно становится ясно, что это место связано с местной магией, древней и неформальной, почти не похожей на британскую."
+                      },
+                      {
+                        "id": "69b30bb7fffe1496867db281",
+                        "name": "Исчезновение артефакта",
+                        "description": "Выясняется, что из круга местных хранителей пропал важный магический предмет — старый артефакт, который нельзя просто вывезти или использовать без последствий. С его исчезновением в городе начинает нарушаться хрупкое равновесие: странно ведут себя люди, оживают старые слухи, а в бар все чаще приходят опасные гости."
+                      }
+                    ]
+                  },
+                  "characters": [
+                    {
+                      "id": "69b30bb8fffe1496867db283",
+                      "name": "Гарри Поттер",
+                      "description": "После всех своих прошлых побед и утрат Гарри давно научился жить в мире, где его имя звучит громче, чем он сам, — как символ, как чужая история, как вечное напоминание о войне, из которой он вроде бы вышел живым, но не совсем целым; годы работы, ожиданий и необходимости снова и снова быть тем самым Гарри Поттером постепенно превратили его жизнь в тесную роль, из которой невозможно выйти без чувства вины. Он приезжает в Тбилиси после очередного внутреннего надлома — не катастрофы, а тихого, взрослого истощения, когда человек вдруг понимает, что больше не различает, где в нем долг, а где он сам, и потому выбирает город, о котором знает достаточно мало, чтобы впервые за долгое время попытаться стать просто человеком, а не легендой.",
+                      "image": "/characters/69b30bb7fffe1496867db282.jpg",
+                      "archetype": {
+                        "description": "Усталый герой в изгнании: не юный избранный, а раненый странник, который приехал в Тбилиси не спасать мир, а ненадолго исчезнуть из собственной легенды. Но, оказавшись в чужом и древнем магическом мире, он становится не столько спасителем, сколько чужаком, проходящим посвящение: человеком, которому нужно не вести за собой, а учиться слушать, понимать и заслужить право прикоснуться к чужой тайне."
+                      },
+                      "gender": {
+                        "description": "male"
+                      },
+                      "isPlayable": true,
+                      "initialMessage": "Тбилиси встретил тебя не вопросами, а теплом камня, запахом серы, кофе и вечернего вина. Ты приехал сюда, чтобы исчезнуть хотя бы ненадолго — без чужих ожиданий, без громкого имени, без необходимости снова быть тем, кем тебя привыкли видеть. Но в старом городе, среди кривых улочек и темных балконов, ты находишь маленький настоечный бар без вывески.",
+                      "initialChoices": [
+                        "Войти в бар",
+                        "Заглянуть в окно и сначала понаблюдать"
+                      ]
+                    },
+                    {
+                      "id": "69b30bb8fffe1496867db285",
+                      "name": "Леван",
+                      "description": "Леван — хозяин маленького настоечного бара в старом Тбилиси и один из неофициальных хранителей местной магии, через которого проходят слухи, долги, сделки и тайны города. С виду он просто спокойный бармен с сухим юмором и внимательным взглядом, но быстро становится ясно, что он знает о людях больше, чем говорит, и играет в истории роль проводника, испытания на доверие и человека, который охраняет границы чужих секретов.",
+                      "image": "/characters/69b30bb8fffe1496867db284.jpg",
+                      "archetype": {
+                        "description": "Хранитель порога и мудрый трактирщик: человек, который стоит между обыденным и тайным, гостеприимством и опасностью, и проверяет героя не силой, а тем, умеет ли он вести себя в чужом мире. Он не спешит становиться наставником или союзником, потому что его задача — не открыть все секреты, а решить, заслуживает ли Гарри права услышать хоть что-то."
+                      },
+                      "gender": {
+                        "description": "male"
+                      },
+                      "isPlayable": false,
+                      "initialMessage": "",
+                      "initialChoices": []
+                    }
+                  ]
+                },
+                "thread": {
+                  "id": "69b30bc1fffe1496867db287",
+                  "userId": "d1bba7e482a56be7185ac11be9637efa",
+                  "storyId": "69b30bb7fffe1496867db27e",
+                  "characterId": "69b30bb8fffe1496867db283",
+                  "messages": [
+                    {
+                      "characterId": "_storyteller",
+                      "type": "text",
+                      "payload": {
+                        "text": "Тбилиси встретил тебя не вопросами, а теплом камня, запахом серы, кофе и вечернего вина. Ты приехал сюда, чтобы исчезнуть хотя бы ненадолго — без чужих ожиданий, без громкого имени, без необходимости снова быть тем, кем тебя привыкли видеть. Но в старом городе, среди кривых улочек и темных балконов, ты находишь маленький настоечный бар без вывески."
+                      }
+                    },
+                    {
+                      "characterId": "69b30bb8fffe1496867db283",
+                      "type": "text",
+                      "payload": {
+                        "text": "Войти в бар"
+                      }
+                    }
+                  ],
+                  "plotStageStatuses": [
+                    {
+                      "id": "69b30bb7fffe1496867db27f",
+                      "status": "inProgress"
+                    },
+                    {
+                      "id": "69b30bb7fffe1496867db280",
+                      "status": "pending"
+                    },
+                    {
+                      "id": "69b30bb7fffe1496867db281",
+                      "status": "pending"
+                    }
+                  ],
+                  "npcCharacters": [
+                    {
+                      "id": "_storyteller",
+                      "name": "Рассказчик",
+                      "archetype": null,
+                      "gender": null,
+                      "description": null,
+                      "role": null
+                    }
+                  ],
+                  "status": "inProgress",
+                  "createdAt": "2026-03-12T18:53:53.36Z",
+                  "updatedAt": "2026-03-12T18:55:21.769070049Z"
+                }
+              }
+            text: ""
+          outgoingConnections:
+            - output->"Graph Input" _iPxZKI3fjNkKI462TE86/default
+          visualData: -956.6328347819748/915.1094714333661/399/176/var(--node-color-4)/var(--node-color-4)
+        '[TAQqnj-GczvkKL46rzAMl]:subGraph "Subgraph"':
+          data:
+            graphId: CkhdNzz-3jQ3vXNd2LziX
+            useAsGraphPartialOutput: false
+            useErrorOutput: false
+          outgoingConnections:
+            - allStages->"Text - propmpt" c3Pi-moR9Vmr59QeVi4wU/plot stages
+            - currentStage->"Text - propmpt" c3Pi-moR9Vmr59QeVi4wU/currentStage
+            - currentStageID->"Passthrough - currentStageID"
+              Cfv0YD2TUjAdtsPdUL9pd/input1
+          visualData: 421.3994260953889/1649.1080431610358/405.046904315197/139/var(--node-color-2)/var(--node-color-2)
+        '[WVMUYQexL3LocXQ9DuLVh]:comment "Comment"':
+          data:
+            backgroundColor: rgba(0,0,0,0.05)
+            color: rgba(255,255,255,1)
+            height: 941.5746846456404
+            text: "### Build the input messages"
+          visualData: 232.75740863421356/42.758936750665114/1772/168//
+        '[WVd1iNp2G2niRRY5jBn4w]:destructure "Destructure"':
+          data:
+            paths:
+              - $.foo
+              - $.story.title
+              - $.story.genres
+              - $.story.world.description
+              - $.story.narrationStyle
+              - $.story.plot.description
+              - $.story.startSituation.description
+          outgoingConnections:
+            - match_1->"Text - propmpt" c3Pi-moR9Vmr59QeVi4wU/storyTitle
+            - match_2->"Code - flatten genres" L4wwMibv6ND2UJ-NQZbhY/input
+            - match_3->"Text - propmpt" c3Pi-moR9Vmr59QeVi4wU/worldDescription
+            - match_4->"Text - propmpt" c3Pi-moR9Vmr59QeVi4wU/narrationStyle
+            - match_5->"Text - propmpt" c3Pi-moR9Vmr59QeVi4wU/plot
+            - match_6->"Text - propmpt" c3Pi-moR9Vmr59QeVi4wU/startSituation
+          visualData: 416.2068348286895/1306.6385289555903/407/145//
+        '[XbgS5agAnWPIHLpG3CbvG]:subGraph "Subgraph"':
+          data:
+            graphId: tUxoht0oq0hFKtvCLj-Nw
+            useAsGraphPartialOutput: false
+            useErrorOutput: false
+          outgoingConnections:
+            - otherCharacters->"Text - propmpt"
+              c3Pi-moR9Vmr59QeVi4wU/otherCharacters
+            - playerCharacter->"Text - propmpt"
+              c3Pi-moR9Vmr59QeVi4wU/playerCharacter
+          visualData: 429.23086091878577/1950.9165456391333/405.046904315197/139/var(--node-color-2)/var(--node-color-2)
+        '[_AL-4-ottIvXdX0Zvi0zc]:code "Code - add summarizeTokenUsage"':
+          data:
+            allowConsole: false
+            allowFetch: false
+            allowProcess: false
+            allowRequire: false
+            allowRivet: false
+            code: |-
+              function summarizeTokenUsage(payload) {
+                const usage = payload?.usage ?? {};
+
+                return {
+                  total: usage.total_tokens ?? 0,
+                  input: usage.input_tokens ?? 0,
+                  output: usage.output_tokens ?? 0,
+                };
+              }
+
+              const rawLLMOutput = inputs.rawLLMOutput.value
+              let response = inputs.response.value
+
+              token_usage = summarizeTokenUsage(rawLLMOutput)
+
+              response.token_usage = token_usage
+
+              return {
+                output: {
+                  type: typeof({}),
+                  value: response
+                }
+              };
+            inputNames:
+              - rawLLMOutput
+              - response
+            outputNames:
+              - output
+          outgoingConnections:
+            - output->"Code - Reformat messages" 2r6MGriPzIS8-lyLn0poJ/input
+          visualData: 3633.785446884944/945.498711896874/376.3275122134519/171//
+        '[_iPxZKI3fjNkKI462TE86]:graphInput "Graph Input"':
+          data:
+            dataType: object
+            id: input
+            useDefaultValueInput: true
+          outgoingConnections:
+            - data->"Destructure" WVd1iNp2G2niRRY5jBn4w/object
+            - data->"Subgraph" 7nsFV8E9FLurFQbV6olZC/input
+            - data->"Subgraph" TAQqnj-GczvkKL46rzAMl/input
+            - data->"Subgraph" XbgS5agAnWPIHLpG3CbvG/input
+          visualData: -455.07993635654435/916.9419773779681/330/176/var(--node-color-3)/var(--node-color-3)
+        '[c3Pi-moR9Vmr59QeVi4wU]:text "Text - propmpt"':
+          data:
+            jsonTemplate: ""
+            normalizeLineEndings: true
+            text: "You are an interactive story game master. The story, the plot and the
+              character pool are predetermined.\r
+
+              \r
+
+              In the game, there's you and the user. The user is controlling
+              just one character - a protagonist. You're controlling everything
+              else. You do not control the protagonist.\r
+
+              \r
+
+              # Role distribution\r
+
+              - Protagonist: a character controlled by the user.\r
+
+              - Storyteller: controlled by you.\r
+
+              - Other characters: characters controlled by you.\r
+
+              \r
+
+              # Your task\r
+
+              Your task is to move the plot forward by generating messages and
+              setting the currentStageConcluded flag when it's time.\r
+
+              \r
+
+              Messages should:\r
+
+              - Describe what's happening\r
+
+              - Describe who says and does what\r
+
+              \r
+
+              When generating messages, make sure you stick to the current plot
+              stage and don't disclose what's in the next stages.\r
+
+              \r
+
+              Each plot stage should not be longer than {{messagesPerStage}}
+              messages. When we're close to this number, make sure to generate
+              messages that approach the stage conclusion. If your generated
+              messages cleanly conclude the current plot stage, otput the
+              corresponding verdict.\r
+
+              \r
+
+              # Story\r
+
+              Title: {{storyTitle}}\r
+
+              Genres: {{genres}}\r
+
+              World description: {{worldDescription}}\r
+
+              Narration style: {{narrationStyle}}\r
+
+              Start situation: {{startSituation}}\r
+
+              \r
+
+              \r
+
+              ## Plot\r
+
+              {{plot}}\r
+
+              \r
+
+              ### All plot stages\r
+
+              {{plot stages}}\r
+
+              \r
+
+              ###Current plot stage\r
+
+              {{currentStage}}\r
+
+              \r
+
+              \r
+
+              ## Characters\r
+
+              ### Protagonist (the user controls it):\r
+
+              {{playerCharacter}}\r
+
+              \r
+
+              ### Other characters (you control them)\r
+
+              {{otherCharacters}}\r
+
+              \r\n"
+          outgoingConnections:
+            - output->"Subgraph" KU7nXxhwIah8VmCsFfc7E/instructions
+          visualData: 1470.2607121972712/1308.040051301297/726.1876639974039/139//
+        '[pse382K5RM4UdvP7oiGIv]:code "Code - maybe add StageCompleted event"':
+          data:
+            allowConsole: false
+            allowFetch: false
+            allowProcess: false
+            allowRequire: false
+            allowRivet: false
+            code: |-
+              function transformPayload(payload, stageId) {
+                const wasConcluded = payload.currentStageConcluded === true;
+
+                // Remove the flag
+                delete payload.currentStageConcluded;
+
+                // If it was true, append the event
+                if (wasConcluded) {
+                  if (!Array.isArray(payload.events)) {
+                    payload.events = [];
+                  }
+
+                  payload.events.push({
+                    type: "StageCompleted",
+                    payload: {
+                      stageId: stageId,
+                    },
+                  });
+                }
+
+                return payload;
+              }
+
+              let payload = inputs.input.value
+              let stageID = inputs.stageID.value
+
+              payload = transformPayload(payload, stageID)
+
+              return {
+                output: {
+                  type: inputs.input.type,
+                  value: payload
+                }
+              };
+            inputNames:
+              - input
+              - stageID
+            outputNames:
+              - output
+          outgoingConnections:
+            - output->"Graph Output" 91rnP_8svcIpZDYSYUW9D/value
+          visualData: 4604.783322242672/941.9352666495313/376.3275122134519/171//
+        '[uanijNLBHFwMuq1_Pe8hQ]:object "Object - format"':
+          data:
+            jsonTemplate: >-
+              {
+                "type": "json_schema",
+                "name": "gameMasterOutput",
+                "strict": true,
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "messages": {
+                      "type": "array",
+                      "description": "A sequence of messages. No more than 5 messages total.",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "characterName": {
+                            "type": "string",
+                            "description": "Character name."
+                          },
+                          "characterID": {
+                            "type": "string",
+                            "description": "Character ID."
+                          },
+                          "text": {
+                            "type": "string",
+                            "description": "The content of the message."
+                          }
+                        },
+                        "required": [
+                          "characterName",
+                          "characterID",
+                          "text"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "choices": {
+                      "type": "array",
+                      "description": "A list of choices presented to the player. The choices should be phrased from the protagonist's perspective. 2-4 choices. Each choice must be 5 words max. If someone has just asked the protagonist a question, include answer options into the choices",
+                      "items": {
+                        "type": "string",
+                        "minLength": 2
+                      }
+                    },
+                    "currentStageConcluded": {
+                      "type": "boolean",
+                      "description": "True if the generated above messages cleanly conclude the current plot stage."
+                    }
+                  },
+                  "required": [      
+                    "messages", "choices", "currentStageConcluded"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            text: ""
+          outgoingConnections:
+            - output->"Subgraph" KU7nXxhwIah8VmCsFfc7E/format
+          visualData: 2370.8699911125364/364.04001057003285/397.3710214105113/192//
+        '[wCg71kVghvAVCUZnyDSMV]:text "Text - messageHistory"':
+          data:
+            jsonTemplate: ""
+            normalizeLineEndings: true
+            text: "# Message history\r
+
+              {{otherMessages}}"
+          outgoingConnections:
+            - output->"Object - input" KOQ3Z2mDGf9NFmHfJjgX4/messageHistory
+          visualData: 874.2999292873254/267.6732618742203/330/189//
+    CkhdNzz-3jQ3vXNd2LziX:
+      metadata:
+        description: ""
+        id: CkhdNzz-3jQ3vXNd2LziX
+        name: routines/getStages
+      nodes:
+        '[5gWpsd8vEA2ikNtozMvC1]:graphOutput "Graph Output"':
+          data:
+            dataType: string
+            id: allStages
+          visualData: 1645.1963419173107/919.011759509858/330/56/var(--node-color-3)/var(--node-color-3)
+        '[NSm7mOdxhWfSQLX2a2IVq]:code "Code"':
+          data:
+            allowConsole: false
+            allowFetch: false
+            allowProcess: false
+            allowRequire: false
+            allowRivet: false
+            code: >-
+              function getCurrentAndNextStage(data) {
+                const stages = data?.story?.plot?.stages ?? [];
+                const statuses = data?.thread?.plotStageStatuses ?? [];
+
+                if (!stages.length || !statuses.length) {
+                  return { currentStage: null, nextStage: null };
+                }
+
+                // Find current stage index from thread statuses
+                const currentIndex = statuses.findIndex(
+                  (s) => s.status === "inProgress"
+                );
+
+                if (currentIndex === -1 || currentIndex >= stages.length) {
+                  return { currentStage: null, nextStage: null };
+                }
+
+                const currentStageID = statuses[currentIndex].id
+
+                return {
+                  currentStage: stages[currentIndex] ?? null,
+                  nextStage: stages[currentIndex + 1] ?? null,
+                  currentStageID: currentStageID
+                };
+              }
+
+
+              const payload = inputs.payload.value
+
+              const stages = getCurrentAndNextStage(payload)
+
+
+              return {
+                currentStage: {
+                  type: typeof(""),
+                  value: [stages.currentStage].map( e => `Name: ${e.name}\nDescription: ${e.description}` ).join("\n\n")
+                },
+                nextStage: {
+                  type: typeof(""),
+                  value: [stages.nextStage].map( e => `Name: ${e.name}\nDescription: ${e.description}` ).join("\n\n")
+                },
+                allStages: {
+                  type: typeof(""),
+                  value: (payload?.story?.plot?.stages || []).map( e => `Name: ${e.name}\nDescription: ${e.description}` ).join("\n\n")
+                },
+                currentStageID: {
+                  type: typeof(""),
+                  value: stages.currentStageID
+                }
+              };
+            inputNames:
+              - payload
+            outputNames:
+              - currentStage
+              - nextStage
+              - allStages
+              - currentStageID
+          outgoingConnections:
+            - allStages->"Graph Output" 5gWpsd8vEA2ikNtozMvC1/value
+            - currentStage->"Graph Output" okIqx9HJdmC3GlcjVnJxQ/value
+            - currentStageID->"Graph Output" wJ4669uf1SEeBoTC8wuW6/value
+            - nextStage->"Graph Output" VaHKaFSJQwLlZNd68j0jv/value
+          visualData: 1149/394/333/28//
+        '[VaHKaFSJQwLlZNd68j0jv]:graphOutput "Graph Output"':
+          data:
+            dataType: string
+            id: nextStage
+          visualData: 1642.768931304539/663.717323151949/330/55/var(--node-color-3)/var(--node-color-3)
+        '[lHX1gmaN9TCJfCFNeS-7u]:graphInput "Graph Input"':
+          data:
+            dataType: object
+            id: input
+            useDefaultValueInput: true
+          outgoingConnections:
+            - data->"Code" NSm7mOdxhWfSQLX2a2IVq/payload
+          visualData: 645/395/330/27/var(--node-color-3)/var(--node-color-3)
+        '[okIqx9HJdmC3GlcjVnJxQ]:graphOutput "Graph Output"':
+          data:
+            dataType: string
+            id: currentStage
+          visualData: 1651.6738596030682/397.7214158268529/330/49/var(--node-color-3)/var(--node-color-3)
+        '[wJ4669uf1SEeBoTC8wuW6]:graphOutput "Graph Output"':
+          data:
+            dataType: string
+            id: currentStageID
+          visualData: 1655.2143488864758/1198.0432597260667/330/57/var(--node-color-3)/var(--node-color-3)
+    HOR0fk7xvEoCdUXjuKy2D:
+      metadata:
+        description: ""
+        id: HOR0fk7xvEoCdUXjuKy2D
+        name: routines/getMessages
+      nodes:
+        '[20m5e65NCa2FnXlmI8jSy]:graphOutput "Graph Output"':
+          data:
+            dataType: string
+            id: otherMessages
+          visualData: 1660.0302823047589/674.7767166032816/330/60/var(--node-color-3)/var(--node-color-3)
+        '[I-j7x6aMoMs1rhBLBIQpi]:graphOutput "Graph Output"':
+          data:
+            dataType: string
+            id: userMessage
+          visualData: 1671.0910752014036/288.3367968364831/330/59/var(--node-color-3)/var(--node-color-3)
+        '[MDuVIoQYuHlno49ygev9h]:code "Code"':
+          data:
+            allowConsole: false
+            allowFetch: false
+            allowProcess: false
+            allowRequire: false
+            allowRivet: false
+            code: >-
+              function buildThreadTexts(payload) {
+                const { story, thread } = payload;
+                const messages = thread?.messages || [];
+                const userCharacterId = thread?.characterId;
+
+                // Build lookup for all known characters
+                const characterMap = new Map();
+
+                for (const ch of story?.characters || []) {
+                  characterMap.set(ch.id, ch.name);
+                }
+
+                for (const ch of thread?.npcCharacters || []) {
+                  characterMap.set(ch.id, ch.name);
+                }
+
+                const formatMessage = (msg) => {
+                  const characterId = msg.characterId;
+                  const name = characterMap.get(characterId) || "Unknown character";
+                  const text = msg?.payload?.text ?? "";
+                  return `${name} (id: ${characterId}): ${text}`;
+                };
+
+                // Find the last message from the user's selected character
+                let lastUserMessageIndex = -1;
+                for (let i = messages.length - 1; i >= 0; i--) {
+                  if (messages[i].characterId === userCharacterId) {
+                    lastUserMessageIndex = i;
+                    break;
+                  }
+                }
+
+                const userMessage =
+                  lastUserMessageIndex >= 0 ? formatMessage(messages[lastUserMessageIndex]) : "";
+
+                const otherMessages = messages
+                  .filter((_, index) => index !== lastUserMessageIndex)
+                  .map(formatMessage)
+                  .join("\n\n");
+
+                return {
+                  userMessage,
+                  otherMessages,
+                };
+              }
+
+
+              //=================================================
+
+
+              const payload = inputs.payload.value
+
+              const messages = buildThreadTexts(payload)
+
+
+              return {
+                userMessage: {
+                  type: typeof(""),
+                  value: messages.userMessage
+                },
+                otherMessages: {
+                  type: typeof(""),
+                  value: messages.otherMessages
+                }
+              };
+            inputNames:
+              - payload
+            outputNames:
+              - userMessage
+              - otherMessages
+          outgoingConnections:
+            - otherMessages->"Graph Output" 20m5e65NCa2FnXlmI8jSy/value
+            - userMessage->"Graph Output" I-j7x6aMoMs1rhBLBIQpi/value
+          visualData: 1149/394/333/28//
+        '[POoxi5rgcgziMz6b2aPPC]:graphInput "Graph Input"':
+          data:
+            dataType: object
+            id: input
+            useDefaultValueInput: true
+          outgoingConnections:
+            - data->"Code" MDuVIoQYuHlno49ygev9h/payload
+          visualData: 645/395/330/27/var(--node-color-3)/var(--node-color-3)
+    Pqid50szUfix8TQRraU7V:
+      metadata:
+        description: ""
+        id: Pqid50szUfix8TQRraU7V
+        name: AI completion
+      nodes:
+        '[AUhpNghtb50yjqMGkiBr2]:graphInput "Graph Input"':
+          data:
+            dataType: any
+            id: input
+            jsonTemplate: ""
+            useDefaultValueInput: false
+          outgoingConnections:
+            - data->"Object" j78q0coRlq2FhB1vbLUa5/input
+          visualData: -208.85740124780213/615.3832244260312/330/126/var(--node-color-3)/var(--node-color-3)
+        '[AfmiLbR09d57BCHrWeCRI]:extractJson "Extract JSON"':
+          outgoingConnections:
+            - output->"Graph Output" hq6enUnJXVacSg2zksGys/value
+          visualData: 1588.938899333869/385.45904545820053/280/95//
+        '[C9horax2mNcro4IYutaGh]:graphOutput "Graph Output"':
+          data:
+            dataType: any
+            id: rawJSON
+          visualData: 2153.501724602276/620.688866363293/330/131/var(--node-color-3)/var(--node-color-3)
+        '[DvpnBeqm-LQVtmb0-MYlJ]:extractObjectPath "Extract Object Path"':
+          data:
+            path: $.output[0].content[0].text
+            usePathInput: false
+          outgoingConnections:
+            - match->"Extract JSON" AfmiLbR09d57BCHrWeCRI/input
+          visualData: 1246.1991887631261/386.29938187670973/280/95//
+        '[I7CbvqV83xBGuQUkGywfk]:graphInput "Graph Input"':
+          data:
+            dataType: any
+            id: instructions
+            jsonTemplate: ""
+            useDefaultValueInput: false
+          outgoingConnections:
+            - data->"Object" j78q0coRlq2FhB1vbLUa5/instructions
+          visualData: -207.79914004638354/383.6363830566406/330/125/var(--node-color-3)/var(--node-color-3)
+        '[ORHPx5E7kptGO4em4dveT]:httpCall "Http Call"':
+          data:
+            body: ""
+            errorOnNon200: true
+            headers: "{\r
+
+              \  \"Content-Type\": \"application/json\",\r
+
+              \  \"Authorization\": \"Bearer
+              sk-proj-9XUip6Ej5UqHTThOe3v9eq_NcEwOpWAkNWf_UNiWHwX6aIQM_HiDUpBqm\
+              WR47Muwc8cdAM6pGGT3BlbkFJWX15oTB4lqx3ENigUob6iQYe_glLo44AUvQm7EVq\
+              ht3tBcuBt8sqN1ieBqiKRmo8EUOXrZVnQA\"\r
+
+              }"
+            method: POST
+            url: https://api.openai.com/v1/responses
+            useBodyInput: true
+            useHeadersInput: false
+          outgoingConnections:
+            - json->"Extract Object Path" DvpnBeqm-LQVtmb0-MYlJ/object
+            - json->"Graph Output" C9horax2mNcro4IYutaGh/value
+          visualData: 904.698092035484/384.70608407477357/280/95/var(--node-color-6)/var(--node-color-6)
+        '[hq6enUnJXVacSg2zksGys]:graphOutput "Graph Output"':
+          data:
+            dataType: any
+            id: response
+          visualData: 2147.152441586098/365.66095351948525/330/129/var(--node-color-3)/var(--node-color-3)
+        '[j78q0coRlq2FhB1vbLUa5]:object "Object"':
+          data:
+            jsonTemplate: |-
+              {
+                "model": "gpt-5.1",
+                "reasoning": { "effort": "none" },
+                "store": false,
+                "instructions": "{{instructions}}",
+                "input": {{input}},
+                "text": {
+                  "format": {{format}},
+                  "verbosity": "low"
+                },
+                "tools": {{tools}},
+                "store": false
+              }
+          outgoingConnections:
+            - output->"Http Call" ORHPx5E7kptGO4em4dveT/req_body
+          visualData: 460.00006103515625/382.0909118652344/343.7599911149573/95//
+        '[qvKwCxop1QC6yk-BMrpod]:object "Object"':
+          data:
+            jsonTemplate: "[]"
+          outgoingConnections:
+            - output->"Object" j78q0coRlq2FhB1vbLUa5/tools
+          visualData: -98.96308621650238/1106.1390756236801/230/128/var(--node-color-4)/var(--node-color-4)
+        '[sTm83ltrMEul3vZuYCtjj]:graphInput "Graph Input"':
+          data:
+            dataType: any
+            id: format
+            jsonTemplate: ""
+            useDefaultValueInput: false
+          outgoingConnections:
+            - data->"Object" j78q0coRlq2FhB1vbLUa5/format
+          visualData: -199.33333462736826/870.4111017457973/330/127/var(--node-color-3)/var(--node-color-3)
+    tUxoht0oq0hFKtvCLj-Nw:
+      metadata:
+        description: ""
+        id: tUxoht0oq0hFKtvCLj-Nw
+        name: routines/getCharacters
+      nodes:
+        '[2_aVVS8zyJG9DFJkbLhOc]:graphOutput "Graph Output"':
+          data:
+            dataType: string
+            id: otherCharacters
+          visualData: 1667.1283273765057/661.8269100644649/330/57/var(--node-color-3)/var(--node-color-3)
+        '[934OGj4Jthj0I5YQOjLiG]:graphInput "Graph Input"':
+          data:
+            dataType: object
+            id: input
+            useDefaultValueInput: true
+          outgoingConnections:
+            - data->"Code" WcNPb1XqTEWBGFrmRV8Zw/payload
+          visualData: 645/395/330/27/var(--node-color-3)/var(--node-color-3)
+        '[9UNtff_4hGYVooGi7KqId]:graphOutput "Graph Output"':
+          data:
+            dataType: string
+            id: playerCharacter
+          visualData: 1668.9465646811932/390.4486954899388/330/57/var(--node-color-3)/var(--node-color-3)
+        '[WcNPb1XqTEWBGFrmRV8Zw]:code "Code"':
+          data:
+            allowConsole: false
+            allowFetch: false
+            allowProcess: false
+            allowRequire: false
+            allowRivet: false
+            code: >-
+              function formatCharacters(payload, ignoredFields = []) {
+                const { story, thread } = payload || {};
+
+                if (!story || !thread) {
+                  throw new Error("Invalid payload: story and thread are required.");
+                }
+
+                const ignore = new Set(ignoredFields);
+                const playerCharacterId = thread.characterId;
+
+                const storyCharacters = Array.isArray(story.characters) ? story.characters : [];
+                const npcCharacters = Array.isArray(thread.npcCharacters) ? thread.npcCharacters : [];
+                const allCharacters = [...storyCharacters, ...npcCharacters];
+
+                const playerCharacter = allCharacters.find((char) => char.id === playerCharacterId);
+
+                if (!playerCharacter) {
+                  throw new Error(`Player character not found: ${playerCharacterId}`);
+                }
+
+                const otherCharacters = allCharacters.filter((char) => char.id !== playerCharacterId);
+
+                function formatObject(obj, level = 0) {
+                  return Object.entries(obj)
+                    .filter(([key]) => key !== "name" && !ignore.has(key))
+                    .map(([key, value]) => {
+                      const indent = "  ".repeat(level);
+
+                      // Special handling: print only description for archetype and gender
+                      if (
+                        (key === "archetype" || key === "gender") &&
+                        value &&
+                        typeof value === "object" &&
+                        "description" in value
+                      ) {
+                        return `${indent}${key}: ${value.description}`;
+                      }
+
+                      if (Array.isArray(value)) {
+                        if (value.length === 0) {
+                          return `${indent}${key}: []`;
+                        }
+
+                        const items = value
+                          .map((item) => {
+                            if (item && typeof item === "object") {
+                              return `${indent}  -\n${formatObject(item, level + 2)}`;
+                            }
+                            return `${indent}  - ${String(item)}`;
+                          })
+                          .join("\n");
+
+                        return `${indent}${key}:\n${items}`;
+                      }
+
+                      if (value && typeof value === "object") {
+                        return `${indent}${key}:\n${formatObject(value, level + 1)}`;
+                      }
+
+                      return `${indent}${key}: ${String(value)}`;
+                    })
+                    .join("\n");
+                }
+
+                function formatCharacter(character) {
+                  const header = `#### ${character.name || "Unknown character"}`;
+                  const body = formatObject(character);
+                  return body ? `${header}\n${body}` : header;
+                }
+
+                return {
+                  playerCharacter: formatCharacter(playerCharacter),
+                  otherCharacters: otherCharacters.map(formatCharacter).join("\n\n")
+                };
+              }
+
+
+              // ======================================
+
+
+
+              const payload = inputs.payload.value
+
+              const characters = formatCharacters(payload, ["image",
+              "isPlayable", "initialMessage", "initialChoices", "role"])
+
+              const playerCharacter = characters.playerCharacter
+
+              const otherCharacters = characters.otherCharacters
+
+
+              return {
+                playerCharacter: {
+                  type: typeof(""),
+                  value: playerCharacter
+                },
+                otherCharacters: {
+                  type: typeof(""),
+                  value: otherCharacters
+                }
+              };
+            inputNames:
+              - payload
+            outputNames:
+              - playerCharacter
+              - otherCharacters
+          outgoingConnections:
+            - otherCharacters->"Graph Output" 2_aVVS8zyJG9DFJkbLhOc/value
+            - playerCharacter->"Graph Output" 9UNtff_4hGYVooGi7KqId/value
+          visualData: 1149/394/333/28//
+  metadata:
+    description: ""
+    id: 8d12b1ba-f973-4904-94ab-bcf8f2cbcc04
+    mainGraphId: 29f17ff8-3aa4-4294-8a92-13116d5a8a9b
+    title: generateMessages
+  plugins: []
+  references: []

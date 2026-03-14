@@ -6,6 +6,7 @@ export type {
   WorkflowProjectPathMove,
   WorkflowProjectSettings,
   WorkflowProjectSettingsDraft,
+  WorkflowProjectStats,
   WorkflowProjectStatus,
 } from '../../../../shared/workflow-types.js';
 
