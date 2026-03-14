@@ -396,17 +396,16 @@ export const ProjectSettingsModal: FC<ProjectSettingsModalProps> = ({
                     <div className="project-settings-input-row">
                       <TextField
                         id="workflow-project-endpoint-name"
-                        className="project-settings-input"
+                        className="project-settings-input text-field-size-l"
                         value={settingsDraft.endpointName}
                         onChange={handleSettingsDraftChange('endpointName')}
                         isDisabled={savingSettings || deletingProject}
                         isInvalid={endpointValidationError != null}
-                        isCompact
                         spellCheck={false}
                       />
                       <LoadingButton
                         appearance="primary"
-                        className="project-settings-primary-button"
+                        className="project-settings-primary-button button-size-l"
                         onClick={() => void handlePublishProject(false)}
                         isDisabled={disablePublishAction}
                         isLoading={savingSettings}
@@ -423,7 +422,7 @@ export const ProjectSettingsModal: FC<ProjectSettingsModalProps> = ({
                     {isUnpublishedProject && !shouldShowPublishSettings ? (
                       <Button
                         appearance="primary"
-                        className="project-settings-primary-button"
+                        className="project-settings-primary-button button-size-l"
                         onClick={handleShowPublishSettings}
                         isDisabled={savingSettings || deletingProject}
                       >
@@ -433,7 +432,7 @@ export const ProjectSettingsModal: FC<ProjectSettingsModalProps> = ({
                     {isPublishedProject ? (
                       <LoadingButton
                         appearance="primary"
-                        className="project-settings-primary-button"
+                        className="project-settings-primary-button button-size-l"
                         onClick={() => void handleUnpublishProject()}
                         isDisabled={disableUnpublishAction}
                         isLoading={savingSettings}
@@ -444,7 +443,7 @@ export const ProjectSettingsModal: FC<ProjectSettingsModalProps> = ({
                     {isUnpublishedChangesProject ? (
                       <LoadingButton
                         appearance="primary"
-                        className="project-settings-primary-button"
+                        className="project-settings-primary-button button-size-l"
                         onClick={() => void handlePublishProject(true)}
                         isDisabled={disablePublishChangesAction}
                         isLoading={savingSettings}
@@ -455,7 +454,7 @@ export const ProjectSettingsModal: FC<ProjectSettingsModalProps> = ({
                     {isUnpublishedChangesProject ? (
                       <Button
                         appearance="subtle"
-                        className="project-settings-secondary-button"
+                        className="project-settings-secondary-button button-size-l"
                         onClick={() => void handleUnpublishProject()}
                         isDisabled={disableUnpublishAction}
                       >
@@ -466,7 +465,7 @@ export const ProjectSettingsModal: FC<ProjectSettingsModalProps> = ({
                   {isUnpublishedProject && !shouldShowPublishSettings ? (
                     <Button
                       appearance="subtle"
-                      className="project-settings-delete-button"
+                      className="project-settings-delete-button button-size-l"
                       onClick={() => void handleDeleteActiveProject()}
                       isDisabled={disableDeleteProjectAction}
                     >

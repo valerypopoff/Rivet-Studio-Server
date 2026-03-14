@@ -103,24 +103,21 @@
 }
 
 .runtime-libraries-remove-button {
+  min-height: var(--workflow-button-height-s);
+  font-size: var(--workflow-button-font-size-s) !important;
   white-space: nowrap;
-}
-
-.runtime-libraries-remove-button:hover:not(:disabled),
-.runtime-libraries-remove-button:focus-visible:not(:disabled) {
-  background: rgba(255, 255, 255, 0.12) !important;
 }
 
 .runtime-libraries-form-grid {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) auto;
   gap: 12px;
-  align-items: end;
+  align-items: center;
 }
 
 .runtime-libraries-form-action {
   display: flex;
-  align-items: flex-end;
+  align-items: center;
 }
 
 .runtime-libraries-field-label {
@@ -191,6 +188,8 @@
 }
 
 .runtime-libraries-install-button {
+  min-height: var(--workflow-button-height-m);
+  font-size: var(--workflow-button-font-size-m) !important;
   white-space: nowrap;
 }
 
@@ -231,7 +230,8 @@
   border-top: 1px solid var(--grey-dark, #333);
   cursor: pointer;
   color: var(--foreground-dimmed, #888);
-  font-size: 12px;
+  min-height: var(--workflow-button-height-m);
+  font-size: var(--workflow-button-font-size-s);
   background: none;
   border-left: none;
   border-right: none;
@@ -246,5 +246,5 @@
 }
 
 .runtime-libraries-trigger .trigger-icon {
-  font-size: 14px;
+  font-size: var(--workflow-button-font-size-s);
 }

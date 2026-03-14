@@ -573,7 +573,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
             <Button
               appearance="subtle"
               spacing="compact"
-              className="icon-button collapse-button"
+              className="icon-button collapse-button button-size-s"
               onClick={onCollapse}
               title="Collapse folders pane"
               aria-label="Collapse folders pane"
@@ -609,14 +609,14 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
         {!editorReady ? <div className="body-status body-status-top">Loading editor...</div> : null}
         {bodyContent}
         <div className="body-actions">
-          <Button appearance="subtle-link" spacing="compact" className="link-button" onClick={() => void handleCreateFolder()}>
+          <Button appearance="subtle-link" spacing="compact" className="link-button button-size-m" onClick={() => void handleCreateFolder()}>
             + New folder
           </Button>
         </div>
       </div>
 
       <button
-        className="runtime-libraries-trigger"
+        className="runtime-libraries-trigger button-size-m"
         onClick={() => setRuntimeLibsOpen(true)}
         title="Manage runtime libraries available to Code nodes"
       >

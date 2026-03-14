@@ -219,7 +219,7 @@ export const RuntimeLibrariesModal: FC<RuntimeLibrariesModalProps> = ({
                           <Button
                             appearance="subtle"
                             spacing="compact"
-                            className="runtime-libraries-remove-button"
+                            className="runtime-libraries-remove-button project-settings-secondary-button button-size-s"
                             isDisabled={isJobActive}
                             onClick={() => void handleRemove(pkg.name)}
                           >
@@ -242,33 +242,31 @@ export const RuntimeLibrariesModal: FC<RuntimeLibrariesModalProps> = ({
                     <div className="project-settings-field">
                       <TextField
                         id="runtime-library-package-name"
-                        className="project-settings-input"
+                        className="project-settings-input text-field-size-l"
                         value={addName}
                         onChange={(e) => setAddName(e.currentTarget.value)}
                         onKeyDown={handleKeyDown}
                         isDisabled={isJobActive}
                         placeholder="NPM package name"
-                        isCompact
                         spellCheck={false}
                       />
                     </div>
                     <div className="project-settings-field">
                       <TextField
                         id="runtime-library-package-version"
-                        className="project-settings-input"
+                        className="project-settings-input text-field-size-l"
                         value={addVersion}
                         onChange={(e) => setAddVersion(e.currentTarget.value)}
                         onKeyDown={handleKeyDown}
                         isDisabled={isJobActive}
                         placeholder="version"
-                        isCompact
                         spellCheck={false}
                       />
                     </div>
                     <div className="runtime-libraries-form-action">
                       <LoadingButton
                         appearance="primary"
-                        className="project-settings-primary-button runtime-libraries-install-button"
+                        className="project-settings-primary-button runtime-libraries-install-button button-size-l"
                         onClick={() => void handleInstall()}
                         isDisabled={isJobActive || !addName.trim()}
                         isLoading={isJobActive && activeJob?.type === 'install'}
@@ -281,7 +279,7 @@ export const RuntimeLibrariesModal: FC<RuntimeLibrariesModalProps> = ({
               ) : (
                 <Button
                   appearance="primary"
-                  className="runtime-libraries-add-button"
+                  className="runtime-libraries-add-button button-size-l"
                   onClick={() => setShowInstallForm(true)}
                 >
                   Add library...

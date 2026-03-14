@@ -52,7 +52,7 @@ export const ActiveProjectSection: FC<ActiveProjectSectionProps> = ({
           <div className="active-project-actions-row">
             <LoadingButton
               appearance="primary"
-              className="active-project-save-button"
+              className="active-project-save-button button-size-m"
               isDisabled={!editorReady}
               onClick={isCurrentlyOpen ? onSave : () => onOpen(activeProject.absolutePath)}
               title={
@@ -72,7 +72,11 @@ export const ActiveProjectSection: FC<ActiveProjectSectionProps> = ({
             >
               {isCurrentlyOpen ? 'Save' : 'Edit'}
             </LoadingButton>
-            <Button appearance="subtle" className="active-project-more-button" onClick={onOpenSettings}>
+            <Button
+              appearance="subtle"
+              className="active-project-more-button project-settings-secondary-button button-size-m"
+              onClick={onOpenSettings}
+            >
               Settings
             </Button>
           </div>

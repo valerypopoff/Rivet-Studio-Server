@@ -134,7 +134,8 @@
   color: var(--grey-lightest);
   padding: 8px 12px;
   cursor: pointer;
-  font-size: 13px;
+  min-height: var(--workflow-button-height-m);
+  font-size: var(--workflow-button-font-size-s);
   font-weight: 600;
 }
 

@@ -1,3 +1,23 @@
+:root {
+  --workflow-library-font-size-xs: 10px;
+  --workflow-library-font-size-s: 14px;
+  --workflow-library-font-size-m: 16px;
+  --workflow-library-font-size-l: 17px;
+  --workflow-library-font-size-xl: 20px;
+  --workflow-library-font-size-2xl: 23px;
+  --workflow-library-font-size-3xl: 36px;
+
+  /* Button size tiers: assign controls to s/m/l and tune here. */
+  --workflow-button-height-s: 25px;
+  --workflow-button-height-m: 30px;
+  --workflow-button-height-l: 40px;
+  --workflow-button-height-xl: 55px;
+  --workflow-button-font-size-s: 11px;
+  --workflow-button-font-size-m: 15px;
+  --workflow-button-font-size-l: 16px;
+  --workflow-button-font-size-xl: 30px;
+}
+
 .workflow-library-panel {
   display: flex;
   flex-direction: column;
@@ -15,7 +35,7 @@
 }
 
 .workflow-library-panel .header-title {
-  font-size: 15px;
+  font-size: var(--workflow-library-font-size-l);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
@@ -90,7 +110,7 @@
 
 .workflow-library-panel .active-project-placeholder {
   width: 100%;
-  font-size: 14px;
+  font-size: var(--workflow-library-font-size-m);
   line-height: 1.4;
   color: var(--grey-light);
   text-align: center;
@@ -113,6 +133,119 @@
   flex: 1 1 auto;
 }
 
+.button-size-s,
+.button-size-m,
+.button-size-l,
+.button-size-xl {
+  padding-top: 0;
+  padding-bottom: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.button-size-s {
+  height: var(--workflow-button-height-s) !important;
+  min-height: var(--workflow-button-height-s) !important;
+  font-size: var(--workflow-button-font-size-s) !important;
+}
+
+.button-size-m {
+  height: var(--workflow-button-height-m) !important;
+  min-height: var(--workflow-button-height-m) !important;
+  font-size: var(--workflow-button-font-size-m) !important;
+}
+
+.button-size-l {
+  height: var(--workflow-button-height-l) !important;
+  min-height: var(--workflow-button-height-l) !important;
+  font-size: var(--workflow-button-font-size-l) !important;
+}
+
+.button-size-xl {
+  height: var(--workflow-button-height-xl) !important;
+  min-height: var(--workflow-button-height-xl) !important;
+  font-size: var(--workflow-button-font-size-xl) !important;
+}
+
+.button-size-s > span,
+.button-size-m > span,
+.button-size-l > span,
+.button-size-xl > span {
+  font-size: inherit !important;
+  min-height: 100%;
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.2;
+}
+
+.text-field-size-s[data-ds--text-field--container] {
+  min-height: var(--workflow-button-height-s) !important;
+  height: var(--workflow-button-height-s) !important;
+  box-sizing: border-box !important;
+}
+
+.text-field-size-s input {
+  min-height: 100% !important;
+  height: 100% !important;
+  box-sizing: border-box !important;
+  font-size: var(--workflow-button-font-size-s) !important;
+  line-height: 1 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+.text-field-size-m[data-ds--text-field--container] {
+  min-height: var(--workflow-button-height-m) !important;
+  height: var(--workflow-button-height-m) !important;
+  box-sizing: border-box !important;
+}
+
+.text-field-size-m input {
+  min-height: 100% !important;
+  height: 100% !important;
+  box-sizing: border-box !important;
+  font-size: var(--workflow-button-font-size-m) !important;
+  line-height: 1 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+.text-field-size-l[data-ds--text-field--container] {
+  min-height: var(--workflow-button-height-l) !important;
+  height: var(--workflow-button-height-l) !important;
+  box-sizing: border-box !important;
+}
+
+.text-field-size-l input {
+  min-height: 100% !important;
+  height: 100% !important;
+  box-sizing: border-box !important;
+  font-size: var(--workflow-button-font-size-l) !important;
+  line-height: 1 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+.text-field-size-xl[data-ds--text-field--container] {
+  min-height: var(--workflow-button-height-xl) !important;
+  height: var(--workflow-button-height-xl) !important;
+  box-sizing: border-box !important;
+}
+
+.text-field-size-xl input {
+  min-height: 100% !important;
+  height: 100% !important;
+  box-sizing: border-box !important;
+  font-size: var(--workflow-button-font-size-xl) !important;
+  line-height: 1 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
+
 .workflow-library-panel .active-project-actions-row {
   display: flex;
   align-items: center;
@@ -121,7 +254,8 @@
 }
 
 .workflow-library-panel .active-project-name {
-  font-size: 16px;
+  font-size: var(--workflow-library-font-size-m);
+  font-weight: 600;
   color: var(--grey-lightest);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -144,17 +278,16 @@
   align-items: center;
   justify-content: flex-start;
   gap: 6px;
-  margin-bottom: 8px;;
+  margin-bottom: 8px;
+}
+
+.project-settings-status-block .project-status-badge {
+  zoom: 1.3;
 }
 
 .workflow-library-panel .active-project-save-button,
 .workflow-library-panel .active-project-more-button {
   min-width: 72px;
-}
-
-.workflow-library-panel .active-project-more-button:hover:not(:disabled),
-.workflow-library-panel .active-project-more-button:focus-visible:not(:disabled) {
-  background: rgba(255, 255, 255, 0.12) !important;
 }
 
 .workflow-library-panel .active-project-save-button,
@@ -179,15 +312,16 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 22px;
-  padding: 0 8px;
+  min-height: 20px;
+  padding: 0px 8px;
   border-radius: 999px;
-  font-size: 13px;
+  font-size: var(--workflow-library-font-size-xs);
   font-weight: 700;
   white-space: nowrap;
   background: transparent;
   border: 1px solid currentColor;
   color: var(--grey-lightest);
+  margin-top: 3px;
 }
 
 .project-status-badge.published {
@@ -212,15 +346,15 @@
 }
 
 .workflow-library-panel .icon-button {
-  min-width: 28px;
-  width: 28px;
-  height: 28px;
+  min-width: var(--workflow-button-height-s);
+  width: var(--workflow-button-height-s);
+  height: var(--workflow-button-height-s);
   padding: 0;
   border-radius: 6px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 18px;
+  font-size: var(--workflow-button-font-size-s);
   font-weight: 700;
   line-height: 1;
 }
@@ -228,7 +362,8 @@
 .workflow-library-panel .text-button {
   padding: 4px 8px;
   border-radius: 6px;
-  font-size: 13px;
+  min-height: var(--workflow-button-height-s);
+  font-size: var(--workflow-button-font-size-s);
   font-weight: 600;
 }
 
@@ -252,7 +387,7 @@
 }
 
 .workflow-library-panel .body-status {
-  font-size: 13px;
+  font-size: var(--workflow-library-font-size-s);
   color: var(--grey-light);
 }
 
@@ -265,9 +400,10 @@
   margin: 0;
   margin-left: 4px;
   padding: 0;
-  height: 40px;
+  height: var(--workflow-button-height-m);
   vertical-align: middle;
   display: inline-block;
+  font-size: var(--workflow-button-font-size-s);
 }
 
 .workflow-library-panel .link-button:hover,
@@ -277,7 +413,7 @@
 
 .workflow-library-panel .state {
   padding: 12px;
-  font-size: 13px;
+  font-size: var(--workflow-library-font-size-s);
   color: var(--grey-light);
 }
 
@@ -294,7 +430,7 @@
   padding: 0;
   margin: 0;
   color: #ff6b7a;
-  font-size: 13px;
+  font-size: var(--workflow-library-font-size-s);
   font-weight: 600;
   line-height: inherit;
   vertical-align: baseline;
@@ -351,9 +487,9 @@
   padding: 0;
   cursor: pointer;
   justify-content: center;
-  width: 20px;
-  min-width: 20px;
-  height: 20px;
+  width: var(--workflow-button-height-s);
+  min-width: var(--workflow-button-height-s);
+  height: var(--workflow-button-height-s);
   border-radius: 4px;
 }
 
@@ -388,6 +524,8 @@
   padding: 0;
   cursor: default;
   text-align: left;
+
+  font-size: var(--workflow-library-font-size-s);
 }
 
 .workflow-library-panel .folder-main,
@@ -436,7 +574,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: var(--workflow-library-font-size-s);
 }
 
 .workflow-library-panel .folder-actions {
@@ -456,7 +594,7 @@
 
 .workflow-library-panel .project-row {
   padding-left: 28px;
-  font-size: 12px;
+  font-size: var(--workflow-library-font-size-s);
 }
 
 .workflow-library-panel .project-row {
@@ -497,7 +635,7 @@
 }
 
 .project-settings-modal-title {
-  font-size: 20px;
+  font-size: var(--workflow-library-font-size-2xl);
   font-weight: 700;
   color: var(--grey-lightest);
   line-height: 1.25;
@@ -540,14 +678,16 @@
 }
 
 .project-settings-rename-button {
-  min-width: 28px;
+  min-width: var(--workflow-button-height-s);
+  width: var(--workflow-button-height-s);
+  height: var(--workflow-button-height-s);
   margin-left: 2px;
   line-height: 1;
 }
 
 .project-settings-rename-button span {
   color: white !important;
-  font-size: 20px;
+  font-size: var(--workflow-button-font-size-s);
   transform: scaleX(-1);
 }
 
@@ -600,7 +740,7 @@
 }
 
 .project-settings-title-input input {
-  font-size: 20px !important;
+  font-size: var(--workflow-library-font-size-2xl) !important;
   font-weight: 700 !important;
   line-height: 1.25 !important;
   min-height: 32px !important;
@@ -613,15 +753,15 @@
   position: absolute;
   top: 0;
   right: 0;
-  width: 60px;
-  height: 60px;
+  width: var(--workflow-button-height-xl);
+  height: var(--workflow-button-height-xl);
   border: none;
   padding: 0;
   margin: 0;
   border-radius: 0 10px 0 10px;
   background: transparent;
   color: var(--grey-lightest);
-  font-size: 36px;
+  font-size: var(--workflow-button-font-size-xl);
   line-height: 1;
   display: inline-flex;
   align-items: center;
@@ -671,7 +811,7 @@
 }
 
 .project-settings-label {
-  font-size: 15px;
+  font-size: var(--workflow-library-font-size-l);
   font-weight: 600;
   color: var(--grey-lightest);
 }
@@ -683,7 +823,7 @@
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.04);
   color: var(--grey-lightest);
-  font-size: 13px;
+  font-size: var(--workflow-library-font-size-s);
 }
 
 .project-settings-copy-button {
@@ -706,13 +846,13 @@
 }
 
 .project-settings-help {
-  font-size: 15px;
+  font-size: var(--workflow-library-font-size-l);
   color: var(--grey-light);
   padding-right: 10%;
 }
 
 .project-settings-error {
-  font-size: 13px;
+  font-size: var(--workflow-library-font-size-s);
   color: #ff9ba5;
 }
 
@@ -759,7 +899,12 @@
 }
 
 .project-settings-secondary-button {
+  border: none;
+  cursor: pointer;
   white-space: nowrap;
+}
+.project-settings-secondary-button span {
+  color: white !important;
 }
 
 .project-settings-primary-button:disabled {
