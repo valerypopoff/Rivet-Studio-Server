@@ -11,6 +11,7 @@ wrapper/web/dist/
 
 # Local runtime data
 .data/
+rivet/
 
 # OS/editor files
 .DS_Store

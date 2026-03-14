@@ -5,6 +5,7 @@
   "description": "Root launcher for the self-hosted Rivet Docker stacks",
   "scripts": {
     "setup": "node scripts/ensure-dev-deps.mjs",
+    "setup:rivet": "node scripts/bootstrap-rivet.mjs",
     "prod": "npm run prod:docker",
     "prod:docker": "node scripts/prod-docker.mjs prod",
     "prod:docker:recreate": "node scripts/prod-docker.mjs recreate",

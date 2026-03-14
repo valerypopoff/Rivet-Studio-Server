@@ -13,8 +13,24 @@
 ### Prerequisites
 
 - Node.js 20+ and npm
+- Git
 - Docker and Docker Compose
-- upstream `rivet/` source in repo root
+
+### Bootstrap Upstream Rivet
+
+From the repo root, download the latest stable upstream Rivet tag into `./rivet`:
+
+```bash
+npm run setup:rivet
+```
+
+The script resolves the newest stable GitHub tag matching `v<major>.<minor>.<patch>` and downloads that release, not the moving `main` branch.
+
+If you need to replace an existing non-empty `rivet/` directory:
+
+```bash
+npm run setup:rivet -- --force
+```
 
 ### Start
 
@@ -67,4 +83,4 @@ Browser -> nginx (proxy)
 - set `RIVET_KEY` to the shared secret
 - set `RIVET_REQUIRE_WORKFLOW_KEY=true` to require `Authorization: Bearer <RIVET_KEY>` on workflow execution routes
 - set `RIVET_REQUIRE_UI_GATE_KEY=true` to gate the browser UI and related websockets
-- set `RIVET_UI_TOKEN_FREE_HOSTS` for internal hosts that should bypass the UI gate
+- set `RIVET_UI_TOKEN_FREE_HOSTS` for hosts that should bypass the UI gate
