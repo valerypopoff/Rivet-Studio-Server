@@ -287,8 +287,10 @@ That message bridge is responsible for wrapper-specific coordination such as:
 
 ### Folder and project interactions
 
-- folder expand/collapse is limited to the left chevron hit area
-- double-clicking the folder name area triggers rename without also toggling folder expansion
+- clicking anywhere on a folder row except the folder action area toggles expand/collapse
+- the left chevron is only a visual expanded/collapsed indicator; it is not a separate button
+- folder rows support keyboard expand/collapse with `Enter` and `Space`
+- double-clicking the folder name triggers rename from the tree row
 - single-clicking a project row selects it in the pane without opening it in the editor
 - double-clicking a project row opens it in the editor and normally activates or adds an editor tab instead of replacing the current tab
 
@@ -305,7 +307,7 @@ Current behavior:
 
 - the section follows the currently selected workflow project in the pane
 - when there is no separate selected project, the currently opened workflow project becomes the displayed project
-- the section is hidden when there is no selected or opened workflow project
+- when there is no selected or opened workflow project, the section stays visible and shows an empty placeholder inviting the user to select a project
 - it shows the current publish-related status badge inline with the project name
 - it shows the project basename without the `.rivet-project` extension
 - its primary action is `Save` when the displayed project is currently open in the editor
