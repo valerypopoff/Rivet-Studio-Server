@@ -622,9 +622,9 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
         {!editorReady ? <div className="body-status body-status-top">Loading editor...</div> : null}
         {bodyContent}
         <div className="body-actions">
-          <Button appearance="subtle-link" spacing="compact" className="link-button button-size-m" onClick={() => void handleCreateFolder()}>
+          <button type="button" className="link-button" onClick={() => void handleCreateFolder()}>
             + New folder
-          </Button>
+          </button>
         </div>
       </div>
 
