@@ -1,8 +1,11 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { parseEnvFile } from './env.mjs';
 
 export function loadDevEnv(rootDir) {
-  const envPath = path.join(rootDir, '.env.dev');
+  const envCandidates = ['.env', '.env.dev'].map((name) => path.join(rootDir, name));
+  const envPath = envCandidates.find((candidate) => fs.existsSync(candidate)) ?? envCandidates[0];
+  const hasEnvFile = fs.existsSync(envPath);
   const fileEnv = parseEnvFile(envPath);
   const mergedEnv = {
     ...process.env,
@@ -29,5 +32,5 @@ export function loadDevEnv(rootDir) {
     mergedEnv.RIVET_RUNTIME_LIBS_HOST_PATH = path.resolve(rootDir, fileEnv.RIVET_RUNTIME_LIBS_HOST_PATH);
   }
 
-  return { envPath, fileEnv, mergedEnv };
+  return { envPath, hasEnvFile, fileEnv, mergedEnv };
 }

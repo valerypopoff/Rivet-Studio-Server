@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { loadDevEnv } from './lib/dev-env.mjs';
 
 const rootDir = process.cwd();
-let composeBase = 'docker compose -f ops/docker-compose.dev.yml';
+let composeBase = 'docker compose -f ops/docker-compose.yml';
 const diagnosticServices = 'api web executor proxy';
 let envFileLabel = '.env';
 
@@ -67,7 +67,7 @@ function runCapture(command, env, options = {}) {
 }
 
 async function printFailureDiagnostics(env) {
-  console.error('[dev-docker] Docker compose reported a failure. Collecting container status and recent logs...');
+  console.error('[prod-docker] Docker compose reported a failure. Collecting container status and recent logs...');
   await run(`${composeBase} ps`, env, { allowFailure: true });
   await run(`${composeBase} logs --tail=120 ${diagnosticServices}`, env, { allowFailure: true });
 }
@@ -87,7 +87,7 @@ function ensurePortAvailable(port) {
 
     server.once('error', (error) => {
       if (error && typeof error === 'object' && 'code' in error && error.code === 'EADDRINUSE') {
-        reject(new Error(`[dev-docker] Host port ${port} is already in use. Set RIVET_PORT in ${envFileLabel} to a free port, or stop the process currently listening on ${port}.`));
+        reject(new Error(`[prod-docker] Host port ${port} is already in use. Set RIVET_PORT in ${envFileLabel} to a free port, or stop the process currently listening on ${port}.`));
         return;
       }
 
@@ -118,13 +118,13 @@ async function isComposeServiceRunning(service, env) {
 }
 
 async function main() {
-  const action = process.argv[2] == null ? 'dev' : process.argv[2];
+  const action = process.argv[2] == null ? 'prod' : process.argv[2];
   const { mergedEnv, envPath, hasEnvFile } = loadDevEnv(rootDir);
 
   envFileLabel = path.basename(envPath);
   if (hasEnvFile) {
     const relativeEnvPath = path.relative(rootDir, envPath) || envFileLabel;
-    composeBase = `docker compose --env-file "${relativeEnvPath}" -f ops/docker-compose.dev.yml`;
+    composeBase = `docker compose --env-file "${relativeEnvPath}" -f ops/docker-compose.yml`;
   }
 
   if (!Object.prototype.hasOwnProperty.call(mergedEnv, 'COMPOSE_PARALLEL_LIMIT')) {
@@ -133,28 +133,27 @@ async function main() {
 
   const waitTimeoutSeconds = parseInt(mergedEnv.RIVET_DOCKER_WAIT_TIMEOUT ?? '900', 10);
   const proxyPort = assertValidPort(mergedEnv.RIVET_PORT, 8080);
-
   const commandsByAction = {
-    build: [`${composeBase} build api executor`],
-    up: [`${composeBase} up --build`],
+    build: [`${composeBase} build web api executor`],
+    up: [`${composeBase} up -d --build`],
     down: [`${composeBase} down`],
     config: [`${composeBase} config`],
     ps: [`${composeBase} ps`],
     logs: [`${composeBase} logs -f --tail=120 ${diagnosticServices}`],
-    dev: [`${composeBase} up -d --wait --wait-timeout ${waitTimeoutSeconds}`],
-    recreate: [`${composeBase} up -d --force-recreate --wait --wait-timeout ${waitTimeoutSeconds}`],
+    prod: [`${composeBase} up -d --build --wait --wait-timeout ${waitTimeoutSeconds}`],
+    recreate: [`${composeBase} up -d --build --force-recreate --wait --wait-timeout ${waitTimeoutSeconds}`],
   };
 
   const commands = commandsByAction[action];
 
   if (!commands) {
     console.error(`Unknown action: ${action}`);
-    console.error('Usage: node scripts/dev-docker.mjs [dev|recreate|build|up|down|config|ps|logs]');
+    console.error('Usage: node scripts/prod-docker.mjs [prod|recreate|build|up|down|config|ps|logs]');
     process.exit(1);
   }
 
   try {
-    if (action === 'dev' || action === 'up') {
+    if (action === 'prod' || action === 'up') {
       const proxyAlreadyRunning = await isComposeServiceRunning('proxy', mergedEnv);
       if (!proxyAlreadyRunning) {
         await ensurePortAvailable(proxyPort);
@@ -165,7 +164,7 @@ async function main() {
       await run(command, mergedEnv);
     }
   } catch (error) {
-    if (action === 'dev' || action === 'up') {
+    if (action === 'prod' || action === 'up') {
       await printFailureDiagnostics(mergedEnv);
     }
 

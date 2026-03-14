@@ -1,9 +1,7 @@
-import path from 'node:path';
 import { spawn } from 'node:child_process';
-import { parseEnvFile } from './lib/env.mjs';
+import { loadDevEnv } from './lib/dev-env.mjs';
 
 const rootDir = process.cwd();
-const envPath = path.join(rootDir, '.env.dev');
 
 const command = process.argv.slice(2).join(' ').trim();
 if (!command) {
@@ -11,19 +9,7 @@ if (!command) {
   process.exit(1);
 }
 
-const fileEnv = parseEnvFile(envPath);
-const mergedEnv = {
-  ...process.env,
-  ...fileEnv,
-};
-
-if (!Object.prototype.hasOwnProperty.call(fileEnv, 'RIVET_WORKSPACE_ROOT')) {
-  mergedEnv.RIVET_WORKSPACE_ROOT = rootDir;
-}
-
-if (!Object.prototype.hasOwnProperty.call(fileEnv, 'RIVET_APP_DATA_ROOT')) {
-  mergedEnv.RIVET_APP_DATA_ROOT = path.join(rootDir, '.data', 'rivet-app');
-}
+const { mergedEnv } = loadDevEnv(rootDir);
 
 const child = spawn(command, {
   cwd: rootDir,

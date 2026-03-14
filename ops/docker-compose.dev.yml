@@ -4,7 +4,7 @@ services:
     ports:
       - "${RIVET_PORT:-8080}:80"
     env_file:
-      - ../.env.dev
+      - ../.env
     environment:
       - RIVET_PUBLISHED_WORKFLOWS_BASE_PATH=${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH:-/workflows}
       - RIVET_LATEST_WORKFLOWS_BASE_PATH=${RIVET_LATEST_WORKFLOWS_BASE_PATH:-/workflows-latest}
@@ -29,7 +29,7 @@ services:
     image: node:20-alpine
     working_dir: /workspace/wrapper/web
     env_file:
-      - ../.env.dev
+      - ../.env
     environment:
       - HTTP_PROXY=${HTTP_PROXY:-}
       - HTTPS_PROXY=${HTTPS_PROXY:-}
@@ -97,7 +97,7 @@ services:
         all_proxy: ${all_proxy:-${ALL_PROXY:-}}
         no_proxy: ${no_proxy:-${NO_PROXY:-}}
     env_file:
-      - ../.env.dev
+      - ../.env
     ports:
       - "${RIVET_API_PORT:-3100}:80"
     environment:
@@ -173,7 +173,7 @@ services:
         all_proxy: ${all_proxy:-${ALL_PROXY:-}}
         no_proxy: ${no_proxy:-${NO_PROXY:-}}
     env_file:
-      - ../.env.dev
+      - ../.env
     environment:
       - HTTP_PROXY=${HTTP_PROXY:-}
       - HTTPS_PROXY=${HTTPS_PROXY:-}

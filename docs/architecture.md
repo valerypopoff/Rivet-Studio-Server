@@ -30,12 +30,12 @@
 
 ## Dev vs production
 
-| Aspect | Local dev (`npm run dev:local`) | Docker dev (`npm run dev`) | Production |
+| Aspect | Local dev (`npm run dev:local`) | Docker dev (`npm run dev`) | Production (`npm run prod`) |
 |---|---|---|---|
 | Processes | Three local processes (API, web, executor) | Docker Compose with nginx proxy | Docker Compose with nginx proxy |
 | Ports | API on 3100, web on 5173 | Single port via nginx (default 8080) | Single port via nginx |
 | Filesystem | `.data/` under repo root | Docker bind mounts from host | Docker named volumes |
-| Env loading | `scripts/lib/dev-env.mjs` | Same, plus Docker Compose env | `ops/.env` |
+| Env loading | `scripts/lib/dev-env.mjs` | Same, plus Docker Compose env | Root `.env` |
 
 ## Configuration
 

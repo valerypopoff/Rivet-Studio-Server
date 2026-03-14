@@ -2,12 +2,13 @@
 
 ## Main paths
 
+- `npm run prod` starts the production-style Docker stack
 - `npm run dev` starts the Docker-based dev stack
 - `npm run dev:local` starts local API, web, and executor processes
 
 ## Shared env loading
 
-Both local and Docker development scripts load `.env.dev` through `scripts/lib/dev-env.mjs`.
+Root launcher scripts load `.env` through `scripts/lib/dev-env.mjs`.
 
 That file is the single place for:
 

@@ -12,27 +12,31 @@
 
 ### Prerequisites
 
+- Node.js 20+ and npm
 - Docker and Docker Compose
 - upstream `rivet/` source in repo root
 
-### Deploy
+### Start
 
 ```bash
-cd ops
-cp .env.example .env
-# Edit .env with your API keys
-docker compose up -d --build
+npm run prod
 ```
 
 Access the app at `http://localhost:8080` unless `RIVET_PORT` changes it.
+
+Useful follow-up commands:
+
+```bash
+npm run prod:docker:ps
+npm run prod:docker:logs
+npm run prod:down
+```
 
 ### Development with Docker
 
 From the repo root:
 
-```bash
-npm run dev
-```
+`npm run dev`
 
 Useful follow-up commands:
 
@@ -41,13 +45,6 @@ npm run dev:docker:ps
 npm run dev:docker:logs
 npm run dev:down
 ```
-
-### Development without Docker
-
-1. Install upstream deps and build shared packages.
-2. Run `npm --prefix wrapper/api run dev`.
-3. Run `npm --prefix wrapper/web run dev`.
-4. Run the upstream executor when Node execution mode is needed.
 
 ## Runtime shape
 
