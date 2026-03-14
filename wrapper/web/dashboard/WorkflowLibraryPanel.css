@@ -619,6 +619,10 @@
   opacity: 0.8;
 }
 
+.workflow-library-panel .folder-actions .icon-button {
+  min-width: 40px;
+}
+
 .workflow-library-panel .projects {
   padding-left: 6px;
   display: flex;
