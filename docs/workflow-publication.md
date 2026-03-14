@@ -9,6 +9,8 @@ Workflows can be published as HTTP endpoints. This document explains the interna
 - **Published snapshot** (`.published/<id>.rivet-project`): frozen copy of the project at time of publish
 - **Dataset sidecar** (`*.rivet-data`): optional data associated with a project, published alongside it
 
+Projects live under the workflow root configured by `RIVET_WORKFLOWS_ROOT` in the API container and backed by `RIVET_WORKFLOWS_HOST_PATH` on the host.
+
 ## Status model
 
 Each project has a derived status computed from the settings sidecar:
@@ -38,10 +40,25 @@ Status is derived by comparing `publishedStateHash` (stored at publish time) aga
 
 Two endpoint families exist:
 
-- **Published** (`/workflows/published/:endpointName`): serves the frozen snapshot. Stable across edits.
-- **Latest** (`/workflows/latest/:endpointName`): serves the live project file. Reflects unsaved changes immediately.
+- **Published** (`${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH:-/workflows}/:endpointName`): serves the frozen snapshot. Stable across edits.
+- **Latest** (`${RIVET_LATEST_WORKFLOWS_BASE_PATH:-/workflows-latest}/:endpointName`): serves the live project file. Reflects unpublished changes immediately for published projects.
 
 Both look up the project by scanning all settings sidecars for a matching endpoint name (case-insensitive).
+
+Fully unpublished projects are not served by either public route family.
+
+## Auth model
+
+Public execution routes can be protected independently of the browser UI:
+
+- when `RIVET_REQUIRE_WORKFLOW_KEY=true` and `RIVET_KEY` is set, both public route families require `Authorization: Bearer <RIVET_KEY>`
+- hosts allowlisted in `RIVET_UI_TOKEN_FREE_HOSTS` can bypass that public-route auth because nginx forwards a trusted internal-host signal to the API
+
+The API also exposes an internal published-only route:
+
+- `/internal/workflows/:endpointName`
+
+That route is mounted directly on the API service, is not exposed through nginx, and intentionally skips bearer auth for trusted intra-stack callers.
 
 ## Sidecar lifecycle
 
@@ -49,6 +66,8 @@ When a project is renamed, moved, or deleted, its sidecars travel with it:
 
 - **Rename/move**: `moveProjectWithSidecars()` renames the project, `.rivet-data`, and `.wrapper-settings.json` atomically with rollback on failure.
 - **Delete**: `deleteProjectWithSidecars()` removes the project, both sidecars, and any published snapshot.
+
+Published endpoint names preserve the casing the user entered in settings, while endpoint lookup remains case-insensitive.
 
 ## Key files
 

@@ -3,6 +3,7 @@
 ## Additional docs
 
 - [Architecture](./docs/architecture.md)
+- [Access and routing](./docs/access-and-routing.md)
 - [Development](./docs/development.md)
 - [Editor bridge](./docs/editor-bridge.md)
 - [Workflow publication](./docs/workflow-publication.md)

@@ -2,7 +2,7 @@
 
 ## Boundary
 
-- `rivet/` is vendored upstream source
+- `rivet/` is a local upstream source snapshot downloaded by `npm run setup:rivet`
 - `wrapper/` is the hosted integration layer
 - `ops/` contains deployment and container wiring
 - `scripts/` contains developer entrypoints
@@ -23,6 +23,7 @@
 
 ## Boundary guidelines
 
+- Treat `rivet/` as replaceable upstream code, not as the default home for hosted changes.
 - **Never** add hosted features directly in `rivet/`. Wrapper-level alternatives should be exhausted first.
 - `wrapper/shared/` is for contracts both the browser and server need (types, type guards, constants).
 - `wrapper/web/dashboard/` owns all wrapper-specific UI. Upstream UI code stays in `rivet/packages/app/`.

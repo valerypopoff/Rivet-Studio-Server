@@ -13,12 +13,30 @@ Runtime libraries use a simple on-disk layout:
   staging/
 ```
 
+The root path is controlled by `RIVET_RUNTIME_LIBRARIES_ROOT`.
+
+## UI and API
+
+The feature is exposed from the dashboard through the `Runtime libraries` action in the projects pane.
+
+The API surface lives under `/api/runtime-libraries`:
+
+- `GET /` returns current state plus any active job
+- `POST /install` starts an install job
+- `POST /remove` starts a removal job
+- `GET /jobs/:jobId` returns job state
+- `GET /jobs/:jobId/stream` streams live logs over SSE
+
+Only one install/remove job runs at a time.
+
 ## Activation model
 
 - install/remove jobs build a candidate set in `staging/`
 - the candidate is validated before activation
 - activation swaps `staging/` into `current/`
 - if activation fails, the previous `current/` set is restored
+
+Because both execution paths resolve the active library directory per invocation, newly activated libraries take effect without restarting the API or executor containers.
 
 ## Compatibility
 
@@ -28,3 +46,9 @@ Startup still migrates the older `active-release` plus `releases/NNNN/` layout i
 
 - API-side code execution resolves packages from `current/node_modules`
 - executor-side code execution resolves packages from the same path via the bundle patch
+
+## Persistence and fallback
+
+- runtime libraries are persisted outside the container image and survive rebuilds
+- API startup reconciles stale or legacy runtime-library state
+- when no managed runtime-library set is active, execution falls back to image-baked dependencies
