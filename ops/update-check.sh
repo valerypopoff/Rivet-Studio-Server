@@ -11,7 +11,7 @@ cd "$ROOT_DIR"
 
 ERRORS=0
 
-echo "=== Self-Hosted Rivet Compatibility Scanner ==="
+echo "=== Rivet Studio Server Compatibility Scanner ==="
 echo ""
 
 # 1. Check for new @tauri-apps/api/* import subpaths

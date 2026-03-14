@@ -1,8 +1,8 @@
 {
-  "name": "self-hosted-rivet",
+  "name": "rivet-studio-server",
   "private": true,
   "version": "1.0.0",
-  "description": "Root launcher for the self-hosted Rivet Docker stacks",
+  "description": "Root launcher for the Rivet Studio Server Docker stacks",
   "scripts": {
     "setup": "node scripts/ensure-dev-deps.mjs",
     "setup:rivet": "node scripts/bootstrap-rivet.mjs",
