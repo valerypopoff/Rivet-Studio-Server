@@ -12,7 +12,7 @@ In practical terms, the application provides:
 - hosted file open/save behavior through an API instead of desktop-native access
 - a wrapper-owned workflow dashboard for organizing workflow projects
 - published workflow serving at the configured published-workflow base path (`RIVET_PUBLISHED_WORKFLOWS_BASE_PATH`, default `/workflows`, trailing slash tolerated)
-- latest working-version workflow serving at the configured latest-workflow base path (`RIVET_LATEST_WORKFLOWS_BASE_PATH`, default `/workflows-last`, trailing slash tolerated) for published projects
+- latest working-version workflow serving at the configured latest-workflow base path (`RIVET_LATEST_WORKFLOWS_BASE_PATH`, default `/workflows-latest`, trailing slash tolerated) for published projects
 - optional remote debugging for latest workflow endpoint runs over the browser-facing websocket URL `ws://host:port/ws/latest-debugger`
 - the same workflow endpoint env var pair shared across frontend, backend, and nginx proxy routing
 - optional shared-key protection for public workflow execution plus a separate optional browser/UI gate, both driven by env vars
@@ -64,7 +64,7 @@ It routes:
 - browser requests to the web app
 - `/api/*` traffic to the compatibility backend
 - requests under `RIVET_PUBLISHED_WORKFLOWS_BASE_PATH` (default `/workflows`) to last-published workflow execution endpoints
-- requests under `RIVET_LATEST_WORKFLOWS_BASE_PATH` (default `/workflows-last`) to latest working-version workflow execution endpoints for published workflows
+- requests under `RIVET_LATEST_WORKFLOWS_BASE_PATH` (default `/workflows-latest`) to latest working-version workflow execution endpoints for published workflows
 - browser editor/admin traffic on `/`, `/api/*`, and `/ws/executor*`, with an optional UI gate at the nginx layer
 - websocket traffic to the executor/debugger service
 - browser-facing latest-workflow remote debugger traffic on `/ws/latest-debugger`, proxied to the API service
@@ -195,7 +195,7 @@ Published workflow snapshots themselves are stored separately under the workflow
 The two public execution paths intentionally serve different targets:
 
 - `RIVET_PUBLISHED_WORKFLOWS_BASE_PATH/[endpoint-name]` (default `/workflows/[endpoint-name]`) serves the last published snapshot
-- `RIVET_LATEST_WORKFLOWS_BASE_PATH/[endpoint-name]` (default `/workflows-last/[endpoint-name]`) serves the current working project file for workflows that are published or have unpublished changes
+- `RIVET_LATEST_WORKFLOWS_BASE_PATH/[endpoint-name]` (default `/workflows-latest/[endpoint-name]`) serves the current working project file for workflows that are published or have unpublished changes
 - both public execution paths enforce `Authorization: Bearer <RIVET_KEY>` when `RIVET_REQUIRE_WORKFLOW_KEY=true` and `RIVET_KEY` is non-empty, except for requests that nginx has already marked as coming from a configured token-free host in `RIVET_UI_TOKEN_FREE_HOSTS`
 
 There is also an API-container-only internal published-workflow route:
@@ -290,7 +290,8 @@ That message bridge is responsible for wrapper-specific coordination such as:
 - folders and `.rivet-project` files are loaded from `/api/workflows/tree`
 - projects may exist directly at the workflow root or inside folders
 - nested workflow folders are supported
-- the pane exposes a `+ New folder` action at the bottom of the tree area
+- the pane exposes a root-level `+ New folder` action at the bottom of the tree area
+- nested folders can then be formed by dragging folders into other folders
 - new workflow projects are created from the `+` action on each folder row
 - workflow list, create, rename, publish, unpublish, delete, and move operations are implemented under `wrapper/api/src/routes/workflows/index.ts`
 
@@ -319,6 +320,7 @@ Current behavior:
 - when there is no selected or opened workflow project, the section stays visible and shows an empty placeholder inviting the user to select a project
 - it shows the current publish-related status badge inline with the project name
 - it shows the project basename without the `.rivet-project` extension
+- it shows derived project stats as `N graphs, M nodes total`
 - its primary action is `Save` when the displayed project is currently open in the editor
 - it shows `Edit` instead when the displayed project is selected but not currently open in the editor
 - it contains a `Settings` action that opens the project settings popup
@@ -515,10 +517,10 @@ The runtime library manager is a wrapper-owned feature that lets users install a
 
 ### UI
 
-The feature is accessed through a trigger button at the bottom of the `Projects` pane in `WorkflowLibraryPanel.tsx`. Clicking it opens a modal (`RuntimeLibrariesModal.tsx`) that shows:
+The feature is accessed through the `Runtime libraries` button at the bottom of the `Projects` pane in `WorkflowLibraryPanel.tsx`. Clicking it opens a modal (`RuntimeLibrariesModal.tsx`) that shows:
 
 - the list of currently installed runtime libraries with package name, version, and a remove action
-- an `Add library` action that reveals the install form with package name and version fields
+- an `Add library...` action that reveals the install form with package name and version fields
 - an install button that starts a background job
 - a live log panel that streams npm install output in real time via Server-Sent Events
 - a final success or failure verdict when the job completes
@@ -543,15 +545,15 @@ Runtime libraries are managed through a versioned release system under `RIVET_RU
 
 ```
 <root>/
-  manifest.json          — desired package set, active release id, metadata
-  active-release         — plain-text pointer file with the current release id
+  manifest.json          - desired package set, active release id, metadata
+  active-release         - plain-text pointer file with the current release id
   releases/
     0001/
       package.json
       node_modules/
     0002/
       ...
-  staging/               — build area for candidate releases
+  staging/               - build area for candidate releases
 ```
 
 The install/remove flow:
@@ -590,16 +592,16 @@ When no managed runtime libraries are installed (no `active-release` file exists
 
 ### Implementation files
 
-- `wrapper/api/src/runtime-libraries/manifest.ts` — manifest and pointer file read/write helpers
-- `wrapper/api/src/runtime-libraries/job-runner.ts` — staging, npm install, validation, promotion
-- `wrapper/api/src/runtime-libraries/managed-code-runner.ts` — `ManagedCodeRunner` implementing the `CodeRunner` interface
-- `wrapper/api/src/utils/exec.ts` — shared `child_process.spawn` helpers for non-streaming and streaming process execution
-- `wrapper/api/src/runtime-libraries/startup.ts` — startup reconciliation and old release cleanup
-- `wrapper/api/src/routes/runtime-libraries.ts` — API route handler
-- `wrapper/web/dashboard/RuntimeLibrariesModal.tsx` — modal component
-- `wrapper/web/dashboard/RuntimeLibrariesModal.css` — modal styles
-- `wrapper/web/dashboard/runtimeLibrariesApi.ts` — client API helper
-- `ops/bundle-executor.cjs` — executor-side dynamic require patch
+- `wrapper/api/src/runtime-libraries/manifest.ts` - manifest and pointer file read/write helpers
+- `wrapper/api/src/runtime-libraries/job-runner.ts` - staging, npm install, validation, promotion
+- `wrapper/api/src/runtime-libraries/managed-code-runner.ts` - `ManagedCodeRunner` implementing the `CodeRunner` interface
+- `wrapper/api/src/utils/exec.ts` - shared `child_process.spawn` helpers for non-streaming and streaming process execution
+- `wrapper/api/src/runtime-libraries/startup.ts` - startup reconciliation and old release cleanup
+- `wrapper/api/src/routes/runtime-libraries.ts` - API route handler
+- `wrapper/web/dashboard/RuntimeLibrariesModal.tsx` - modal component
+- `wrapper/web/dashboard/RuntimeLibrariesModal.css` - modal styles
+- `wrapper/web/dashboard/runtimeLibrariesApi.ts` - client API helper
+- `ops/bundle-executor.cjs` - executor-side dynamic require patch
 
 ## Design rules
 

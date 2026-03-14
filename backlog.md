@@ -1,5 +1,3 @@
-- Instead of passing the key as ?token=, let the chat ask for the key in a browser modal
-
 - Как-то помнить используемые библиотеки чтобы предупреждать что в лайве форкфлоу с такой-то библиотекой а ты собираешься удалить ее?
 
 
