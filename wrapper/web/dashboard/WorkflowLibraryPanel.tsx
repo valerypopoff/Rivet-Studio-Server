@@ -584,17 +584,15 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
         </div>
       </div>
 
-      <div className={`active-project-slot${activeProject ? ' active-project-slot-visible' : ''}`}>
-        {activeProject ? (
-          <ActiveProjectSection
-            activeProject={activeProject}
-            isCurrentlyOpen={isActiveProjectOpen}
-            editorReady={editorReady}
-            onSave={onSaveProject}
-            onOpen={onOpenProject}
-            onOpenSettings={handleOpenSettings}
-          />
-        ) : null}
+      <div className="active-project-slot">
+        <ActiveProjectSection
+          activeProject={activeProject}
+          isCurrentlyOpen={isActiveProjectOpen}
+          editorReady={editorReady}
+          onSave={onSaveProject}
+          onOpen={onOpenProject}
+          onOpenSettings={handleOpenSettings}
+        />
       </div>
 
       <div

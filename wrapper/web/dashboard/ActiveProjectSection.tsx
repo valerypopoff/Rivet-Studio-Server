@@ -10,7 +10,7 @@ const STATUS_LABELS: Record<WorkflowProjectStatus, string> = {
 };
 
 type ActiveProjectSectionProps = {
-  activeProject: WorkflowProjectItem;
+  activeProject: WorkflowProjectItem | null;
   isCurrentlyOpen: boolean;
   editorReady: boolean;
   onSave: () => void;
@@ -26,6 +26,16 @@ export const ActiveProjectSection: FC<ActiveProjectSectionProps> = ({
   onOpen,
   onOpenSettings,
 }) => {
+  if (!activeProject) {
+    return (
+      <div className="active-project-section active-project-section-empty">
+        <div className="active-project-placeholder">
+          Select a project <br /> to see its properties
+        </div>
+      </div>
+    );
+  }
+
   const statusLabel = STATUS_LABELS[activeProject.settings.status];
   const baseName = activeProject.fileName.replace(/\.[^.]+$/, '');
 

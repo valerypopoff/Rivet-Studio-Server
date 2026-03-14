@@ -69,27 +69,31 @@
 }
 
 .workflow-library-panel .active-project-slot {
-  overflow: hidden;
-  max-height: 0;
-  opacity: 0;
-  margin: 0 13px;
-  transition:
-    max-height 220ms ease,
-    opacity 180ms ease,
-    margin-top 220ms ease;
-}
-
-.workflow-library-panel .active-project-slot-visible {
-  max-height: 160px;
-  opacity: 1;
-  margin-top: 13px;
+  margin: 13px 13px 0;
+  flex: 0 0 auto;
 }
 
 .workflow-library-panel .active-project-section {
+  min-height: 92px;
   padding: 10px 12px;
   background: rgba(255, 255, 255, 0.07);
   border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: 12px;
+  box-sizing: border-box;
+}
+
+.workflow-library-panel .active-project-section-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.workflow-library-panel .active-project-placeholder {
+  width: 100%;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--grey-light);
+  text-align: center;
 }
 
 .workflow-library-panel .active-project-section-content {
