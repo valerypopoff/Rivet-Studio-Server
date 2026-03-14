@@ -379,6 +379,25 @@
   padding: 8px 8px 16px 8px;
 }
 
+.workflow-library-panel .panel-bottom-actions {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.workflow-library-panel .panel-bottom-button {
+  width: 100%;
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.workflow-library-panel .panel-bottom-button > span {
+  justify-content: flex-start;
+}
+
 .workflow-library-panel .body-actions {
   display: flex;
   align-items: center;

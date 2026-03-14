@@ -220,31 +220,3 @@
     max-width: none;
   }
 }
-
-/* Trigger button in sidebar */
-.runtime-libraries-trigger {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 12px;
-  border-top: 1px solid var(--grey-dark, #333);
-  cursor: pointer;
-  color: var(--foreground-dimmed, #888);
-  min-height: var(--workflow-button-height-m);
-  font-size: var(--workflow-button-font-size-s);
-  background: none;
-  border-left: none;
-  border-right: none;
-  border-bottom: none;
-  width: 100%;
-  text-align: left;
-}
-
-.runtime-libraries-trigger:hover {
-  color: var(--foreground, #ccc);
-  background: var(--grey-dark, #252525);
-}
-
-.runtime-libraries-trigger .trigger-icon {
-  font-size: var(--workflow-button-font-size-s);
-}

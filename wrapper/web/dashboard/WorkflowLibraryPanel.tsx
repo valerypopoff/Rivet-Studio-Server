@@ -567,7 +567,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   return (
     <div className="workflow-library-panel">
       <div className="header">
-        <div className="header-title">Projects</div>
+        <div className="header-title">Rivet Projects</div>
         <div className="header-actions">
           {onCollapse ? (
             <Button
@@ -615,14 +615,16 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
         </div>
       </div>
 
-      <button
-        className="runtime-libraries-trigger button-size-m"
-        onClick={() => setRuntimeLibsOpen(true)}
-        title="Manage runtime libraries available to Code nodes"
-      >
-        <span className="trigger-icon">&#9881;</span>
-        Runtime libraries
-      </button>
+      <div className="panel-bottom-actions">
+        <Button
+          appearance="subtle"
+          className="panel-bottom-button project-settings-secondary-button button-size-m"
+          onClick={() => setRuntimeLibsOpen(true)}
+          title="Manage runtime libraries available to Code nodes"
+        >
+          Runtime libraries
+        </Button>
+      </div>
 
       {settingsModalOpen && settingsModalProject ? (
         <ProjectSettingsModal
