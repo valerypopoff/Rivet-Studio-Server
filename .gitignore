@@ -1,6 +1,7 @@
 # Local env files
 .env
 .env.dev
+!.env.example
 .claude/
 
 # Dependency + build artifacts
