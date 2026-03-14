@@ -12,6 +12,7 @@
   --workflow-button-height-m: 30px;
   --workflow-button-height-l: 40px;
   --workflow-button-height-xl: 55px;
+  --workflow-button-radius-ratio: 0.2;
   --workflow-button-font-size-s: 11px;
   --workflow-button-font-size-m: 15px;
   --workflow-button-font-size-l: 16px;
@@ -143,33 +144,39 @@
 .button-size-m,
 .button-size-l,
 .button-size-xl {
+  --workflow-button-current-height: var(--workflow-button-height-m);
   padding-top: 0;
   padding-bottom: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   line-height: 1;
+  border-radius: calc(var(--workflow-button-current-height) * var(--workflow-button-radius-ratio)) !important;
 }
 
 .button-size-s {
+  --workflow-button-current-height: var(--workflow-button-height-s);
   height: var(--workflow-button-height-s) !important;
   min-height: var(--workflow-button-height-s) !important;
   font-size: var(--workflow-button-font-size-s) !important;
 }
 
 .button-size-m {
+  --workflow-button-current-height: var(--workflow-button-height-m);
   height: var(--workflow-button-height-m) !important;
   min-height: var(--workflow-button-height-m) !important;
   font-size: var(--workflow-button-font-size-m) !important;
 }
 
 .button-size-l {
+  --workflow-button-current-height: var(--workflow-button-height-l);
   height: var(--workflow-button-height-l) !important;
   min-height: var(--workflow-button-height-l) !important;
   font-size: var(--workflow-button-font-size-l) !important;
 }
 
 .button-size-xl {
+  --workflow-button-current-height: var(--workflow-button-height-xl);
   height: var(--workflow-button-height-xl) !important;
   min-height: var(--workflow-button-height-xl) !important;
   font-size: var(--workflow-button-font-size-xl) !important;
@@ -186,6 +193,7 @@
   align-items: center;
   justify-content: center;
   line-height: 1.2;
+  border-radius: inherit;
 }
 
 .text-field-size-s[data-ds--text-field--container] {
