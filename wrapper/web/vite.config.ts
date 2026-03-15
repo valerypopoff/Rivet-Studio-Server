@@ -223,6 +223,18 @@ export default defineConfig({
             if (id.includes('monaco-editor')) {
               return 'monaco-editor';
             }
+
+            if (id.includes('node_modules/react-dom')) {
+              return 'react-dom';
+            }
+
+            if (id.includes('node_modules/@atlaskit/') || id.includes('node_modules/@emotion/')) {
+              return 'atlaskit';
+            }
+
+            if (id.includes('node_modules/openai/')) {
+              return 'openai';
+            }
           },
         },
       },

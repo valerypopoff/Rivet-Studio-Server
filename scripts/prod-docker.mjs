@@ -127,7 +127,7 @@ async function main() {
     composeBase = `docker compose --env-file "${relativeEnvPath}" -f ops/docker-compose.yml`;
   }
 
-  const buildHeavyActions = new Set(['build', 'up', 'prod', 'recreate']);
+  const buildHeavyActions = new Set(['build', 'up', 'prod', 'recreate', 'auto']);
   if (buildHeavyActions.has(action) && !Object.prototype.hasOwnProperty.call(mergedEnv, 'COMPOSE_PARALLEL_LIMIT')) {
     mergedEnv.COMPOSE_PARALLEL_LIMIT = '1';
   }
@@ -153,11 +153,51 @@ async function main() {
     ],
   };
 
+  // --- Auto mode: try prebuilt images first, fall back to local build ---
+  if (action === 'auto') {
+    const proxyAlreadyRunning = await isComposeServiceRunning('proxy', mergedEnv);
+    if (!proxyAlreadyRunning) {
+      await ensurePortAvailable(proxyPort);
+    }
+
+    console.log('[prod] Pulling prebuilt images…');
+    const pullExitCode = await run(
+      `${composeBase} pull web api executor`,
+      mergedEnv,
+      { allowFailure: true },
+    );
+
+    try {
+      if (pullExitCode === 0) {
+        console.log('[prod] Starting services from prebuilt images…');
+        await run(
+          `${composeBase} up -d --wait --wait-timeout ${waitTimeoutSeconds}`,
+          mergedEnv,
+        );
+      } else {
+        console.log('');
+        console.log('[prod] Could not pull prebuilt images — building locally instead.');
+        console.log('[prod] Local builds require at least 3 GB of free RAM.');
+        console.log('[prod] Tip: push images to a container registry, then use "npm run prod:prebuilt".');
+        console.log('');
+        await run(
+          `${composeBase} up -d --build --wait --wait-timeout ${waitTimeoutSeconds}`,
+          mergedEnv,
+        );
+      }
+    } catch (error) {
+      await printFailureDiagnostics(mergedEnv);
+      throw error;
+    }
+
+    return;
+  }
+
   const commands = commandsByAction[action];
 
   if (!commands) {
     console.error(`Unknown action: ${action}`);
-    console.error('Usage: node scripts/prod-docker.mjs [prod|recreate|build|up|down|config|ps|logs|prod-prebuilt|recreate-prebuilt]');
+    console.error('Usage: node scripts/prod-docker.mjs [auto|prod|recreate|build|up|down|config|ps|logs|prod-prebuilt|recreate-prebuilt]');
     process.exit(1);
   }
 

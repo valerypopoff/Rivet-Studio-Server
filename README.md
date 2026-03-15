@@ -23,13 +23,13 @@ Rivet Studio Server turns that into a self-hosted personal Rivet platform you ca
 - Git
 - Docker and Docker Compose
 
-### Option 1: Fast Deploy with Prebuilt Images
-
-This path does not build Rivet on the server. It pulls prebuilt images from `ghcr.io`.
+### Deploy
 
 ```bash
-npm run prod:fast
+npm run prod
 ```
+
+`npm run prod` automatically pulls prebuilt images from `ghcr.io` when available (fast, works on small VMs with 1 GB RAM). If the pull fails it falls back to a local Docker build (requires 3 GB+ free RAM and the `rivet/` source tree).
 
 Access the app at `http://localhost:8080` unless `RIVET_PORT` changes it.
 
@@ -41,13 +41,19 @@ npm run prod:docker:logs
 npm run prod:down
 ```
 
-If you want a specific published image instead of `latest`, set `RIVET_IMAGE_TAG` or override the individual image names in `.env`.
+To pin a specific image tag, set `RIVET_IMAGE_TAG` or override the individual image names in `.env`.
 
-### Option 2: Build Locally from Upstream Rivet Source
+#### Explicit variants
 
-#### Bootstrap Upstream Rivet
+| Command | Behaviour |
+|---|---|
+| `npm run prod` | Auto — pull prebuilt images, fall back to local build |
+| `npm run prod:prebuilt` | Always pull prebuilt images (no build) |
+| `npm run prod:local-build` | Always build locally from source |
 
-From the repo root, download the latest stable upstream Rivet tag into `./rivet`:
+#### Building locally from upstream Rivet source
+
+If you need a local build (e.g. to include custom changes), first download the upstream Rivet source into `./rivet`:
 
 ```bash
 npm run setup:rivet
@@ -55,29 +61,17 @@ npm run setup:rivet
 
 The script resolves the newest stable GitHub tag matching `v<major>.<minor>.<patch>` and downloads that release, not the moving `main` branch.
 
-If you need to replace an existing non-empty `rivet/` directory:
+To replace an existing non-empty `rivet/` directory:
 
 ```bash
 npm run setup:rivet -- --force
 ```
 
-#### Start
+Then start the local build:
 
 ```bash
-npm run prod
+npm run prod:local-build
 ```
-
-Access the app at `http://localhost:8080` unless `RIVET_PORT` changes it.
-
-Useful follow-up commands:
-
-```bash
-npm run prod:docker:ps
-npm run prod:docker:logs
-npm run prod:down
-```
-
-`npm run prod` and `npm run prod:local` are the same local-build path.
 
 ### Development with Docker
 
