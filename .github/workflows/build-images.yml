@@ -22,12 +22,15 @@ jobs:
           - service: web
             dockerfile: ops/Dockerfile.web
             image: ghcr.io/valerypopoff/cloud-hosted-rivet-wrapper/web
+            platforms: linux/amd64,linux/arm64
           - service: api
             dockerfile: ops/Dockerfile.api
             image: ghcr.io/valerypopoff/cloud-hosted-rivet-wrapper/api
+            platforms: linux/amd64,linux/arm64
           - service: executor
             dockerfile: ops/Dockerfile.executor
             image: ghcr.io/valerypopoff/cloud-hosted-rivet-wrapper/executor
+            platforms: linux/amd64
 
     steps:
       - name: Check Out Repository
@@ -72,7 +75,7 @@ jobs:
         with:
           context: .
           file: ${{ matrix.dockerfile }}
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ matrix.platforms }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
