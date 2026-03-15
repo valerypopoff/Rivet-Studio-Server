@@ -127,7 +127,8 @@ async function main() {
     composeBase = `docker compose --env-file "${relativeEnvPath}" -f ops/docker-compose.yml`;
   }
 
-  if (!Object.prototype.hasOwnProperty.call(mergedEnv, 'COMPOSE_PARALLEL_LIMIT')) {
+  const buildHeavyActions = new Set(['build', 'up', 'prod', 'recreate']);
+  if (buildHeavyActions.has(action) && !Object.prototype.hasOwnProperty.call(mergedEnv, 'COMPOSE_PARALLEL_LIMIT')) {
     mergedEnv.COMPOSE_PARALLEL_LIMIT = '1';
   }
 
@@ -142,18 +143,26 @@ async function main() {
     logs: [`${composeBase} logs -f --tail=120 ${diagnosticServices}`],
     prod: [`${composeBase} up -d --build --wait --wait-timeout ${waitTimeoutSeconds}`],
     recreate: [`${composeBase} up -d --build --force-recreate --wait --wait-timeout ${waitTimeoutSeconds}`],
+    'prod-prebuilt': [
+      `${composeBase} pull web api executor`,
+      `${composeBase} up -d --wait --wait-timeout ${waitTimeoutSeconds}`,
+    ],
+    'recreate-prebuilt': [
+      `${composeBase} pull web api executor`,
+      `${composeBase} up -d --force-recreate --wait --wait-timeout ${waitTimeoutSeconds}`,
+    ],
   };
 
   const commands = commandsByAction[action];
 
   if (!commands) {
     console.error(`Unknown action: ${action}`);
-    console.error('Usage: node scripts/prod-docker.mjs [prod|recreate|build|up|down|config|ps|logs]');
+    console.error('Usage: node scripts/prod-docker.mjs [prod|recreate|build|up|down|config|ps|logs|prod-prebuilt|recreate-prebuilt]');
     process.exit(1);
   }
 
   try {
-    if (action === 'prod' || action === 'up') {
+    if (action === 'prod' || action === 'up' || action === 'prod-prebuilt' || action === 'recreate-prebuilt') {
       const proxyAlreadyRunning = await isComposeServiceRunning('proxy', mergedEnv);
       if (!proxyAlreadyRunning) {
         await ensurePortAvailable(proxyPort);
@@ -164,7 +173,7 @@ async function main() {
       await run(command, mergedEnv);
     }
   } catch (error) {
-    if (action === 'prod' || action === 'up') {
+    if (action === 'prod' || action === 'up' || action === 'prod-prebuilt' || action === 'recreate-prebuilt') {
       await printFailureDiagnostics(mergedEnv);
     }
 

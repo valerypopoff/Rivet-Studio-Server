@@ -26,6 +26,7 @@ services:
     restart: unless-stopped
 
   web:
+    image: ${RIVET_WEB_IMAGE:-ghcr.io/valerypopoff/cloud-hosted-rivet-wrapper/web:${RIVET_IMAGE_TAG:-latest}}
     build:
       context: ..
       dockerfile: ops/Dockerfile.web
@@ -63,6 +64,7 @@ services:
     restart: unless-stopped
 
   api:
+    image: ${RIVET_API_IMAGE:-ghcr.io/valerypopoff/cloud-hosted-rivet-wrapper/api:${RIVET_IMAGE_TAG:-latest}}
     build:
       context: ..
       dockerfile: ops/Dockerfile.api
@@ -116,6 +118,7 @@ services:
     restart: unless-stopped
 
   executor:
+    image: ${RIVET_EXECUTOR_IMAGE:-ghcr.io/valerypopoff/cloud-hosted-rivet-wrapper/executor:${RIVET_IMAGE_TAG:-latest}}
     build:
       context: ..
       dockerfile: ops/Dockerfile.executor

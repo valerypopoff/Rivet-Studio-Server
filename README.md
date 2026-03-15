@@ -23,7 +23,29 @@ Rivet Studio Server turns that into a self-hosted personal Rivet platform you ca
 - Git
 - Docker and Docker Compose
 
-### Bootstrap Upstream Rivet
+### Option 1: Fast Deploy with Prebuilt Images
+
+This path does not build Rivet on the server. It pulls prebuilt images from `ghcr.io`.
+
+```bash
+npm run prod:fast
+```
+
+Access the app at `http://localhost:8080` unless `RIVET_PORT` changes it.
+
+Useful follow-up commands:
+
+```bash
+npm run prod:docker:ps
+npm run prod:docker:logs
+npm run prod:down
+```
+
+If you want a specific published image instead of `latest`, set `RIVET_IMAGE_TAG` or override the individual image names in `.env`.
+
+### Option 2: Build Locally from Upstream Rivet Source
+
+#### Bootstrap Upstream Rivet
 
 From the repo root, download the latest stable upstream Rivet tag into `./rivet`:
 
@@ -39,7 +61,7 @@ If you need to replace an existing non-empty `rivet/` directory:
 npm run setup:rivet -- --force
 ```
 
-### Start
+#### Start
 
 ```bash
 npm run prod
@@ -54,6 +76,8 @@ npm run prod:docker:ps
 npm run prod:docker:logs
 npm run prod:down
 ```
+
+`npm run prod` and `npm run prod:local` are the same local-build path.
 
 ### Development with Docker
 
