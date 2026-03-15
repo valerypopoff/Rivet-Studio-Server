@@ -38,6 +38,8 @@ export function createBrowserSubpathAliases(webDir: string) {
   return [
     { find: /^assemblyai$/, replacement: resolve(webDir, 'node_modules/assemblyai/dist/browser.mjs') },
     { find: /^@google\/genai$/, replacement: resolve(webDir, 'node_modules/@google/genai/dist/web/index.mjs') },
+    { find: /^@google-cloud\/vertexai$/, replacement: resolve(webDir, 'shims/google-cloud-vertexai.ts') },
+    { find: /^jsonpath-plus$/, replacement: resolve(webDir, 'node_modules/jsonpath-plus/dist/index-browser-esm.js') },
     { find: /^nanoid$/, replacement: resolve(webDir, 'node_modules/nanoid/index.browser.js') },
     { find: /^nanoid\/non-secure$/, replacement: resolve(webDir, 'node_modules/nanoid/non-secure/index.js') },
     { find: /^yaml$/, replacement: resolve(webDir, 'node_modules/yaml/browser/index.js') },

@@ -26,6 +26,7 @@ services:
     restart: unless-stopped
 
   web:
+    image: ${RIVET_WEB_IMAGE:-ghcr.io/valerypopoff/cloud-hosted-rivet-wrapper/web:${RIVET_IMAGE_TAG:-latest}}
     build:
       context: ..
       dockerfile: ops/Dockerfile.web
@@ -41,6 +42,7 @@ services:
         VITE_RIVET_DEBUG_LOGS: ${VITE_RIVET_DEBUG_LOGS:-false}
         RIVET_PUBLISHED_WORKFLOWS_BASE_PATH: ${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH:-/workflows}
         RIVET_LATEST_WORKFLOWS_BASE_PATH: ${RIVET_LATEST_WORKFLOWS_BASE_PATH:-/workflows-latest}
+        RIVET_WEB_BUILD_MAX_OLD_SPACE_SIZE: ${RIVET_WEB_BUILD_MAX_OLD_SPACE_SIZE:-2048}
     env_file:
       - ../.env
     environment:
@@ -62,6 +64,7 @@ services:
     restart: unless-stopped
 
   api:
+    image: ${RIVET_API_IMAGE:-ghcr.io/valerypopoff/cloud-hosted-rivet-wrapper/api:${RIVET_IMAGE_TAG:-latest}}
     build:
       context: ..
       dockerfile: ops/Dockerfile.api
@@ -115,6 +118,7 @@ services:
     restart: unless-stopped
 
   executor:
+    image: ${RIVET_EXECUTOR_IMAGE:-ghcr.io/valerypopoff/cloud-hosted-rivet-wrapper/executor:${RIVET_IMAGE_TAG:-latest}}
     build:
       context: ..
       dockerfile: ops/Dockerfile.executor
