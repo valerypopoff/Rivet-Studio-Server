@@ -1,4 +1,4 @@
-import { defineConfig, normalizePath, splitVendorChunkPlugin } from 'vite';
+import { defineConfig, normalizePath } from 'vite';
 import type { PluginOption } from 'vite';
 import react from '@vitejs/plugin-react';
 import viteTsconfigPaths from 'vite-tsconfig-paths';
@@ -60,6 +60,22 @@ const wrapperAliasedDependencies = Object.keys(wrapperPackageJson.dependencies ?
 );
 
 const resolveWrapperImport = (specifier: string) => {
+  if (specifier === 'assemblyai') {
+    return resolve(__dirname, 'node_modules/assemblyai/dist/browser.mjs');
+  }
+
+  if (specifier === '@google/genai') {
+    return resolve(__dirname, 'node_modules/@google/genai/dist/web/index.mjs');
+  }
+
+  if (specifier === '@google-cloud/vertexai') {
+    return resolve(__dirname, 'shims/google-cloud-vertexai.ts');
+  }
+
+  if (specifier === 'jsonpath-plus') {
+    return resolve(__dirname, 'node_modules/jsonpath-plus/dist/index-browser-esm.js');
+  }
+
   if (specifier === 'yaml') {
     return resolve(__dirname, 'node_modules/yaml/browser/index.js');
   }
@@ -83,6 +99,22 @@ const resolveWrapperImport = (specifier: string) => {
 
 const resolveVendoredImport = (specifier: string, importer: string) => {
   const importerRequire = createRequire(importer);
+
+  if (specifier === 'assemblyai') {
+    return resolve(__dirname, 'node_modules/assemblyai/dist/browser.mjs');
+  }
+
+  if (specifier === '@google/genai') {
+    return resolve(__dirname, 'node_modules/@google/genai/dist/web/index.mjs');
+  }
+
+  if (specifier === '@google-cloud/vertexai') {
+    return resolve(__dirname, 'shims/google-cloud-vertexai.ts');
+  }
+
+  if (specifier === 'jsonpath-plus') {
+    return resolve(__dirname, 'node_modules/jsonpath-plus/dist/index-browser-esm.js');
+  }
 
   if (specifier === 'yaml') {
     return resolve(__dirname, 'node_modules/yaml/browser/index.js');
@@ -187,6 +219,10 @@ export default defineConfig({
             if (id.includes('gpt-tokenizer')) {
               return 'gpt-tokenizer';
             }
+
+            if (id.includes('monaco-editor')) {
+              return 'monaco-editor';
+            }
           },
         },
       },
@@ -207,7 +243,6 @@ export default defineConfig({
         customDistPath: (_root: string, buildOutDir: string) => resolve(buildOutDir, 'monacoeditorwork'),
       }),
       topLevelAwait(),
-      splitVendorChunkPlugin(),
     ],
 
     worker: {
