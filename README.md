@@ -33,6 +33,14 @@ npm run prod
 
 Access the app at `http://localhost:8080` unless `RIVET_PORT` changes it.
 
+If `npm run prod:prebuilt` or `docker compose pull` returns `denied` for the public GHCR images, clear any stale saved registry credentials first:
+
+```bash
+docker logout ghcr.io
+```
+
+Public images should pull anonymously. Old or invalid cached Docker credentials for `ghcr.io` can cause authenticated requests to fail even when the package itself is public.
+
 Useful follow-up commands:
 
 ```bash
