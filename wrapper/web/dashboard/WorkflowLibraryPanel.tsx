@@ -39,6 +39,7 @@ interface WorkflowLibraryPanelProps {
   openedProjectPath: string;
   editorReady: boolean;
   projectSaveSequence: number;
+  lastSavedProjectPath: string;
   onCollapse?: () => void;
 }
 
@@ -51,6 +52,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   openedProjectPath,
   editorReady,
   projectSaveSequence,
+  lastSavedProjectPath,
   onCollapse,
 }) => {
   const [folders, setFolders] = useState<WorkflowFolderItem[]>([]);
@@ -156,12 +158,12 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   }, [onActiveWorkflowProjectPathChange, openedWorkflowProjectPath]);
 
   useEffect(() => {
-    if (projectSaveSequence === 0 || !openedWorkflowProjectPath) {
+    if (projectSaveSequence === 0 || !lastSavedProjectPath) {
       return;
     }
 
     void refresh(false);
-  }, [openedWorkflowProjectPath, projectSaveSequence, refresh]);
+  }, [lastSavedProjectPath, projectSaveSequence, refresh]);
 
   const activeAncestorFolderIds = useMemo(() => {
     if (!activePath) {
