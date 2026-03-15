@@ -655,6 +655,11 @@
   min-width: 40px;
 }
 
+.workflow-library-panel .folder-actions .icon-button span {
+  color: white;
+}
+
+
 .workflow-library-panel .projects {
   display: flex;
   flex-direction: column;

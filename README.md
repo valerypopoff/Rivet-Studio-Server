@@ -2,9 +2,9 @@
 
 This repo exists because Rivet does not provide a cloud-hosted platform for editing workflows and serving them directly as hosted endpoints.
 
-Without this wrapper, a typical workflow is much more manual: install the desktop Rivet app, build the workflow locally, move the `.rivet-project` file into your own backend, write custom code to execute it, and build your own server layer if you want to expose that workflow as an HTTP endpoint. Updating a workflow then usually means going back to a local machine, editing it there, shipping the changed file again, and redeploying the backend that serves it.
+A typical workflow is manual: install the desktop Rivet app, build the workflow locally, move the `.rivet-project` file into your own backend, write custom code to execute it, and build your own server layer if you want to expose that workflow as an HTTP endpoint. Updating a workflow then usually means going back to a local machine, editing it there, shipping the changed file again, and redeploying the backend that serves it.
 
-Rivet Studio Server turns that into a self-hosted personal Rivet platform you can run on a VM. It gives you both a browser-based Rivet editor and a server that can publish workflows as endpoints. When you need to update a workflow, you edit it in the browser and publish the new version so the same endpoint keeps serving the updated workflow.
+Rivet Studio Server is a self-hosted personal Rivet platform with a UI that you can run on a VM or locally. It gives you both a browser-based Rivet editor and a server that can publish workflows as endpoints with no coding required, just a UI.
 
 ## Additional docs
 
