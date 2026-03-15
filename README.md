@@ -1,4 +1,4 @@
-# Rivet Studio Server - Operational Runbook
+# Rivet Studio Server
 
 This repo exists because Rivet does not provide a cloud-hosted platform for editing workflows and serving them directly as hosted endpoints.
 
@@ -11,6 +11,9 @@ Rivet Studio Server is a self-hosted personal Rivet platform with a UI that you 
 - Remote debugger: set up and ready to go
 - Runtime libraries manager: install libraries through the UI for use in the Rivet "Code" node
 - Security: built-in authentication and authorization for both the Studio UI and workflow endpoints (See "Optional external UI gate")
+
+![Rivet Studio Server main screenshot](docs/img/main.PNG)
+
 
 ## Additional docs
 
