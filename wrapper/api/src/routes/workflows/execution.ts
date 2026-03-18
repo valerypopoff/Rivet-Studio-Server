@@ -1,3 +1,4 @@
+import { performance } from 'node:perf_hooks';
 import { Router, type Request, type Response } from 'express';
 import { loadProjectFromFile, NodeDatasetProvider, runGraph } from '@ironclad/rivet-node';
 
@@ -18,6 +19,55 @@ import { isTrustedTokenFreeHostRequest } from '../../auth.js';
 export const publishedWorkflowsRouter = Router();
 export const internalPublishedWorkflowsRouter = Router();
 export const latestWorkflowsRouter = Router();
+
+function isJsonObjectRecord(value: unknown): value is Record<string, unknown> {
+  return value != null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function sendJsonWithDuration(
+  res: Response,
+  statusCode: number,
+  payload: unknown,
+  requestStartedAt: number,
+): void {
+  const durationMs = Math.max(0, Math.round(performance.now() - requestStartedAt));
+  res.set('x-duration-ms', String(durationMs));
+
+  if (isJsonObjectRecord(payload) && !Object.prototype.hasOwnProperty.call(payload, 'durationMs')) {
+    res.status(statusCode).json({
+      ...payload,
+      durationMs,
+    });
+    return;
+  }
+
+  res.status(statusCode).json(payload);
+}
+
+function sendWorkflowErrorWithDuration(
+  res: Response,
+  error: unknown,
+  requestStartedAt: number,
+): void {
+  const status = typeof error === 'object' && error != null && 'status' in error && typeof error.status === 'number'
+    ? error.status
+    : 500;
+
+  console.error('Workflow execution failed:', error);
+
+  const errorPayload = error instanceof Error
+    ? {
+        name: error.name,
+        message: error.message,
+      }
+    : {
+        message: String(error),
+      };
+
+  sendJsonWithDuration(res, status, {
+    error: errorPayload,
+  }, requestStartedAt);
+}
 
 function getBearerToken(req: Request): string | null {
   const authorization = req.get('authorization');
@@ -75,51 +125,38 @@ async function executeWorkflowEndpoint(
   loadPath: string,
   referencePath: string,
   root: string,
+  requestStartedAt: number,
   req: Request,
   res: Response,
   options?: { enableRemoteDebugger?: boolean },
 ): Promise<void> {
-  try {
-    const project = await loadProjectFromFile(loadPath);
-    const datasetProvider = await NodeDatasetProvider.fromProjectFile(loadPath);
-    const projectReferenceLoader = createPublishedWorkflowProjectReferenceLoader(root, referencePath);
-    const remoteDebugger = options?.enableRemoteDebugger && isLatestWorkflowRemoteDebuggerEnabled()
-      ? getLatestWorkflowRemoteDebugger()
-      : undefined;
-    const outputs = await runGraph(project, {
-      codeRunner: new ManagedCodeRunner(getRootPath()) as any,
-      projectPath: referencePath,
-      datasetProvider,
-      projectReferenceLoader,
-      remoteDebugger,
-      inputs: {
-        input: {
-          type: 'any',
-          value: req.body || {}          
-        },
+  const project = await loadProjectFromFile(loadPath);
+  const datasetProvider = await NodeDatasetProvider.fromProjectFile(loadPath);
+  const projectReferenceLoader = createPublishedWorkflowProjectReferenceLoader(root, referencePath);
+  const remoteDebugger = options?.enableRemoteDebugger && isLatestWorkflowRemoteDebuggerEnabled()
+    ? getLatestWorkflowRemoteDebugger()
+    : undefined;
+  const outputs = await runGraph(project, {
+    codeRunner: new ManagedCodeRunner(getRootPath()) as any,
+    projectPath: referencePath,
+    datasetProvider,
+    projectReferenceLoader,
+    remoteDebugger,
+    inputs: {
+      input: {
+        type: 'any',
+        value: req.body || {}
       },
-    });
+    },
+  });
 
-    const outputValue = outputs.output;
-    if (outputValue?.type === 'any' && outputValue.value != null && typeof outputValue.value === 'object') {
-      res.status(200).json(outputValue.value);
-      return;
-    }
-
-    res.status(200).json(outputs);
-  } catch (error) {
-    console.error('Workflow execution failed:', error);
-    const errorPayload = error instanceof Error
-      ? {
-          name: error.name,
-          message: error.message,
-        }
-      : {
-          message: String(error),
-        };
-
-    res.status(500).json({ error: errorPayload });
+  const outputValue = outputs.output;
+  if (outputValue?.type === 'any' && outputValue.value != null) {
+    sendJsonWithDuration(res, 200, outputValue.value, requestStartedAt);
+    return;
   }
+
+  sendJsonWithDuration(res, 200, outputs, requestStartedAt);
 }
 
 async function handlePublishedWorkflowRequest(
@@ -127,30 +164,37 @@ async function handlePublishedWorkflowRequest(
   res: Response,
   options?: { requireApiKey?: boolean },
 ): Promise<void> {
-  if (options?.requireApiKey !== false) {
-    requirePublishedWorkflowApiKey(req);
-  }
+  const requestStartedAt = performance.now();
 
-  const root = await ensureWorkflowsRoot();
-  const endpointName = normalizeStoredEndpointName(String(req.params.endpointName ?? ''));
-  if (!endpointName) {
-    throw badRequest('Endpoint name is required');
-  }
+  try {
+    if (options?.requireApiKey !== false) {
+      requirePublishedWorkflowApiKey(req);
+    }
 
-  const publishedWorkflow = await findPublishedWorkflowByEndpoint(root, endpointName);
-  if (!publishedWorkflow) {
-    res.status(404).json({ error: 'Published workflow not found' });
-    return;
-  }
+    const root = await ensureWorkflowsRoot();
+    const endpointName = normalizeStoredEndpointName(String(req.params.endpointName ?? ''));
+    if (!endpointName) {
+      throw badRequest('Endpoint name is required');
+    }
 
-  await executeWorkflowEndpoint(
-    publishedWorkflow.publishedProjectPath,
-    publishedWorkflow.projectPath,
-    root,
-    req,
-    res,
-    { enableRemoteDebugger: false },
-  );
+    const publishedWorkflow = await findPublishedWorkflowByEndpoint(root, endpointName);
+    if (!publishedWorkflow) {
+      sendJsonWithDuration(res, 404, { error: 'Published workflow not found' }, requestStartedAt);
+      return;
+    }
+
+    await executeWorkflowEndpoint(
+      publishedWorkflow.publishedProjectPath,
+      publishedWorkflow.projectPath,
+      root,
+      requestStartedAt,
+      req,
+      res,
+      { enableRemoteDebugger: false },
+    );
+  } catch (error) {
+    sendWorkflowErrorWithDuration(res, error, requestStartedAt);
+  }
 }
 
 publishedWorkflowsRouter.post('/:endpointName', asyncHandler(async (req, res) => {
@@ -162,26 +206,33 @@ internalPublishedWorkflowsRouter.post('/:endpointName', asyncHandler(async (req,
 }));
 
 latestWorkflowsRouter.post('/:endpointName', asyncHandler(async (req, res) => {
-  requirePublishedWorkflowApiKey(req);
+  const requestStartedAt = performance.now();
 
-  const root = await ensureWorkflowsRoot();
-  const endpointName = normalizeStoredEndpointName(String(req.params.endpointName ?? ''));
-  if (!endpointName) {
-    throw badRequest('Endpoint name is required');
+  try {
+    requirePublishedWorkflowApiKey(req);
+
+    const root = await ensureWorkflowsRoot();
+    const endpointName = normalizeStoredEndpointName(String(req.params.endpointName ?? ''));
+    if (!endpointName) {
+      throw badRequest('Endpoint name is required');
+    }
+
+    const latestWorkflow = await findLatestWorkflowByEndpoint(root, endpointName);
+    if (!latestWorkflow) {
+      sendJsonWithDuration(res, 404, { error: 'Latest workflow not found' }, requestStartedAt);
+      return;
+    }
+
+    await executeWorkflowEndpoint(
+      latestWorkflow.projectPath,
+      latestWorkflow.projectPath,
+      root,
+      requestStartedAt,
+      req,
+      res,
+      { enableRemoteDebugger: true },
+    );
+  } catch (error) {
+    sendWorkflowErrorWithDuration(res, error, requestStartedAt);
   }
-
-  const latestWorkflow = await findLatestWorkflowByEndpoint(root, endpointName);
-  if (!latestWorkflow) {
-    res.status(404).json({ error: 'Latest workflow not found' });
-    return;
-  }
-
-  await executeWorkflowEndpoint(
-    latestWorkflow.projectPath,
-    latestWorkflow.projectPath,
-    root,
-    req,
-    res,
-    { enableRemoteDebugger: true },
-  );
 }));
