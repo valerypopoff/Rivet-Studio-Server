@@ -30,6 +30,63 @@ import {
 } from './workflowLibraryHelpers';
 import './WorkflowLibraryPanel.css';
 
+const markSavedPublishedProjectAsChanged = (
+  project: WorkflowProjectItem,
+  savedProjectPath: string,
+): WorkflowProjectItem => {
+  if (project.absolutePath !== savedProjectPath || project.settings.status !== 'published') {
+    return project;
+  }
+
+  return {
+    ...project,
+    settings: {
+      ...project.settings,
+      status: 'unpublished_changes',
+    },
+  };
+};
+
+const updateSavedProjectStatus = (
+  projects: WorkflowProjectItem[],
+  savedProjectPath: string,
+): WorkflowProjectItem[] => {
+  let changed = false;
+  const nextProjects = projects.map((project) => {
+    const nextProject = markSavedPublishedProjectAsChanged(project, savedProjectPath);
+    if (nextProject !== project) {
+      changed = true;
+    }
+    return nextProject;
+  });
+
+  return changed ? nextProjects : projects;
+};
+
+const updateSavedProjectStatusInFolders = (
+  folders: WorkflowFolderItem[],
+  savedProjectPath: string,
+): WorkflowFolderItem[] => {
+  let changed = false;
+  const nextFolders = folders.map((folder) => {
+    const nextChildFolders = updateSavedProjectStatusInFolders(folder.folders, savedProjectPath);
+    const nextProjects = updateSavedProjectStatus(folder.projects, savedProjectPath);
+
+    if (nextChildFolders !== folder.folders || nextProjects !== folder.projects) {
+      changed = true;
+      return {
+        ...folder,
+        folders: nextChildFolders,
+        projects: nextProjects,
+      };
+    }
+
+    return folder;
+  });
+
+  return changed ? nextFolders : folders;
+};
+
 interface WorkflowLibraryPanelProps {
   onOpenProject: (path: string, options?: { replaceCurrent?: boolean }) => void;
   onSaveProject: () => void;
@@ -40,6 +97,7 @@ interface WorkflowLibraryPanelProps {
   editorReady: boolean;
   projectSaveSequence: number;
   lastSavedProjectPath: string;
+  lastSavedProjectDidChangePersistedState: boolean;
   onCollapse?: () => void;
 }
 
@@ -53,6 +111,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   editorReady,
   projectSaveSequence,
   lastSavedProjectPath,
+  lastSavedProjectDidChangePersistedState,
   onCollapse,
 }) => {
   const [folders, setFolders] = useState<WorkflowFolderItem[]>([]);
@@ -162,8 +221,25 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
       return;
     }
 
+    if (lastSavedProjectDidChangePersistedState) {
+      setRootProjects((prev) => updateSavedProjectStatus(prev, lastSavedProjectPath));
+      setFolders((prev) => updateSavedProjectStatusInFolders(prev, lastSavedProjectPath));
+    }
+
     void refresh(false);
-  }, [lastSavedProjectPath, projectSaveSequence, refresh]);
+
+    const shortDelayRefreshId = window.setTimeout(() => {
+      void refresh(false);
+    }, 150);
+    const longDelayRefreshId = window.setTimeout(() => {
+      void refresh(false);
+    }, 600);
+
+    return () => {
+      window.clearTimeout(shortDelayRefreshId);
+      window.clearTimeout(longDelayRefreshId);
+    };
+  }, [lastSavedProjectDidChangePersistedState, lastSavedProjectPath, projectSaveSequence, refresh]);
 
   const activeAncestorFolderIds = useMemo(() => {
     if (!activePath) {

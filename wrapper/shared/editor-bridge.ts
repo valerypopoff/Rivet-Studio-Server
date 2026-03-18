@@ -12,7 +12,7 @@ export type EditorToDashboardEvent =
   | { type: 'project-open-failed'; path: string; error: string }
   | { type: 'active-project-path-changed'; path: string }
   | { type: 'open-project-count-changed'; count: number }
-  | { type: 'project-saved'; path: string };
+  | { type: 'project-saved'; path: string; didChangePersistedState: boolean };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value != null && typeof value === 'object';
@@ -59,9 +59,10 @@ export function isEditorToDashboardEvent(value: unknown): value is EditorToDashb
     case 'editor-ready':
       return true;
     case 'project-opened':
-    case 'project-saved':
     case 'active-project-path-changed':
       return typeof value.path === 'string';
+    case 'project-saved':
+      return typeof value.path === 'string' && typeof value.didChangePersistedState === 'boolean';
     case 'project-open-failed':
       return typeof value.path === 'string' && typeof value.error === 'string';
     case 'open-project-count-changed':
