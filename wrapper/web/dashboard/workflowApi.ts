@@ -33,7 +33,9 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
 }
 
 export async function fetchWorkflowTree(): Promise<WorkflowTreeResponse> {
-  const response = await fetch(`${API}/workflows/tree`);
+  const response = await fetch(`${API}/workflows/tree`, {
+    cache: 'no-store',
+  });
   return parseJsonResponse<WorkflowTreeResponse>(response);
 }
 

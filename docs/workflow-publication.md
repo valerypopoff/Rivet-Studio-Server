@@ -23,6 +23,8 @@ Each project has a derived status computed from the settings sidecar:
 
 Status is derived by comparing `publishedStateHash` (stored at publish time) against a fresh hash of the current project file, dataset, and endpoint name. This avoids storing mutable status flags.
 
+In the dashboard UI, status still comes from the server as the source of truth, but saves use a small optimistic update for responsiveness: when a published project is saved, the sidebar can immediately flip it to `unpublished_changes` before the workflow tree refresh completes. That optimistic flip only happens when the editor reports that the save changed persisted `.rivet-project` or `.rivet-data` contents, so a no-op save should stay visually `published`.
+
 ## Publish flow
 
 1. User sets an endpoint name and clicks Publish in the settings modal.
@@ -30,6 +32,14 @@ Status is derived by comparing `publishedStateHash` (stored at publish time) aga
 3. Server computes a SHA-256 hash of `endpointName + projectFile + dataset`.
 4. Server copies the project file (and dataset if present) into `.published/<snapshotId>.rivet-project`.
 5. Server writes the settings sidecar with the endpoint name, snapshot ID, and hash.
+
+## Save flow after publish
+
+1. User saves a published workflow in the editor.
+2. The editor compares the to-be-written project and dataset contents with the current on-disk contents.
+3. The editor emits `project-saved` with `didChangePersistedState=true` only when the persisted project or dataset bytes actually changed.
+4. The dashboard uses that flag to decide whether to optimistically mark the project as `unpublished_changes` before re-fetching the workflow tree.
+5. The dashboard then refreshes `/api/workflows/tree` with `cache: 'no-store'` so the server-derived status reconciles quickly.
 
 ## Unpublish flow
 

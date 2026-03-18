@@ -24,14 +24,15 @@ All message types live in `wrapper/shared/editor-bridge.ts`. Both sides import f
 | `project-open-failed` | `path`, `error` | Editor failed to load a project (missing file, parse error, etc.) |
 | `active-project-path-changed` | `path` | User switched between open project tabs inside the editor |
 | `open-project-count-changed` | `count` | Number of open project tabs changed |
-| `project-saved` | `path` | Project was saved to disk |
+| `project-saved` | `path`, `didChangePersistedState` | Project was saved to disk; the boolean reports whether the save changed persisted `.rivet-project` or `.rivet-data` contents |
 
 ## Message flow
 
 1. Dashboard renders the iframe. The editor emits `editor-ready` once mounted.
 2. Any commands sent before `editor-ready` are buffered by `useEditorCommandQueue` and flushed when the editor signals readiness.
 3. The dashboard validates incoming messages with `isEditorToDashboardEvent()` and checks origin with `isValidBridgeOrigin()`. The editor does the same for its direction with `isDashboardToEditorCommand()`.
-4. If the iframe reloads (e.g. navigation), `onLoad` resets `editorReady` to `false`, re-enabling the buffer until the editor sends `editor-ready` again.
+4. On `project-saved`, the dashboard may optimistically update the workflow status for the saved project before the next tree refresh, but only when `didChangePersistedState` is `true`.
+5. If the iframe reloads (e.g. navigation), `onLoad` resets `editorReady` to `false`, re-enabling the buffer until the editor sends `editor-ready` again.
 
 ## Key files
 
