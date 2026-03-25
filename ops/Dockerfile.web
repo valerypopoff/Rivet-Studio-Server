@@ -1,5 +1,7 @@
 # syntax=docker/dockerfile:1.7
-FROM node:20-alpine AS builder
+ARG NODE_IMAGE=node:20-alpine
+
+FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS builder
 
 ARG HTTP_PROXY
 ARG HTTPS_PROXY
@@ -53,7 +55,11 @@ ENV RIVET_LATEST_WORKFLOWS_BASE_PATH=$RIVET_LATEST_WORKFLOWS_BASE_PATH
 RUN NODE_OPTIONS="--max-old-space-size=${RIVET_WEB_BUILD_MAX_OLD_SPACE_SIZE}" npx vite build --config vite.config.ts
 
 # --- Production stage ---
-FROM node:20-alpine
+FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS serve-installer
+
+RUN npm install -g serve
+
+FROM --platform=$TARGETPLATFORM ${NODE_IMAGE}
 
 ARG HTTP_PROXY
 ARG HTTPS_PROXY
@@ -73,9 +79,9 @@ ENV https_proxy=$https_proxy
 ENV all_proxy=$all_proxy
 ENV no_proxy=$no_proxy
 
-RUN npm install -g serve
-
 WORKDIR /app
+COPY --from=serve-installer /usr/local/bin/serve /usr/local/bin/serve
+COPY --from=serve-installer /usr/local/lib/node_modules/serve /usr/local/lib/node_modules/serve
 COPY --from=builder /app/wrapper/web/dist ./dist
 
 EXPOSE 3000
