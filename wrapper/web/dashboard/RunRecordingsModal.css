@@ -361,10 +361,21 @@
   border-color: rgba(255, 107, 122, 0.26);
 }
 
+.run-recordings-run.suspicious {
+  background: rgba(96, 51, 8, 0.58);
+  border-color: rgba(255, 177, 86, 0.28);
+}
+
 .run-recordings-run.failed:hover,
 .run-recordings-run.failed:focus-visible {
   background: rgba(104, 20, 31, 0.72);
   border-color: rgba(255, 107, 122, 0.42);
+}
+
+.run-recordings-run.suspicious:hover,
+.run-recordings-run.suspicious:focus-visible {
+  background: rgba(120, 62, 9, 0.72);
+  border-color: rgba(255, 177, 86, 0.42);
 }
 
 .run-recordings-run-header {
@@ -425,16 +436,29 @@
   border-color: rgba(255, 107, 122, 0.22);
 }
 
+.run-recordings-badge.suspicious {
+  background: rgba(255, 177, 86, 0.14);
+  color: #ffc57c;
+  border-color: rgba(255, 177, 86, 0.24);
+}
+
 .run-recordings-run-duration {
   color: var(--grey-light);
   font-size: 12px;
   font-weight: 600;
 }
 
-.run-recordings-run-error {
-  color: #ffb4bc;
+.run-recordings-run-detail {
   font-size: 12px;
   line-height: 1.4;
+}
+
+.run-recordings-run-detail.failed {
+  color: #ffb4bc;
+}
+
+.run-recordings-run-detail.suspicious {
+  color: #ffd7a6;
 }
 
 @media (max-width: 720px) {

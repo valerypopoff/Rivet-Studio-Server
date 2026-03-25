@@ -158,7 +158,7 @@ function normalizeRunKind(value: unknown): WorkflowRecordingRunKind | null {
 }
 
 function normalizeStatus(value: unknown): WorkflowRecordingStatus | null {
-  return value === 'succeeded' || value === 'failed' ? value : null;
+  return value === 'succeeded' || value === 'failed' || value === 'suspicious' ? value : null;
 }
 
 function normalizeEncoding(value: unknown): WorkflowRecordingBlobEncoding {

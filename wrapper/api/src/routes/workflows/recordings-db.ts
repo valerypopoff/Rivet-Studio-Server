@@ -275,7 +275,7 @@ export async function listWorkflowRecordingRunRowsByWorkflowId(
 ): Promise<WorkflowRecordingRunRow[]> {
   const db = await getDatabase();
   const whereClause = options.statusFilter === 'failed'
-    ? `WHERE workflow_id = ? AND status = 'failed'`
+    ? `WHERE workflow_id = ? AND status IN ('failed', 'suspicious')`
     : 'WHERE workflow_id = ?';
   const rows = db.prepare(`
     SELECT
@@ -311,7 +311,7 @@ export async function countWorkflowRecordingRuns(
 ): Promise<number> {
   const db = await getDatabase();
   const whereClause = statusFilter === 'failed'
-    ? `WHERE workflow_id = ? AND status = 'failed'`
+    ? `WHERE workflow_id = ? AND status IN ('failed', 'suspicious')`
     : 'WHERE workflow_id = ?';
   const row = db.prepare(`SELECT COUNT(id) AS count FROM recording_runs ${whereClause}`)
     .get<{ count: number | bigint }>(workflowId);
@@ -503,12 +503,19 @@ export async function resetWorkflowRecordingDatabaseForTests(): Promise<void> {
 }
 
 function normalizeWorkflowRecordingRunRow(row: Record<string, unknown>): WorkflowRecordingRunRow {
+  let status: WorkflowRecordingStatus = 'succeeded';
+  if (row.status === 'failed') {
+    status = 'failed';
+  } else if (row.status === 'suspicious') {
+    status = 'suspicious';
+  }
+
   return {
     id: String(row.id ?? ''),
     workflowId: String(row.workflowId ?? ''),
     createdAt: String(row.createdAt ?? ''),
     runKind: row.runKind === 'published' ? 'published' : 'latest',
-    status: row.status === 'failed' ? 'failed' : 'succeeded',
+    status,
     durationMs: toNumber(row.durationMs),
     endpointNameAtExecution: String(row.endpointNameAtExecution ?? ''),
     errorMessage: toOptionalString(row.errorMessage),

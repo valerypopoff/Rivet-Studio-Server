@@ -2,7 +2,7 @@ import type { WorkflowProjectItem } from './workflow-types';
 
 export type WorkflowRecordingRunKind = 'published' | 'latest';
 
-export type WorkflowRecordingStatus = 'succeeded' | 'failed';
+export type WorkflowRecordingStatus = 'succeeded' | 'failed' | 'suspicious';
 
 export type WorkflowRecordingFilterStatus = 'all' | 'failed';
 

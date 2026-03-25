@@ -48,6 +48,12 @@ function getWorkflowResponsePayload(outputs: Record<string, { type?: string; val
   return outputValue.value ?? null;
 }
 
+export function getWorkflowRecordingStatusFromOutputs(
+  outputs: Record<string, { type?: string; value?: unknown }>,
+): 'succeeded' | 'suspicious' {
+  return outputs.output?.type === 'control-flow-excluded' ? 'suspicious' : 'succeeded';
+}
+
 function sendJsonWithDuration(
   res: Response,
   statusCode: number,
@@ -190,7 +196,7 @@ async function executeWorkflowEndpoint(
     : null;
   recorder?.record(processor.processor);
 
-  let recordingStatus: 'succeeded' | 'failed' = 'succeeded';
+  let recordingStatus: 'succeeded' | 'failed' | 'suspicious' = 'succeeded';
   let recordingErrorMessage: string | undefined;
   let responsePayload: unknown;
   let executionError: unknown;
@@ -198,6 +204,7 @@ async function executeWorkflowEndpoint(
 
   try {
     const outputs = await processor.run();
+    recordingStatus = getWorkflowRecordingStatusFromOutputs(outputs as Record<string, { type?: string; value?: unknown }>);
 
     responsePayload = getWorkflowResponsePayload(outputs as Record<string, { type?: string; value?: unknown }>);
   } catch (error) {

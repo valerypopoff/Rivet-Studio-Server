@@ -49,6 +49,7 @@ const PROJECT_STATUS_LABELS: Record<WorkflowProjectStatus, string> = {
 const RUN_STATUS_LABELS: Record<WorkflowRecordingStatus, string> = {
   succeeded: 'Succeeded',
   failed: 'Failed',
+  suspicious: 'Suspicious',
 };
 
 const runsPerPageOptions = [10, 20, 50, 100] as const;
@@ -92,6 +93,11 @@ function RecordingRow({
   recording: WorkflowRecordingRunSummary;
   onOpen: (recordingId: string) => void;
 }) {
+  const detailText = recording.errorMessage ??
+    (recording.status === 'suspicious'
+      ? 'Completed without throwing, but the final output was control-flow-excluded.'
+      : null);
+
   return (
     <button
       type="button"
@@ -112,8 +118,10 @@ function RecordingRow({
           <span className="run-recordings-run-duration">{formatDuration(recording.durationMs)}</span>
         </div>
       </div>
-      {recording.errorMessage ? (
-        <div className="run-recordings-run-error">{recording.errorMessage}</div>
+      {detailText ? (
+        <div className={`run-recordings-run-detail ${recording.status}`}>
+          {detailText}
+        </div>
       ) : null}
     </button>
   );
@@ -199,6 +207,7 @@ export const RunRecordingsModal: FC<RunRecordingsModalProps> = ({
 
     let cancelled = false;
     setRunsLoading(true);
+    setRunsPage(null);
     setError(null);
 
     void fetchWorkflowRecordingRuns(selectedWorkflowId, {
@@ -384,7 +393,7 @@ export const RunRecordingsModal: FC<RunRecordingsModalProps> = ({
                                   setPage(1);
                                 }}
                               >
-                                Failed only
+                                Bad only
                               </button>
                             </div>
                           </div>
@@ -438,7 +447,7 @@ export const RunRecordingsModal: FC<RunRecordingsModalProps> = ({
                             <div className="run-recordings-empty-group">Loading runs...</div>
                           ) : totalRuns === 0 ? (
                             <div className="run-recordings-empty-group">
-                              {statusFilter === 'failed' ? 'No failed runs for this workflow.' : 'No recorded runs yet.'}
+                              {statusFilter === 'failed' ? 'No bad runs for this workflow.' : 'No recorded runs yet.'}
                             </div>
                           ) : (
                             <div className="run-recordings-list">

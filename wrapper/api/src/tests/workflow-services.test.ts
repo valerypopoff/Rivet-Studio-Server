@@ -16,6 +16,7 @@ const workflowQuery = await import('../routes/workflows/workflow-query.js');
 const workflowFs = await import('../routes/workflows/fs-helpers.js');
 const workflowPublication = await import('../routes/workflows/publication.js');
 const workflowRecordings = await import('../routes/workflows/recordings.js');
+const workflowExecution = await import('../routes/workflows/execution.js');
 const workflowRoutes = await import('../routes/workflows/index.js');
 const rivetNode = await import('@ironclad/rivet-node');
 
@@ -817,6 +818,91 @@ test('workflow recording runs endpoint paginates and filters failed runs server-
     assert.equal(failedOnly.totalRuns, 0);
     assert.equal(failedOnly.runs.length, 0);
   });
+});
+
+test('workflow recording classification marks control-flow-excluded outputs as suspicious', () => {
+  assert.equal(
+    workflowExecution.getWorkflowRecordingStatusFromOutputs({
+      output: { type: 'control-flow-excluded', value: undefined },
+    }),
+    'suspicious',
+  );
+  assert.equal(
+    workflowExecution.getWorkflowRecordingStatusFromOutputs({
+      output: { type: 'string', value: 'ok' },
+    }),
+    'succeeded',
+  );
+});
+
+test('workflow recording failed filter includes suspicious runs', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'Suspicious');
+  const [loadedProject, attachedData] = await rivetNode.loadProjectAndAttachedDataFromFile(created.absolutePath);
+  const workflowId = loadedProject.metadata.id!;
+
+  await workflowRecordings.persistWorkflowExecutionRecording({
+    root: workflowsRoot,
+    sourceProject: loadedProject,
+    sourceProjectPath: created.absolutePath,
+    executedProject: loadedProject,
+    executedAttachedData: attachedData,
+    executedDatasets: [],
+    endpointName: 'suspicious-endpoint',
+    recordingSerialized: JSON.stringify({
+      version: 1,
+      recording: {
+        recordingId: 'suspicious-recording',
+        events: [],
+        startTs: 1,
+        finishTs: 1,
+      },
+      assets: {},
+      strings: {},
+    }),
+    runKind: 'published',
+    status: 'suspicious',
+    durationMs: 1,
+  });
+
+  await workflowRecordings.persistWorkflowExecutionRecording({
+    root: workflowsRoot,
+    sourceProject: loadedProject,
+    sourceProjectPath: created.absolutePath,
+    executedProject: loadedProject,
+    executedAttachedData: attachedData,
+    executedDatasets: [],
+    endpointName: 'suspicious-endpoint',
+    recordingSerialized: JSON.stringify({
+      version: 1,
+      recording: {
+        recordingId: 'successful-recording',
+        events: [],
+        startTs: 2,
+        finishTs: 2,
+      },
+      assets: {},
+      strings: {},
+    }),
+    runKind: 'published',
+    status: 'succeeded',
+    durationMs: 2,
+  });
+
+  const failedOnly = await workflowRecordings.listWorkflowRecordingRunsPage(
+    workflowsRoot,
+    workflowId,
+    1,
+    20,
+    'failed',
+  );
+  const workflowsResponse = await workflowRecordings.listWorkflowRecordingWorkflows(workflowsRoot);
+
+  assert.equal(failedOnly.totalRuns, 1);
+  assert.deepEqual(
+    failedOnly.runs.map((run) => run.status),
+    ['suspicious'],
+  );
+  assert.equal(workflowsResponse.workflows[0]?.failedRuns, 0);
 });
 
 test('workflow recording persistence snapshots the executed in-memory project state', async () => {
