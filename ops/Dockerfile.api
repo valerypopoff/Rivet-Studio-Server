@@ -37,6 +37,9 @@ COPY wrapper/shared/ /shared/
 # Install dependencies with a persistent BuildKit cache.
 RUN --mount=type=cache,target=/root/.npm npm ci
 
+# Build the API so production runs compiled JavaScript instead of transpiling at startup.
+RUN npm run build
+
 # Create workspace and data directories
 RUN mkdir -p /workspace /workflows /data/rivet-app/plugins /data/rivet-app/logs /data/runtime-libraries
 
@@ -44,4 +47,4 @@ ENV RIVET_RUNTIME_LIBRARIES_ROOT=/data/runtime-libraries
 
 EXPOSE 80
 
-CMD ["sh", "-lc", "NODE_OPTIONS=\"${NODE_OPTIONS:+$NODE_OPTIONS }--import=/opt/proxy-bootstrap/bootstrap.mjs\" npx tsx src/server.ts"]
+CMD ["sh", "-lc", "NODE_OPTIONS=\"${NODE_OPTIONS:+$NODE_OPTIONS }--import=/opt/proxy-bootstrap/bootstrap.mjs\" node dist/api/src/server.js"]
