@@ -102,6 +102,13 @@ export async function fetchWorkflowRecordingArtifactText(
   return parseTextResponse(response);
 }
 
+export async function deleteWorkflowRecording(recordingId: string): Promise<void> {
+  const response = await fetch(`${API}/workflows/recordings/${encodeURIComponent(recordingId)}`, {
+    method: 'DELETE',
+  });
+  await parseJsonResponse<{ deleted: true }>(response);
+}
+
 export async function createWorkflowFolder(name: string): Promise<WorkflowFolderItem> {
   const response = await fetch(`${API}/workflows/folders`, {
     method: 'POST',

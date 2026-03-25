@@ -431,6 +431,19 @@ async function deleteRecordingRun(row: WorkflowRecordingRunRow): Promise<void> {
   await deleteWorkflowRecordingRunRow(row.id);
 }
 
+async function removeEmptyWorkflowProjectRecordingsRoot(root: string, workflowId: string): Promise<void> {
+  const recordingsRoot = getWorkflowProjectRecordingsRoot(root, workflowId);
+  if (!await pathExists(recordingsRoot)) {
+    return;
+  }
+
+  const remainingEntries = await fs.readdir(recordingsRoot, { withFileTypes: true });
+  const hasVisibleBundles = remainingEntries.some((entry) => entry.isDirectory() && !entry.name.startsWith('.'));
+  if (!hasVisibleBundles) {
+    await fs.rm(recordingsRoot, { recursive: true, force: true });
+  }
+}
+
 async function cleanupWorkflowRecordingStorage(): Promise<void> {
   const config = getWorkflowRecordingConfig();
   const rowsToDelete = new Map<string, WorkflowRecordingRunRow>();
@@ -672,6 +685,7 @@ export async function listWorkflowRecordingWorkflows(root: string): Promise<Work
       latestRunAt: recordingWorkflow?.latestRunAt,
       totalRuns: recordingWorkflow?.totalRuns ?? 0,
       failedRuns: recordingWorkflow?.failedRuns ?? 0,
+      suspiciousRuns: recordingWorkflow?.suspiciousRuns ?? 0,
     });
   }
 
@@ -746,6 +760,26 @@ export async function readWorkflowRecordingArtifact(
   }
 
   return readArtifactText(filePath, row.encoding);
+}
+
+export async function deleteWorkflowRecording(root: string, recordingId: string): Promise<void> {
+  await ensureWorkflowRecordingStorage(root);
+
+  const row = await getWorkflowRecordingRunRow(recordingId);
+  if (!row) {
+    throw createHttpError(404, 'Recording not found');
+  }
+
+  await deleteRecordingRun(row);
+
+  const remainingRuns = await listWorkflowRecordingRunRowsForWorkflow(row.workflowId);
+  if (remainingRuns.length === 0) {
+    await deleteWorkflowRecordingWorkflowRow(row.workflowId);
+    await removeEmptyWorkflowProjectRecordingsRoot(root, row.workflowId);
+    return;
+  }
+
+  await deleteEmptyWorkflowRecordingWorkflows();
 }
 
 export async function persistWorkflowExecutionRecording(

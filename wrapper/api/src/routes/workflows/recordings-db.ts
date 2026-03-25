@@ -43,6 +43,7 @@ export type WorkflowRecordingWorkflowStatsRow = WorkflowRecordingWorkflowRow & {
   latestRunAt?: string;
   totalRuns: number;
   failedRuns: number;
+  suspiciousRuns: number;
 };
 
 let databasePromise: Promise<DatabaseSync> | null = null;
@@ -243,7 +244,8 @@ export async function listWorkflowRecordingWorkflowStatsRows(): Promise<Workflow
       w.updated_at AS updatedAt,
       MAX(r.created_at) AS latestRunAt,
       COUNT(r.id) AS totalRuns,
-      COALESCE(SUM(CASE WHEN r.status = 'failed' THEN 1 ELSE 0 END), 0) AS failedRuns
+      COALESCE(SUM(CASE WHEN r.status = 'failed' THEN 1 ELSE 0 END), 0) AS failedRuns,
+      COALESCE(SUM(CASE WHEN r.status = 'suspicious' THEN 1 ELSE 0 END), 0) AS suspiciousRuns
     FROM recording_workflows w
     LEFT JOIN recording_runs r ON r.workflow_id = w.workflow_id
     GROUP BY
@@ -266,6 +268,7 @@ export async function listWorkflowRecordingWorkflowStatsRows(): Promise<Workflow
     latestRunAt: toOptionalString(row.latestRunAt),
     totalRuns: toNumber(row.totalRuns),
     failedRuns: toNumber(row.failedRuns),
+    suspiciousRuns: toNumber(row.suspiciousRuns),
   }));
 }
 

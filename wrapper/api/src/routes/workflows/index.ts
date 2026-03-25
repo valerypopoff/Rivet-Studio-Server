@@ -10,6 +10,7 @@ import {
 } from './fs-helpers.js';
 import { internalPublishedWorkflowsRouter, latestWorkflowsRouter, publishedWorkflowsRouter } from './execution.js';
 import {
+  deleteWorkflowRecording,
   listWorkflowRecordingRunsPage,
   listWorkflowRecordingWorkflows,
   readWorkflowRecordingArtifact,
@@ -127,6 +128,12 @@ workflowsRouter.get('/recordings/:recordingId/replay-dataset', asyncHandler(asyn
     String(req.params.recordingId ?? ''),
     'replay-dataset',
   ));
+}));
+
+workflowsRouter.delete('/recordings/:recordingId', asyncHandler(async (req, res) => {
+  const root = await ensureWorkflowsRoot();
+  await deleteWorkflowRecording(root, String(req.params.recordingId ?? ''));
+  res.json({ deleted: true });
 }));
 
 workflowsRouter.post('/move', validateBody(moveSchema), asyncHandler(async (req, res) => {

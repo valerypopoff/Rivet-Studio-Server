@@ -32,6 +32,7 @@ export type WorkflowRecordingWorkflowSummary = {
   latestRunAt?: string;
   totalRuns: number;
   failedRuns: number;
+  suspiciousRuns: number;
 };
 
 export type WorkflowRecordingWorkflowListResponse = {

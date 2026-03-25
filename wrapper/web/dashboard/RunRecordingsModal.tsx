@@ -1,8 +1,9 @@
 import ModalDialog, { ModalBody, ModalTransition } from '@atlaskit/modal-dialog';
 import Select from '@atlaskit/select';
-import { useEffect, useMemo, useState, type FC } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FC } from 'react';
 
 import {
+  deleteWorkflowRecording as deleteWorkflowRecordingRequest,
   fetchWorkflowRecordingRuns,
   fetchWorkflowRecordingWorkflows,
 } from './workflowApi';
@@ -88,9 +89,13 @@ function getWorkflowEndpoint(workflow: WorkflowRecordingWorkflowSummary): string
 
 function RecordingRow({
   recording,
+  isDeleting,
+  onDelete,
   onOpen,
 }: {
   recording: WorkflowRecordingRunSummary;
+  isDeleting: boolean;
+  onDelete: (recordingId: string) => void;
   onOpen: (recordingId: string) => void;
 }) {
   const detailText = recording.errorMessage ??
@@ -99,31 +104,48 @@ function RecordingRow({
       : null);
 
   return (
-    <button
-      type="button"
-      className={`run-recordings-run ${recording.status}`}
-      onClick={() => onOpen(recording.id)}
-    >
-      <div className="run-recordings-run-header">
-        <div className="run-recordings-run-main">
-          <div className="run-recordings-run-title">{formatTimestamp(recording.createdAt)}</div>
-        </div>
-        <div className="run-recordings-run-meta">
-          {recording.runKind === 'latest' ? (
-            <span className="run-recordings-badge latest">Latest</span>
+    <div className={`run-recordings-run ${recording.status}`}>
+      <button
+        type="button"
+        className="run-recordings-run-open-button"
+        onClick={() => onOpen(recording.id)}
+        disabled={isDeleting}
+      >
+        <div className="run-recordings-run-body">
+          <div className="run-recordings-run-header">
+            <div className="run-recordings-run-main">
+              <div className="run-recordings-run-title">{formatTimestamp(recording.createdAt)}</div>
+              {recording.runKind === 'latest' ? (
+                <span className="run-recordings-badge latest">Latest</span>
+              ) : null}
+            </div>
+          </div>
+          {detailText ? (
+            <div className={`run-recordings-run-detail ${recording.status}`}>
+              {detailText}
+            </div>
           ) : null}
-          <span className={`run-recordings-badge ${recording.status}`}>
-            {RUN_STATUS_LABELS[recording.status]}
-          </span>
-          <span className="run-recordings-run-duration">{formatDuration(recording.durationMs)}</span>
         </div>
+        <div className="run-recordings-run-footer">
+          <div className="run-recordings-run-meta">
+            <span className={`run-recordings-badge ${recording.status}`}>
+              {RUN_STATUS_LABELS[recording.status]}
+            </span>
+            <span className="run-recordings-run-duration">{formatDuration(recording.durationMs)}</span>
+          </div>
+        </div>
+      </button>
+      <div className="run-recordings-run-actions">
+        <button
+          type="button"
+          className="run-recordings-run-delete-button"
+          onClick={() => onDelete(recording.id)}
+          disabled={isDeleting}
+        >
+          Delete
+        </button>
       </div>
-      {detailText ? (
-        <div className={`run-recordings-run-detail ${recording.status}`}>
-          {detailText}
-        </div>
-      ) : null}
-    </button>
+    </div>
   );
 }
 
@@ -141,6 +163,17 @@ export const RunRecordingsModal: FC<RunRecordingsModalProps> = ({
   const [runsPerPage, setRunsPerPage] = useState<number>(20);
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState<WorkflowRecordingFilterStatus>('all');
+  const [deletingRecordingId, setDeletingRecordingId] = useState<string | null>(null);
+
+  const loadWorkflowRecordingWorkflows = useCallback(() => fetchWorkflowRecordingWorkflows(), []);
+  const loadWorkflowRecordingRunsPage = useCallback((
+    workflowId: string,
+    options: {
+      page: number;
+      pageSize: number;
+      status: WorkflowRecordingFilterStatus;
+    },
+  ) => fetchWorkflowRecordingRuns(workflowId, options), []);
 
   useEffect(() => {
     if (!isOpen) {
@@ -157,8 +190,9 @@ export const RunRecordingsModal: FC<RunRecordingsModalProps> = ({
     setRunsLoading(false);
     setWorkflowsResponse(null);
     setWorkflowsLoading(true);
+    setDeletingRecordingId(null);
 
-    void fetchWorkflowRecordingWorkflows()
+    void loadWorkflowRecordingWorkflows()
       .then((response) => {
         if (!cancelled) {
           setWorkflowsResponse(response);
@@ -178,7 +212,7 @@ export const RunRecordingsModal: FC<RunRecordingsModalProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [isOpen]);
+  }, [isOpen, loadWorkflowRecordingWorkflows]);
 
   const workflows = useMemo(() => workflowsResponse?.workflows ?? [], [workflowsResponse]);
 
@@ -210,7 +244,7 @@ export const RunRecordingsModal: FC<RunRecordingsModalProps> = ({
     setRunsPage(null);
     setError(null);
 
-    void fetchWorkflowRecordingRuns(selectedWorkflowId, {
+    void loadWorkflowRecordingRunsPage(selectedWorkflowId, {
       page,
       pageSize: runsPerPage,
       status: statusFilter,
@@ -234,7 +268,7 @@ export const RunRecordingsModal: FC<RunRecordingsModalProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, page, runsPerPage, selectedWorkflowId, statusFilter]);
+  }, [isOpen, loadWorkflowRecordingRunsPage, page, runsPerPage, selectedWorkflowId, statusFilter]);
 
   const workflowOptions = useMemo<WorkflowOption[]>(
     () =>
@@ -253,21 +287,90 @@ export const RunRecordingsModal: FC<RunRecordingsModalProps> = ({
     [workflows],
   );
 
-  const totalRuns = runsPage?.totalRuns ?? (selectedWorkflow?.totalRuns ?? 0);
-  const totalPages = Math.max(1, Math.ceil(totalRuns / runsPerPage));
+  const overallRunsCount = selectedWorkflow?.totalRuns ?? 0;
+  const badRunsCount = (selectedWorkflow?.failedRuns ?? 0) + (selectedWorkflow?.suspiciousRuns ?? 0);
+  const filteredRunsCount = runsPage?.totalRuns ?? (statusFilter === 'failed' ? badRunsCount : overallRunsCount);
+  const totalPages = Math.max(1, Math.ceil(filteredRunsCount / runsPerPage));
   const visibleRuns = runsPage?.runs ?? [];
-  const firstVisibleRun = totalRuns === 0 ? 0 : (page - 1) * runsPerPage + 1;
-  const lastVisibleRun = totalRuns === 0 ? 0 : Math.min(totalRuns, (page - 1) * runsPerPage + visibleRuns.length);
   const selectedWorkflowEndpoint = selectedWorkflow ? getWorkflowEndpoint(selectedWorkflow) : '';
   const selectedWorkflowStatusLabel = selectedWorkflow
     ? PROJECT_STATUS_LABELS[selectedWorkflow.project.settings.status]
     : '';
+  const allRunsLabel = overallRunsCount > 0 ? `All (${overallRunsCount})` : 'All';
+  const badRunsLabel = badRunsCount > 0 ? `Bad only (${badRunsCount})` : 'Bad only';
 
   useEffect(() => {
     if (page > totalPages) {
       setPage(totalPages);
     }
   }, [page, totalPages]);
+
+  const handleDeleteRecording = useCallback(async (recordingId: string) => {
+    if (!window.confirm('Are you sure you want to delete this recording? This action cannot be undone.')) {
+      return;
+    }
+
+    const currentWorkflowId = selectedWorkflowId;
+    const currentPage = page;
+    const currentPageSize = runsPerPage;
+    const currentStatusFilter = statusFilter;
+
+    try {
+      setDeletingRecordingId(recordingId);
+      setRunsLoading(true);
+      setError(null);
+
+      await deleteWorkflowRecordingRequest(recordingId);
+
+      const nextWorkflowsResponse = await loadWorkflowRecordingWorkflows();
+      setWorkflowsResponse(nextWorkflowsResponse);
+
+      const refreshedWorkflow = nextWorkflowsResponse.workflows.find((workflow) => workflow.workflowId === currentWorkflowId) ?? null;
+      if (!refreshedWorkflow) {
+        setRunsPage(null);
+        return;
+      }
+
+      const refreshedFilteredRunsCount = currentStatusFilter === 'failed'
+        ? refreshedWorkflow.failedRuns + refreshedWorkflow.suspiciousRuns
+        : refreshedWorkflow.totalRuns;
+      const nextPage = Math.min(currentPage, Math.max(1, Math.ceil(refreshedFilteredRunsCount / currentPageSize)));
+      if (nextPage !== currentPage) {
+        setPage(nextPage);
+      }
+
+      if (refreshedFilteredRunsCount === 0) {
+        setRunsPage({
+          workflowId: refreshedWorkflow.workflowId,
+          page: nextPage,
+          pageSize: currentPageSize,
+          totalRuns: 0,
+          statusFilter: currentStatusFilter,
+          runs: [],
+        });
+        return;
+      }
+
+      setRunsPage(null);
+      setRunsPage(await loadWorkflowRecordingRunsPage(refreshedWorkflow.workflowId, {
+        page: nextPage,
+        pageSize: currentPageSize,
+        status: currentStatusFilter,
+      }));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRunsLoading(false);
+      setDeletingRecordingId(null);
+    }
+  }, [
+    loadWorkflowRecordingRunsPage,
+    loadWorkflowRecordingWorkflows,
+    page,
+    runsPerPage,
+    selectedWorkflowId,
+    statusFilter,
+  ]);
 
   if (!isOpen) {
     return null;
@@ -372,7 +475,7 @@ export const RunRecordingsModal: FC<RunRecordingsModalProps> = ({
                         <div className="run-recordings-runs-header">
                           <div className="run-recordings-runs-heading-group">
                             <div className="run-recordings-runs-title">
-                              {totalRuns} {totalRuns === 1 ? 'Run' : 'Runs'}
+                              {overallRunsCount} {overallRunsCount === 1 ? 'Run' : 'Runs'}
                             </div>
                             <div className="run-recordings-segmented" role="group" aria-label="Filter runs">
                               <button
@@ -383,7 +486,7 @@ export const RunRecordingsModal: FC<RunRecordingsModalProps> = ({
                                   setPage(1);
                                 }}
                               >
-                                All
+                                {allRunsLabel}
                               </button>
                               <button
                                 type="button"
@@ -393,7 +496,7 @@ export const RunRecordingsModal: FC<RunRecordingsModalProps> = ({
                                   setPage(1);
                                 }}
                               >
-                                Bad only
+                                {badRunsLabel}
                               </button>
                             </div>
                           </div>
@@ -417,35 +520,13 @@ export const RunRecordingsModal: FC<RunRecordingsModalProps> = ({
                                 ))}
                               </div>
                             </div>
-
-                            <div className="run-recordings-pagination">
-                              <button
-                                type="button"
-                                className="run-recordings-page-button"
-                                onClick={() => setPage((current) => Math.max(1, current - 1))}
-                                disabled={page <= 1 || runsLoading}
-                              >
-                                Previous
-                              </button>
-                              <div className="run-recordings-page-status">
-                                {firstVisibleRun}-{lastVisibleRun} of {totalRuns}
-                              </div>
-                              <button
-                                type="button"
-                                className="run-recordings-page-button"
-                                onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
-                                disabled={page >= totalPages || runsLoading}
-                              >
-                                Next
-                              </button>
-                            </div>
                           </div>
                         </div>
 
                         <div className="run-recordings-runs-body">
                           {runsLoading ? (
                             <div className="run-recordings-empty-group">Loading runs...</div>
-                          ) : totalRuns === 0 ? (
+                          ) : filteredRunsCount === 0 ? (
                             <div className="run-recordings-empty-group">
                               {statusFilter === 'failed' ? 'No bad runs for this workflow.' : 'No recorded runs yet.'}
                             </div>
@@ -455,6 +536,8 @@ export const RunRecordingsModal: FC<RunRecordingsModalProps> = ({
                                 <RecordingRow
                                   key={recording.id}
                                   recording={recording}
+                                  isDeleting={deletingRecordingId === recording.id}
+                                  onDelete={handleDeleteRecording}
                                   onOpen={onOpenRecording}
                                 />
                               ))}
@@ -462,9 +545,27 @@ export const RunRecordingsModal: FC<RunRecordingsModalProps> = ({
                           )}
                         </div>
 
-                        {totalRuns > 0 ? (
+                        {filteredRunsCount > 0 && totalPages > 1 ? (
                           <div className="run-recordings-pagination-footer">
-                            Page {page} of {totalPages}
+                            <button
+                              type="button"
+                              className="run-recordings-page-button"
+                              onClick={() => setPage((current) => Math.max(1, current - 1))}
+                              disabled={page <= 1 || runsLoading}
+                            >
+                              Previous
+                            </button>
+                            <div className="run-recordings-page-status">
+                              Page {page} of {totalPages}
+                            </div>
+                            <button
+                              type="button"
+                              className="run-recordings-page-button"
+                              onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
+                              disabled={page >= totalPages || runsLoading}
+                            >
+                              Next
+                            </button>
                           </div>
                         ) : null}
                       </div>

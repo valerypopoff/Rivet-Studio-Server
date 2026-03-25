@@ -903,6 +903,134 @@ test('workflow recording failed filter includes suspicious runs', async () => {
     ['suspicious'],
   );
   assert.equal(workflowsResponse.workflows[0]?.failedRuns, 0);
+  assert.equal(workflowsResponse.workflows[0]?.suspiciousRuns, 1);
+});
+
+test('workflow recording delete route removes a single recording and updates totals', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'DeleteOneRecording');
+  await workflowMutations.publishWorkflowProjectItem(created.relativePath, {
+    endpointName: 'delete-one-recording-endpoint',
+  });
+
+  await withWorkflowExecutionServer(async ({ apiBaseUrl, publishedBaseUrl }) => {
+    for (let index = 0; index < 2; index++) {
+      const response = await fetch(`${publishedBaseUrl}/delete-one-recording-endpoint`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: index }),
+      });
+      assert.equal(response.ok, true);
+    }
+
+    const workflowsResponse = await waitForRecordingWorkflows(
+      apiBaseUrl,
+      (workflows) => workflows[0]?.totalRuns === 2,
+    ) as {
+      workflows: Array<{ workflowId: string; totalRuns: number }>;
+    };
+    const workflowId = workflowsResponse.workflows[0]!.workflowId;
+
+    const runsResponse = await readJson<{
+      totalRuns: number;
+      runs: Array<{ id: string }>;
+    }>(await fetch(`${apiBaseUrl}/recordings/workflows/${encodeURIComponent(workflowId)}/runs?page=1&pageSize=20&status=all`));
+
+    assert.equal(runsResponse.totalRuns, 2);
+    assert.equal(runsResponse.runs.length, 2);
+    const deletedRecordingId = runsResponse.runs[0]!.id;
+    const recordingsRoot = workflowFs.getWorkflowProjectRecordingsRoot(workflowsRoot, workflowId);
+    const deletedBundlePath = path.join(recordingsRoot, deletedRecordingId);
+    assert.equal(await workflowFs.pathExists(deletedBundlePath), true);
+
+    const deleteResponse = await fetch(
+      `${apiBaseUrl}/recordings/${encodeURIComponent(deletedRecordingId)}`,
+      { method: 'DELETE' },
+    );
+
+    assert.equal(deleteResponse.ok, true);
+
+    const updatedWorkflows = await readJson<{
+      workflows: Array<{ workflowId: string; totalRuns: number }>;
+    }>(await fetch(`${apiBaseUrl}/recordings/workflows`));
+    const updatedRuns = await readJson<{
+      totalRuns: number;
+      runs: Array<{ id: string }>;
+    }>(await fetch(`${apiBaseUrl}/recordings/workflows/${encodeURIComponent(workflowId)}/runs?page=1&pageSize=20&status=all`));
+
+    assert.equal(updatedWorkflows.workflows[0]?.totalRuns, 1);
+    assert.equal(updatedRuns.totalRuns, 1);
+    assert.equal(updatedRuns.runs.length, 1);
+    assert.notEqual(updatedRuns.runs[0]?.id, deletedRecordingId);
+    assert.equal(await workflowFs.pathExists(deletedBundlePath), false);
+
+    const deletedArtifactResponse = await fetch(
+      `${apiBaseUrl}/recordings/${encodeURIComponent(deletedRecordingId)}/recording`,
+    );
+    assert.equal(deletedArtifactResponse.status, 404);
+  });
+});
+
+test('workflow recording delete route removes the last unpublished recording from disk and index', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'DeleteLastRecording');
+  await workflowMutations.publishWorkflowProjectItem(created.relativePath, {
+    endpointName: 'delete-last-recording-endpoint',
+  });
+
+  await withWorkflowExecutionServer(async ({ apiBaseUrl, publishedBaseUrl }) => {
+    const response = await fetch(`${publishedBaseUrl}/delete-last-recording-endpoint`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ value: 'only-run' }),
+    });
+    assert.equal(response.ok, true);
+
+    await workflowMutations.unpublishWorkflowProjectItem(created.relativePath);
+
+    const workflowsResponse = await waitForRecordingWorkflows(
+      apiBaseUrl,
+      (workflows) => workflows[0]?.totalRuns === 1,
+    ) as {
+      workflows: Array<{ workflowId: string; totalRuns: number }>;
+    };
+    const workflowId = workflowsResponse.workflows[0]!.workflowId;
+
+    const runsResponse = await readJson<{
+      totalRuns: number;
+      runs: Array<{ id: string }>;
+    }>(await fetch(`${apiBaseUrl}/recordings/workflows/${encodeURIComponent(workflowId)}/runs?page=1&pageSize=20&status=all`));
+
+    assert.equal(runsResponse.totalRuns, 1);
+    const deletedRecordingId = runsResponse.runs[0]!.id;
+    const workflowRecordingsRoot = workflowFs.getWorkflowProjectRecordingsRoot(workflowsRoot, workflowId);
+    const deletedBundlePath = path.join(workflowRecordingsRoot, deletedRecordingId);
+
+    assert.equal(await workflowFs.pathExists(deletedBundlePath), true);
+    assert.equal(await workflowFs.pathExists(workflowRecordingsRoot), true);
+
+    const deleteResponse = await fetch(
+      `${apiBaseUrl}/recordings/${encodeURIComponent(deletedRecordingId)}`,
+      { method: 'DELETE' },
+    );
+    assert.equal(deleteResponse.ok, true);
+
+    const updatedWorkflows = await readJson<{
+      workflows: Array<{ workflowId: string; totalRuns: number }>;
+    }>(await fetch(`${apiBaseUrl}/recordings/workflows`));
+
+    assert.equal(updatedWorkflows.workflows.length, 0);
+    assert.equal(await workflowFs.pathExists(deletedBundlePath), false);
+    assert.equal(await workflowFs.pathExists(workflowRecordingsRoot), false);
+
+    const deletedRecordingArtifactResponse = await fetch(
+      `${apiBaseUrl}/recordings/${encodeURIComponent(deletedRecordingId)}/recording`,
+    );
+    const deletedProjectArtifactResponse = await fetch(
+      `${apiBaseUrl}/recordings/${encodeURIComponent(deletedRecordingId)}/replay-project`,
+    );
+
+    assert.equal(deletedRecordingArtifactResponse.status, 404);
+    assert.equal(deletedProjectArtifactResponse.status, 404);
+  });
 });
 
 test('workflow recording persistence snapshots the executed in-memory project state', async () => {
