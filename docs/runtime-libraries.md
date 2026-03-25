@@ -19,7 +19,7 @@ The root path is controlled by `RIVET_RUNTIME_LIBRARIES_ROOT`.
 
 The feature is exposed from the dashboard through the `Runtime libraries` action in the projects pane.
 
-The adjacent `Run recordings` action is separate. It browses stored workflow execution recordings, pages and filters runs through `/api/workflows/recordings/*`, and opens replay bundles back into the editor by `recordingId`; see [workflow-publication.md](workflow-publication.md) for that flow.
+The adjacent `Run recordings` action is separate. It browses stored workflow execution recordings, pages and filters runs through `/api/workflows/recordings/*`, opens replay bundles back into the editor by `recordingId`, and can delete individual stored runs; see [workflow-publication.md](workflow-publication.md) for that flow.
 
 The API surface lives under `/api/runtime-libraries`:
 

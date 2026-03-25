@@ -73,6 +73,8 @@ The current recording design is hybrid:
 - compressed replay artifacts live under the workflow tree for simple filesystem cleanup and portability
 - a SQLite index under the app-data root stores workflow/run metadata, stats, and pagination state for the dashboard UI
 
+Recorded run verdicts are stored as `succeeded`, `failed`, or `suspicious`. The dashboard's `Bad only` filter maps to `failed + suspicious`, and deleting a single run removes both the blob bundle and its SQLite metadata row.
+
 The API container now relies on Node's built-in `node:sqlite` module for that index, so the container/runtime baseline is Node 24+.
 
 ## Design rule

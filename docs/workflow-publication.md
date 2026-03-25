@@ -75,6 +75,7 @@ Recording capture is designed as best-effort observability:
 - the endpoint response is sent first
 - recording persistence is queued in the background after execution finishes
 - both successful and failed runs are eligible for recording
+- successful runs whose final `output` is `control-flow-excluded` are marked as `suspicious`
 - if the queue is full, new recordings are dropped so endpoint execution is not slowed or blocked
 
 Each bundle stores:
@@ -92,7 +93,7 @@ Each bundle stores:
 - `recording.rivet-recording.gz` is the serialized `ExecutionRecorder` output
 - `replay.rivet-project.gz` is an immutable replay snapshot of the executed project state
 - `replay.rivet-data.gz` is the dataset snapshot, when present
-- `metadata.json` stores run timestamp, endpoint, run kind (`published` or `latest`), status, duration, bundle encoding, and compressed/uncompressed byte counts
+- `metadata.json` stores run timestamp, endpoint, run kind (`published` or `latest`), verdict (`succeeded`, `failed`, or `suspicious`), duration, bundle encoding, and compressed/uncompressed byte counts
 
 Bundles are keyed by the source project's metadata ID, so recordings stay attached across project renames and moves. Project deletion removes that recording history as part of workflow cleanup.
 
@@ -128,8 +129,9 @@ The browser does not scan the filesystem directly. Instead, the API uses `record
 
 - workflow summaries ordered by most recent run
 - per-workflow run pagination
-- failed-only filtering
+- bad-only filtering, where `status=failed` includes both `failed` and `suspicious` runs
 - artifact lookup by `recordingId`
+- single-run deletion by `recordingId`
 
 The main recordings routes are:
 
@@ -138,6 +140,7 @@ The main recordings routes are:
 - `GET /api/workflows/recordings/:recordingId/recording`
 - `GET /api/workflows/recordings/:recordingId/replay-project`
 - `GET /api/workflows/recordings/:recordingId/replay-dataset`
+- `DELETE /api/workflows/recordings/:recordingId`
 
 ## Recording browser
 
@@ -148,8 +151,11 @@ That browser:
 - lists currently published workflows and workflows that still have recording history from earlier publication
 - sorts workflows by their most recent recorded run
 - loads runs page-by-page from the API instead of materializing all runs at once
-- supports filtering runs down to failed executions only
+- supports `All / Bad only` filtering, where `Bad only` includes both failed and suspicious runs
+- lets the user delete an individual stored run with a browser confirmation prompt
 - opens a run by `recordingId`, not by raw filesystem path
+
+Deleting a run removes its bundle from `.recordings/`, deletes the corresponding SQLite row, and removes the workflow-level recordings directory if that was the last stored run for the workflow.
 
 When a run is opened, the hosted editor:
 

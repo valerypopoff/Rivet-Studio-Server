@@ -15,10 +15,11 @@ Within `/api/*`, the recordings browser uses:
 
 - `GET /api/workflows/tree` to list workflow folders and projects for the main sidebar
 - `GET /api/workflows/recordings/workflows` to list workflows that are published now or still have recording history
-- `GET /api/workflows/recordings/workflows/:workflowId/runs?page=1&pageSize=20&status=all|failed` to page through stored runs for one workflow
+- `GET /api/workflows/recordings/workflows/:workflowId/runs?page=1&pageSize=20&status=all|failed` to page through stored runs for one workflow, where `status=failed` returns both failed and suspicious runs
 - `GET /api/workflows/recordings/:recordingId/recording` to load the serialized `ExecutionRecorder` payload
 - `GET /api/workflows/recordings/:recordingId/replay-project` to load the replay project snapshot
 - `GET /api/workflows/recordings/:recordingId/replay-dataset` to load the replay dataset snapshot when present
+- `DELETE /api/workflows/recordings/:recordingId` to remove one stored run and its replay bundle
 
 `GET /api/workflows/recordings` remains as a compatibility alias for the workflow-list response, but the dashboard uses the more explicit `/recordings/workflows` route family.
 
