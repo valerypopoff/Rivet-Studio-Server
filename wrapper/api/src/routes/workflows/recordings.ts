@@ -137,6 +137,7 @@ let cleanupRequested = false;
 let persistenceQueue: WorkflowRecordingPersistenceTask[] = [];
 let persistenceQueuePromise: Promise<void> | null = null;
 let lastDroppedPersistenceLogAt = 0;
+let resettingWorkflowRecordingStorageForTests = false;
 
 const PERSISTENCE_DROP_LOG_INTERVAL_MS = 60_000;
 
@@ -162,6 +163,10 @@ function normalizeStatus(value: unknown): WorkflowRecordingStatus | null {
 
 function normalizeEncoding(value: unknown): WorkflowRecordingBlobEncoding {
   return value === 'identity' ? 'identity' : 'gzip';
+}
+
+function getEndpointRetentionKey(endpointName: string): string {
+  return endpointName.trim().toLowerCase();
 }
 
 function getRecordingArtifactPath(
@@ -429,6 +434,9 @@ async function deleteRecordingRun(row: WorkflowRecordingRunRow): Promise<void> {
 async function cleanupWorkflowRecordingStorage(): Promise<void> {
   const config = getWorkflowRecordingConfig();
   const rowsToDelete = new Map<string, WorkflowRecordingRunRow>();
+  const oldestRows = config.maxRunsPerEndpoint > 0 || config.maxTotalBytes > 0
+    ? await listWorkflowRecordingRunsOldestFirst()
+    : [];
 
   if (config.retentionDays > 0) {
     const cutoff = new Date(Date.now() - config.retentionDays * 24 * 60 * 60 * 1000).toISOString();
@@ -437,11 +445,30 @@ async function cleanupWorkflowRecordingStorage(): Promise<void> {
     }
   }
 
-  if (config.maxRunsPerWorkflow > 0) {
-    const workflows = await listWorkflowRecordingWorkflowStatsRows();
-    for (const workflow of workflows) {
-      const rows = await listWorkflowRecordingRunRowsForWorkflow(workflow.workflowId);
-      for (const row of rows.slice(config.maxRunsPerWorkflow)) {
+  if (config.maxRunsPerEndpoint > 0) {
+    const rowsByEndpoint = new Map<string, WorkflowRecordingRunRow[]>();
+
+    for (const row of oldestRows) {
+      if (rowsToDelete.has(row.id)) {
+        continue;
+      }
+
+      const endpointKey = getEndpointRetentionKey(row.endpointNameAtExecution);
+      const existingRows = rowsByEndpoint.get(endpointKey);
+      if (existingRows) {
+        existingRows.push(row);
+      } else {
+        rowsByEndpoint.set(endpointKey, [row]);
+      }
+    }
+
+    for (const endpointRows of rowsByEndpoint.values()) {
+      const excessCount = endpointRows.length - config.maxRunsPerEndpoint;
+      if (excessCount <= 0) {
+        continue;
+      }
+
+      for (const row of endpointRows.slice(0, excessCount)) {
         rowsToDelete.set(row.id, row);
       }
     }
@@ -455,7 +482,7 @@ async function cleanupWorkflowRecordingStorage(): Promise<void> {
       }
 
       if (totalBytes > config.maxTotalBytes) {
-        for (const row of await listWorkflowRecordingRunsOldestFirst()) {
+        for (const row of oldestRows) {
           if (rowsToDelete.has(row.id)) {
             continue;
           }
@@ -478,6 +505,10 @@ async function cleanupWorkflowRecordingStorage(): Promise<void> {
 }
 
 function scheduleWorkflowRecordingCleanup(): void {
+  if (resettingWorkflowRecordingStorageForTests) {
+    return;
+  }
+
   cleanupRequested = true;
 
   if (cleanupPromise) {
@@ -544,7 +575,7 @@ function scheduleWorkflowRecordingPersistenceQueue(): void {
 }
 
 export function enqueueWorkflowExecutionRecordingPersistence(task: WorkflowRecordingPersistenceTask): boolean {
-  if (!isWorkflowRecordingEnabled()) {
+  if (!isWorkflowRecordingEnabled() || resettingWorkflowRecordingStorageForTests) {
     return false;
   }
 
@@ -897,6 +928,8 @@ export async function deleteWorkflowRecordingsByWorkflowId(
 }
 
 export async function resetWorkflowRecordingStorageForTests(): Promise<void> {
+  resettingWorkflowRecordingStorageForTests = true;
+
   const pendingPersistence = persistenceQueuePromise;
   const pendingCleanup = cleanupPromise;
 
@@ -908,9 +941,13 @@ export async function resetWorkflowRecordingStorageForTests(): Promise<void> {
   persistenceQueue = [];
   lastDroppedPersistenceLogAt = 0;
 
-  await pendingPersistence?.catch(() => {});
-  await pendingCleanup?.catch(() => {});
-  await resetWorkflowRecordingDatabaseForTests();
+  try {
+    await pendingPersistence?.catch(() => {});
+    await pendingCleanup?.catch(() => {});
+    await resetWorkflowRecordingDatabaseForTests();
+  } finally {
+    resettingWorkflowRecordingStorageForTests = false;
+  }
 }
 
 export async function getWorkflowRecordingStorageSchemaVersion(): Promise<string | null> {

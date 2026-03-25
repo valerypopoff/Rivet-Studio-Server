@@ -34,7 +34,7 @@ test.beforeEach(async () => {
 
 async function withWorkflowApiServer(run: (baseUrl: string) => Promise<void>) {
   const app = express();
-  app.use(express.json());
+  app.use(express.json({ strict: false }));
   app.use('/workflows', workflowRoutes.workflowsRouter);
 
   const server = http.createServer(app);
@@ -67,7 +67,7 @@ async function withWorkflowExecutionServer(
   run: (urls: { apiBaseUrl: string; publishedBaseUrl: string; latestBaseUrl: string }) => Promise<void>,
 ) {
   const app = express();
-  app.use(express.json());
+  app.use(express.json({ strict: false }));
   app.use('/api/workflows', workflowRoutes.workflowsRouter);
   app.use('/workflows', workflowRoutes.publishedWorkflowsRouter);
   app.use('/workflows-latest', workflowRoutes.latestWorkflowsRouter);
@@ -132,6 +132,26 @@ async function waitForRecordingWorkflows(
   }
 
   throw new Error('Timed out waiting for workflow recordings');
+}
+
+async function waitForWorkflowRecordingRunCount(
+  root: string,
+  workflowId: string,
+  expectedTotalRuns: number,
+  timeoutMs = 5000,
+) {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const response = await workflowRecordings.listWorkflowRecordingRunsPage(root, workflowId, 1, 100, 'all');
+    if (response.totalRuns === expectedTotalRuns) {
+      return response;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+
+  throw new Error(`Timed out waiting for workflow ${workflowId} to reach ${expectedTotalRuns} recording runs`);
 }
 
 test('workflow project rename and move preserve wrapper sidecars', async () => {
@@ -419,6 +439,90 @@ test('published and latest workflow resolution split after unpublished changes',
   assert.equal(publishedDatasetContents, '{"before":true}');
 });
 
+test('published workflow keeps referenced projects resolvable after the referenced project is moved', async () => {
+  const referenced = await workflowMutations.createWorkflowProjectItem('', 'Referenced');
+  const main = await workflowMutations.createWorkflowProjectItem('', 'Main');
+  const passthroughProject = await fs.readFile(
+    new URL('../../../../rivet/packages/node/test/test-graphs.rivet-project', import.meta.url),
+    'utf8',
+  );
+  const referencedProjectId = 'refProject123';
+  const referencedGraphId = 'refGraph123';
+  const mainProjectId = 'mainProject123';
+  const mainGraphId = 'mainGraph123';
+
+  const createAnyPassthroughProject = (projectId: string, graphId: string, title: string) =>
+    passthroughProject
+      .replace('    title: Untitled Project', [
+        `    title: ${title}`,
+        `    mainGraphId: ${graphId}`,
+      ].join('\n'))
+      .replaceAll('ytCHmBvDFSkCnQ9L7DJLB', projectId)
+      .replaceAll('kqaNrBo0WpJ1EOc2hj0zK', graphId)
+      .replaceAll('dataType: string', 'dataType: any');
+
+  const referencedContents = createAnyPassthroughProject(referencedProjectId, referencedGraphId, 'Referenced');
+  const mainContents = createAnyPassthroughProject(mainProjectId, mainGraphId, 'Main')
+    .replace(
+      [
+        `        '[hHAeA3eIMmdfGFOYeool0]:passthrough "Passthrough"':`,
+        '          outgoingConnections:',
+        '            - output1->"Graph Output" Dp5_0MQuZk7_UTdBQGX-P/value',
+        '          visualData: 928/554/205/9//',
+      ].join('\n'),
+      [
+        `        '[hHAeA3eIMmdfGFOYeool0]:referencedGraphAlias "Referenced Passthrough"':`,
+        '          data:',
+        `            projectId: ${referencedProjectId}`,
+        `            graphId: ${referencedGraphId}`,
+        '            useErrorOutput: false',
+        '          outgoingConnections:',
+        '            - output->"Graph Output" Dp5_0MQuZk7_UTdBQGX-P/value',
+        '          visualData: 928/554/205/9//',
+      ].join('\n'),
+    )
+    .replace(
+      '            - data->"Passthrough" hHAeA3eIMmdfGFOYeool0/input1',
+      '            - data->"Referenced Passthrough" hHAeA3eIMmdfGFOYeool0/input',
+    )
+    .replace(
+      '  references: []',
+      [
+        '  references:',
+        `    - id: ${referencedProjectId}`,
+        '      hintPaths:',
+        '        - ./Referenced.rivet-project',
+        '      title: Referenced',
+      ].join('\n'),
+    );
+
+  await fs.writeFile(referenced.absolutePath, referencedContents, 'utf8');
+  await fs.writeFile(main.absolutePath, mainContents, 'utf8');
+
+  await workflowMutations.publishWorkflowProjectItem(referenced.relativePath, {
+    endpointName: 'referenced-project-endpoint',
+  });
+  await workflowMutations.publishWorkflowProjectItem(main.relativePath, {
+    endpointName: 'main-with-reference-endpoint',
+  });
+
+  await workflowMutations.createWorkflowFolderItem('Moved', '');
+  await workflowQuery.moveWorkflowProject(workflowsRoot, referenced.relativePath, 'Moved');
+
+  await withWorkflowExecutionServer(async ({ publishedBaseUrl }) => {
+    const response = await fetch(`${publishedBaseUrl}/main-with-reference-endpoint`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ foo: 'bar' }),
+      signal: AbortSignal.timeout(5000),
+    });
+
+    assert.equal(response.ok, true);
+    const body = await response.json() as { durationMs?: number };
+    assert.equal(typeof body.durationMs, 'number');
+  });
+});
+
 test('delete workflow project removes project and sidecars', async () => {
   const created = await workflowMutations.createWorkflowProjectItem('', 'DeleteMe');
   const sidecars = workflowFs.getProjectSidecarPaths(created.absolutePath);
@@ -577,6 +681,56 @@ test('published workflow responds with any outputs and records the run asynchron
   });
 });
 
+test('published workflow preserves falsy top-level JSON inputs and null any outputs', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'AnyFalsyResponse');
+  const passthroughProject = await fs.readFile(
+    new URL('../../../../rivet/packages/node/test/test-graphs.rivet-project', import.meta.url),
+    'utf8',
+  );
+
+  await fs.writeFile(
+    created.absolutePath,
+    passthroughProject
+      .replace('    title: Untitled Project', [
+        '    title: Untitled Project',
+        '    mainGraphId: kqaNrBo0WpJ1EOc2hj0zK',
+      ].join('\n'))
+      .replaceAll('dataType: string', 'dataType: any'),
+    'utf8',
+  );
+
+  await workflowMutations.publishWorkflowProjectItem(created.relativePath, {
+    endpointName: 'any-falsy-response-endpoint',
+  });
+
+  await withWorkflowExecutionServer(async ({ apiBaseUrl, publishedBaseUrl }) => {
+    const cases: Array<false | 0 | '' | null> = [false, 0, '', null];
+
+    for (const value of cases) {
+      const response = await fetch(`${publishedBaseUrl}/any-falsy-response-endpoint`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(value),
+        signal: AbortSignal.timeout(5000),
+      });
+
+      assert.equal(response.ok, true);
+      assert.ok(response.headers.get('x-duration-ms'));
+      assert.deepEqual(await response.json(), value);
+    }
+
+    const workflowsResponse = await waitForRecordingWorkflows(
+      apiBaseUrl,
+      (workflows) => workflows[0]?.totalRuns === cases.length,
+    ) as {
+      workflows: Array<{ totalRuns: number }>;
+    };
+
+    assert.equal(workflowsResponse.workflows.length, 1);
+    assert.equal(workflowsResponse.workflows[0]?.totalRuns, cases.length);
+  });
+});
+
 test('recordings list keeps once-published workflows after unpublish', async () => {
   const created = await workflowMutations.createWorkflowProjectItem('', 'RecordedHistory');
   await workflowMutations.publishWorkflowProjectItem(created.relativePath, {
@@ -707,4 +861,63 @@ test('workflow recording persistence snapshots the executed in-memory project st
 
   assert.equal(replayProject.metadata.title, 'Stable');
   assert.equal(mutatedProject.metadata.title, 'Mutated');
+});
+
+test('workflow recording cleanup keeps only the newest configured runs per endpoint', async () => {
+  const previousMaxRunsPerEndpoint = process.env.RIVET_RECORDINGS_MAX_RUNS_PER_ENDPOINT;
+  process.env.RIVET_RECORDINGS_MAX_RUNS_PER_ENDPOINT = '2';
+
+  try {
+    const created = await workflowMutations.createWorkflowProjectItem('', 'EndpointLimited');
+    const [loadedProject, attachedData] = await rivetNode.loadProjectAndAttachedDataFromFile(created.absolutePath);
+    const workflowId = loadedProject.metadata.id!;
+
+    for (const index of [1, 2, 3]) {
+      await workflowRecordings.persistWorkflowExecutionRecording({
+        root: workflowsRoot,
+        sourceProject: loadedProject,
+        sourceProjectPath: created.absolutePath,
+        executedProject: loadedProject,
+        executedAttachedData: attachedData,
+        executedDatasets: [],
+        endpointName: 'endpoint-limited',
+        recordingSerialized: JSON.stringify({
+          version: 1,
+          recording: {
+            recordingId: `recording-${index}`,
+            events: [],
+            startTs: index,
+            finishTs: index,
+          },
+          assets: {},
+          strings: {},
+        }),
+        runKind: 'published',
+        status: 'succeeded',
+        durationMs: index,
+      });
+    }
+
+    const runsPage = await waitForWorkflowRecordingRunCount(workflowsRoot, workflowId, 2);
+
+    assert.equal(runsPage.runs.length, 2);
+    assert.deepEqual(
+      runsPage.runs.map((run) => run.durationMs),
+      [3, 2],
+    );
+
+    const recordingsRoot = workflowFs.getWorkflowProjectRecordingsRoot(workflowsRoot, workflowId);
+    const bundles = (await fs.readdir(recordingsRoot, { withFileTypes: true }))
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+      .sort();
+
+    assert.equal(bundles.length, 2);
+  } finally {
+    if (previousMaxRunsPerEndpoint == null) {
+      delete process.env.RIVET_RECORDINGS_MAX_RUNS_PER_ENDPOINT;
+    } else {
+      process.env.RIVET_RECORDINGS_MAX_RUNS_PER_ENDPOINT = previousMaxRunsPerEndpoint;
+    }
+  }
 });

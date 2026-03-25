@@ -35,6 +35,19 @@ function isJsonObjectRecord(value: unknown): value is Record<string, unknown> {
   return value != null && typeof value === 'object' && !Array.isArray(value);
 }
 
+function getWorkflowRequestInput(req: Request): unknown {
+  return req.body === undefined ? {} : req.body;
+}
+
+function getWorkflowResponsePayload(outputs: Record<string, { type?: string; value?: unknown }>): unknown {
+  const outputValue = outputs.output;
+  if (outputValue?.type !== 'any') {
+    return outputs;
+  }
+
+  return outputValue.value ?? null;
+}
+
 function sendJsonWithDuration(
   res: Response,
   statusCode: number,
@@ -168,7 +181,7 @@ async function executeWorkflowEndpoint(
     inputs: {
       input: {
         type: 'any',
-        value: req.body || {}
+        value: getWorkflowRequestInput(req),
       },
     },
   });
@@ -186,10 +199,7 @@ async function executeWorkflowEndpoint(
   try {
     const outputs = await processor.run();
 
-    const outputValue = outputs.output;
-    responsePayload = outputValue?.type === 'any' && outputValue.value != null
-      ? outputValue.value
-      : outputs;
+    responsePayload = getWorkflowResponsePayload(outputs as Record<string, { type?: string; value?: unknown }>);
   } catch (error) {
     recordingStatus = 'failed';
     recordingErrorMessage = getWorkflowErrorMessage(error);

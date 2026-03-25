@@ -56,7 +56,7 @@ Key environment variables (all optional with defaults):
 | `RIVET_RECORDINGS_INCLUDE_TRACE` | Include trace data in stored recordings | `false` |
 | `RIVET_RECORDINGS_DATASET_MODE` | Dataset snapshot mode (`none` or `all`) | `none` |
 | `RIVET_RECORDINGS_RETENTION_DAYS` | Automatic retention window for recordings | `14` |
-| `RIVET_RECORDINGS_MAX_RUNS_PER_WORKFLOW` | Per-workflow run cap before oldest recordings are deleted | `5000` |
+| `RIVET_RECORDINGS_MAX_RUNS_PER_ENDPOINT` | Per-endpoint run cap before oldest recordings are deleted (`0` disables) | `0` |
 | `RIVET_RECORDINGS_MAX_TOTAL_BYTES` | Global compressed-byte cap across all recordings (`0` disables) | `0` |
 | `RIVET_RECORDINGS_MAX_PENDING_WRITES` | Background recording write queue size before new recordings are dropped | `100` |
 | `RIVET_PORT` | External port for Docker stack | `8080` |

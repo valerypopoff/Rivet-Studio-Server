@@ -11,7 +11,7 @@ export type WorkflowRecordingConfig = {
   includeTrace: boolean;
   datasetMode: WorkflowRecordingDatasetMode;
   retentionDays: number;
-  maxRunsPerWorkflow: number;
+  maxRunsPerEndpoint: number;
   maxTotalBytes: number;
 };
 
@@ -66,7 +66,7 @@ export function getWorkflowRecordingConfig(): WorkflowRecordingConfig {
     includeTrace: parseBooleanEnv(process.env.RIVET_RECORDINGS_INCLUDE_TRACE, false),
     datasetMode,
     retentionDays: parseIntegerEnv(process.env.RIVET_RECORDINGS_RETENTION_DAYS, 14, 0),
-    maxRunsPerWorkflow: parseIntegerEnv(process.env.RIVET_RECORDINGS_MAX_RUNS_PER_WORKFLOW, 5000, 0),
+    maxRunsPerEndpoint: parseIntegerEnv(process.env.RIVET_RECORDINGS_MAX_RUNS_PER_ENDPOINT, 100, 0),
     maxTotalBytes: parseIntegerEnv(process.env.RIVET_RECORDINGS_MAX_TOTAL_BYTES, 0, 0),
   };
 }

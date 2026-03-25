@@ -22,7 +22,7 @@ const server = createServer(app);
 const PORT = parseInt(process.env.PORT ?? '3100', 10);
 
 app.use(cors({ origin: true, credentials: true }));
-app.use(express.json({ limit: '100mb' }));
+app.use(express.json({ limit: '100mb', strict: false }));
 app.use(express.urlencoded({ extended: false }));
 
 app.get('/healthz', (_req, res) => {

@@ -112,7 +112,7 @@ Recording behavior is controlled by env vars:
 | `RIVET_RECORDINGS_INCLUDE_TRACE` | Include trace data in recorder payloads | `false` |
 | `RIVET_RECORDINGS_DATASET_MODE` | Dataset snapshot mode (`none` or `all`) | `none` |
 | `RIVET_RECORDINGS_RETENTION_DAYS` | Delete runs older than this many days (`0` disables) | `14` |
-| `RIVET_RECORDINGS_MAX_RUNS_PER_WORKFLOW` | Keep only the newest N runs per workflow (`0` disables) | `5000` |
+| `RIVET_RECORDINGS_MAX_RUNS_PER_ENDPOINT` | Keep only the newest N runs per endpoint (`0` disables) | `0` |
 | `RIVET_RECORDINGS_MAX_TOTAL_BYTES` | Global compressed-byte cap across recordings (`0` disables) | `0` |
 
 Operational defaults are intentionally conservative:

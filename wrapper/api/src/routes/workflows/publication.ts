@@ -302,6 +302,39 @@ export async function findLatestWorkflowByEndpoint(root: string, endpointName: s
 }
 
 export function createPublishedWorkflowProjectReferenceLoader(root: string, rootProjectPath: string) {
+  const projectPathByIdPromises = new Map<string, Promise<string | null>>();
+
+  const loadPublishedOrLiveProject = async (resolvedProjectPath: string) => {
+    const projectName = path.basename(resolvedProjectPath, PROJECT_EXTENSION);
+    const settings = await readStoredWorkflowProjectSettings(resolvedProjectPath, projectName);
+    const publishedProjectPath = await resolvePublishedWorkflowProjectPath(root, resolvedProjectPath, settings);
+    return loadProjectFromFile(publishedProjectPath ?? resolvedProjectPath);
+  };
+
+  const findProjectPathByProjectId = async (projectId: string): Promise<string | null> => {
+    let pendingResolution = projectPathByIdPromises.get(projectId);
+    if (!pendingResolution) {
+      pendingResolution = (async () => {
+        const projectPaths = await listProjectPathsRecursive(root);
+
+        for (const candidateProjectPath of projectPaths) {
+          try {
+            const candidateProject = await loadProjectFromFile(candidateProjectPath);
+            if (candidateProject.metadata.id === projectId) {
+              return candidateProjectPath;
+            }
+          } catch {
+          }
+        }
+
+        return null;
+      })();
+      projectPathByIdPromises.set(projectId, pendingResolution);
+    }
+
+    return pendingResolution;
+  };
+
   return {
     async loadProject(currentProjectPath: string | undefined, reference: { id: string; hintPaths?: string[]; title?: string }) {
       const baseProjectPath = currentProjectPath ?? rootProjectPath;
@@ -313,12 +346,14 @@ export function createPublishedWorkflowProjectReferenceLoader(root: string, root
             continue;
           }
 
-          const projectName = path.basename(resolvedProjectPath, PROJECT_EXTENSION);
-          const settings = await readStoredWorkflowProjectSettings(resolvedProjectPath, projectName);
-          const publishedProjectPath = await resolvePublishedWorkflowProjectPath(root, resolvedProjectPath, settings);
-          return await loadProjectFromFile(publishedProjectPath ?? resolvedProjectPath);
+          return await loadPublishedOrLiveProject(resolvedProjectPath);
         } catch {
         }
+      }
+
+      const resolvedProjectPathById = await findProjectPathByProjectId(reference.id);
+      if (resolvedProjectPathById) {
+        return loadPublishedOrLiveProject(resolvedProjectPathById);
       }
 
       throw new Error(
