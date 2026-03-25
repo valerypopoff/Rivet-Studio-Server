@@ -356,17 +356,15 @@ export const RunRecordingsModal: FC<RunRecordingsModalProps> = ({
                               {selectedWorkflow.project.relativePath}
                             </div>
                           </div>
-                          <div className="run-recordings-workflow-field">
-                            <div className="run-recordings-field-label">Recorded runs</div>
-                            <div className="run-recordings-field-value">{selectedWorkflow.totalRuns}</div>
-                          </div>
                         </div>
                       </div>
 
                       <div className="run-recordings-runs-panel">
                         <div className="run-recordings-runs-header">
                           <div className="run-recordings-runs-heading-group">
-                            <div className="run-recordings-runs-title">Runs</div>
+                            <div className="run-recordings-runs-title">
+                              {totalRuns} {totalRuns === 1 ? 'Run' : 'Runs'}
+                            </div>
                             <div className="run-recordings-segmented" role="group" aria-label="Filter runs">
                               <button
                                 type="button"
@@ -435,14 +433,14 @@ export const RunRecordingsModal: FC<RunRecordingsModalProps> = ({
                           </div>
                         </div>
 
-                        {runsLoading ? (
-                          <div className="run-recordings-empty-group">Loading runs...</div>
-                        ) : totalRuns === 0 ? (
-                          <div className="run-recordings-empty-group">
-                            {statusFilter === 'failed' ? 'No failed runs for this workflow.' : 'No recorded runs yet.'}
-                          </div>
-                        ) : (
-                          <>
+                        <div className="run-recordings-runs-body">
+                          {runsLoading ? (
+                            <div className="run-recordings-empty-group">Loading runs...</div>
+                          ) : totalRuns === 0 ? (
+                            <div className="run-recordings-empty-group">
+                              {statusFilter === 'failed' ? 'No failed runs for this workflow.' : 'No recorded runs yet.'}
+                            </div>
+                          ) : (
                             <div className="run-recordings-list">
                               {visibleRuns.map((recording) => (
                                 <RecordingRow
@@ -452,11 +450,14 @@ export const RunRecordingsModal: FC<RunRecordingsModalProps> = ({
                                 />
                               ))}
                             </div>
-                            <div className="run-recordings-pagination-footer">
-                              Page {page} of {totalPages}
-                            </div>
-                          </>
-                        )}
+                          )}
+                        </div>
+
+                        {totalRuns > 0 ? (
+                          <div className="run-recordings-pagination-footer">
+                            Page {page} of {totalPages}
+                          </div>
+                        ) : null}
                       </div>
                     </section>
                   ) : null}

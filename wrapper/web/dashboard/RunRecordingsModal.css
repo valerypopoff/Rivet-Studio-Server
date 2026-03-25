@@ -1,4 +1,20 @@
+[data-testid='run-recordings-modal'] {
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100vh - 40px);
+}
+
+[data-testid='run-recordings-modal--body'] {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .run-recordings-shell {
+  display: flex;
+  flex-direction: column;
+  height: calc(100vh - 40px);
+  max-height: calc(100vh - 40px);
   min-height: 0;
 }
 
@@ -26,8 +42,11 @@
 }
 
 .run-recordings-content {
+  display: flex;
+  flex: 1 1 auto;
   min-height: 0;
   gap: 14px;
+  overflow: hidden;
 }
 
 .run-recordings-error {
@@ -35,9 +54,12 @@
 }
 
 .run-recordings-layout {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  flex: 1 1 auto;
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 14px;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .run-recordings-selector-section,
@@ -47,15 +69,30 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
+  min-height: 0;
 }
 
-.run-recordings-selector-section,
+.run-recordings-details {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+}
+
 .run-recordings-workflow-summary,
 .run-recordings-runs-panel {
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 12px;
   background: rgba(255, 255, 255, 0.03);
   padding: 14px;
+  overflow: hidden;
+}
+
+.run-recordings-selector-section {
+  gap: 8px;
+}
+
+.run-recordings-runs-panel {
+  flex: 1 1 auto;
 }
 
 .run-recordings-workflow-heading-row {
@@ -141,7 +178,7 @@
 
 .run-recordings-workflow-fields {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: 1fr;
   gap: 12px;
 }
 
@@ -280,10 +317,22 @@
   font-size: 13px;
 }
 
+.run-recordings-runs-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
 .run-recordings-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.run-recordings-pagination-footer {
+  flex: 0 0 auto;
+  padding-top: 4px;
 }
 
 .run-recordings-run {
@@ -389,8 +438,22 @@
 }
 
 @media (max-width: 720px) {
+  [data-testid='run-recordings-modal'] {
+    max-height: calc(100vh - 20px);
+  }
+
   .run-recordings-help {
     max-width: none;
+  }
+
+  .run-recordings-shell {
+    height: calc(100vh - 20px);
+    max-height: calc(100vh - 20px);
+  }
+
+  .run-recordings-layout,
+  .run-recordings-details {
+    grid-template-rows: auto auto;
   }
 
   .run-recordings-workflow-fields {
