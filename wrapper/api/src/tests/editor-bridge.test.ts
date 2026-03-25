@@ -46,7 +46,6 @@ test('editor bridge accepts valid editor events', () => {
     isEditorToDashboardEvent({
       type: 'project-saved',
       path: '/tmp/example.rivet-project',
-      didChangePersistedState: true,
     }),
     true,
   );

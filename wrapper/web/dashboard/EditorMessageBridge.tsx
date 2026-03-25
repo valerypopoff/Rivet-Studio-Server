@@ -70,15 +70,14 @@ export const EditorMessageBridge: FC = () => {
 
   useEffect(() => {
     const handler = (event: Event) => {
-      const customEvent = event as CustomEvent<{ path?: string; didChangePersistedState?: boolean }>;
+      const customEvent = event as CustomEvent<{ path?: string }>;
       const savedPath = customEvent.detail?.path;
-      const didChangePersistedState = customEvent.detail?.didChangePersistedState;
 
-      if (!savedPath || didChangePersistedState == null) {
+      if (!savedPath) {
         return;
       }
 
-      postMessageToDashboard({ type: 'project-saved', path: savedPath, didChangePersistedState });
+      postMessageToDashboard({ type: 'project-saved', path: savedPath });
     };
 
     window.addEventListener('rivet-project-saved', handler as EventListener);

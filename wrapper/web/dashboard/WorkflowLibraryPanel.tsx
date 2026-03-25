@@ -99,7 +99,6 @@ interface WorkflowLibraryPanelProps {
   editorReady: boolean;
   projectSaveSequence: number;
   lastSavedProjectPath: string;
-  lastSavedProjectDidChangePersistedState: boolean;
   onCollapse?: () => void;
 }
 
@@ -114,7 +113,6 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   editorReady,
   projectSaveSequence,
   lastSavedProjectPath,
-  lastSavedProjectDidChangePersistedState,
   onCollapse,
 }) => {
   const [folders, setFolders] = useState<WorkflowFolderItem[]>([]);
@@ -131,8 +129,11 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   const [settingsModalProject, setSettingsModalProject] = useState<WorkflowProjectItem | null>(null);
   const [runtimeLibsOpen, setRuntimeLibsOpen] = useState(false);
   const [runRecordingsOpen, setRunRecordingsOpen] = useState(false);
+  const refreshRequestIdRef = useRef(0);
 
   const refresh = useCallback(async (showLoading = true) => {
+    const requestId = ++refreshRequestIdRef.current;
+
     if (showLoading) {
       setLoading(true);
     }
@@ -140,6 +141,10 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
 
     try {
       const tree = await fetchWorkflowTree();
+      if (requestId !== refreshRequestIdRef.current) {
+        return;
+      }
+
       setFolders(tree.folders);
       setRootProjects(tree.projects);
       setExpandedFolders((prev) => {
@@ -152,9 +157,13 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
         return next;
       });
     } catch (err: any) {
+      if (requestId !== refreshRequestIdRef.current) {
+        return;
+      }
+
       setError(err.message || 'Failed to load workflow folders');
     } finally {
-      if (showLoading) {
+      if (requestId === refreshRequestIdRef.current) {
         setLoading(false);
       }
     }
@@ -225,25 +234,11 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
       return;
     }
 
-    if (lastSavedProjectDidChangePersistedState) {
-      setRootProjects((prev) => updateSavedProjectStatus(prev, lastSavedProjectPath));
-      setFolders((prev) => updateSavedProjectStatusInFolders(prev, lastSavedProjectPath));
-    }
+    setRootProjects((prev) => updateSavedProjectStatus(prev, lastSavedProjectPath));
+    setFolders((prev) => updateSavedProjectStatusInFolders(prev, lastSavedProjectPath));
 
     void refresh(false);
-
-    const shortDelayRefreshId = window.setTimeout(() => {
-      void refresh(false);
-    }, 150);
-    const longDelayRefreshId = window.setTimeout(() => {
-      void refresh(false);
-    }, 600);
-
-    return () => {
-      window.clearTimeout(shortDelayRefreshId);
-      window.clearTimeout(longDelayRefreshId);
-    };
-  }, [lastSavedProjectDidChangePersistedState, lastSavedProjectPath, projectSaveSequence, refresh]);
+  }, [lastSavedProjectPath, projectSaveSequence, refresh]);
 
   const activeAncestorFolderIds = useMemo(() => {
     if (!activePath) {

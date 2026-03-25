@@ -11,7 +11,7 @@ All message types live in `wrapper/shared/editor-bridge.ts`. Both sides import f
 | Type | Payload | When sent |
 |---|---|---|
 | `open-project` | `path`, `replaceCurrent` | User clicks a project in the sidebar or creates a new project |
-| `open-recording` | `projectPath`, `recordingPath`, `replaceCurrent` | User selects a recorded endpoint run from the recordings browser |
+| `open-recording` | `recordingId`, `replaceCurrent` | User selects a recorded endpoint run from the recordings browser |
 | `save-project` | (none) | User presses Ctrl+S outside the iframe or clicks a save action |
 | `delete-workflow-project` | `path` | User confirms project deletion in settings modal |
 | `workflow-paths-moved` | `moves[]` | A rename or move operation changed one or more project paths on disk |
@@ -25,20 +25,24 @@ All message types live in `wrapper/shared/editor-bridge.ts`. Both sides import f
 | `project-open-failed` | `path`, `error` | Editor failed to load a project (missing file, parse error, etc.) |
 | `active-project-path-changed` | `path` | User switched between open project tabs inside the editor |
 | `open-project-count-changed` | `count` | Number of open project tabs changed |
-| `project-saved` | `path`, `didChangePersistedState` | Project was saved to disk; the boolean reports whether the save changed persisted `.rivet-project` or `.rivet-data` contents |
+| `project-saved` | `path` | Project was saved to disk |
 
 ## Message flow
 
 1. Dashboard renders the iframe. The editor emits `editor-ready` once mounted.
 2. Any commands sent before `editor-ready` are buffered by `useEditorCommandQueue` and flushed when the editor signals readiness.
 3. The dashboard validates incoming messages with `isEditorToDashboardEvent()` and checks origin with `isValidBridgeOrigin()`. The editor does the same for its direction with `isDashboardToEditorCommand()`.
-4. `open-recording` opens the replay snapshot project and then loads the selected `.rivet-recording` file into the editor replay state.
-5. On `project-saved`, the dashboard may optimistically update the workflow status for the saved project before the next tree refresh, but only when `didChangePersistedState` is `true`.
-6. If the iframe reloads (e.g. navigation), `onLoad` resets `editorReady` to `false`, re-enabling the buffer until the editor sends `editor-ready` again.
+4. `open-recording` resolves the selected run by `recordingId`, fetches the serialized recording and replay artifacts from the API, and opens a virtual replay project path of the form `recording://<recordingId>/replay.rivet-project`.
+5. The editor loads the replay snapshot through `HostedIOProvider`, switches execution to browser replay mode, and then injects the fetched `ExecutionRecorder` into replay state.
+6. Replay projects are treated as read-only. A plain save from a replay project is redirected to `Save As` so stored replay bundles cannot be overwritten accidentally.
+7. On `project-saved`, the dashboard optimistically marks a published workflow as `unpublished_changes` for the saved path and then refreshes the workflow tree.
+8. If the iframe reloads (e.g. navigation), `onLoad` resets `editorReady` to `false`, re-enabling the buffer until the editor sends `editor-ready` again.
 
 ## Key files
 
 - `wrapper/shared/editor-bridge.ts` - shared types, type guards, and send helpers
+- `wrapper/shared/workflow-recording-types.ts` - recording ID types and virtual replay path helpers
 - `wrapper/web/dashboard/DashboardPage.tsx` - dashboard side: receives events, sends commands
 - `wrapper/web/dashboard/EditorMessageBridge.tsx` - editor side: receives commands, sends events
 - `wrapper/web/dashboard/useEditorCommandQueue.ts` - pending-command buffering hook
+- `wrapper/web/io/HostedIOProvider.ts` - virtual replay project loader for `recording://` paths
