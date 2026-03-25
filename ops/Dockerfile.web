@@ -80,9 +80,8 @@ ENV all_proxy=$all_proxy
 ENV no_proxy=$no_proxy
 
 WORKDIR /app
-COPY --from=serve-installer /usr/local/bin/serve /usr/local/bin/serve
 COPY --from=serve-installer /usr/local/lib/node_modules/serve /usr/local/lib/node_modules/serve
 COPY --from=builder /app/wrapper/web/dist ./dist
 
 EXPOSE 3000
-CMD ["serve", "-s", "dist", "-l", "3000"]
+CMD ["node", "/usr/local/lib/node_modules/serve/build/main.js", "-s", "dist", "-l", "3000"]
