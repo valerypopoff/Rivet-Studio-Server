@@ -3,7 +3,7 @@ import path from 'node:path';
 import { loadProjectFromString } from '@ironclad/rivet-node';
 
 import { validatePath } from '../../security.js';
-import { conflict } from '../../utils/httpError.js';
+import { badRequest, conflict } from '../../utils/httpError.js';
 import {
   listProjectPathsRecursive,
   moveProjectWithSidecars,

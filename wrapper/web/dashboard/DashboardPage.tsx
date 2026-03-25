@@ -55,6 +55,18 @@ export const DashboardPage: FC = () => {
     postEditorCommand({ type: 'open-project', path, replaceCurrent: Boolean(options?.replaceCurrent) });
   }, [postEditorCommand]);
 
+  const handleOpenRecording = useCallback(
+    (projectPath: string, recordingPath: string, options?: { replaceCurrent?: boolean }) => {
+      postEditorCommand({
+        type: 'open-recording',
+        projectPath,
+        recordingPath,
+        replaceCurrent: Boolean(options?.replaceCurrent),
+      });
+    },
+    [postEditorCommand],
+  );
+
   const handleSaveProject = useCallback(() => {
     postEditorCommand({ type: 'save-project' });
   }, [postEditorCommand]);
@@ -250,6 +262,7 @@ export const DashboardPage: FC = () => {
         <aside className="dashboard-sidebar">
           <WorkflowLibraryPanel
             onOpenProject={handleOpenProject}
+            onOpenRecording={handleOpenRecording}
             onSaveProject={handleSaveProject}
             onDeleteProject={handleDeleteProject}
             onWorkflowPathsMoved={handleWorkflowPathsMoved}

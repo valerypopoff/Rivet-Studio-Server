@@ -16,7 +16,7 @@
 
 ## Core wrapper seams
 
-- workflow library management lives in `wrapper/api/src/routes/workflows/`
+- workflow library management, publication, and recording persistence live in `wrapper/api/src/routes/workflows/`
 - dashboard/editor iframe coordination lives in `wrapper/shared/editor-bridge.ts`
 - shared browser/backend contracts live in `wrapper/shared/`
 - runtime library management lives under `wrapper/api/src/runtime-libraries/`
@@ -49,6 +49,8 @@ Key environment variables (all optional with defaults):
 | `RIVET_RUNTIME_LIBRARIES_ROOT` | Runtime library storage | `.data/runtime-libraries` (dev) or `/data/runtime-libraries` |
 | `RIVET_PORT` | External port for Docker stack | `8080` |
 | `RIVET_KEY` | Shared auth secret | (none) |
+
+In Docker-based modes, `RIVET_WORKFLOWS_HOST_PATH` controls the host bind mount that backs the workflow root. Both `.published/` snapshots and `.recordings/` execution bundles live inside that tree. `RIVET_RUNTIME_LIBS_HOST_PATH` similarly backs managed runtime library storage.
 
 ## Design rule
 

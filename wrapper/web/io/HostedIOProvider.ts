@@ -52,6 +52,23 @@ function getSuggestedProjectPath(defaultName: string): string {
   return `${directory}${defaultName}`;
 }
 
+async function pickSingleFile(options: { accept?: string } = {}): Promise<File | null> {
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+
+    if (options.accept) {
+      input.accept = options.accept;
+    }
+
+    input.onchange = () => {
+      resolve(input.files?.[0] ?? null);
+    };
+
+    input.click();
+  });
+}
+
 export class HostedIOProvider implements IOProvider {
   static isSupported(): boolean {
     return true;
@@ -129,6 +146,14 @@ export class HostedIOProvider implements IOProvider {
         return;
       }
     }
+
+    const file = await pickSingleFile({ accept: '.rivet-graph' });
+    if (!file) {
+      return;
+    }
+
+    const text = await file.text();
+    callback(deserializeGraph(text));
   }
 
   async loadProjectData(
@@ -198,6 +223,14 @@ export class HostedIOProvider implements IOProvider {
         return;
       }
     }
+
+    const file = await pickSingleFile({ accept: '.rivet-recording' });
+    if (!file) {
+      return;
+    }
+
+    const text = await file.text();
+    callback({ recorder: ExecutionRecorder.deserializeFromString(text), path: file.name });
   }
 
   async openDirectory(): Promise<string | string[] | null> {
@@ -243,6 +276,14 @@ export class HostedIOProvider implements IOProvider {
         return;
       }
     }
+
+    const file = await pickSingleFile();
+    if (!file) {
+      return;
+    }
+
+    const text = await file.text();
+    callback(text, file.name);
   }
 
   async readFileAsBinary(callback: (data: Uint8Array, fileName: string) => void): Promise<void> {
@@ -257,6 +298,14 @@ export class HostedIOProvider implements IOProvider {
         return;
       }
     }
+
+    const file = await pickSingleFile();
+    if (!file) {
+      return;
+    }
+
+    const buffer = await file.arrayBuffer();
+    callback(new Uint8Array(buffer), file.name);
   }
 
   async readPathAsString(path: string): Promise<string> {

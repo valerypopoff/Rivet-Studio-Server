@@ -18,6 +18,15 @@ test('editor bridge accepts valid dashboard commands', () => {
   );
   assert.equal(
     isDashboardToEditorCommand({
+      type: 'open-recording',
+      projectPath: '/tmp/replay.rivet-project',
+      recordingPath: '/tmp/run.rivet-recording',
+      replaceCurrent: false,
+    }),
+    true,
+  );
+  assert.equal(
+    isDashboardToEditorCommand({
       type: 'workflow-paths-moved',
       moves: [{ fromAbsolutePath: '/a', toAbsolutePath: '/b' }],
     }),
@@ -27,12 +36,20 @@ test('editor bridge accepts valid dashboard commands', () => {
 
 test('editor bridge rejects malformed messages', () => {
   assert.equal(isDashboardToEditorCommand({ type: 'open-project', path: '/tmp/example.rivet-project' }), false);
+  assert.equal(isDashboardToEditorCommand({ type: 'open-recording', projectPath: '/tmp/a' }), false);
   assert.equal(isEditorToDashboardEvent({ type: 'project-saved' }), false);
   assert.equal(isEditorToDashboardEvent({ type: 'unknown' }), false);
 });
 
 test('editor bridge accepts valid editor events', () => {
   assert.equal(isEditorToDashboardEvent({ type: 'editor-ready' }), true);
-  assert.equal(isEditorToDashboardEvent({ type: 'project-saved', path: '/tmp/example.rivet-project' }), true);
+  assert.equal(
+    isEditorToDashboardEvent({
+      type: 'project-saved',
+      path: '/tmp/example.rivet-project',
+      didChangePersistedState: true,
+    }),
+    true,
+  );
   assert.equal(isEditorToDashboardEvent({ type: 'open-project-count-changed', count: 2 }), true);
 });

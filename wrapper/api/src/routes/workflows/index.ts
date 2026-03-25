@@ -9,6 +9,7 @@ import {
   PROJECT_EXTENSION,
 } from './fs-helpers.js';
 import { internalPublishedWorkflowsRouter, latestWorkflowsRouter, publishedWorkflowsRouter } from './execution.js';
+import { listWorkflowRecordings } from './recordings.js';
 import { listWorkflowFolders, listWorkflowProjects, moveWorkflowFolder, moveWorkflowProject } from './workflow-query.js';
 import {
   createWorkflowFolderItem,
@@ -67,6 +68,11 @@ workflowsRouter.get('/tree', asyncHandler(async (_req, res) => {
   const folders = await listWorkflowFolders(root);
   const projects = await listWorkflowProjects(root);
   res.json({ root, folders, projects });
+}));
+
+workflowsRouter.get('/recordings', asyncHandler(async (_req, res) => {
+  const root = await ensureWorkflowsRoot();
+  res.json(await listWorkflowRecordings(root));
 }));
 
 workflowsRouter.post('/move', validateBody(moveSchema), asyncHandler(async (req, res) => {

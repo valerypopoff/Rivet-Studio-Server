@@ -11,6 +11,7 @@ All message types live in `wrapper/shared/editor-bridge.ts`. Both sides import f
 | Type | Payload | When sent |
 |---|---|---|
 | `open-project` | `path`, `replaceCurrent` | User clicks a project in the sidebar or creates a new project |
+| `open-recording` | `projectPath`, `recordingPath`, `replaceCurrent` | User selects a recorded endpoint run from the recordings browser |
 | `save-project` | (none) | User presses Ctrl+S outside the iframe or clicks a save action |
 | `delete-workflow-project` | `path` | User confirms project deletion in settings modal |
 | `workflow-paths-moved` | `moves[]` | A rename or move operation changed one or more project paths on disk |
@@ -31,8 +32,9 @@ All message types live in `wrapper/shared/editor-bridge.ts`. Both sides import f
 1. Dashboard renders the iframe. The editor emits `editor-ready` once mounted.
 2. Any commands sent before `editor-ready` are buffered by `useEditorCommandQueue` and flushed when the editor signals readiness.
 3. The dashboard validates incoming messages with `isEditorToDashboardEvent()` and checks origin with `isValidBridgeOrigin()`. The editor does the same for its direction with `isDashboardToEditorCommand()`.
-4. On `project-saved`, the dashboard may optimistically update the workflow status for the saved project before the next tree refresh, but only when `didChangePersistedState` is `true`.
-5. If the iframe reloads (e.g. navigation), `onLoad` resets `editorReady` to `false`, re-enabling the buffer until the editor sends `editor-ready` again.
+4. `open-recording` opens the replay snapshot project and then loads the selected `.rivet-recording` file into the editor replay state.
+5. On `project-saved`, the dashboard may optimistically update the workflow status for the saved project before the next tree refresh, but only when `didChangePersistedState` is `true`.
+6. If the iframe reloads (e.g. navigation), `onLoad` resets `editorReady` to `false`, re-enabling the buffer until the editor sends `editor-ready` again.
 
 ## Key files
 

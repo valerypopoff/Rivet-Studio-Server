@@ -6,6 +6,7 @@ import { ActiveProjectSection } from './ActiveProjectSection';
 import { WorkflowFolderTree } from './WorkflowFolderTree';
 import { ProjectSettingsModal } from './ProjectSettingsModal';
 import { RuntimeLibrariesModal } from './RuntimeLibrariesModal';
+import { RunRecordingsModal } from './RunRecordingsModal';
 import {
   createWorkflowFolder,
   createWorkflowProject,
@@ -89,6 +90,7 @@ const updateSavedProjectStatusInFolders = (
 
 interface WorkflowLibraryPanelProps {
   onOpenProject: (path: string, options?: { replaceCurrent?: boolean }) => void;
+  onOpenRecording: (projectPath: string, recordingPath: string, options?: { replaceCurrent?: boolean }) => void;
   onSaveProject: () => void;
   onDeleteProject: (path: string) => void;
   onWorkflowPathsMoved: (moves: WorkflowProjectPathMove[]) => void;
@@ -103,6 +105,7 @@ interface WorkflowLibraryPanelProps {
 
 export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   onOpenProject,
+  onOpenRecording,
   onSaveProject,
   onDeleteProject,
   onWorkflowPathsMoved,
@@ -127,6 +130,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   const [selectedProjectPath, setSelectedProjectPath] = useState('');
   const [settingsModalProject, setSettingsModalProject] = useState<WorkflowProjectItem | null>(null);
   const [runtimeLibsOpen, setRuntimeLibsOpen] = useState(false);
+  const [runRecordingsOpen, setRunRecordingsOpen] = useState(false);
 
   const refresh = useCallback(async (showLoading = true) => {
     if (showLoading) {
@@ -619,6 +623,14 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
         >
           Runtime libraries
         </Button>
+        <Button
+          appearance="subtle"
+          className="panel-bottom-button project-settings-secondary-button button-size-m"
+          onClick={() => setRunRecordingsOpen(true)}
+          title="Browse workflow run recordings and load them into the editor"
+        >
+          Workflow runs
+        </Button>
       </div>
 
       {settingsModalOpen && settingsModalProject ? (
@@ -636,6 +648,14 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
       <RuntimeLibrariesModal
         isOpen={runtimeLibsOpen}
         onClose={() => setRuntimeLibsOpen(false)}
+      />
+      <RunRecordingsModal
+        isOpen={runRecordingsOpen}
+        onClose={() => setRunRecordingsOpen(false)}
+        onOpenRecording={(projectPath, recordingPath) => {
+          setRunRecordingsOpen(false);
+          onOpenRecording(projectPath, recordingPath);
+        }}
       />
     </div>
   );

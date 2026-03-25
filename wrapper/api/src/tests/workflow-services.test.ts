@@ -13,7 +13,9 @@ const workflowMutations = await import('../routes/workflows/workflow-mutations.j
 const workflowQuery = await import('../routes/workflows/workflow-query.js');
 const workflowFs = await import('../routes/workflows/fs-helpers.js');
 const workflowPublication = await import('../routes/workflows/publication.js');
+const workflowRecordings = await import('../routes/workflows/recordings.js');
 const workflowRoutes = await import('../routes/workflows/index.js');
+const rivetNode = await import('@ironclad/rivet-node');
 
 async function resetWorkflowsRoot() {
   await fs.rm(workflowsRoot, { recursive: true, force: true });
@@ -42,6 +44,46 @@ async function withWorkflowApiServer(run: (baseUrl: string) => Promise<void>) {
 
   try {
     await run(`http://127.0.0.1:${address.port}/workflows`);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve();
+      });
+    });
+  }
+}
+
+async function withWorkflowExecutionServer(
+  run: (urls: { apiBaseUrl: string; publishedBaseUrl: string; latestBaseUrl: string }) => Promise<void>,
+) {
+  const app = express();
+  app.use(express.json());
+  app.use('/api/workflows', workflowRoutes.workflowsRouter);
+  app.use('/workflows', workflowRoutes.publishedWorkflowsRouter);
+  app.use('/workflows-latest', workflowRoutes.latestWorkflowsRouter);
+
+  const server = http.createServer(app);
+  await new Promise<void>((resolve) => {
+    server.listen(0, '127.0.0.1', () => resolve());
+  });
+
+  const address = server.address();
+  if (!address || typeof address === 'string') {
+    throw new Error('Failed to resolve test server address');
+  }
+
+  try {
+    const port = address.port;
+    await run({
+      apiBaseUrl: `http://127.0.0.1:${port}/api/workflows`,
+      publishedBaseUrl: `http://127.0.0.1:${port}/workflows`,
+      latestBaseUrl: `http://127.0.0.1:${port}/workflows-latest`,
+    });
   } finally {
     await new Promise<void>((resolve, reject) => {
       server.close((error) => {
@@ -376,4 +418,143 @@ test('delete workflow project removes published snapshots', async () => {
   await workflowMutations.deleteWorkflowProjectItem(created.relativePath);
 
   assert.equal(await workflowFs.pathExists(publishedSnapshotPath), false);
+});
+
+test('published and latest workflow execution create replayable recordings that are listed over HTTP', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'Recorded');
+  await workflowMutations.publishWorkflowProjectItem(created.relativePath, {
+    endpointName: 'recorded-endpoint',
+  });
+
+  await withWorkflowExecutionServer(async ({ apiBaseUrl, publishedBaseUrl, latestBaseUrl }) => {
+    const publishedResponse = await fetch(`${publishedBaseUrl}/recorded-endpoint`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: 'published' }),
+    });
+    assert.equal(publishedResponse.ok, true);
+
+    const latestResponse = await fetch(`${latestBaseUrl}/recorded-endpoint`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: 'latest' }),
+    });
+    assert.equal(latestResponse.ok, true);
+
+    const recordingsResponse = await readJson<{
+      workflows: Array<{
+        project: { absolutePath: string; settings: { endpointName: string } };
+        recordings: Array<{
+          runKind: string;
+          status: string;
+          recordingPath: string;
+          replayProjectPath: string;
+        }>;
+      }>;
+    }>(await fetch(`${apiBaseUrl}/recordings`));
+
+    assert.equal(recordingsResponse.workflows.length, 1);
+    assert.equal(recordingsResponse.workflows[0]?.project.absolutePath, created.absolutePath);
+    assert.equal(recordingsResponse.workflows[0]?.project.settings.endpointName, 'recorded-endpoint');
+    assert.equal(recordingsResponse.workflows[0]?.recordings.length, 2);
+    assert.deepEqual(
+      recordingsResponse.workflows[0]?.recordings.map((recording) => recording.runKind).sort(),
+      ['latest', 'published'],
+    );
+    assert.deepEqual(
+      recordingsResponse.workflows[0]?.recordings.map((recording) => recording.status),
+      ['succeeded', 'succeeded'],
+    );
+
+    const sourceProject = await rivetNode.loadProjectFromFile(created.absolutePath);
+
+    for (const recording of recordingsResponse.workflows[0]!.recordings) {
+      assert.equal(await workflowFs.pathExists(recording.recordingPath), true);
+      assert.equal(await workflowFs.pathExists(recording.replayProjectPath), true);
+
+      const replayProject = await rivetNode.loadProjectFromFile(recording.replayProjectPath);
+      const serializedRecording = await fs.readFile(recording.recordingPath, 'utf8');
+      const recorder = rivetNode.ExecutionRecorder.deserializeFromString(serializedRecording);
+
+      assert.notEqual(replayProject.metadata.id, sourceProject.metadata.id);
+      assert.deepEqual(Object.keys(replayProject.graphs), Object.keys(sourceProject.graphs));
+      assert.ok(recorder.events.length > 0);
+    }
+  });
+});
+
+test('recordings list keeps once-published workflows after unpublish', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'RecordedHistory');
+  await workflowMutations.publishWorkflowProjectItem(created.relativePath, {
+    endpointName: 'recorded-history-endpoint',
+  });
+
+  await withWorkflowExecutionServer(async ({ apiBaseUrl, publishedBaseUrl }) => {
+    const publishedResponse = await fetch(`${publishedBaseUrl}/recorded-history-endpoint`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message: 'published' }),
+    });
+    assert.equal(publishedResponse.ok, true);
+
+    await workflowMutations.unpublishWorkflowProjectItem(created.relativePath);
+
+    const recordingsResponse = await readJson<{
+      workflows: Array<{
+        project: { absolutePath: string; settings: { status: string; endpointName: string } };
+        recordings: Array<{ runKind: string; status: string }>;
+      }>;
+    }>(await fetch(`${apiBaseUrl}/recordings`));
+
+    assert.equal(recordingsResponse.workflows.length, 1);
+    assert.equal(recordingsResponse.workflows[0]?.project.absolutePath, created.absolutePath);
+    assert.equal(recordingsResponse.workflows[0]?.project.settings.status, 'unpublished');
+    assert.equal(recordingsResponse.workflows[0]?.project.settings.endpointName, 'recorded-history-endpoint');
+    assert.equal(recordingsResponse.workflows[0]?.recordings.length, 1);
+    assert.equal(recordingsResponse.workflows[0]?.recordings[0]?.runKind, 'published');
+    assert.equal(recordingsResponse.workflows[0]?.recordings[0]?.status, 'succeeded');
+  });
+});
+
+test('workflow recording persistence snapshots the executed in-memory project state', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'Stable');
+  const [loadedProject, attachedData] = await rivetNode.loadProjectAndAttachedDataFromFile(created.absolutePath);
+  const mutatedContents = (await fs.readFile(created.absolutePath, 'utf8')).replace('Stable', 'Mutated');
+
+  await fs.writeFile(created.absolutePath, mutatedContents, 'utf8');
+
+  await workflowRecordings.persistWorkflowExecutionRecording({
+    root: workflowsRoot,
+    sourceProject: loadedProject,
+    sourceProjectPath: created.absolutePath,
+    executedProject: loadedProject,
+    executedAttachedData: attachedData,
+    executedDatasets: [],
+    endpointName: 'stable-endpoint',
+    recordingSerialized: JSON.stringify({
+      version: 1,
+      recording: {
+        recordingId: 'recording-id',
+        events: [],
+        startTs: 0,
+        finishTs: 0,
+      },
+      assets: {},
+      strings: {},
+    }),
+    runKind: 'latest',
+    status: 'succeeded',
+    durationMs: 1,
+  });
+
+  const recordingsRoot = workflowFs.getWorkflowProjectRecordingsRoot(workflowsRoot, loadedProject.metadata.id);
+  const bundles = await fs.readdir(recordingsRoot);
+  assert.equal(bundles.length, 1);
+
+  const replayProjectPath = workflowFs.getWorkflowRecordingReplayProjectPath(path.join(recordingsRoot, bundles[0]!));
+  const replayProject = await rivetNode.loadProjectFromFile(replayProjectPath);
+  const mutatedProject = await rivetNode.loadProjectFromFile(created.absolutePath);
+
+  assert.equal(replayProject.metadata.title, 'Stable');
+  assert.equal(mutatedProject.metadata.title, 'Mutated');
 });

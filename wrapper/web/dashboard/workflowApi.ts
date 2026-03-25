@@ -4,6 +4,7 @@ import type {
   WorkflowMoveResponse,
   WorkflowProjectItem,
   WorkflowProjectSettingsDraft,
+  WorkflowRecordingListResponse,
   WorkflowTreeResponse,
 } from './types';
 
@@ -37,6 +38,13 @@ export async function fetchWorkflowTree(): Promise<WorkflowTreeResponse> {
     cache: 'no-store',
   });
   return parseJsonResponse<WorkflowTreeResponse>(response);
+}
+
+export async function fetchWorkflowRecordings(): Promise<WorkflowRecordingListResponse> {
+  const response = await fetch(`${API}/workflows/recordings`, {
+    cache: 'no-store',
+  });
+  return parseJsonResponse<WorkflowRecordingListResponse>(response);
 }
 
 export async function createWorkflowFolder(name: string): Promise<WorkflowFolderItem> {

@@ -11,6 +11,10 @@ The stack exposes four important request families through nginx:
 - `${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH:-/workflows}/*` serves the last published workflow snapshot
 - `${RIVET_LATEST_WORKFLOWS_BASE_PATH:-/workflows-latest}/*` serves the latest working version of a published workflow
 
+Within `/api/*`, the recordings browser uses:
+
+- `GET /api/workflows/recordings` to list workflows plus stored execution recordings for the dashboard UI
+
 Websocket routes are split as follows:
 
 - `/ws/executor/*` proxies to the executor service for editor-driven Node execution
@@ -56,6 +60,8 @@ There is also an internal API-only route:
 
 That route is not exposed through nginx and intentionally skips bearer auth so trusted intra-stack callers can use `http://api/internal/workflows/:endpointName`.
 
+All three execution handlers (`/workflows`, `/workflows-latest`, and `/internal/workflows`) persist execution recordings under the workflow root. Auth changes who can execute a workflow, not whether the run is recorded.
+
 ## Latest debugger model
 
 Latest-workflow remote debugging is intentionally opt-in and separate from the executor websocket:
@@ -69,3 +75,5 @@ This means the two debug/execution paths are different:
 
 - editor Node execution uses the executor websocket
 - endpoint remote debugging uses the API-hosted latest debugger websocket
+
+Latest-workflow runs still persist normal recording bundles even when the remote debugger is enabled.

@@ -8,12 +8,17 @@ import { badRequest, conflict } from '../../utils/httpError.js';
 export const PROJECT_EXTENSION = '.rivet-project';
 export const PROJECT_SETTINGS_SUFFIX = '.wrapper-settings.json';
 export const PUBLISHED_SNAPSHOTS_DIR = '.published';
+export const WORKFLOW_RECORDINGS_DIR = '.recordings';
 export const WORKFLOW_DATASET_SUFFIX = '.rivet-data';
+export const WORKFLOW_RECORDING_FILE_NAME = 'recording.rivet-recording';
+export const WORKFLOW_RECORDING_METADATA_FILE_NAME = 'metadata.json';
+export const WORKFLOW_RECORDING_PROJECT_FILE_NAME = `replay${PROJECT_EXTENSION}`;
 
 export async function ensureWorkflowsRoot(): Promise<string> {
   const root = getWorkflowsRoot();
   await fs.mkdir(root, { recursive: true });
   await fs.mkdir(getPublishedSnapshotsRoot(root), { recursive: true });
+  await fs.mkdir(getWorkflowRecordingsRoot(root), { recursive: true });
   return root;
 }
 
@@ -126,6 +131,34 @@ export function getPublishedSnapshotsRoot(root: string): string {
   return validatePath(path.join(root, PUBLISHED_SNAPSHOTS_DIR));
 }
 
+export function getWorkflowRecordingsRoot(root: string): string {
+  return validatePath(path.join(root, WORKFLOW_RECORDINGS_DIR));
+}
+
+export function getWorkflowProjectRecordingsRoot(root: string, projectMetadataId: string): string {
+  return validatePath(path.join(getWorkflowRecordingsRoot(root), projectMetadataId));
+}
+
+export function getWorkflowRecordingBundlePath(root: string, projectMetadataId: string, recordingId: string): string {
+  return validatePath(path.join(getWorkflowProjectRecordingsRoot(root, projectMetadataId), recordingId));
+}
+
+export function getWorkflowRecordingPath(bundlePath: string): string {
+  return validatePath(path.join(bundlePath, WORKFLOW_RECORDING_FILE_NAME));
+}
+
+export function getWorkflowRecordingMetadataPath(bundlePath: string): string {
+  return validatePath(path.join(bundlePath, WORKFLOW_RECORDING_METADATA_FILE_NAME));
+}
+
+export function getWorkflowRecordingReplayProjectPath(bundlePath: string): string {
+  return validatePath(path.join(bundlePath, WORKFLOW_RECORDING_PROJECT_FILE_NAME));
+}
+
+export function getWorkflowRecordingReplayDatasetPath(bundlePath: string): string {
+  return getWorkflowDatasetPath(getWorkflowRecordingReplayProjectPath(bundlePath));
+}
+
 export function getPublishedWorkflowSnapshotPath(root: string, snapshotId: string): string {
   return validatePath(path.join(getPublishedSnapshotsRoot(root), `${snapshotId}${PROJECT_EXTENSION}`));
 }
@@ -206,6 +239,17 @@ export async function deleteProjectWithSidecars(projectPath: string): Promise<vo
 
   if (await pathExists(sidecars.settings)) {
     await fs.rm(sidecars.settings, { force: false });
+  }
+}
+
+export async function deleteWorkflowProjectRecordings(root: string, projectMetadataId: string | null | undefined): Promise<void> {
+  if (!projectMetadataId) {
+    return;
+  }
+
+  const recordingsRoot = getWorkflowProjectRecordingsRoot(root, projectMetadataId);
+  if (await pathExists(recordingsRoot)) {
+    await fs.rm(recordingsRoot, { recursive: true, force: false });
   }
 }
 

@@ -8,8 +8,11 @@ Workflows can be published as HTTP endpoints. This document explains the interna
 - **Settings sidecar** (`*.rivet-project.wrapper-settings.json`): stores endpoint name, publication hash, and snapshot ID
 - **Published snapshot** (`.published/<id>.rivet-project`): frozen copy of the project at time of publish
 - **Dataset sidecar** (`*.rivet-data`): optional data associated with a project, published alongside it
+- **Execution recording bundle** (`.recordings/<projectMetadataId>/<recordingId>/`): replayable snapshot of one endpoint execution
 
 Projects live under the workflow root configured by `RIVET_WORKFLOWS_ROOT` in the API container and backed by `RIVET_WORKFLOWS_HOST_PATH` on the host.
+
+Published snapshots and execution recordings both live inside that same workflow tree. There is currently no separate recordings root or host-path setting, so Docker deployments store recordings under the host workflow mount selected by `RIVET_WORKFLOWS_HOST_PATH`.
 
 ## Status model
 
@@ -57,6 +60,46 @@ Both look up the project by scanning all settings sidecars for a matching endpoi
 
 Fully unpublished projects are not served by either public route family.
 
+## Execution recordings
+
+Every endpoint execution persists a recording bundle that the hosted editor can later load and replay:
+
+- published endpoint runs (`/workflows/:endpointName`)
+- latest endpoint runs (`/workflows-latest/:endpointName`)
+- internal published-only runs (`/internal/workflows/:endpointName`)
+
+Recording persistence runs in `finally`, so both successful and failed executions are captured.
+
+Each bundle stores:
+
+```text
+.recordings/
+  <sourceProjectMetadataId>/
+    <recordingId>/
+      metadata.json
+      recording.rivet-recording
+      replay.rivet-project
+      replay.rivet-data        # only when datasets were present
+```
+
+- `recording.rivet-recording` is the serialized `ExecutionRecorder` output
+- `replay.rivet-project` is an immutable replay snapshot of the executed project state
+- `replay.rivet-data` is the dataset snapshot, when present
+- `metadata.json` stores run timestamp, endpoint, run kind (`published` or `latest`), status, duration, and source-path metadata
+
+Bundles are keyed by the source project's metadata ID, so recordings stay attached across project renames and moves. Project deletion removes that recording history as part of workflow cleanup.
+
+## Recording browser
+
+The dashboard exposes a `Run recordings` action next to `Runtime libraries`.
+
+That browser:
+
+- lists currently published workflows and workflows that still have recording history from earlier publication
+- sorts workflows by their most recent recorded run
+- opens the replay snapshot plus `recording.rivet-recording` back into the hosted editor
+- supports filtering runs down to failed executions only
+
 ## Auth model
 
 Public execution routes can be protected independently of the browser UI:
@@ -72,15 +115,16 @@ That route is mounted directly on the API service, is not exposed through nginx,
 
 ## Sidecar lifecycle
 
-When a project is renamed, moved, or deleted, its sidecars travel with it:
+When a project is renamed, moved, or deleted, its sidecars and associated publication artifacts stay consistent:
 
 - **Rename/move**: `moveProjectWithSidecars()` renames the project, `.rivet-data`, and `.wrapper-settings.json` atomically with rollback on failure.
-- **Delete**: `deleteProjectWithSidecars()` removes the project, both sidecars, and any published snapshot.
+- **Delete**: `deleteProjectWithSidecars()` removes the project and sidecars, while workflow deletion orchestration also removes published snapshots and stored recordings.
 
 Published endpoint names preserve the casing the user entered in settings, while endpoint lookup remains case-insensitive.
 
 ## Key files
 
 - `wrapper/api/src/routes/workflows/publication.ts` - publication logic, hash computation, endpoint lookup
+- `wrapper/api/src/routes/workflows/recordings.ts` - recording persistence, listing, and cleanup helpers
 - `wrapper/api/src/routes/workflows/workflow-mutations.ts` - publish, unpublish, delete orchestration
 - `wrapper/api/src/routes/workflows/fs-helpers.ts` - sidecar path helpers, move/delete with sidecars

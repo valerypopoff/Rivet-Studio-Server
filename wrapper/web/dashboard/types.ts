@@ -6,6 +6,13 @@ import type {
   WorkflowProjectSettingsDraft,
   WorkflowProjectStatus,
 } from '../../shared/workflow-types';
+import type {
+  WorkflowRecordingGroup,
+  WorkflowRecordingItem,
+  WorkflowRecordingListResponse,
+  WorkflowRecordingRunKind,
+  WorkflowRecordingStatus,
+} from '../../shared/workflow-recording-types';
 
 export type {
   WorkflowFolderItem,
@@ -14,6 +21,11 @@ export type {
   WorkflowProjectSettings,
   WorkflowProjectSettingsDraft,
   WorkflowProjectStatus,
+  WorkflowRecordingGroup,
+  WorkflowRecordingItem,
+  WorkflowRecordingListResponse,
+  WorkflowRecordingRunKind,
+  WorkflowRecordingStatus,
 };
 
 export type WorkflowMoveResponse = {
