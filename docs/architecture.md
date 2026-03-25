@@ -16,7 +16,9 @@
 
 ## Core wrapper seams
 
-- workflow library management lives in `wrapper/api/src/routes/workflows/`
+- workflow library management, publication, and recording persistence live in `wrapper/api/src/routes/workflows/`
+- recording metadata indexing lives in `wrapper/api/src/routes/workflows/recordings-db.ts`
+- recording shared types and virtual replay path helpers live in `wrapper/shared/workflow-recording-types.ts`
 - dashboard/editor iframe coordination lives in `wrapper/shared/editor-bridge.ts`
 - shared browser/backend contracts live in `wrapper/shared/`
 - runtime library management lives under `wrapper/api/src/runtime-libraries/`
@@ -47,8 +49,33 @@ Key environment variables (all optional with defaults):
 | `RIVET_WORKSPACE_ROOT` | Root directory for workflow project files | repo root (dev) or `/data/workspace` |
 | `RIVET_APP_DATA_ROOT` | App-level persistent data | `.data/rivet-app` (dev) or `/data/rivet-app` |
 | `RIVET_RUNTIME_LIBRARIES_ROOT` | Runtime library storage | `.data/runtime-libraries` (dev) or `/data/runtime-libraries` |
+| `RIVET_RECORDINGS_ENABLED` | Enable workflow endpoint recording persistence | `true` |
+| `RIVET_RECORDINGS_COMPRESS` | Recording blob encoding (`gzip` or `identity`) | `gzip` |
+| `RIVET_RECORDINGS_GZIP_LEVEL` | Gzip compression level for recording blobs | `4` |
+| `RIVET_RECORDINGS_INCLUDE_PARTIAL_OUTPUTS` | Include partial node outputs in stored recordings | `false` |
+| `RIVET_RECORDINGS_INCLUDE_TRACE` | Include trace data in stored recordings | `false` |
+| `RIVET_RECORDINGS_DATASET_MODE` | Dataset snapshot mode (`none` or `all`) | `none` |
+| `RIVET_RECORDINGS_RETENTION_DAYS` | Automatic retention window for recordings | `14` |
+| `RIVET_RECORDINGS_MAX_RUNS_PER_ENDPOINT` | Per-endpoint run cap before oldest recordings are deleted (`0` disables) | `0` |
+| `RIVET_RECORDINGS_MAX_TOTAL_BYTES` | Global compressed-byte cap across all recordings (`0` disables) | `0` |
+| `RIVET_RECORDINGS_MAX_PENDING_WRITES` | Background recording write queue size before new recordings are dropped | `100` |
 | `RIVET_PORT` | External port for Docker stack | `8080` |
 | `RIVET_KEY` | Shared auth secret | (none) |
+
+In Docker-based modes:
+
+- `RIVET_WORKFLOWS_HOST_PATH` backs the workflow root and therefore stores live projects, `.published/` snapshots, and `.recordings/` blob bundles
+- `RIVET_RUNTIME_LIBS_HOST_PATH` backs managed runtime library storage
+- `RIVET_APP_DATA_ROOT` stores app-level state such as the SQLite recording index (`recordings.sqlite`)
+
+The current recording design is hybrid:
+
+- compressed replay artifacts live under the workflow tree for simple filesystem cleanup and portability
+- a SQLite index under the app-data root stores workflow/run metadata, stats, and pagination state for the dashboard UI
+
+Recorded run verdicts are stored as `succeeded`, `failed`, or `suspicious`. The dashboard's `Bad only` filter maps to `failed + suspicious`, and deleting a single run removes both the blob bundle and its SQLite metadata row.
+
+The API container now relies on Node's built-in `node:sqlite` module for that index, so the container/runtime baseline is Node 24+.
 
 ## Design rule
 

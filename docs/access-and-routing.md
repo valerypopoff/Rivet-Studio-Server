@@ -11,6 +11,18 @@ The stack exposes four important request families through nginx:
 - `${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH:-/workflows}/*` serves the last published workflow snapshot
 - `${RIVET_LATEST_WORKFLOWS_BASE_PATH:-/workflows-latest}/*` serves the latest working version of a published workflow
 
+Within `/api/*`, the recordings browser uses:
+
+- `GET /api/workflows/tree` to list workflow folders and projects for the main sidebar
+- `GET /api/workflows/recordings/workflows` to list workflows that are published now or still have recording history
+- `GET /api/workflows/recordings/workflows/:workflowId/runs?page=1&pageSize=20&status=all|failed` to page through stored runs for one workflow, where `status=failed` returns both failed and suspicious runs
+- `GET /api/workflows/recordings/:recordingId/recording` to load the serialized `ExecutionRecorder` payload
+- `GET /api/workflows/recordings/:recordingId/replay-project` to load the replay project snapshot
+- `GET /api/workflows/recordings/:recordingId/replay-dataset` to load the replay dataset snapshot when present
+- `DELETE /api/workflows/recordings/:recordingId` to remove one stored run and its replay bundle
+
+`GET /api/workflows/recordings` remains as a compatibility alias for the workflow-list response, but the dashboard uses the more explicit `/recordings/workflows` route family.
+
 Websocket routes are split as follows:
 
 - `/ws/executor/*` proxies to the executor service for editor-driven Node execution
@@ -56,6 +68,10 @@ There is also an internal API-only route:
 
 That route is not exposed through nginx and intentionally skips bearer auth so trusted intra-stack callers can use `http://api/internal/workflows/:endpointName`.
 
+All three execution handlers (`/workflows`, `/workflows-latest`, and `/internal/workflows`) persist execution recordings under the workflow root. Auth changes who can execute a workflow, not whether the run is recorded.
+
+Recording persistence is intentionally best-effort. Endpoint responses are sent first, then recording writes are queued in the background. Under sustained write pressure the queue can drop recordings so endpoint execution is not slowed or blocked.
+
 ## Latest debugger model
 
 Latest-workflow remote debugging is intentionally opt-in and separate from the executor websocket:
@@ -69,3 +85,5 @@ This means the two debug/execution paths are different:
 
 - editor Node execution uses the executor websocket
 - endpoint remote debugging uses the API-hosted latest debugger websocket
+
+Latest-workflow runs still persist normal recording bundles even when the remote debugger is enabled.

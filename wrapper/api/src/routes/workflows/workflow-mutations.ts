@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
+import { loadProjectFromFile } from '@ironclad/rivet-node';
 
 import { validatePath } from '../../security.js';
 import { conflict } from '../../utils/httpError.js';
@@ -26,6 +27,7 @@ import {
   writePublishedWorkflowSnapshot,
   writeStoredWorkflowProjectSettings,
 } from './publication.js';
+import { deleteWorkflowRecordingsBySourceProjectPath, deleteWorkflowRecordingsByWorkflowId } from './recordings.js';
 import { getWorkflowFolder, getWorkflowProject } from './workflow-query.js';
 
 export async function createWorkflowFolderItem(name: unknown, parentRelativePath: unknown) {
@@ -170,6 +172,11 @@ export async function deleteWorkflowProjectItem(relativePath: unknown) {
 
   const projectName = path.basename(projectPath, PROJECT_EXTENSION);
   const existingSettings = await readStoredWorkflowProjectSettings(projectPath, projectName);
+  const projectMetadataId = await loadProjectFromFile(projectPath)
+    .then((project) => project.metadata.id ?? null)
+    .catch(() => null);
   await deletePublishedWorkflowSnapshot(root, existingSettings.publishedSnapshotId);
   await deleteProjectWithSidecars(projectPath);
+  await deleteWorkflowRecordingsByWorkflowId(root, projectMetadataId);
+  await deleteWorkflowRecordingsBySourceProjectPath(root, projectPath);
 }

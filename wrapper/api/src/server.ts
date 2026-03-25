@@ -14,13 +14,15 @@ import { reconcileRuntimeLibraries } from './runtime-libraries/startup.js';
 import { initializeLatestWorkflowRemoteDebugger } from './latestWorkflowRemoteDebugger.js';
 import { LATEST_WORKFLOWS_BASE_PATH, PUBLISHED_WORKFLOWS_BASE_PATH } from './workflowEndpointPaths.js';
 import { requireAuth } from './middleware/auth.js';
+import { ensureWorkflowsRoot } from './routes/workflows/fs-helpers.js';
+import { initializeWorkflowRecordingStorage } from './routes/workflows/recordings.js';
 
 const app = express();
 const server = createServer(app);
 const PORT = parseInt(process.env.PORT ?? '3100', 10);
 
 app.use(cors({ origin: true, credentials: true }));
-app.use(express.json({ limit: '100mb' }));
+app.use(express.json({ limit: '100mb', strict: false }));
 app.use(express.urlencoded({ extended: false }));
 
 app.get('/healthz', (_req, res) => {
@@ -68,4 +70,10 @@ server.listen(PORT, () => {
   reconcileRuntimeLibraries().catch((err) => {
     console.error('[runtime-libraries] Startup reconciliation failed:', err);
   });
+
+  ensureWorkflowsRoot()
+    .then((root) => initializeWorkflowRecordingStorage(root))
+    .catch((err) => {
+      console.error('[workflow-recordings] Startup reconciliation failed:', err);
+    });
 });

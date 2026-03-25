@@ -1,9 +1,9 @@
 import { type FC, useEffect, useRef } from 'react';
 import { useOpenWorkflowProject } from './useOpenWorkflowProject';
-import { getError } from '@ironclad/rivet-core';
+import { ExecutionRecorder, getError } from '@ironclad/rivet-core';
 import { useLoadProject } from '../../../rivet/packages/app/src/hooks/useLoadProject';
 import { useSaveProject } from '../../../rivet/packages/app/src/hooks/useSaveProject';
-import { useAtom, useAtomValue } from 'jotai';
+import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import {
   loadedProjectState,
   type OpenedProjectInfo,
@@ -11,12 +11,15 @@ import {
   openedProjectsState,
   projectState,
 } from '../../../rivet/packages/app/src/state/savedGraphs';
+import { loadedRecordingState, selectedExecutorState } from '../../../rivet/packages/app/src/state/execution';
 import type { WorkflowProjectPathMove } from './types';
 import {
   isDashboardToEditorCommand,
   isValidBridgeOrigin,
   postMessageToDashboard,
 } from '../../shared/editor-bridge';
+import { getWorkflowRecordingVirtualProjectPath } from '../../shared/workflow-recording-types';
+import { fetchWorkflowRecordingArtifactText } from './workflowApi';
 
 const isWindowsPlatform = typeof navigator !== 'undefined' && /Win/.test(navigator.platform ?? '');
 const isSaveShortcutEvent = (event: KeyboardEvent) =>
@@ -24,6 +27,20 @@ const isSaveShortcutEvent = (event: KeyboardEvent) =>
   !event.altKey &&
   !event.shiftKey &&
   (event.code === 'KeyS' || event.key.toLowerCase() === 's');
+
+function getRecordingStartGraphId(recorder: ExecutionRecorder): string | undefined {
+  for (const event of recorder.events) {
+    if (event.type === 'start') {
+      return event.data.startGraph;
+    }
+
+    if (event.type === 'graphStart') {
+      return event.data.graphId;
+    }
+  }
+
+  return undefined;
+}
 
 export const EditorMessageBridge: FC = () => {
   const openProject = useOpenWorkflowProject();
@@ -33,6 +50,8 @@ export const EditorMessageBridge: FC = () => {
   const [openedProjects, setOpenedProjects] = useAtom(openedProjectsState);
   const [loadedProject, setLoadedProject] = useAtom(loadedProjectState);
   const currentProject = useAtomValue(projectState);
+  const setLoadedRecording = useSetAtom(loadedRecordingState);
+  const setSelectedExecutor = useSetAtom(selectedExecutorState);
   const openedProjectIds = projects.openedProjectsSortedIds;
   const openProjectRef = useRef(openProject);
   const loadProjectRef = useRef(loadProject);
@@ -51,15 +70,14 @@ export const EditorMessageBridge: FC = () => {
 
   useEffect(() => {
     const handler = (event: Event) => {
-      const customEvent = event as CustomEvent<{ path?: string; didChangePersistedState?: boolean }>;
+      const customEvent = event as CustomEvent<{ path?: string }>;
       const savedPath = customEvent.detail?.path;
-      const didChangePersistedState = customEvent.detail?.didChangePersistedState;
 
-      if (!savedPath || didChangePersistedState == null) {
+      if (!savedPath) {
         return;
       }
 
-      postMessageToDashboard({ type: 'project-saved', path: savedPath, didChangePersistedState });
+      postMessageToDashboard({ type: 'project-saved', path: savedPath });
     };
 
     window.addEventListener('rivet-project-saved', handler as EventListener);
@@ -182,6 +200,7 @@ export const EditorMessageBridge: FC = () => {
         case 'open-project': {
           try {
             await openProjectRef.current(event.data.path, { replaceCurrent: Boolean(event.data.replaceCurrent) });
+            setLoadedRecording(null);
             postMessageToDashboard({ type: 'project-opened', path: event.data.path });
           } catch (error) {
             const message = getError(error).message;
@@ -191,12 +210,41 @@ export const EditorMessageBridge: FC = () => {
 
           break;
         }
+
+        case 'open-recording': {
+          try {
+            const serializedRecording = await fetchWorkflowRecordingArtifactText(event.data.recordingId, 'recording');
+            const recorder = ExecutionRecorder.deserializeFromString(serializedRecording);
+            const preferredGraphId = getRecordingStartGraphId(recorder);
+            const virtualProjectPath = getWorkflowRecordingVirtualProjectPath(event.data.recordingId);
+
+            await openProjectRef.current(virtualProjectPath, {
+              replaceCurrent: Boolean(event.data.replaceCurrent),
+              preferredGraphId,
+            });
+            setSelectedExecutor('browser');
+            setLoadedRecording(null);
+
+            setLoadedRecording({
+              path: `${event.data.recordingId}.rivet-recording`,
+              recorder,
+            });
+
+            postMessageToDashboard({ type: 'project-opened', path: virtualProjectPath });
+          } catch (error) {
+            const message = getError(error).message;
+            console.error('Failed to open workflow recording:', error);
+            postMessageToDashboard({ type: 'project-open-failed', path: event.data.recordingId, error: message });
+          }
+
+          break;
+        }
       }
     };
 
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
-  }, [currentProject.metadata.id, loadedProject, openedProjectIds, openedProjects, setLoadedProject, setProjects]);
+  }, [currentProject.metadata.id, loadedProject, openedProjectIds, openedProjects, setLoadedProject, setLoadedRecording, setProjects, setSelectedExecutor]);
 
   useEffect(() => {
     const activeProjectInfo = openedProjects[currentProject.metadata.id];

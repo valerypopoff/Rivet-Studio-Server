@@ -42,7 +42,6 @@ export const DashboardPage: FC = () => {
   const [openProjectCount, setOpenProjectCount] = useState(0);
   const [projectSaveSequence, setProjectSaveSequence] = useState(0);
   const [lastSavedProjectPath, setLastSavedProjectPath] = useState('');
-  const [lastSavedProjectDidChangePersistedState, setLastSavedProjectDidChangePersistedState] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(() => parseInt(WORKFLOW_DASHBOARD_SIDEBAR_WIDTH, 10) || 300);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarResizing, setSidebarResizing] = useState(false);
@@ -54,6 +53,17 @@ export const DashboardPage: FC = () => {
   const handleOpenProject = useCallback((path: string, options?: { replaceCurrent?: boolean }) => {
     postEditorCommand({ type: 'open-project', path, replaceCurrent: Boolean(options?.replaceCurrent) });
   }, [postEditorCommand]);
+
+  const handleOpenRecording = useCallback(
+    (recordingId: string, options?: { replaceCurrent?: boolean }) => {
+      postEditorCommand({
+        type: 'open-recording',
+        recordingId,
+        replaceCurrent: Boolean(options?.replaceCurrent),
+      });
+    },
+    [postEditorCommand],
+  );
 
   const handleSaveProject = useCallback(() => {
     postEditorCommand({ type: 'save-project' });
@@ -190,7 +200,6 @@ export const DashboardPage: FC = () => {
           break;
         case 'project-saved':
           setLastSavedProjectPath(event.data.path);
-          setLastSavedProjectDidChangePersistedState(event.data.didChangePersistedState);
           setProjectSaveSequence((prev) => prev + 1);
           break;
         case 'project-open-failed':
@@ -250,6 +259,7 @@ export const DashboardPage: FC = () => {
         <aside className="dashboard-sidebar">
           <WorkflowLibraryPanel
             onOpenProject={handleOpenProject}
+            onOpenRecording={handleOpenRecording}
             onSaveProject={handleSaveProject}
             onDeleteProject={handleDeleteProject}
             onWorkflowPathsMoved={handleWorkflowPathsMoved}
@@ -258,7 +268,6 @@ export const DashboardPage: FC = () => {
             editorReady={editorReady}
             projectSaveSequence={projectSaveSequence}
             lastSavedProjectPath={lastSavedProjectPath}
-            lastSavedProjectDidChangePersistedState={lastSavedProjectDidChangePersistedState}
             onCollapse={openProjectCount === 0 ? undefined : handleCollapseSidebar}
           />
           <div className="dashboard-sidebar-resizer" role="separator" aria-orientation="vertical" aria-label="Resize folders pane" />

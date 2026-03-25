@@ -141,8 +141,8 @@ async function main() {
     config: [`${composeBase} config`],
     ps: [`${composeBase} ps`],
     logs: [`${composeBase} logs -f --tail=120 ${diagnosticServices}`],
-    dev: [`${composeBase} up -d --wait --wait-timeout ${waitTimeoutSeconds}`],
-    recreate: [`${composeBase} up -d --force-recreate --wait --wait-timeout ${waitTimeoutSeconds}`],
+    dev: [`${composeBase} up -d --build --wait --wait-timeout ${waitTimeoutSeconds}`],
+    recreate: [`${composeBase} up -d --build --force-recreate --wait --wait-timeout ${waitTimeoutSeconds}`],
   };
 
   const commands = commandsByAction[action];

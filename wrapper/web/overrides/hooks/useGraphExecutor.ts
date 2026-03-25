@@ -3,7 +3,7 @@
 
 import { useEffect } from 'react';
 import { useAtomValue } from 'jotai';
-import { selectedExecutorState } from '../../../../rivet/packages/app/src/state/execution';
+import { loadedRecordingState, selectedExecutorState } from '../../../../rivet/packages/app/src/state/execution';
 import { useExecutorSidecar } from './useExecutorSidecar';
 import { useLocalExecutor } from '../../../../rivet/packages/app/src/hooks/useLocalExecutor';
 import { useRemoteExecutor } from './useRemoteExecutor';
@@ -18,16 +18,18 @@ import { RIVET_EXECUTOR_WS_URL } from '../../../shared/hosted-env';
  */
 export function useGraphExecutor() {
   const selectedExecutor = useAtomValue(selectedExecutorState);
+  const loadedRecording = useAtomValue(loadedRecordingState);
   const localExecutor = useLocalExecutor();
   const remoteExecutor = useRemoteExecutor();
+  const shouldUseRemoteExecutor = selectedExecutor === 'nodejs' && !loadedRecording;
 
-  useExecutorSidecar({ enabled: selectedExecutor === 'nodejs' });
+  useExecutorSidecar({ enabled: shouldUseRemoteExecutor });
 
   // In hosted mode, executor is determined by the user's selection — not by WS connection state.
-  const executor = selectedExecutor === 'nodejs' ? remoteExecutor : localExecutor;
+  const executor = shouldUseRemoteExecutor ? remoteExecutor : localExecutor;
 
   useEffect(() => {
-    if (selectedExecutor === 'nodejs') {
+    if (shouldUseRemoteExecutor) {
       remoteExecutor.remoteDebugger.connect(RIVET_EXECUTOR_WS_URL);
     } else {
       remoteExecutor.remoteDebugger.disconnect();
@@ -37,7 +39,7 @@ export function useGraphExecutor() {
       remoteExecutor.remoteDebugger.disconnect();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedExecutor]);
+  }, [shouldUseRemoteExecutor]);
 
   return {
     tryRunGraph: executor.tryRunGraph,

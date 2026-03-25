@@ -9,10 +9,11 @@ import {
 import { useLoadProject } from '../../../rivet/packages/app/src/hooks/useLoadProject';
 import { ioProvider } from '../../../rivet/packages/app/src/utils/globals';
 import { toast } from 'react-toastify';
-import type { NodeGraph } from '@ironclad/rivet-core';
+import type { GraphId, NodeGraph } from '@ironclad/rivet-core';
 
 type OpenWorkflowProjectOptions = {
   replaceCurrent?: boolean;
+  preferredGraphId?: GraphId;
 };
 
 export function useOpenWorkflowProject() {
@@ -23,6 +24,7 @@ export function useOpenWorkflowProject() {
 
   return async (filePath: string, options?: OpenWorkflowProjectOptions) => {
     const replaceCurrent = options?.replaceCurrent ?? false;
+    const preferredGraphId = options?.preferredGraphId;
     const isSwitchingProjects = replaceCurrent && Boolean(loadedProject.path) && loadedProject.path !== filePath;
     const isLeavingUnsavedScratchProject = replaceCurrent && !loadedProject.path && Object.keys(projects.openedProjects).length > 0;
 
@@ -41,6 +43,10 @@ export function useOpenWorkflowProject() {
     const alreadyOpenByPath = openedProjects.find((projectInfo) => projectInfo.fsPath === filePath);
 
     if (alreadyOpenByPath) {
+      const preferredOpenedGraph = preferredGraphId && alreadyOpenByPath.project.graphs[preferredGraphId]
+        ? preferredGraphId
+        : alreadyOpenByPath.openedGraph;
+
       if (replaceCurrent && currentProject.metadata.id !== alreadyOpenByPath.project.metadata.id) {
         setProjects((prev: OpenedProjectsInfo) => {
           const nextOpenedProjects = { ...prev.openedProjects };
@@ -53,7 +59,10 @@ export function useOpenWorkflowProject() {
         });
       }
 
-      await loadProject(alreadyOpenByPath);
+      await loadProject({
+        ...alreadyOpenByPath,
+        openedGraph: preferredOpenedGraph,
+      });
       return;
     }
 
@@ -70,8 +79,9 @@ export function useOpenWorkflowProject() {
 
     const projectGraphs = Object.values(project.graphs) as NodeGraph[];
 
-    const openedGraph =
-      project.metadata.mainGraphId && project.graphs[project.metadata.mainGraphId]
+    const openedGraph = preferredGraphId && project.graphs[preferredGraphId]
+      ? preferredGraphId
+      : project.metadata.mainGraphId && project.graphs[project.metadata.mainGraphId]
         ? project.metadata.mainGraphId
         : projectGraphs
             .sort((a, b) => (a.metadata?.name ?? '').localeCompare(b.metadata?.name ?? ''))[0]?.metadata?.id;

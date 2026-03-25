@@ -2,6 +2,7 @@ import type { WorkflowProjectPathMove } from './workflow-types';
 
 export type DashboardToEditorCommand =
   | { type: 'open-project'; path: string; replaceCurrent: boolean }
+  | { type: 'open-recording'; recordingId: string; replaceCurrent: boolean }
   | { type: 'save-project' }
   | { type: 'delete-workflow-project'; path: string }
   | { type: 'workflow-paths-moved'; moves: WorkflowProjectPathMove[] };
@@ -12,7 +13,7 @@ export type EditorToDashboardEvent =
   | { type: 'project-open-failed'; path: string; error: string }
   | { type: 'active-project-path-changed'; path: string }
   | { type: 'open-project-count-changed'; count: number }
-  | { type: 'project-saved'; path: string; didChangePersistedState: boolean };
+  | { type: 'project-saved'; path: string };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   value != null && typeof value === 'object';
@@ -39,6 +40,8 @@ export function isDashboardToEditorCommand(value: unknown): value is DashboardTo
   switch (value.type) {
     case 'open-project':
       return typeof value.path === 'string' && typeof value.replaceCurrent === 'boolean';
+    case 'open-recording':
+      return typeof value.recordingId === 'string' && typeof value.replaceCurrent === 'boolean';
     case 'save-project':
       return true;
     case 'delete-workflow-project':
@@ -60,9 +63,8 @@ export function isEditorToDashboardEvent(value: unknown): value is EditorToDashb
       return true;
     case 'project-opened':
     case 'active-project-path-changed':
-      return typeof value.path === 'string';
     case 'project-saved':
-      return typeof value.path === 'string' && typeof value.didChangePersistedState === 'boolean';
+      return typeof value.path === 'string';
     case 'project-open-failed':
       return typeof value.path === 'string' && typeof value.error === 'string';
     case 'open-project-count-changed':

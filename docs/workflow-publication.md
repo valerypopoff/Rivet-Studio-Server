@@ -8,8 +8,14 @@ Workflows can be published as HTTP endpoints. This document explains the interna
 - **Settings sidecar** (`*.rivet-project.wrapper-settings.json`): stores endpoint name, publication hash, and snapshot ID
 - **Published snapshot** (`.published/<id>.rivet-project`): frozen copy of the project at time of publish
 - **Dataset sidecar** (`*.rivet-data`): optional data associated with a project, published alongside it
+- **Execution recording bundle** (`.recordings/<projectMetadataId>/<recordingId>/`): replayable snapshot of one endpoint execution
+- **Recording index** (`<RIVET_APP_DATA_ROOT>/recordings.sqlite`): SQLite metadata index used for listing, pagination, retention, and artifact lookup
 
 Projects live under the workflow root configured by `RIVET_WORKFLOWS_ROOT` in the API container and backed by `RIVET_WORKFLOWS_HOST_PATH` on the host.
+
+Published snapshots and recording blob artifacts both live inside that same workflow tree. There is still no separate recordings host-path setting, so Docker deployments store recording bundles under the host workflow mount selected by `RIVET_WORKFLOWS_HOST_PATH`.
+
+The metadata index is separate: it lives under `RIVET_APP_DATA_ROOT` as `recordings.sqlite`.
 
 ## Status model
 
@@ -23,7 +29,7 @@ Each project has a derived status computed from the settings sidecar:
 
 Status is derived by comparing `publishedStateHash` (stored at publish time) against a fresh hash of the current project file, dataset, and endpoint name. This avoids storing mutable status flags.
 
-In the dashboard UI, status still comes from the server as the source of truth, but saves use a small optimistic update for responsiveness: when a published project is saved, the sidebar can immediately flip it to `unpublished_changes` before the workflow tree refresh completes. That optimistic flip only happens when the editor reports that the save changed persisted `.rivet-project` or `.rivet-data` contents, so a no-op save should stay visually `published`.
+In the dashboard UI, status still comes from the server as the source of truth, but saves use a small optimistic update for responsiveness: when a published project is saved, the sidebar immediately flips it to `unpublished_changes` for that path and then reconciles against a fresh workflow-tree fetch.
 
 ## Publish flow
 
@@ -36,10 +42,9 @@ In the dashboard UI, status still comes from the server as the source of truth, 
 ## Save flow after publish
 
 1. User saves a published workflow in the editor.
-2. The editor compares the to-be-written project and dataset contents with the current on-disk contents.
-3. The editor emits `project-saved` with `didChangePersistedState=true` only when the persisted project or dataset bytes actually changed.
-4. The dashboard uses that flag to decide whether to optimistically mark the project as `unpublished_changes` before re-fetching the workflow tree.
-5. The dashboard then refreshes `/api/workflows/tree` with `cache: 'no-store'` so the server-derived status reconciles quickly.
+2. The editor writes the updated project and dataset files.
+3. The editor emits `project-saved` after a successful save, and the dashboard immediately marks published workflows as `unpublished_changes` before refreshing the workflow tree from the API.
+4. The dashboard refreshes `/api/workflows/tree` and reconciles the optimistic status with the server-derived state.
 
 ## Unpublish flow
 
@@ -57,6 +62,108 @@ Both look up the project by scanning all settings sidecars for a matching endpoi
 
 Fully unpublished projects are not served by either public route family.
 
+## Execution recordings
+
+Every endpoint execution persists a recording bundle that the hosted editor can later load and replay:
+
+- published endpoint runs (`/workflows/:endpointName`)
+- latest endpoint runs (`/workflows-latest/:endpointName`)
+- internal published-only runs (`/internal/workflows/:endpointName`)
+
+Recording capture is designed as best-effort observability:
+
+- the endpoint response is sent first
+- recording persistence is queued in the background after execution finishes
+- both successful and failed runs are eligible for recording
+- successful runs whose final `output` is `control-flow-excluded` are marked as `suspicious`
+- if the queue is full, new recordings are dropped so endpoint execution is not slowed or blocked
+
+Each bundle stores:
+
+```text
+.recordings/
+  <sourceProjectMetadataId>/
+    <recordingId>/
+      metadata.json
+      recording.rivet-recording.gz
+      replay.rivet-project.gz
+      replay.rivet-data.gz     # only when dataset snapshots are enabled and data was present
+```
+
+- `recording.rivet-recording.gz` is the serialized `ExecutionRecorder` output
+- `replay.rivet-project.gz` is an immutable replay snapshot of the executed project state
+- `replay.rivet-data.gz` is the dataset snapshot, when present
+- `metadata.json` stores run timestamp, endpoint, run kind (`published` or `latest`), verdict (`succeeded`, `failed`, or `suspicious`), duration, bundle encoding, and compressed/uncompressed byte counts
+
+Bundles are keyed by the source project's metadata ID, so recordings stay attached across project renames and moves. Project deletion removes that recording history as part of workflow cleanup.
+
+Legacy uncompressed bundles are still readable. Startup reconciliation rebuilds the SQLite index from bundle metadata on disk and normalizes old `version: 1` recording metadata into the current index shape.
+
+## Recording defaults and retention
+
+Recording behavior is controlled by env vars:
+
+| Variable | Purpose | Default |
+|---|---|---|
+| `RIVET_RECORDINGS_ENABLED` | Enable workflow recording persistence | `true` |
+| `RIVET_RECORDINGS_COMPRESS` | Blob encoding (`gzip` or `identity`) | `gzip` |
+| `RIVET_RECORDINGS_GZIP_LEVEL` | Gzip compression level | `4` |
+| `RIVET_RECORDINGS_MAX_PENDING_WRITES` | Background queue size before new recordings are dropped | `100` |
+| `RIVET_RECORDINGS_INCLUDE_PARTIAL_OUTPUTS` | Include partial outputs in recorder payloads | `false` |
+| `RIVET_RECORDINGS_INCLUDE_TRACE` | Include trace data in recorder payloads | `false` |
+| `RIVET_RECORDINGS_DATASET_MODE` | Dataset snapshot mode (`none` or `all`) | `none` |
+| `RIVET_RECORDINGS_RETENTION_DAYS` | Delete runs older than this many days (`0` disables) | `14` |
+| `RIVET_RECORDINGS_MAX_RUNS_PER_ENDPOINT` | Keep only the newest N runs per endpoint (`0` disables) | `0` |
+| `RIVET_RECORDINGS_MAX_TOTAL_BYTES` | Global compressed-byte cap across recordings (`0` disables) | `0` |
+
+Operational defaults are intentionally conservative:
+
+- recordings are compressed by default
+- partial outputs and trace capture are disabled by default to control bundle size
+- dataset snapshots are disabled by default
+- cleanup is automatic and uses both retention and size-based limits
+
+## Recording index and API shape
+
+The browser does not scan the filesystem directly. Instead, the API uses `recordings.sqlite` to serve:
+
+- workflow summaries ordered by most recent run
+- per-workflow run pagination
+- bad-only filtering, where `status=failed` includes both `failed` and `suspicious` runs
+- artifact lookup by `recordingId`
+- single-run deletion by `recordingId`
+
+The main recordings routes are:
+
+- `GET /api/workflows/recordings/workflows`
+- `GET /api/workflows/recordings/workflows/:workflowId/runs?page=1&pageSize=20&status=all|failed`
+- `GET /api/workflows/recordings/:recordingId/recording`
+- `GET /api/workflows/recordings/:recordingId/replay-project`
+- `GET /api/workflows/recordings/:recordingId/replay-dataset`
+- `DELETE /api/workflows/recordings/:recordingId`
+
+## Recording browser
+
+The dashboard exposes a `Run recordings` action next to `Runtime libraries`.
+
+That browser:
+
+- lists currently published workflows and workflows that still have recording history from earlier publication
+- sorts workflows by their most recent recorded run
+- loads runs page-by-page from the API instead of materializing all runs at once
+- supports `All / Bad only` filtering, where `Bad only` includes both failed and suspicious runs
+- lets the user delete an individual stored run with a browser confirmation prompt
+- opens a run by `recordingId`, not by raw filesystem path
+
+Deleting a run removes its bundle from `.recordings/`, deletes the corresponding SQLite row, and removes the workflow-level recordings directory if that was the last stored run for the workflow.
+
+When a run is opened, the hosted editor:
+
+- fetches the serialized recording and replay artifacts from the API
+- opens a virtual replay project path such as `recording://<recordingId>/replay.rivet-project`
+- switches playback to browser replay mode
+- treats the replay snapshot as read-only; plain save redirects to `Save As`
+
 ## Auth model
 
 Public execution routes can be protected independently of the browser UI:
@@ -72,15 +179,19 @@ That route is mounted directly on the API service, is not exposed through nginx,
 
 ## Sidecar lifecycle
 
-When a project is renamed, moved, or deleted, its sidecars travel with it:
+When a project is renamed, moved, or deleted, its sidecars and associated publication artifacts stay consistent:
 
 - **Rename/move**: `moveProjectWithSidecars()` renames the project, `.rivet-data`, and `.wrapper-settings.json` atomically with rollback on failure.
-- **Delete**: `deleteProjectWithSidecars()` removes the project, both sidecars, and any published snapshot.
+- **Delete**: `deleteProjectWithSidecars()` removes the project and sidecars, while workflow deletion orchestration also removes published snapshots and stored recordings.
 
 Published endpoint names preserve the casing the user entered in settings, while endpoint lookup remains case-insensitive.
 
 ## Key files
 
 - `wrapper/api/src/routes/workflows/publication.ts` - publication logic, hash computation, endpoint lookup
+- `wrapper/api/src/routes/workflows/recordings.ts` - recording persistence, listing, migration, and cleanup helpers
+- `wrapper/api/src/routes/workflows/recordings-config.ts` - recording env parsing and defaults
+- `wrapper/api/src/routes/workflows/recordings-db.ts` - SQLite recording index
 - `wrapper/api/src/routes/workflows/workflow-mutations.ts` - publish, unpublish, delete orchestration
 - `wrapper/api/src/routes/workflows/fs-helpers.ts` - sidecar path helpers, move/delete with sidecars
+- `wrapper/shared/workflow-recording-types.ts` - shared recording types and virtual replay path helpers

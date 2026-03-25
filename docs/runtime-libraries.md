@@ -19,6 +19,8 @@ The root path is controlled by `RIVET_RUNTIME_LIBRARIES_ROOT`.
 
 The feature is exposed from the dashboard through the `Runtime libraries` action in the projects pane.
 
+The adjacent `Run recordings` action is separate. It browses stored workflow execution recordings, pages and filters runs through `/api/workflows/recordings/*`, opens replay bundles back into the editor by `recordingId`, and can delete individual stored runs; see [workflow-publication.md](workflow-publication.md) for that flow.
+
 The API surface lives under `/api/runtime-libraries`:
 
 - `GET /` returns current state plus any active job
@@ -46,6 +48,8 @@ Startup still migrates the older `active-release` plus `releases/NNNN/` layout i
 
 - API-side code execution resolves packages from `current/node_modules`
 - executor-side code execution resolves packages from the same path via the bundle patch
+
+Workflow replay loading is separate from this system. Replays load frozen project/dataset artifacts from recording storage and do not mutate the active runtime-library set.
 
 ## Persistence and fallback
 

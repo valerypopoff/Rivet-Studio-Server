@@ -5,6 +5,7 @@ import {
   type NodeGraph,
   type Project,
   ExecutionRecorder,
+  deserializeDatasets,
   deserializeGraph,
   deserializeProject,
   serializeGraph,
@@ -20,7 +21,10 @@ import {
 import { getDefaultStore } from 'jotai';
 import { RIVET_API_BASE_URL } from '../../shared/hosted-env';
 import { apiReadText, apiWriteText, apiReadBinary } from '../../shared/api';
+import { getWorkflowRecordingIdFromVirtualProjectPath } from '../../shared/workflow-recording-types';
 import { loadedProjectState } from '../../../rivet/packages/app/src/state/savedGraphs.js';
+import { datasetProvider } from '../../../rivet/packages/app/src/utils/globals/datasetProvider.js';
+import { fetchWorkflowRecordingArtifactText } from '../dashboard/workflowApi';
 
 const API = RIVET_API_BASE_URL;
 const jotaiStore = getDefaultStore();
@@ -39,7 +43,7 @@ function getSuggestedProjectPath(defaultName: string): string {
   };
   const currentPath = loadedProject.path?.trim();
 
-  if (!currentPath) {
+  if (!currentPath || getWorkflowRecordingIdFromVirtualProjectPath(currentPath)) {
     return `/workflows/${defaultName}`;
   }
 
@@ -50,6 +54,23 @@ function getSuggestedProjectPath(defaultName: string): string {
 
   const directory = currentPath.slice(0, lastSeparatorIndex + 1);
   return `${directory}${defaultName}`;
+}
+
+async function pickSingleFile(options: { accept?: string } = {}): Promise<File | null> {
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+
+    if (options.accept) {
+      input.accept = options.accept;
+    }
+
+    input.onchange = () => {
+      resolve(input.files?.[0] ?? null);
+    };
+
+    input.click();
+  });
 }
 
 export class HostedIOProvider implements IOProvider {
@@ -105,6 +126,10 @@ export class HostedIOProvider implements IOProvider {
   }
 
   async saveProjectDataNoPrompt(project: Project, testData: TrivetData, path: string): Promise<void> {
+    if (getWorkflowRecordingIdFromVirtualProjectPath(path)) {
+      throw new Error('Recording replay projects are read-only. Use Save As to create a new project file.');
+    }
+
     const data = serializeProject(project, {
       trivet: serializeTrivetData(testData),
     }) as string;
@@ -129,6 +154,14 @@ export class HostedIOProvider implements IOProvider {
         return;
       }
     }
+
+    const file = await pickSingleFile({ accept: '.rivet-graph' });
+    if (!file) {
+      return;
+    }
+
+    const text = await file.text();
+    callback(deserializeGraph(text));
   }
 
   async loadProjectData(
@@ -171,6 +204,37 @@ export class HostedIOProvider implements IOProvider {
   }
 
   async loadProjectDataNoPrompt(path: string): Promise<{ project: Project; testData: TrivetData }> {
+    const recordingId = getWorkflowRecordingIdFromVirtualProjectPath(path);
+    if (recordingId) {
+      const data = await fetchWorkflowRecordingArtifactText(recordingId, 'replay-project');
+      const [projectData, attachedData] = deserializeProject(data, path);
+
+      const trivetData = attachedData.trivet
+        ? deserializeTrivetData(attachedData.trivet as SerializedTrivetData)
+        : { testSuites: [] };
+
+      try {
+        const datasetsText = await fetchWorkflowRecordingArtifactText(recordingId, 'replay-dataset');
+        const datasets = deserializeDatasets(datasetsText);
+        await datasetProvider.importDatasetsForProject(projectData.metadata.id, datasets);
+      } catch (error) {
+        const status = typeof error === 'object' &&
+          error != null &&
+          'status' in error &&
+          typeof (error as { status?: unknown }).status === 'number'
+          ? (error as { status: number }).status
+          : undefined;
+
+        if (status !== 404) {
+          throw error;
+        }
+
+        await datasetProvider.importDatasetsForProject(projectData.metadata.id, []);
+      }
+
+      return { project: projectData, testData: trivetData };
+    }
+
     const data = await apiReadText(path);
     const [projectData, attachedData] = deserializeProject(data, path);
 
@@ -198,6 +262,14 @@ export class HostedIOProvider implements IOProvider {
         return;
       }
     }
+
+    const file = await pickSingleFile({ accept: '.rivet-recording' });
+    if (!file) {
+      return;
+    }
+
+    const text = await file.text();
+    callback({ recorder: ExecutionRecorder.deserializeFromString(text), path: file.name });
   }
 
   async openDirectory(): Promise<string | string[] | null> {
@@ -243,6 +315,14 @@ export class HostedIOProvider implements IOProvider {
         return;
       }
     }
+
+    const file = await pickSingleFile();
+    if (!file) {
+      return;
+    }
+
+    const text = await file.text();
+    callback(text, file.name);
   }
 
   async readFileAsBinary(callback: (data: Uint8Array, fileName: string) => void): Promise<void> {
@@ -257,6 +337,14 @@ export class HostedIOProvider implements IOProvider {
         return;
       }
     }
+
+    const file = await pickSingleFile();
+    if (!file) {
+      return;
+    }
+
+    const buffer = await file.arrayBuffer();
+    callback(new Uint8Array(buffer), file.name);
   }
 
   async readPathAsString(path: string): Promise<string> {

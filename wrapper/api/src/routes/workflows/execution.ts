@@ -1,6 +1,11 @@
 import { performance } from 'node:perf_hooks';
 import { Router, type Request, type Response } from 'express';
-import { loadProjectFromFile, NodeDatasetProvider, runGraph } from '@ironclad/rivet-node';
+import {
+  createProcessor,
+  ExecutionRecorder,
+  loadProjectAndAttachedDataFromFile,
+  NodeDatasetProvider,
+} from '@ironclad/rivet-node';
 
 import { getLatestWorkflowRemoteDebugger, isLatestWorkflowRemoteDebuggerEnabled } from '../../latestWorkflowRemoteDebugger.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
@@ -15,6 +20,12 @@ import {
 import { ManagedCodeRunner } from '../../runtime-libraries/managed-code-runner.js';
 import { getRootPath } from '../../runtime-libraries/manifest.js';
 import { isTrustedTokenFreeHostRequest } from '../../auth.js';
+import { enqueueWorkflowExecutionRecordingPersistence, persistWorkflowExecutionRecording } from './recordings.js';
+import {
+  getWorkflowExecutionRecorderOptions,
+  isWorkflowRecordingEnabled,
+  shouldSnapshotWorkflowRecordingDatasets,
+} from './recordings-config.js';
 
 export const publishedWorkflowsRouter = Router();
 export const internalPublishedWorkflowsRouter = Router();
@@ -22,6 +33,25 @@ export const latestWorkflowsRouter = Router();
 
 function isJsonObjectRecord(value: unknown): value is Record<string, unknown> {
   return value != null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function getWorkflowRequestInput(req: Request): unknown {
+  return req.body === undefined ? {} : req.body;
+}
+
+function getWorkflowResponsePayload(outputs: Record<string, { type?: string; value?: unknown }>): unknown {
+  const outputValue = outputs.output;
+  if (outputValue?.type !== 'any') {
+    return outputs;
+  }
+
+  return outputValue.value ?? null;
+}
+
+export function getWorkflowRecordingStatusFromOutputs(
+  outputs: Record<string, { type?: string; value?: unknown }>,
+): 'succeeded' | 'suspicious' {
+  return outputs.output?.type === 'control-flow-excluded' ? 'suspicious' : 'succeeded';
 }
 
 function sendJsonWithDuration(
@@ -100,6 +130,14 @@ function isEnvFlagEnabled(value: string | undefined, defaultValue = false): bool
   return defaultValue;
 }
 
+function getWorkflowErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return String(error);
+}
+
 function requirePublishedWorkflowApiKey(req: Request): void {
   const isWorkflowKeyRequired = isEnvFlagEnabled(process.env.RIVET_REQUIRE_WORKFLOW_KEY, false);
   if (!isWorkflowKeyRequired) {
@@ -128,15 +166,19 @@ async function executeWorkflowEndpoint(
   requestStartedAt: number,
   req: Request,
   res: Response,
-  options?: { enableRemoteDebugger?: boolean },
+  options: {
+    enableRemoteDebugger?: boolean;
+    endpointName: string;
+    runKind: 'published' | 'latest';
+  },
 ): Promise<void> {
-  const project = await loadProjectFromFile(loadPath);
+  const [project, attachedData] = await loadProjectAndAttachedDataFromFile(loadPath);
   const datasetProvider = await NodeDatasetProvider.fromProjectFile(loadPath);
   const projectReferenceLoader = createPublishedWorkflowProjectReferenceLoader(root, referencePath);
   const remoteDebugger = options?.enableRemoteDebugger && isLatestWorkflowRemoteDebuggerEnabled()
     ? getLatestWorkflowRemoteDebugger()
     : undefined;
-  const outputs = await runGraph(project, {
+  const processor = createProcessor(project, {
     codeRunner: new ManagedCodeRunner(getRootPath()) as any,
     projectPath: referencePath,
     datasetProvider,
@@ -145,18 +187,65 @@ async function executeWorkflowEndpoint(
     inputs: {
       input: {
         type: 'any',
-        value: req.body || {}
+        value: getWorkflowRequestInput(req),
       },
     },
   });
+  const recorder = isWorkflowRecordingEnabled()
+    ? new ExecutionRecorder(getWorkflowExecutionRecorderOptions())
+    : null;
+  recorder?.record(processor.processor);
 
-  const outputValue = outputs.output;
-  if (outputValue?.type === 'any' && outputValue.value != null) {
-    sendJsonWithDuration(res, 200, outputValue.value, requestStartedAt);
-    return;
+  let recordingStatus: 'succeeded' | 'failed' | 'suspicious' = 'succeeded';
+  let recordingErrorMessage: string | undefined;
+  let responsePayload: unknown;
+  let executionError: unknown;
+  let executionDurationMs = 0;
+
+  try {
+    const outputs = await processor.run();
+    recordingStatus = getWorkflowRecordingStatusFromOutputs(outputs as Record<string, { type?: string; value?: unknown }>);
+
+    responsePayload = getWorkflowResponsePayload(outputs as Record<string, { type?: string; value?: unknown }>);
+  } catch (error) {
+    recordingStatus = 'failed';
+    recordingErrorMessage = getWorkflowErrorMessage(error);
+    executionError = error;
+  } finally {
+    executionDurationMs = performance.now() - requestStartedAt;
   }
 
-  sendJsonWithDuration(res, 200, outputs, requestStartedAt);
+  if (recorder) {
+    enqueueWorkflowExecutionRecordingPersistence(async () => {
+      const executedDatasets = shouldSnapshotWorkflowRecordingDatasets()
+        ? await datasetProvider.exportDatasetsForProject(project.metadata.id).catch((error) => {
+            console.error('Failed to export workflow datasets for recording:', error);
+            return [];
+          })
+        : [];
+
+      await persistWorkflowExecutionRecording({
+        root,
+        sourceProject: project,
+        sourceProjectPath: referencePath,
+        executedProject: project,
+        executedAttachedData: attachedData,
+        executedDatasets,
+        endpointName: options.endpointName,
+        recordingSerialized: recorder.serialize(),
+        runKind: options.runKind,
+        status: recordingStatus,
+        durationMs: executionDurationMs,
+        errorMessage: recordingErrorMessage,
+      });
+    });
+  }
+
+  if (executionError) {
+    throw executionError;
+  }
+
+  sendJsonWithDuration(res, 200, responsePayload, requestStartedAt);
 }
 
 async function handlePublishedWorkflowRequest(
@@ -190,7 +279,11 @@ async function handlePublishedWorkflowRequest(
       requestStartedAt,
       req,
       res,
-      { enableRemoteDebugger: false },
+      {
+        enableRemoteDebugger: false,
+        endpointName,
+        runKind: 'published',
+      },
     );
   } catch (error) {
     sendWorkflowErrorWithDuration(res, error, requestStartedAt);
@@ -230,7 +323,11 @@ latestWorkflowsRouter.post('/:endpointName', asyncHandler(async (req, res) => {
       requestStartedAt,
       req,
       res,
-      { enableRemoteDebugger: true },
+      {
+        enableRemoteDebugger: true,
+        endpointName,
+        runKind: 'latest',
+      },
     );
   } catch (error) {
     sendWorkflowErrorWithDuration(res, error, requestStartedAt);
