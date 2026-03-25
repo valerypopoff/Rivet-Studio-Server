@@ -19,8 +19,7 @@ test('editor bridge accepts valid dashboard commands', () => {
   assert.equal(
     isDashboardToEditorCommand({
       type: 'open-recording',
-      projectPath: '/tmp/replay.rivet-project',
-      recordingPath: '/tmp/run.rivet-recording',
+      recordingId: 'run-id',
       replaceCurrent: false,
     }),
     true,
@@ -36,7 +35,7 @@ test('editor bridge accepts valid dashboard commands', () => {
 
 test('editor bridge rejects malformed messages', () => {
   assert.equal(isDashboardToEditorCommand({ type: 'open-project', path: '/tmp/example.rivet-project' }), false);
-  assert.equal(isDashboardToEditorCommand({ type: 'open-recording', projectPath: '/tmp/a' }), false);
+  assert.equal(isDashboardToEditorCommand({ type: 'open-recording', recordingId: 123 }), false);
   assert.equal(isEditorToDashboardEvent({ type: 'project-saved' }), false);
   assert.equal(isEditorToDashboardEvent({ type: 'unknown' }), false);
 });

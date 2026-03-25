@@ -2,7 +2,7 @@ import type { WorkflowProjectPathMove } from './workflow-types';
 
 export type DashboardToEditorCommand =
   | { type: 'open-project'; path: string; replaceCurrent: boolean }
-  | { type: 'open-recording'; projectPath: string; recordingPath: string; replaceCurrent: boolean }
+  | { type: 'open-recording'; recordingId: string; replaceCurrent: boolean }
   | { type: 'save-project' }
   | { type: 'delete-workflow-project'; path: string }
   | { type: 'workflow-paths-moved'; moves: WorkflowProjectPathMove[] };
@@ -41,9 +41,7 @@ export function isDashboardToEditorCommand(value: unknown): value is DashboardTo
     case 'open-project':
       return typeof value.path === 'string' && typeof value.replaceCurrent === 'boolean';
     case 'open-recording':
-      return typeof value.projectPath === 'string' &&
-        typeof value.recordingPath === 'string' &&
-        typeof value.replaceCurrent === 'boolean';
+      return typeof value.recordingId === 'string' && typeof value.replaceCurrent === 'boolean';
     case 'save-project':
       return true;
     case 'delete-workflow-project':

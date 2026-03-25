@@ -9,7 +9,11 @@ import {
   PROJECT_EXTENSION,
 } from './fs-helpers.js';
 import { internalPublishedWorkflowsRouter, latestWorkflowsRouter, publishedWorkflowsRouter } from './execution.js';
-import { listWorkflowRecordings } from './recordings.js';
+import {
+  listWorkflowRecordingRunsPage,
+  listWorkflowRecordingWorkflows,
+  readWorkflowRecordingArtifact,
+} from './recordings.js';
 import { listWorkflowFolders, listWorkflowProjects, moveWorkflowFolder, moveWorkflowProject } from './workflow-query.js';
 import {
   createWorkflowFolderItem,
@@ -63,6 +67,12 @@ const pathOnlySchema = z.object({
   relativePath: z.unknown(),
 });
 
+const recordingsRunsQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).optional().default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).optional().default(20),
+  status: z.enum(['all', 'failed']).optional().default('all'),
+});
+
 workflowsRouter.get('/tree', asyncHandler(async (_req, res) => {
   const root = await ensureWorkflowsRoot();
   const folders = await listWorkflowFolders(root);
@@ -72,7 +82,51 @@ workflowsRouter.get('/tree', asyncHandler(async (_req, res) => {
 
 workflowsRouter.get('/recordings', asyncHandler(async (_req, res) => {
   const root = await ensureWorkflowsRoot();
-  res.json(await listWorkflowRecordings(root));
+  res.json(await listWorkflowRecordingWorkflows(root));
+}));
+
+workflowsRouter.get('/recordings/workflows', asyncHandler(async (_req, res) => {
+  const root = await ensureWorkflowsRoot();
+  res.json(await listWorkflowRecordingWorkflows(root));
+}));
+
+workflowsRouter.get('/recordings/workflows/:workflowId/runs', asyncHandler(async (req, res) => {
+  const root = await ensureWorkflowsRoot();
+  const parsedQuery = recordingsRunsQuerySchema.parse(req.query);
+  res.json(await listWorkflowRecordingRunsPage(
+    root,
+    String(req.params.workflowId ?? ''),
+    parsedQuery.page,
+    parsedQuery.pageSize,
+    parsedQuery.status,
+  ));
+}));
+
+workflowsRouter.get('/recordings/:recordingId/recording', asyncHandler(async (req, res) => {
+  const root = await ensureWorkflowsRoot();
+  res.type('text/plain; charset=utf-8').send(await readWorkflowRecordingArtifact(
+    root,
+    String(req.params.recordingId ?? ''),
+    'recording',
+  ));
+}));
+
+workflowsRouter.get('/recordings/:recordingId/replay-project', asyncHandler(async (req, res) => {
+  const root = await ensureWorkflowsRoot();
+  res.type('text/plain; charset=utf-8').send(await readWorkflowRecordingArtifact(
+    root,
+    String(req.params.recordingId ?? ''),
+    'replay-project',
+  ));
+}));
+
+workflowsRouter.get('/recordings/:recordingId/replay-dataset', asyncHandler(async (req, res) => {
+  const root = await ensureWorkflowsRoot();
+  res.type('text/plain; charset=utf-8').send(await readWorkflowRecordingArtifact(
+    root,
+    String(req.params.recordingId ?? ''),
+    'replay-dataset',
+  ));
 }));
 
 workflowsRouter.post('/move', validateBody(moveSchema), asyncHandler(async (req, res) => {

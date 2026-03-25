@@ -7,7 +7,9 @@ import test from 'node:test';
 import express from 'express';
 
 const workflowsRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'rivet-workflows-'));
+const appDataRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'rivet-app-data-'));
 process.env.RIVET_WORKFLOWS_ROOT = workflowsRoot;
+process.env.RIVET_APP_DATA_ROOT = appDataRoot;
 
 const workflowMutations = await import('../routes/workflows/workflow-mutations.js');
 const workflowQuery = await import('../routes/workflows/workflow-query.js');
@@ -18,8 +20,11 @@ const workflowRoutes = await import('../routes/workflows/index.js');
 const rivetNode = await import('@ironclad/rivet-node');
 
 async function resetWorkflowsRoot() {
-  await fs.rm(workflowsRoot, { recursive: true, force: true });
+  await workflowRecordings.resetWorkflowRecordingStorageForTests();
+  await fs.rm(workflowsRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   await fs.mkdir(workflowsRoot, { recursive: true });
+  await fs.rm(appDataRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  await fs.mkdir(appDataRoot, { recursive: true });
 }
 
 test.beforeEach(async () => {
@@ -105,6 +110,28 @@ async function readJson<T>(response: Response): Promise<T> {
   }
 
   return body;
+}
+
+async function waitForRecordingWorkflows(
+  apiBaseUrl: string,
+  predicate: (workflows: Array<{ workflowId: string; totalRuns: number }>) => boolean,
+  timeoutMs = 5000,
+) {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const response = await readJson<{
+      workflows: Array<{ workflowId: string; totalRuns: number }>;
+    }>(await fetch(`${apiBaseUrl}/recordings/workflows`));
+
+    if (predicate(response.workflows)) {
+      return response;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+
+  throw new Error('Timed out waiting for workflow recordings');
 }
 
 test('workflow project rename and move preserve wrapper sidecars', async () => {
@@ -441,45 +468,112 @@ test('published and latest workflow execution create replayable recordings that 
     });
     assert.equal(latestResponse.ok, true);
 
-    const recordingsResponse = await readJson<{
+    const workflowsResponse = await waitForRecordingWorkflows(
+      apiBaseUrl,
+      (workflows) => workflows[0]?.totalRuns === 2,
+    ) as {
       workflows: Array<{
+        workflowId: string;
         project: { absolutePath: string; settings: { endpointName: string } };
-        recordings: Array<{
-          runKind: string;
-          status: string;
-          recordingPath: string;
-          replayProjectPath: string;
-        }>;
+        totalRuns: number;
       }>;
-    }>(await fetch(`${apiBaseUrl}/recordings`));
+    };
 
-    assert.equal(recordingsResponse.workflows.length, 1);
-    assert.equal(recordingsResponse.workflows[0]?.project.absolutePath, created.absolutePath);
-    assert.equal(recordingsResponse.workflows[0]?.project.settings.endpointName, 'recorded-endpoint');
-    assert.equal(recordingsResponse.workflows[0]?.recordings.length, 2);
+    assert.equal(workflowsResponse.workflows.length, 1);
+    assert.equal(workflowsResponse.workflows[0]?.project.absolutePath, created.absolutePath);
+    assert.equal(workflowsResponse.workflows[0]?.project.settings.endpointName, 'recorded-endpoint');
+    assert.equal(workflowsResponse.workflows[0]?.totalRuns, 2);
+
+    const workflowId = workflowsResponse.workflows[0]!.workflowId;
+    const runsResponse = await readJson<{
+      totalRuns: number;
+      runs: Array<{
+        id: string;
+        runKind: string;
+        status: string;
+      }>;
+    }>(await fetch(`${apiBaseUrl}/recordings/workflows/${encodeURIComponent(workflowId)}/runs?page=1&pageSize=20&status=all`));
+
+    assert.equal(runsResponse.totalRuns, 2);
+    assert.equal(runsResponse.runs.length, 2);
     assert.deepEqual(
-      recordingsResponse.workflows[0]?.recordings.map((recording) => recording.runKind).sort(),
+      runsResponse.runs.map((recording) => recording.runKind).sort(),
       ['latest', 'published'],
     );
     assert.deepEqual(
-      recordingsResponse.workflows[0]?.recordings.map((recording) => recording.status),
+      runsResponse.runs.map((recording) => recording.status),
       ['succeeded', 'succeeded'],
     );
 
     const sourceProject = await rivetNode.loadProjectFromFile(created.absolutePath);
+    const recordingsRoot = workflowFs.getWorkflowProjectRecordingsRoot(workflowsRoot, sourceProject.metadata.id);
 
-    for (const recording of recordingsResponse.workflows[0]!.recordings) {
-      assert.equal(await workflowFs.pathExists(recording.recordingPath), true);
-      assert.equal(await workflowFs.pathExists(recording.replayProjectPath), true);
+    for (const recording of runsResponse.runs) {
+      const bundlePath = path.join(recordingsRoot, recording.id);
+      const recordingPath = workflowFs.getWorkflowRecordingPath(bundlePath);
+      const replayProjectPath = workflowFs.getWorkflowRecordingReplayProjectPath(bundlePath);
 
-      const replayProject = await rivetNode.loadProjectFromFile(recording.replayProjectPath);
-      const serializedRecording = await fs.readFile(recording.recordingPath, 'utf8');
+      assert.equal(await workflowFs.pathExists(recordingPath), true);
+      assert.equal(await workflowFs.pathExists(replayProjectPath), true);
+
+      const replayProject = rivetNode.loadProjectFromString(
+        await workflowRecordings.readWorkflowRecordingArtifact(workflowsRoot, recording.id, 'replay-project'),
+      );
+      const serializedRecording = await workflowRecordings.readWorkflowRecordingArtifact(workflowsRoot, recording.id, 'recording');
       const recorder = rivetNode.ExecutionRecorder.deserializeFromString(serializedRecording);
 
       assert.notEqual(replayProject.metadata.id, sourceProject.metadata.id);
       assert.deepEqual(Object.keys(replayProject.graphs), Object.keys(sourceProject.graphs));
       assert.ok(recorder.events.length > 0);
     }
+  });
+});
+
+test('published workflow responds with any outputs and records the run asynchronously', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'AnyResponse');
+  const passthroughProject = await fs.readFile(
+    new URL('../../../../rivet/packages/node/test/test-graphs.rivet-project', import.meta.url),
+    'utf8',
+  );
+
+  await fs.writeFile(
+    created.absolutePath,
+    passthroughProject
+      .replace('    title: Untitled Project', [
+        '    title: Untitled Project',
+        '    mainGraphId: kqaNrBo0WpJ1EOc2hj0zK',
+      ].join('\n'))
+      .replaceAll('dataType: string', 'dataType: any'),
+    'utf8',
+  );
+
+  await workflowMutations.publishWorkflowProjectItem(created.relativePath, {
+    endpointName: 'any-response-endpoint',
+  });
+
+  await withWorkflowExecutionServer(async ({ apiBaseUrl, publishedBaseUrl }) => {
+    const response = await fetch(`${publishedBaseUrl}/any-response-endpoint`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ foo: 'bar' }),
+      signal: AbortSignal.timeout(5000),
+    });
+
+    assert.equal(response.ok, true);
+
+    const body = await response.json() as { foo: string; durationMs: number };
+    assert.equal(body.foo, 'bar');
+    assert.equal(typeof body.durationMs, 'number');
+
+    const workflowsResponse = await waitForRecordingWorkflows(
+      apiBaseUrl,
+      (workflows) => workflows[0]?.totalRuns === 1,
+    ) as {
+      workflows: Array<{ totalRuns: number }>;
+    };
+
+    assert.equal(workflowsResponse.workflows.length, 1);
+    assert.equal(workflowsResponse.workflows[0]?.totalRuns, 1);
   });
 });
 
@@ -499,20 +593,75 @@ test('recordings list keeps once-published workflows after unpublish', async () 
 
     await workflowMutations.unpublishWorkflowProjectItem(created.relativePath);
 
-    const recordingsResponse = await readJson<{
+    const workflowsResponse = await readJson<{
       workflows: Array<{
+        workflowId: string;
         project: { absolutePath: string; settings: { status: string; endpointName: string } };
-        recordings: Array<{ runKind: string; status: string }>;
+        totalRuns: number;
       }>;
-    }>(await fetch(`${apiBaseUrl}/recordings`));
+    }>(await fetch(`${apiBaseUrl}/recordings/workflows`));
 
-    assert.equal(recordingsResponse.workflows.length, 1);
-    assert.equal(recordingsResponse.workflows[0]?.project.absolutePath, created.absolutePath);
-    assert.equal(recordingsResponse.workflows[0]?.project.settings.status, 'unpublished');
-    assert.equal(recordingsResponse.workflows[0]?.project.settings.endpointName, 'recorded-history-endpoint');
-    assert.equal(recordingsResponse.workflows[0]?.recordings.length, 1);
-    assert.equal(recordingsResponse.workflows[0]?.recordings[0]?.runKind, 'published');
-    assert.equal(recordingsResponse.workflows[0]?.recordings[0]?.status, 'succeeded');
+    assert.equal(workflowsResponse.workflows.length, 1);
+    assert.equal(workflowsResponse.workflows[0]?.project.absolutePath, created.absolutePath);
+    assert.equal(workflowsResponse.workflows[0]?.project.settings.status, 'unpublished');
+    assert.equal(workflowsResponse.workflows[0]?.project.settings.endpointName, 'recorded-history-endpoint');
+    assert.equal(workflowsResponse.workflows[0]?.totalRuns, 1);
+
+    const runsResponse = await readJson<{
+      runs: Array<{ runKind: string; status: string }>;
+    }>(await fetch(
+      `${apiBaseUrl}/recordings/workflows/${encodeURIComponent(workflowsResponse.workflows[0]!.workflowId)}/runs?page=1&pageSize=20&status=all`,
+    ));
+
+    assert.equal(runsResponse.runs.length, 1);
+    assert.equal(runsResponse.runs[0]?.runKind, 'published');
+    assert.equal(runsResponse.runs[0]?.status, 'succeeded');
+  });
+});
+
+test('workflow recording runs endpoint paginates and filters failed runs server-side', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'Paged');
+  await workflowMutations.publishWorkflowProjectItem(created.relativePath, {
+    endpointName: 'paged-endpoint',
+  });
+
+  await withWorkflowExecutionServer(async ({ apiBaseUrl, publishedBaseUrl }) => {
+    for (let index = 0; index < 3; index++) {
+      const response = await fetch(`${publishedBaseUrl}/paged-endpoint`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: index }),
+      });
+      assert.equal(response.ok, true);
+    }
+
+    const workflowsResponse = await waitForRecordingWorkflows(
+      apiBaseUrl,
+      (workflows) => workflows[0]?.totalRuns === 3,
+    ) as {
+      workflows: Array<{ workflowId: string }>;
+    };
+    const workflowId = workflowsResponse.workflows[0]!.workflowId;
+
+    const pageOne = await readJson<{
+      page: number;
+      pageSize: number;
+      totalRuns: number;
+      runs: Array<{ id: string }>;
+    }>(await fetch(`${apiBaseUrl}/recordings/workflows/${encodeURIComponent(workflowId)}/runs?page=1&pageSize=2&status=all`));
+
+    assert.equal(pageOne.page, 1);
+    assert.equal(pageOne.pageSize, 2);
+    assert.equal(pageOne.totalRuns, 3);
+    assert.equal(pageOne.runs.length, 2);
+
+    const failedOnly = await readJson<{
+      totalRuns: number;
+      runs: Array<{ status: string }>;
+    }>(await fetch(`${apiBaseUrl}/recordings/workflows/${encodeURIComponent(workflowId)}/runs?page=1&pageSize=20&status=failed`));
+
+    assert.equal(failedOnly.totalRuns, 0);
+    assert.equal(failedOnly.runs.length, 0);
   });
 });
 
@@ -551,8 +700,9 @@ test('workflow recording persistence snapshots the executed in-memory project st
   const bundles = await fs.readdir(recordingsRoot);
   assert.equal(bundles.length, 1);
 
-  const replayProjectPath = workflowFs.getWorkflowRecordingReplayProjectPath(path.join(recordingsRoot, bundles[0]!));
-  const replayProject = await rivetNode.loadProjectFromFile(replayProjectPath);
+  const replayProject = rivetNode.loadProjectFromString(
+    await workflowRecordings.readWorkflowRecordingArtifact(workflowsRoot, bundles[0]!, 'replay-project'),
+  );
   const mutatedProject = await rivetNode.loadProjectFromFile(created.absolutePath);
 
   assert.equal(replayProject.metadata.title, 'Stable');

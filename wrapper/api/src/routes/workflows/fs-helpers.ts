@@ -10,9 +10,11 @@ export const PROJECT_SETTINGS_SUFFIX = '.wrapper-settings.json';
 export const PUBLISHED_SNAPSHOTS_DIR = '.published';
 export const WORKFLOW_RECORDINGS_DIR = '.recordings';
 export const WORKFLOW_DATASET_SUFFIX = '.rivet-data';
-export const WORKFLOW_RECORDING_FILE_NAME = 'recording.rivet-recording';
+export const WORKFLOW_RECORDING_FILE_NAME = 'recording.rivet-recording.gz';
+export const LEGACY_WORKFLOW_RECORDING_FILE_NAME = 'recording.rivet-recording';
 export const WORKFLOW_RECORDING_METADATA_FILE_NAME = 'metadata.json';
-export const WORKFLOW_RECORDING_PROJECT_FILE_NAME = `replay${PROJECT_EXTENSION}`;
+export const WORKFLOW_RECORDING_PROJECT_FILE_NAME = `replay${PROJECT_EXTENSION}.gz`;
+export const LEGACY_WORKFLOW_RECORDING_PROJECT_FILE_NAME = `replay${PROJECT_EXTENSION}`;
 
 export async function ensureWorkflowsRoot(): Promise<string> {
   const root = getWorkflowsRoot();
@@ -143,20 +145,33 @@ export function getWorkflowRecordingBundlePath(root: string, projectMetadataId: 
   return validatePath(path.join(getWorkflowProjectRecordingsRoot(root, projectMetadataId), recordingId));
 }
 
-export function getWorkflowRecordingPath(bundlePath: string): string {
-  return validatePath(path.join(bundlePath, WORKFLOW_RECORDING_FILE_NAME));
+export function getWorkflowRecordingPath(bundlePath: string, encoding: 'gzip' | 'identity' = 'gzip'): string {
+  return validatePath(
+    path.join(bundlePath, encoding === 'gzip' ? WORKFLOW_RECORDING_FILE_NAME : LEGACY_WORKFLOW_RECORDING_FILE_NAME),
+  );
 }
 
 export function getWorkflowRecordingMetadataPath(bundlePath: string): string {
   return validatePath(path.join(bundlePath, WORKFLOW_RECORDING_METADATA_FILE_NAME));
 }
 
-export function getWorkflowRecordingReplayProjectPath(bundlePath: string): string {
-  return validatePath(path.join(bundlePath, WORKFLOW_RECORDING_PROJECT_FILE_NAME));
+export function getWorkflowRecordingReplayProjectPath(
+  bundlePath: string,
+  encoding: 'gzip' | 'identity' = 'gzip',
+): string {
+  return validatePath(
+    path.join(
+      bundlePath,
+      encoding === 'gzip' ? WORKFLOW_RECORDING_PROJECT_FILE_NAME : LEGACY_WORKFLOW_RECORDING_PROJECT_FILE_NAME,
+    ),
+  );
 }
 
-export function getWorkflowRecordingReplayDatasetPath(bundlePath: string): string {
-  return getWorkflowDatasetPath(getWorkflowRecordingReplayProjectPath(bundlePath));
+export function getWorkflowRecordingReplayDatasetPath(
+  bundlePath: string,
+  encoding: 'gzip' | 'identity' = 'gzip',
+): string {
+  return getWorkflowDatasetPath(getWorkflowRecordingReplayProjectPath(bundlePath, encoding));
 }
 
 export function getPublishedWorkflowSnapshotPath(root: string, snapshotId: string): string {

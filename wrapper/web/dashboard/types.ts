@@ -7,11 +7,13 @@ import type {
   WorkflowProjectStatus,
 } from '../../shared/workflow-types';
 import type {
-  WorkflowRecordingGroup,
-  WorkflowRecordingItem,
-  WorkflowRecordingListResponse,
+  WorkflowRecordingFilterStatus,
+  WorkflowRecordingRunsPageResponse,
   WorkflowRecordingRunKind,
+  WorkflowRecordingRunSummary,
   WorkflowRecordingStatus,
+  WorkflowRecordingWorkflowListResponse,
+  WorkflowRecordingWorkflowSummary,
 } from '../../shared/workflow-recording-types';
 
 export type {
@@ -21,11 +23,13 @@ export type {
   WorkflowProjectSettings,
   WorkflowProjectSettingsDraft,
   WorkflowProjectStatus,
-  WorkflowRecordingGroup,
-  WorkflowRecordingItem,
-  WorkflowRecordingListResponse,
+  WorkflowRecordingFilterStatus,
+  WorkflowRecordingRunsPageResponse,
   WorkflowRecordingRunKind,
+  WorkflowRecordingRunSummary,
   WorkflowRecordingStatus,
+  WorkflowRecordingWorkflowListResponse,
+  WorkflowRecordingWorkflowSummary,
 };
 
 export type WorkflowMoveResponse = {

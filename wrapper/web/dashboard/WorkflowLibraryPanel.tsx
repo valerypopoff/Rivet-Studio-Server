@@ -90,7 +90,7 @@ const updateSavedProjectStatusInFolders = (
 
 interface WorkflowLibraryPanelProps {
   onOpenProject: (path: string, options?: { replaceCurrent?: boolean }) => void;
-  onOpenRecording: (projectPath: string, recordingPath: string, options?: { replaceCurrent?: boolean }) => void;
+  onOpenRecording: (recordingId: string, options?: { replaceCurrent?: boolean }) => void;
   onSaveProject: () => void;
   onDeleteProject: (path: string) => void;
   onWorkflowPathsMoved: (moves: WorkflowProjectPathMove[]) => void;
@@ -629,7 +629,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
           onClick={() => setRunRecordingsOpen(true)}
           title="Browse workflow run recordings and load them into the editor"
         >
-          Workflow runs
+          Run recordings
         </Button>
       </div>
 
@@ -652,9 +652,9 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
       <RunRecordingsModal
         isOpen={runRecordingsOpen}
         onClose={() => setRunRecordingsOpen(false)}
-        onOpenRecording={(projectPath, recordingPath) => {
+        onOpenRecording={(recordingId) => {
           setRunRecordingsOpen(false);
-          onOpenRecording(projectPath, recordingPath);
+          onOpenRecording(recordingId);
         }}
       />
     </div>

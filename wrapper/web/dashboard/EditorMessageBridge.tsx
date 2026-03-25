@@ -18,7 +18,8 @@ import {
   isValidBridgeOrigin,
   postMessageToDashboard,
 } from '../../shared/editor-bridge';
-import { apiReadText } from '../../shared/api';
+import { getWorkflowRecordingVirtualProjectPath } from '../../shared/workflow-recording-types';
+import { fetchWorkflowRecordingArtifactText } from './workflowApi';
 
 const isWindowsPlatform = typeof navigator !== 'undefined' && /Win/.test(navigator.platform ?? '');
 const isSaveShortcutEvent = (event: KeyboardEvent) =>
@@ -213,12 +214,12 @@ export const EditorMessageBridge: FC = () => {
 
         case 'open-recording': {
           try {
-            const serializedRecording = await apiReadText(event.data.recordingPath);
+            const serializedRecording = await fetchWorkflowRecordingArtifactText(event.data.recordingId, 'recording');
             const recorder = ExecutionRecorder.deserializeFromString(serializedRecording);
             const preferredGraphId = getRecordingStartGraphId(recorder);
-            const fileName = event.data.recordingPath.split(/[\\/]/).pop() ?? event.data.recordingPath;
+            const virtualProjectPath = getWorkflowRecordingVirtualProjectPath(event.data.recordingId);
 
-            await openProjectRef.current(event.data.projectPath, {
+            await openProjectRef.current(virtualProjectPath, {
               replaceCurrent: Boolean(event.data.replaceCurrent),
               preferredGraphId,
             });
@@ -226,15 +227,15 @@ export const EditorMessageBridge: FC = () => {
             setLoadedRecording(null);
 
             setLoadedRecording({
-              path: fileName,
+              path: `${event.data.recordingId}.rivet-recording`,
               recorder,
             });
 
-            postMessageToDashboard({ type: 'project-opened', path: event.data.projectPath });
+            postMessageToDashboard({ type: 'project-opened', path: virtualProjectPath });
           } catch (error) {
             const message = getError(error).message;
             console.error('Failed to open workflow recording:', error);
-            postMessageToDashboard({ type: 'project-open-failed', path: event.data.projectPath, error: message });
+            postMessageToDashboard({ type: 'project-open-failed', path: event.data.recordingId, error: message });
           }
 
           break;

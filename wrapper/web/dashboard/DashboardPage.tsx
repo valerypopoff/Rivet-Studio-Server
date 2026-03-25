@@ -56,11 +56,10 @@ export const DashboardPage: FC = () => {
   }, [postEditorCommand]);
 
   const handleOpenRecording = useCallback(
-    (projectPath: string, recordingPath: string, options?: { replaceCurrent?: boolean }) => {
+    (recordingId: string, options?: { replaceCurrent?: boolean }) => {
       postEditorCommand({
         type: 'open-recording',
-        projectPath,
-        recordingPath,
+        recordingId,
         replaceCurrent: Boolean(options?.replaceCurrent),
       });
     },

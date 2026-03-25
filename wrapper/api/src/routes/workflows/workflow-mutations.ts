@@ -7,7 +7,6 @@ import { validatePath } from '../../security.js';
 import { conflict } from '../../utils/httpError.js';
 import {
   createBlankProjectFile,
-  deleteWorkflowProjectRecordings,
   deleteProjectWithSidecars,
   ensureWorkflowsRoot,
   moveProjectWithSidecars,
@@ -28,7 +27,7 @@ import {
   writePublishedWorkflowSnapshot,
   writeStoredWorkflowProjectSettings,
 } from './publication.js';
-import { deleteWorkflowRecordingsBySourceProjectPath } from './recordings.js';
+import { deleteWorkflowRecordingsBySourceProjectPath, deleteWorkflowRecordingsByWorkflowId } from './recordings.js';
 import { getWorkflowFolder, getWorkflowProject } from './workflow-query.js';
 
 export async function createWorkflowFolderItem(name: unknown, parentRelativePath: unknown) {
@@ -178,6 +177,6 @@ export async function deleteWorkflowProjectItem(relativePath: unknown) {
     .catch(() => null);
   await deletePublishedWorkflowSnapshot(root, existingSettings.publishedSnapshotId);
   await deleteProjectWithSidecars(projectPath);
-  await deleteWorkflowProjectRecordings(root, projectMetadataId);
+  await deleteWorkflowRecordingsByWorkflowId(root, projectMetadataId);
   await deleteWorkflowRecordingsBySourceProjectPath(root, projectPath);
 }

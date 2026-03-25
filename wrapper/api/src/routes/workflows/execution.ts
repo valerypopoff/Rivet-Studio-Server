@@ -20,7 +20,12 @@ import {
 import { ManagedCodeRunner } from '../../runtime-libraries/managed-code-runner.js';
 import { getRootPath } from '../../runtime-libraries/manifest.js';
 import { isTrustedTokenFreeHostRequest } from '../../auth.js';
-import { persistWorkflowExecutionRecording } from './recordings.js';
+import { enqueueWorkflowExecutionRecordingPersistence, persistWorkflowExecutionRecording } from './recordings.js';
+import {
+  getWorkflowExecutionRecorderOptions,
+  isWorkflowRecordingEnabled,
+  shouldSnapshotWorkflowRecordingDatasets,
+} from './recordings-config.js';
 
 export const publishedWorkflowsRouter = Router();
 export const internalPublishedWorkflowsRouter = Router();
@@ -167,49 +172,63 @@ async function executeWorkflowEndpoint(
       },
     },
   });
-  const recorder = new ExecutionRecorder({
-    includePartialOutputs: true,
-    includeTrace: true,
-  });
-  recorder.record(processor.processor);
+  const recorder = isWorkflowRecordingEnabled()
+    ? new ExecutionRecorder(getWorkflowExecutionRecorderOptions())
+    : null;
+  recorder?.record(processor.processor);
 
   let recordingStatus: 'succeeded' | 'failed' = 'succeeded';
   let recordingErrorMessage: string | undefined;
+  let responsePayload: unknown;
+  let executionError: unknown;
+  let executionDurationMs = 0;
 
   try {
     const outputs = await processor.run();
 
     const outputValue = outputs.output;
-    if (outputValue?.type === 'any' && outputValue.value != null) {
-      sendJsonWithDuration(res, 200, outputValue.value, requestStartedAt);
-      return;
-    }
-
-    sendJsonWithDuration(res, 200, outputs, requestStartedAt);
+    responsePayload = outputValue?.type === 'any' && outputValue.value != null
+      ? outputValue.value
+      : outputs;
   } catch (error) {
     recordingStatus = 'failed';
     recordingErrorMessage = getWorkflowErrorMessage(error);
-    throw error;
+    executionError = error;
   } finally {
-    try {
+    executionDurationMs = performance.now() - requestStartedAt;
+  }
+
+  if (recorder) {
+    enqueueWorkflowExecutionRecordingPersistence(async () => {
+      const executedDatasets = shouldSnapshotWorkflowRecordingDatasets()
+        ? await datasetProvider.exportDatasetsForProject(project.metadata.id).catch((error) => {
+            console.error('Failed to export workflow datasets for recording:', error);
+            return [];
+          })
+        : [];
+
       await persistWorkflowExecutionRecording({
         root,
         sourceProject: project,
         sourceProjectPath: referencePath,
         executedProject: project,
         executedAttachedData: attachedData,
-        executedDatasets: await datasetProvider.exportDatasetsForProject(project.metadata.id),
+        executedDatasets,
         endpointName: options.endpointName,
         recordingSerialized: recorder.serialize(),
         runKind: options.runKind,
         status: recordingStatus,
-        durationMs: performance.now() - requestStartedAt,
+        durationMs: executionDurationMs,
         errorMessage: recordingErrorMessage,
       });
-    } catch (recordingError) {
-      console.error('Failed to persist workflow execution recording:', recordingError);
-    }
+    });
   }
+
+  if (executionError) {
+    throw executionError;
+  }
+
+  sendJsonWithDuration(res, 200, responsePayload, requestStartedAt);
 }
 
 async function handlePublishedWorkflowRequest(

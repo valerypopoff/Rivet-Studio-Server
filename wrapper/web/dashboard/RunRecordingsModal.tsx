@@ -1,21 +1,26 @@
 import ModalDialog, { ModalBody, ModalTransition } from '@atlaskit/modal-dialog';
 import Select from '@atlaskit/select';
-import { useCallback, useEffect, useMemo, useState, type FC } from 'react';
+import { useEffect, useMemo, useState, type FC } from 'react';
 
-import { fetchWorkflowRecordings } from './workflowApi';
+import {
+  fetchWorkflowRecordingRuns,
+  fetchWorkflowRecordingWorkflows,
+} from './workflowApi';
 import type {
   WorkflowProjectStatus,
-  WorkflowRecordingGroup,
-  WorkflowRecordingItem,
-  WorkflowRecordingListResponse,
+  WorkflowRecordingFilterStatus,
+  WorkflowRecordingRunSummary,
+  WorkflowRecordingRunsPageResponse,
   WorkflowRecordingStatus,
+  WorkflowRecordingWorkflowListResponse,
+  WorkflowRecordingWorkflowSummary,
 } from './types';
 import './RunRecordingsModal.css';
 
 interface RunRecordingsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onOpenRecording: (projectPath: string, recordingPath: string) => void;
+  onOpenRecording: (recordingId: string) => void;
 }
 
 type WorkflowOption = {
@@ -63,7 +68,11 @@ function formatDuration(durationMs: number): string {
   return `${minutes}m ${remainderSeconds}s`;
 }
 
-function formatTimestamp(value: string): string {
+function formatTimestamp(value: string | undefined): string {
+  if (!value) {
+    return 'Never';
+  }
+
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
     return value;
@@ -72,31 +81,22 @@ function formatTimestamp(value: string): string {
   return timestampFormatter.format(date);
 }
 
-function toSortableTimestamp(value: string): number {
-  const timestamp = Date.parse(value);
-  return Number.isNaN(timestamp) ? 0 : timestamp;
-}
-
-function getWorkflowLatestRunAt(workflow: WorkflowRecordingGroup): string {
-  return workflow.recordings[0]?.createdAt ?? '';
-}
-
-function getWorkflowEndpoint(workflow: WorkflowRecordingGroup): string {
-  return workflow.project.settings.endpointName || workflow.recordings[0]?.endpointNameAtExecution || '';
+function getWorkflowEndpoint(workflow: WorkflowRecordingWorkflowSummary): string {
+  return workflow.project.settings.endpointName || '';
 }
 
 function RecordingRow({
   recording,
   onOpen,
 }: {
-  recording: WorkflowRecordingItem;
-  onOpen: (projectPath: string, recordingPath: string) => void;
+  recording: WorkflowRecordingRunSummary;
+  onOpen: (recordingId: string) => void;
 }) {
   return (
     <button
       type="button"
       className={`run-recordings-run ${recording.status}`}
-      onClick={() => onOpen(recording.replayProjectPath, recording.recordingPath)}
+      onClick={() => onOpen(recording.id)}
     >
       <div className="run-recordings-run-header">
         <div className="run-recordings-run-main">
@@ -124,84 +124,119 @@ export const RunRecordingsModal: FC<RunRecordingsModalProps> = ({
   onClose,
   onOpenRecording,
 }) => {
-  const [data, setData] = useState<WorkflowRecordingListResponse | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [workflowsResponse, setWorkflowsResponse] = useState<WorkflowRecordingWorkflowListResponse | null>(null);
+  const [workflowsLoading, setWorkflowsLoading] = useState(true);
+  const [runsLoading, setRunsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedWorkflowPath, setSelectedWorkflowPath] = useState('');
+  const [selectedWorkflowId, setSelectedWorkflowId] = useState('');
+  const [runsPage, setRunsPage] = useState<WorkflowRecordingRunsPageResponse | null>(null);
   const [runsPerPage, setRunsPerPage] = useState<number>(20);
   const [page, setPage] = useState(1);
-  const [failedOnly, setFailedOnly] = useState(false);
-
-  const refresh = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError(null);
-
-      const response = await fetchWorkflowRecordings();
-      const sortedWorkflows = [...response.workflows]
-        .map((workflow) => ({
-          ...workflow,
-          recordings: [...workflow.recordings].sort(
-            (left, right) => toSortableTimestamp(right.createdAt) - toSortableTimestamp(left.createdAt),
-          ),
-        }))
-        .sort(
-          (left, right) =>
-            toSortableTimestamp(getWorkflowLatestRunAt(right)) - toSortableTimestamp(getWorkflowLatestRunAt(left)),
-        );
-
-      setData({ workflows: sortedWorkflows });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const [statusFilter, setStatusFilter] = useState<WorkflowRecordingFilterStatus>('all');
 
   useEffect(() => {
     if (!isOpen) {
       return;
     }
 
-    void refresh();
-  }, [isOpen, refresh]);
+    let cancelled = false;
+    setSelectedWorkflowId('');
+    setRunsPage(null);
+    setError(null);
+    setPage(1);
+    setRunsPerPage(20);
+    setStatusFilter('all');
+    setRunsLoading(false);
+    setWorkflowsResponse(null);
+    setWorkflowsLoading(true);
 
-  const workflows = useMemo(() => data?.workflows ?? [], [data]);
+    void fetchWorkflowRecordingWorkflows()
+      .then((response) => {
+        if (!cancelled) {
+          setWorkflowsResponse(response);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setWorkflowsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
+
+  const workflows = useMemo(() => workflowsResponse?.workflows ?? [], [workflowsResponse]);
 
   useEffect(() => {
     if (workflows.length === 0) {
-      setSelectedWorkflowPath('');
+      setSelectedWorkflowId('');
       setPage(1);
       return;
     }
 
-    const selectedWorkflowStillExists = workflows.some((workflow) => workflow.project.absolutePath === selectedWorkflowPath);
-    if (!selectedWorkflowStillExists) {
-      setSelectedWorkflowPath(workflows[0]!.project.absolutePath);
+    if (!workflows.some((workflow) => workflow.workflowId === selectedWorkflowId)) {
+      setSelectedWorkflowId(workflows[0]!.workflowId);
       setPage(1);
     }
-  }, [selectedWorkflowPath, workflows]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [failedOnly, runsPerPage, selectedWorkflowPath]);
+  }, [selectedWorkflowId, workflows]);
 
   const selectedWorkflow = useMemo(
-    () => workflows.find((workflow) => workflow.project.absolutePath === selectedWorkflowPath) ?? null,
-    [selectedWorkflowPath, workflows],
+    () => workflows.find((workflow) => workflow.workflowId === selectedWorkflowId) ?? null,
+    [selectedWorkflowId, workflows],
   );
+
+  useEffect(() => {
+    if (!isOpen || !selectedWorkflowId) {
+      return;
+    }
+
+    let cancelled = false;
+    setRunsLoading(true);
+    setError(null);
+
+    void fetchWorkflowRecordingRuns(selectedWorkflowId, {
+      page,
+      pageSize: runsPerPage,
+      status: statusFilter,
+    })
+      .then((response) => {
+        if (!cancelled) {
+          setRunsPage(response);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : String(err));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setRunsLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, page, runsPerPage, selectedWorkflowId, statusFilter]);
 
   const workflowOptions = useMemo<WorkflowOption[]>(
     () =>
       workflows.map((workflow) => {
-        const latestRunAt = getWorkflowLatestRunAt(workflow);
         const endpoint = getWorkflowEndpoint(workflow);
         const statusLabel = PROJECT_STATUS_LABELS[workflow.project.settings.status];
 
         return {
           label: workflow.project.name,
-          value: workflow.project.absolutePath,
-          description: latestRunAt ? `Last run ${formatTimestamp(latestRunAt)}` : 'No recorded runs yet',
+          value: workflow.workflowId,
+          description: workflow.latestRunAt ? `Last run ${formatTimestamp(workflow.latestRunAt)}` : 'No recorded runs yet',
           endpoint,
           statusLabel,
         };
@@ -209,34 +244,21 @@ export const RunRecordingsModal: FC<RunRecordingsModalProps> = ({
     [workflows],
   );
 
-  const filteredRuns = useMemo(() => {
-    if (!selectedWorkflow) {
-      return [];
-    }
-
-    return selectedWorkflow.recordings.filter((recording) => !failedOnly || recording.status === 'failed');
-  }, [failedOnly, selectedWorkflow]);
-
-  const totalRuns = filteredRuns.length;
+  const totalRuns = runsPage?.totalRuns ?? (selectedWorkflow?.totalRuns ?? 0);
   const totalPages = Math.max(1, Math.ceil(totalRuns / runsPerPage));
+  const visibleRuns = runsPage?.runs ?? [];
+  const firstVisibleRun = totalRuns === 0 ? 0 : (page - 1) * runsPerPage + 1;
+  const lastVisibleRun = totalRuns === 0 ? 0 : Math.min(totalRuns, (page - 1) * runsPerPage + visibleRuns.length);
+  const selectedWorkflowEndpoint = selectedWorkflow ? getWorkflowEndpoint(selectedWorkflow) : '';
+  const selectedWorkflowStatusLabel = selectedWorkflow
+    ? PROJECT_STATUS_LABELS[selectedWorkflow.project.settings.status]
+    : '';
 
   useEffect(() => {
     if (page > totalPages) {
       setPage(totalPages);
     }
   }, [page, totalPages]);
-
-  const pagedRuns = useMemo(() => {
-    const startIndex = (page - 1) * runsPerPage;
-    return filteredRuns.slice(startIndex, startIndex + runsPerPage);
-  }, [filteredRuns, page, runsPerPage]);
-
-  const selectedWorkflowEndpoint = selectedWorkflow ? getWorkflowEndpoint(selectedWorkflow) : '';
-  const selectedWorkflowStatusLabel = selectedWorkflow
-    ? PROJECT_STATUS_LABELS[selectedWorkflow.project.settings.status]
-    : '';
-  const firstVisibleRun = totalRuns === 0 ? 0 : (page - 1) * runsPerPage + 1;
-  const lastVisibleRun = totalRuns === 0 ? 0 : Math.min(totalRuns, page * runsPerPage);
 
   if (!isOpen) {
     return null;
@@ -265,7 +287,7 @@ export const RunRecordingsModal: FC<RunRecordingsModalProps> = ({
                 onClick={onClose}
                 aria-label="Close run recordings"
               >
-                ×
+                &times;
               </button>
             </div>
 
@@ -274,35 +296,36 @@ export const RunRecordingsModal: FC<RunRecordingsModalProps> = ({
                 <div className="project-settings-error run-recordings-error">{error}</div>
               ) : null}
 
-              {loading ? (
+              {workflowsLoading ? (
                 <div className="run-recordings-empty-state">Loading recordings...</div>
               ) : null}
 
-              {!loading && workflows.length === 0 ? (
+              {!workflowsLoading && workflows.length === 0 ? (
                 <div className="run-recordings-empty-state">No published or previously published workflows yet.</div>
               ) : null}
 
-              {!loading && workflows.length > 0 ? (
+              {!workflowsLoading && workflows.length > 0 ? (
                 <div className="run-recordings-layout">
                   <section className="run-recordings-selector-section">
                     <div className="run-recordings-field-label">Workflow</div>
                     <Select
                       inputId="run-recordings-workflow-select"
                       options={workflowOptions}
-                      value={workflowOptions.find((option) => option.value === selectedWorkflowPath) ?? null}
-                      onChange={(option: any) => {
-                        setSelectedWorkflowPath(option?.value ?? '');
+                      value={workflowOptions.find((option) => option.value === selectedWorkflowId) ?? null}
+                      onChange={(option: WorkflowOption | null) => {
+                        setSelectedWorkflowId(option?.value ?? '');
+                        setPage(1);
                       }}
                       isSearchable={workflows.length > 8}
                       classNamePrefix="run-recordings-select"
-                      formatOptionLabel={(option: WorkflowOption, { context }: any) => (
+                      formatOptionLabel={(option: WorkflowOption, { context }: { context: 'menu' | 'value' }) => (
                         <div className="run-recordings-select-option">
                           <div className="run-recordings-select-option-title">{option.label}</div>
                           {context === 'menu' ? (
                             <div className="run-recordings-select-option-meta">
                               {option.statusLabel}
-                              {option.endpoint ? ` · /workflows/${option.endpoint}` : ''}
-                              {option.description ? ` · ${option.description}` : ''}
+                              {option.endpoint ? ` - /workflows/${option.endpoint}` : ''}
+                              {option.description ? ` - ${option.description}` : ''}
                             </div>
                           ) : null}
                         </div>
@@ -335,7 +358,7 @@ export const RunRecordingsModal: FC<RunRecordingsModalProps> = ({
                           </div>
                           <div className="run-recordings-workflow-field">
                             <div className="run-recordings-field-label">Recorded runs</div>
-                            <div className="run-recordings-field-value">{selectedWorkflow.recordings.length}</div>
+                            <div className="run-recordings-field-value">{selectedWorkflow.totalRuns}</div>
                           </div>
                         </div>
                       </div>
@@ -347,15 +370,21 @@ export const RunRecordingsModal: FC<RunRecordingsModalProps> = ({
                             <div className="run-recordings-segmented" role="group" aria-label="Filter runs">
                               <button
                                 type="button"
-                                className={`run-recordings-segmented-button${!failedOnly ? ' active' : ''}`}
-                                onClick={() => setFailedOnly(false)}
+                                className={`run-recordings-segmented-button${statusFilter === 'all' ? ' active' : ''}`}
+                                onClick={() => {
+                                  setStatusFilter('all');
+                                  setPage(1);
+                                }}
                               >
                                 All
                               </button>
                               <button
                                 type="button"
-                                className={`run-recordings-segmented-button${failedOnly ? ' active' : ''}`}
-                                onClick={() => setFailedOnly(true)}
+                                className={`run-recordings-segmented-button${statusFilter === 'failed' ? ' active' : ''}`}
+                                onClick={() => {
+                                  setStatusFilter('failed');
+                                  setPage(1);
+                                }}
                               >
                                 Failed only
                               </button>
@@ -371,7 +400,10 @@ export const RunRecordingsModal: FC<RunRecordingsModalProps> = ({
                                     key={option}
                                     type="button"
                                     className={`run-recordings-segmented-button${runsPerPage === option ? ' active' : ''}`}
-                                    onClick={() => setRunsPerPage(option)}
+                                    onClick={() => {
+                                      setRunsPerPage(option);
+                                      setPage(1);
+                                    }}
                                   >
                                     {option}
                                   </button>
@@ -384,7 +416,7 @@ export const RunRecordingsModal: FC<RunRecordingsModalProps> = ({
                                 type="button"
                                 className="run-recordings-page-button"
                                 onClick={() => setPage((current) => Math.max(1, current - 1))}
-                                disabled={page <= 1}
+                                disabled={page <= 1 || runsLoading}
                               >
                                 Previous
                               </button>
@@ -395,7 +427,7 @@ export const RunRecordingsModal: FC<RunRecordingsModalProps> = ({
                                 type="button"
                                 className="run-recordings-page-button"
                                 onClick={() => setPage((current) => Math.min(totalPages, current + 1))}
-                                disabled={page >= totalPages}
+                                disabled={page >= totalPages || runsLoading}
                               >
                                 Next
                               </button>
@@ -403,14 +435,16 @@ export const RunRecordingsModal: FC<RunRecordingsModalProps> = ({
                           </div>
                         </div>
 
-                        {totalRuns === 0 ? (
+                        {runsLoading ? (
+                          <div className="run-recordings-empty-group">Loading runs...</div>
+                        ) : totalRuns === 0 ? (
                           <div className="run-recordings-empty-group">
-                            {failedOnly ? 'No failed runs for this workflow.' : 'No recorded runs yet.'}
+                            {statusFilter === 'failed' ? 'No failed runs for this workflow.' : 'No recorded runs yet.'}
                           </div>
                         ) : (
                           <>
                             <div className="run-recordings-list">
-                              {pagedRuns.map((recording) => (
+                              {visibleRuns.map((recording) => (
                                 <RecordingRow
                                   key={recording.id}
                                   recording={recording}
