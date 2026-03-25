@@ -30,9 +30,11 @@ WORKDIR /app
 COPY ops/proxy-bootstrap/ /opt/proxy-bootstrap/
 RUN --mount=type=cache,target=/root/.npm npm --prefix /opt/proxy-bootstrap ci
 
-# Copy API source
-COPY wrapper/api/ .
-COPY wrapper/shared/ /shared/
+# Copy API source while preserving the wrapper layout expected by tsconfig.
+COPY wrapper/api/ wrapper/api/
+COPY wrapper/shared/ wrapper/shared/
+
+WORKDIR /app/wrapper/api
 
 # Install dependencies with a persistent BuildKit cache.
 RUN --mount=type=cache,target=/root/.npm npm ci
