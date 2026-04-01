@@ -105,6 +105,29 @@ What duplication does **not** copy:
 
 That means a duplicated published project starts as a normal unpublished workflow with no endpoint draft, no published endpoint, no snapshot, and no copied recording history.
 
+## Project uploading
+
+Projects can now also be uploaded into workflow folders from the folder-row context menu or through:
+
+- `POST /api/workflows/projects/upload`
+
+Current upload behavior:
+
+- the custom upload action currently exists only on folder rows
+- the dashboard opens a browser file picker and reads the chosen `.rivet-project` file locally before sending it to the API
+- some browsers do not reliably pre-filter Rivet's custom `.rivet-project` extension in that picker, so the dashboard validates the selected filename after picking and the API validates it again
+- the server parses the uploaded project, assigns a fresh `project.metadata.id`, updates `project.metadata.title` to the final saved name, and writes a brand-new `.rivet-project` file into the selected folder
+- name collisions are resolved as `Name`, then `Name 1`, `Name 2`, and so on
+- the uploaded project starts as a normal unpublished workflow because only the project file is imported
+- the dashboard refreshes the tree after upload but does not auto-select, auto-open, auto-expand folders, highlight, or otherwise change the current editor session
+
+What upload does **not** copy:
+
+- the source machine's settings sidecar (`*.wrapper-settings.json`)
+- the source machine's dataset sidecar (`*.rivet-data`)
+- published snapshots under `.published/`
+- execution recordings under `.recordings/`
+
 ## Project downloading
 
 Projects can now also be downloaded from the workflow tree's project-row context menu or through:
@@ -305,7 +328,7 @@ When a run is opened, the hosted editor:
 
 ## Project rename, move, and delete behavior
 
-When a project is renamed, moved, duplicated, downloaded, or deleted, sidecars and publication artifacts stay consistent:
+When a project is renamed, moved, duplicated, uploaded, downloaded, or deleted, sidecars and publication artifacts stay consistent:
 
 - **Rename/move**
   - `moveProjectWithSidecars()` renames the project, `.rivet-data`, and `.wrapper-settings.json`
@@ -314,6 +337,10 @@ When a project is renamed, moved, duplicated, downloaded, or deleted, sidecars a
   - creates only a new `.rivet-project` file in the same folder
   - gives the duplicate a fresh workflow metadata ID and updates its stored title
   - does not copy `.rivet-data`, `.wrapper-settings.json`, `.published/`, or `.recordings/`
+- **Upload**
+  - creates only a new `.rivet-project` file in the selected folder
+  - gives the uploaded project a fresh workflow metadata ID and updates its stored title to the final saved filename base
+  - does not create `.rivet-data`, `.wrapper-settings.json`, `.published/`, or `.recordings/`
 - **Download**
   - reads either the saved live project file or the published snapshot
   - never downloads unsaved editor state
@@ -330,7 +357,7 @@ When a project is renamed, moved, duplicated, downloaded, or deleted, sidecars a
 - `wrapper/api/src/routes/workflows/recordings.ts` - recording persistence, listing, migration, and cleanup
 - `wrapper/api/src/routes/workflows/recordings-config.ts` - recording env parsing and defaults
 - `wrapper/api/src/routes/workflows/recordings-db.ts` - SQLite recording index
-- `wrapper/api/src/routes/workflows/workflow-mutations.ts` - duplicate, publish, unpublish, and delete orchestration
+- `wrapper/api/src/routes/workflows/workflow-mutations.ts` - duplicate, upload, publish, unpublish, and delete orchestration
 - `wrapper/api/src/routes/workflows/workflow-download.ts` - project-download resolution and attachment filename generation
 - `wrapper/api/src/routes/workflows/fs-helpers.ts` - sidecar paths, move/delete helpers
 - `wrapper/shared/workflow-recording-types.ts` - shared recording types and virtual replay path helpers

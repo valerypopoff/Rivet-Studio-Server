@@ -28,16 +28,20 @@ In local direct-process mode, the services run separately without nginx.
 ## Hosted UI model
 
 - The top-level page is the wrapper dashboard. It renders the workflow library, project settings, runtime libraries, run recordings, and an `<iframe src="/?editor">`.
-- The workflow library tree now includes a project-row context menu on project entries. Current custom actions are `Duplicate` and `Download`; folders still do not expose a custom menu.
+- The workflow library tree now includes custom context menus on both project and folder entries.
+- Project rows currently expose download and duplicate actions.
+- Folder rows currently expose `Upload project`.
 - `Duplicate` creates a sibling project file through the API and refreshes the tree without changing the current selection or editor tab.
 - `Download` streams a saved `.rivet-project` file to the browser. It ignores unsaved editor changes and, for `unpublished_changes`, lets the user choose between the saved live file and the published snapshot. The download flow also leaves selection, open tabs, and folder expansion unchanged.
+- `Upload project` opens a browser file picker, uploads a chosen `.rivet-project` into the target folder, refreshes the tree, and leaves selection, open tabs, and folder expansion unchanged.
+- Browser picker filtering for Rivet's custom file extensions is not fully reliable across browsers, so the dashboard validates the selected filename after picking and the API validates it again before writing anything.
 - The iframe renders the upstream Rivet app plus `EditorMessageBridge`, which coordinates open/save/delete/replay commands with the dashboard via `window.postMessage`.
 - `HostedIOProvider` replaces desktop file APIs with API-backed load/save behavior and supports virtual replay paths of the form `recording://<recordingId>/replay.rivet-project`.
 - Wrapper-specific UI lives under `wrapper/web/dashboard/`. Upstream editor UI still lives under `rivet/packages/app/`.
 
 ## API surface overview
 
-- `/api/workflows/*` manages workflow folders/projects, project duplication/downloading, publication, movement/rename, and the recordings browser APIs.
+- `/api/workflows/*` manages workflow folders/projects, project duplication/uploading/downloading, publication, movement/rename, and the recordings browser APIs.
 - `/api/runtime-libraries/*` manages runtime-library state plus install/remove jobs and live log streaming over SSE.
 - `/api/native/*` exposes the hosted editor's filesystem API, constrained to allowed roots and supported base dirs.
 - `/api/projects/*` exposes lightweight project discovery for the hosted IO provider.

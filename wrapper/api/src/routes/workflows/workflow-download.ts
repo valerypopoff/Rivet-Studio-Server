@@ -17,6 +17,12 @@ type WorkflowProjectDownloadResult = {
   fileName: string;
 };
 
+function rethrowWorkflowProjectNotFound(error: unknown): never | void {
+  if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+    throw createHttpError(404, 'Project not found');
+  }
+}
+
 function getWorkflowProjectDownloadTag(
   version: WorkflowProjectDownloadVersion,
   status: WorkflowProjectStatus,
@@ -59,13 +65,29 @@ export async function readWorkflowProjectDownload(
   }
 
   const projectName = path.basename(projectPath, PROJECT_EXTENSION);
-  const settings = await getWorkflowProjectSettings(projectPath, projectName);
+  let settings: Awaited<ReturnType<typeof getWorkflowProjectSettings>>;
+
+  try {
+    settings = await getWorkflowProjectSettings(projectPath, projectName);
+  } catch (error) {
+    rethrowWorkflowProjectNotFound(error);
+    throw error;
+  }
+
   const downloadTag = getWorkflowProjectDownloadTag(version, settings.status);
 
   let sourcePath = projectPath;
   if (version === 'published') {
-    const storedSettings = await readStoredWorkflowProjectSettings(projectPath, projectName);
-    const publishedProjectPath = await resolvePublishedWorkflowProjectPath(root, projectPath, storedSettings);
+    let publishedProjectPath: string | null;
+
+    try {
+      const storedSettings = await readStoredWorkflowProjectSettings(projectPath, projectName);
+      publishedProjectPath = await resolvePublishedWorkflowProjectPath(root, projectPath, storedSettings);
+    } catch (error) {
+      rethrowWorkflowProjectNotFound(error);
+      throw error;
+    }
+
     if (!publishedProjectPath) {
       throw conflict('Published version is not available for this project');
     }

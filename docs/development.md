@@ -102,6 +102,17 @@ For workflow-library mutations that change on-disk project state:
 3. right-click a project in the left panel and run `Duplicate`
 4. confirm the new project appears in the same folder with a `Copy` name and that the current selection/editor tab did not change
 
+For workflow-library upload behavior:
+
+1. `npm run dev`
+2. validate the browser flow through `http://localhost:8080` by default, or your configured `RIVET_PORT`
+3. right-click a folder in the left panel and run `Upload project`
+4. choose a local `.rivet-project` file in the browser picker
+5. note that some browsers may still show a generic picker instead of pre-filtering `.rivet-project`; selecting the wrong file type should fail cleanly without uploading anything
+6. confirm the project appears in that folder
+7. if the folder already contained that name, confirm the new file is saved as `Name 1`, `Name 2`, and so on
+8. confirm the upload does not change the current selection, open a different tab, or expand folders automatically
+
 For workflow-library download behavior:
 
 1. `npm run dev`

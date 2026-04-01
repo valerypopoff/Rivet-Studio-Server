@@ -19,6 +19,7 @@ type WorkflowFolderTreeProps = {
   onProjectSelect: (path: string) => void;
   onProjectOpen: (path: string) => void;
   onProjectContextMenu: (project: WorkflowProjectItem, event: React.MouseEvent<HTMLButtonElement>) => void;
+  onFolderContextMenu: (folder: WorkflowFolderItem, event: React.MouseEvent<HTMLDivElement>) => void;
   onDragStart: (item: DraggedWorkflowItem) => (event: React.DragEvent<HTMLElement>) => void;
   onDragEnd: () => void;
   onFolderClick: (folder: WorkflowFolderItem) => (event: React.MouseEvent<HTMLElement>) => void;
@@ -44,6 +45,7 @@ export const WorkflowFolderTree: FC<WorkflowFolderTreeProps> = ({
   onProjectSelect,
   onProjectOpen,
   onProjectContextMenu,
+  onFolderContextMenu,
   onDragStart,
   onDragEnd,
   onFolderClick,
@@ -88,6 +90,7 @@ export const WorkflowFolderTree: FC<WorkflowFolderTreeProps> = ({
           aria-label={`${expanded ? 'Collapse' : 'Expand'} ${folder.name}`}
           onClick={onFolderClick(folder)}
           onKeyDown={onFolderKeyDown(folder)}
+          onContextMenu={(event) => onFolderContextMenu(folder, event)}
           onDragStart={onDragStart({
             itemType: 'folder',
             absolutePath: folder.absolutePath,

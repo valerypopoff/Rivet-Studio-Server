@@ -25,6 +25,7 @@ import {
   publishWorkflowProjectItem,
   renameWorkflowFolderItem,
   renameWorkflowProjectItem,
+  uploadWorkflowProjectItem,
   unpublishWorkflowProjectItem,
 } from './workflow-mutations.js';
 import { createWorkflowDownloadContentDisposition, readWorkflowProjectDownload } from './workflow-download.js';
@@ -54,6 +55,12 @@ const deleteFolderSchema = z.object({
 const createProjectSchema = z.object({
   folderRelativePath: z.unknown().optional(),
   name: z.unknown(),
+});
+
+const uploadProjectSchema = z.object({
+  folderRelativePath: z.unknown().optional(),
+  fileName: z.unknown(),
+  contents: z.unknown(),
 });
 
 const renameProjectSchema = z.object({
@@ -192,6 +199,11 @@ workflowsRouter.patch('/projects', validateBody(renameProjectSchema), asyncHandl
 workflowsRouter.post('/projects/duplicate', validateBody(pathOnlySchema), asyncHandler(async (req, res) => {
   const { relativePath } = req.body as z.infer<typeof pathOnlySchema>;
   res.status(201).json({ project: await duplicateWorkflowProjectItem(relativePath) });
+}));
+
+workflowsRouter.post('/projects/upload', validateBody(uploadProjectSchema), asyncHandler(async (req, res) => {
+  const { folderRelativePath, fileName, contents } = req.body as z.infer<typeof uploadProjectSchema>;
+  res.status(201).json({ project: await uploadWorkflowProjectItem(folderRelativePath, fileName, contents) });
 }));
 
 workflowsRouter.post('/projects/download', validateBody(downloadProjectSchema), asyncHandler(async (req, res) => {

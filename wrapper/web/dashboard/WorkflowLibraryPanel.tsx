@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FC } from 'reac
 import CollapseLeftIcon from '../icons/arrow-collapse-left.svg?react';
 import { toast } from 'react-toastify';
 import { ActiveProjectSection } from './ActiveProjectSection';
+import { WorkflowFolderContextMenu } from './WorkflowFolderContextMenu';
 import { WorkflowFolderTree } from './WorkflowFolderTree';
 import { WorkflowProjectContextMenu } from './WorkflowProjectContextMenu';
 import { WorkflowProjectDownloadModal } from './WorkflowProjectDownloadModal';
@@ -18,6 +19,7 @@ import {
   fetchWorkflowTree,
   moveWorkflowItem,
   renameWorkflowFolder,
+  uploadWorkflowProject,
 } from './workflowApi';
 import type {
   WorkflowFolderItem,
@@ -93,6 +95,63 @@ const updateSavedProjectStatusInFolders = (
   return changed ? nextFolders : folders;
 };
 
+async function pickWorkflowProjectFile(): Promise<File | null> {
+  if ('showOpenFilePicker' in window) {
+    try {
+      const [fileHandle] = await (window as Window & {
+        showOpenFilePicker?: (options?: Record<string, unknown>) => Promise<Array<{ getFile: () => Promise<File> }>>;
+      }).showOpenFilePicker?.({
+        multiple: false,
+      }) ?? [];
+
+      return fileHandle ? fileHandle.getFile() : null;
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return null;
+      }
+
+      throw error;
+    }
+  }
+
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.rivet-project';
+    input.style.display = 'none';
+
+    let settled = false;
+    let focusTimerId: number | null = null;
+    const finish = (file: File | null) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      if (focusTimerId != null) {
+        window.clearTimeout(focusTimerId);
+        focusTimerId = null;
+      }
+      window.removeEventListener('focus', handleWindowFocus, true);
+      input.remove();
+      resolve(file);
+    };
+
+    const handleWindowFocus = () => {
+      focusTimerId = window.setTimeout(() => {
+        finish(input.files?.[0] ?? null);
+      }, 300);
+    };
+
+    input.addEventListener('change', () => {
+      finish(input.files?.[0] ?? null);
+    }, { once: true });
+    window.addEventListener('focus', handleWindowFocus, true);
+    document.body.appendChild(input);
+    input.click();
+  });
+}
+
 interface WorkflowLibraryPanelProps {
   onOpenProject: (path: string, options?: { replaceCurrent?: boolean }) => void;
   onOpenRecording: (recordingId: string, options?: { replaceCurrent?: boolean }) => void;
@@ -134,11 +193,17 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   const [settingsModalProject, setSettingsModalProject] = useState<WorkflowProjectItem | null>(null);
   const [runtimeLibsOpen, setRuntimeLibsOpen] = useState(false);
   const [runRecordingsOpen, setRunRecordingsOpen] = useState(false);
+  const [folderContextMenuState, setFolderContextMenuState] = useState<{
+    folder: WorkflowFolderItem;
+    x: number;
+    y: number;
+  } | null>(null);
   const [projectContextMenuState, setProjectContextMenuState] = useState<{
     project: WorkflowProjectItem;
     x: number;
     y: number;
   } | null>(null);
+  const [uploadingFolderPath, setUploadingFolderPath] = useState<string | null>(null);
   const [downloadModalProject, setDownloadModalProject] = useState<WorkflowProjectItem | null>(null);
   const [downloadingProjectPath, setDownloadingProjectPath] = useState<string | null>(null);
   const [downloadingVersion, setDownloadingVersion] = useState<WorkflowProjectDownloadVersion | null>(null);
@@ -498,11 +563,20 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     setProjectContextMenuState(null);
   }, []);
 
-  const handleProjectContextMenu = useCallback((
-    project: WorkflowProjectItem,
-    event: React.MouseEvent<HTMLButtonElement>,
+  const closeFolderContextMenu = useCallback(() => {
+    setFolderContextMenuState(null);
+  }, []);
+
+  const handleFolderContextMenu = useCallback((
+    folder: WorkflowFolderItem,
+    event: React.MouseEvent<HTMLDivElement>,
   ) => {
-    if (duplicatingProjectPath || downloadingProjectPath) {
+    const target = event.target as HTMLElement | null;
+    if (target?.closest('.folder-actions')) {
+      return;
+    }
+
+    if (duplicatingProjectPath || downloadingProjectPath || uploadingFolderPath) {
       event.preventDefault();
       event.stopPropagation();
       return;
@@ -511,12 +585,79 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     event.preventDefault();
     event.stopPropagation();
 
+    setProjectContextMenuState(null);
+    setFolderContextMenuState({
+      folder,
+      x: event.clientX,
+      y: event.clientY,
+    });
+  }, [downloadingProjectPath, duplicatingProjectPath, uploadingFolderPath]);
+
+  const handleProjectContextMenu = useCallback((
+    project: WorkflowProjectItem,
+    event: React.MouseEvent<HTMLButtonElement>,
+  ) => {
+    if (duplicatingProjectPath || downloadingProjectPath || uploadingFolderPath) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    setFolderContextMenuState(null);
     setProjectContextMenuState({
       project,
       x: event.clientX,
       y: event.clientY,
     });
-  }, [downloadingProjectPath, duplicatingProjectPath]);
+  }, [downloadingProjectPath, duplicatingProjectPath, uploadingFolderPath]);
+
+  const handleUploadProjectFromFolder = useCallback(async () => {
+    const targetFolder = folderContextMenuState?.folder;
+    if (!targetFolder || duplicatingProjectPath || downloadingProjectPath || uploadingFolderPath) {
+      return;
+    }
+
+    closeFolderContextMenu();
+    let selectedFile: File | null;
+    try {
+      selectedFile = await pickWorkflowProjectFile();
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to open upload picker');
+      return;
+    }
+
+    if (!selectedFile) {
+      return;
+    }
+
+    if (!selectedFile.name.toLowerCase().endsWith('.rivet-project')) {
+      toast.error('Choose a .rivet-project file to upload');
+      return;
+    }
+
+    setUploadingFolderPath(targetFolder.relativePath);
+
+    try {
+      const contents = await selectedFile.text();
+      await uploadWorkflowProject(targetFolder.relativePath, selectedFile.name, contents);
+      await refresh(false);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to upload project');
+    } finally {
+      setUploadingFolderPath((currentPath) =>
+        currentPath === targetFolder.relativePath ? null : currentPath);
+    }
+  }, [
+    closeFolderContextMenu,
+    downloadingProjectPath,
+    duplicatingProjectPath,
+    folderContextMenuState,
+    refresh,
+    uploadingFolderPath,
+  ]);
 
   const closeDownloadModal = useCallback(() => {
     if (downloadingVersion) {
@@ -528,7 +669,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
 
   const handleDuplicateProject = useCallback(async () => {
     const targetProject = projectContextMenuState?.project;
-    if (!targetProject || duplicatingProjectPath) {
+    if (!targetProject || duplicatingProjectPath || uploadingFolderPath) {
       return;
     }
 
@@ -544,7 +685,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
       setDuplicatingProjectPath((currentPath) =>
         currentPath === targetProject.relativePath ? null : currentPath);
     }
-  }, [closeProjectContextMenu, duplicatingProjectPath, projectContextMenuState, refresh]);
+  }, [closeProjectContextMenu, duplicatingProjectPath, projectContextMenuState, refresh, uploadingFolderPath]);
 
   const startDownloadProject = useCallback(async (
     project: WorkflowProjectItem,
@@ -569,7 +710,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
 
   const handleDownloadProject = useCallback(() => {
     const targetProject = projectContextMenuState?.project;
-    if (!targetProject || downloadingProjectPath || duplicatingProjectPath) {
+    if (!targetProject || downloadingProjectPath || duplicatingProjectPath || uploadingFolderPath) {
       return;
     }
 
@@ -584,7 +725,14 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
       targetProject,
       targetProject.settings.status === 'published' ? 'published' : 'live',
     );
-  }, [closeProjectContextMenu, downloadingProjectPath, duplicatingProjectPath, projectContextMenuState, startDownloadProject]);
+  }, [
+    closeProjectContextMenu,
+    downloadingProjectPath,
+    duplicatingProjectPath,
+    projectContextMenuState,
+    startDownloadProject,
+    uploadingFolderPath,
+  ]);
 
   const handleOpenSettings = () => {
     if (!activeProject) {
@@ -640,6 +788,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
         onProjectSelect={setSelectedProjectPath}
         onProjectOpen={onOpenProject}
         onProjectContextMenu={handleProjectContextMenu}
+        onFolderContextMenu={handleFolderContextMenu}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
         onFolderClick={handleFolderRowClick}
@@ -759,6 +908,17 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
           onOpenRecording(recordingId);
         }}
       />
+      {folderContextMenuState ? (
+        <WorkflowFolderContextMenu
+          key={`${folderContextMenuState.folder.relativePath}:${folderContextMenuState.x}:${folderContextMenuState.y}`}
+          isOpen
+          folder={folderContextMenuState.folder}
+          x={folderContextMenuState.x}
+          y={folderContextMenuState.y}
+          onClose={closeFolderContextMenu}
+          onUploadProject={() => void handleUploadProjectFromFolder()}
+        />
+      ) : null}
       {projectContextMenuState ? (
         <WorkflowProjectContextMenu
           key={`${projectContextMenuState.project.relativePath}:${projectContextMenuState.x}:${projectContextMenuState.y}`}

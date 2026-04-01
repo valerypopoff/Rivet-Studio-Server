@@ -30,6 +30,7 @@ The wrapper API currently exposes these groups behind `/api`:
   - `POST|PATCH|DELETE /api/workflows/folders`
   - `POST|PATCH|DELETE /api/workflows/projects`
   - `POST /api/workflows/projects/duplicate`
+  - `POST /api/workflows/projects/upload`
   - `POST /api/workflows/projects/download`
   - `POST /api/workflows/projects/publish`
   - `POST /api/workflows/projects/unpublish`
@@ -66,6 +67,17 @@ Current duplicate-route behavior:
 - it returns `201 { "project": WorkflowProjectItem }`
 - it creates a sibling `.rivet-project` using `Name Copy`, then `Name Copy 1`, `Name Copy 2`, and so on
 - it writes only the new project file; dataset sidecars, wrapper settings, published snapshots, and recordings are intentionally not copied
+
+Current upload-route behavior:
+
+- `POST /api/workflows/projects/upload` accepts `{ "folderRelativePath": string, "fileName": string, "contents": string }`
+- it returns `201 { "project": WorkflowProjectItem }`
+- it parses the uploaded `.rivet-project`, assigns a fresh workflow metadata ID, updates the stored title to the final saved filename base, and writes only a new project file into the selected folder
+- name collisions are resolved as `Name`, then `Name 1`, `Name 2`, and so on
+- the dashboard calls this route directly from the folder-row context menu after reading the selected local file in the browser
+- browser file-picking is still validated client-side and server-side; some browsers do not reliably pre-filter Rivet's custom `.rivet-project` extension in the native picker
+- uploads intentionally ignore unsaved editor changes, do not use the editor bridge, and never create sidecars, published snapshots, or recordings automatically
+- invalid project files or wrong extensions return `400`; a missing target folder returns `404`
 
 Current download-route behavior:
 

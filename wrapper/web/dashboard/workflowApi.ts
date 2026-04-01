@@ -218,6 +218,21 @@ export async function createWorkflowProject(
   return data.project;
 }
 
+export async function uploadWorkflowProject(
+  folderRelativePath: string,
+  fileName: string,
+  contents: string,
+): Promise<WorkflowProjectItem> {
+  const response = await fetch(`${API}/workflows/projects/upload`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ folderRelativePath, fileName, contents }),
+  });
+
+  const data = await parseJsonResponse<{ project: WorkflowProjectItem }>(response);
+  return data.project;
+}
+
 export async function renameWorkflowProject(
   relativePath: string,
   newName: string,

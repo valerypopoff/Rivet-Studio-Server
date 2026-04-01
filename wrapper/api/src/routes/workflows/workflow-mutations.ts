@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import {
   loadProjectAndAttachedDataFromFile,
+  loadProjectAndAttachedDataFromString,
   loadProjectFromFile,
   serializeProject,
 } from '@ironclad/rivet-node';
@@ -121,6 +122,73 @@ function getDuplicateWorkflowProjectPath(sourceProjectPath: string, duplicateInd
   };
 }
 
+function getUploadedWorkflowProjectBaseName(fileName: unknown): string {
+  if (typeof fileName !== 'string') {
+    throw createHttpError(400, 'Missing fileName');
+  }
+
+  const trimmedFileName = fileName.trim();
+  if (!trimmedFileName) {
+    throw createHttpError(400, 'Missing fileName');
+  }
+
+  const normalizedFileName = trimmedFileName.replace(/\\/g, '/').split('/').pop() ?? trimmedFileName;
+  if (!normalizedFileName.toLowerCase().endsWith(PROJECT_EXTENSION)) {
+    throw createHttpError(400, `Expected ${PROJECT_EXTENSION} file`);
+  }
+
+  return sanitizeWorkflowName(
+    normalizedFileName.slice(0, -PROJECT_EXTENSION.length),
+    'project file name',
+  );
+}
+
+function getUploadedWorkflowProjectContents(contents: unknown): string {
+  if (typeof contents !== 'string' || !contents.trim()) {
+    throw createHttpError(400, 'Missing project contents');
+  }
+
+  return contents;
+}
+
+function getUploadedWorkflowProjectName(sourceProjectName: string, uploadIndex: number): string {
+  return uploadIndex === 0
+    ? sourceProjectName
+    : `${sourceProjectName} ${uploadIndex}`;
+}
+
+function getUploadedWorkflowProjectPath(
+  folderPath: string,
+  sourceProjectName: string,
+  uploadIndex: number,
+): {
+  uploadedProjectName: string;
+  uploadedProjectPath: string;
+} {
+  const uploadedProjectName = getUploadedWorkflowProjectName(sourceProjectName, uploadIndex);
+  const uploadedProjectPath = validatePath(path.join(folderPath, `${uploadedProjectName}${PROJECT_EXTENSION}`));
+
+  return {
+    uploadedProjectName,
+    uploadedProjectPath,
+  };
+}
+
+async function ensureWorkflowFolderExists(folderPath: string): Promise<void> {
+  try {
+    const folderStats = await fs.stat(folderPath);
+    if (!folderStats.isDirectory()) {
+      throw createHttpError(404, 'Folder not found');
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw createHttpError(404, 'Folder not found');
+    }
+
+    throw error;
+  }
+}
+
 export async function duplicateWorkflowProjectItem(relativePath: unknown) {
   const root = await ensureWorkflowsRoot();
   const sourceProjectPath = requireProjectPath(resolveWorkflowRelativePath(root, relativePath, {
@@ -174,6 +242,71 @@ export async function duplicateWorkflowProjectItem(relativePath: unknown) {
 
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
         throw createHttpError(404, 'Project not found');
+      }
+
+      throw error;
+    }
+  }
+}
+
+export async function uploadWorkflowProjectItem(
+  folderRelativePath: unknown,
+  fileName: unknown,
+  contents: unknown,
+) {
+  const root = await ensureWorkflowsRoot();
+  const folderPath = resolveWorkflowRelativePath(root, folderRelativePath, {
+    allowProjectFile: false,
+    allowEmpty: true,
+  });
+  await ensureWorkflowFolderExists(folderPath);
+
+  const uploadedProjectBaseName = getUploadedWorkflowProjectBaseName(fileName);
+  const uploadedProjectContents = getUploadedWorkflowProjectContents(contents);
+
+  let project: ReturnType<typeof loadProjectAndAttachedDataFromString>[0];
+  let attachedData: ReturnType<typeof loadProjectAndAttachedDataFromString>[1];
+
+  try {
+    [project, attachedData] = loadProjectAndAttachedDataFromString(uploadedProjectContents);
+  } catch (error) {
+    throw createHttpError(400, 'Could not upload project: invalid project file');
+  }
+
+  const uploadedProjectId = randomUUID() as typeof project.metadata.id;
+
+  for (let uploadIndex = 0; ; uploadIndex += 1) {
+    const { uploadedProjectName, uploadedProjectPath } = getUploadedWorkflowProjectPath(
+      folderPath,
+      uploadedProjectBaseName,
+      uploadIndex,
+    );
+    let serializedProject: string;
+
+    try {
+      project.metadata.id = uploadedProjectId;
+      project.metadata.title = uploadedProjectName;
+
+      const nextSerializedProject = serializeProject(project, attachedData);
+      if (typeof nextSerializedProject !== 'string') {
+        throw new Error('Project serialization did not return a string');
+      }
+
+      serializedProject = nextSerializedProject;
+    } catch (error) {
+      throw createHttpError(400, 'Could not upload project: invalid project file');
+    }
+
+    try {
+      await fs.writeFile(uploadedProjectPath, serializedProject, { encoding: 'utf8', flag: 'wx' });
+      return getWorkflowProject(root, uploadedProjectPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+        continue;
+      }
+
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw createHttpError(404, 'Folder not found');
       }
 
       throw error;

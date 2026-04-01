@@ -51,13 +51,13 @@ export const WorkflowProjectDownloadModal: FC<WorkflowProjectDownloadModalProps>
                 disabled={!canClose}
                 aria-label="Close project download chooser"
               >
-                ×
+                {'\u00d7'}
               </button>
             </div>
 
             <div className="project-settings-modal-content workflow-project-download-modal-content">
               <div className="project-settings-help workflow-project-download-help">
-                {project.name}: choose which version to download.
+                {project.name}: choose which saved version to download. Unsaved editor changes are not included.
               </div>
 
               <div className="workflow-project-download-actions">
