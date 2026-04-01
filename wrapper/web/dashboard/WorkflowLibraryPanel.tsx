@@ -38,11 +38,16 @@ import {
 } from './workflowLibraryHelpers';
 import './WorkflowLibraryPanel.css';
 
+const PROJECT_SAVE_REFRESH_DELAY_MS = 400;
+
 const markSavedPublishedProjectAsChanged = (
   project: WorkflowProjectItem,
   savedProjectPath: string,
 ): WorkflowProjectItem => {
-  if (project.absolutePath !== savedProjectPath || project.settings.status !== 'published') {
+  if (
+    normalizeWorkflowPath(project.absolutePath) !== normalizeWorkflowPath(savedProjectPath) ||
+    project.settings.status !== 'published'
+  ) {
     return project;
   }
 
@@ -209,6 +214,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   const [downloadingVersion, setDownloadingVersion] = useState<WorkflowProjectDownloadVersion | null>(null);
   const [duplicatingProjectPath, setDuplicatingProjectPath] = useState<string | null>(null);
   const refreshRequestIdRef = useRef(0);
+  const projectSaveRefreshTimeoutRef = useRef<number | null>(null);
 
   const refresh = useCallback(async (showLoading = true) => {
     const requestId = ++refreshRequestIdRef.current;
@@ -251,6 +257,23 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  const scheduleProjectSaveRefresh = useCallback(() => {
+    if (projectSaveRefreshTimeoutRef.current != null) {
+      window.clearTimeout(projectSaveRefreshTimeoutRef.current);
+    }
+
+    projectSaveRefreshTimeoutRef.current = window.setTimeout(() => {
+      projectSaveRefreshTimeoutRef.current = null;
+      void refresh(false);
+    }, PROJECT_SAVE_REFRESH_DELAY_MS);
+  }, [refresh]);
+
+  useEffect(() => () => {
+    if (projectSaveRefreshTimeoutRef.current != null) {
+      window.clearTimeout(projectSaveRefreshTimeoutRef.current);
+    }
+  }, []);
 
   const activePath = selectedProjectPath || openedProjectPath;
 
@@ -315,9 +338,8 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
 
     setRootProjects((prev) => updateSavedProjectStatus(prev, lastSavedProjectPath));
     setFolders((prev) => updateSavedProjectStatusInFolders(prev, lastSavedProjectPath));
-
-    void refresh(false);
-  }, [lastSavedProjectPath, projectSaveSequence, refresh]);
+    scheduleProjectSaveRefresh();
+  }, [lastSavedProjectPath, projectSaveSequence, scheduleProjectSaveRefresh]);
 
   const activeAncestorFolderIds = useMemo(() => {
     if (!activePath) {

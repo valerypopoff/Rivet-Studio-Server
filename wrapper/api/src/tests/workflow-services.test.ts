@@ -285,6 +285,18 @@ test('workflow project stats count serialized graph nodes', async () => {
   assert.equal(project.stats?.totalNodeCount, 1);
 });
 
+test('workflow tree route disables caching', async () => {
+  await workflowMutations.createWorkflowProjectItem('', 'CacheHeaders');
+
+  await withWorkflowApiServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/tree`);
+
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('cache-control'), 'no-store, no-cache, must-revalidate');
+    assert.equal(response.headers.get('pragma'), 'no-cache');
+  });
+});
+
 test('workflow project duplication creates an unpublished copy in the same folder', async () => {
   const created = await workflowMutations.createWorkflowProjectItem('', 'Example');
 

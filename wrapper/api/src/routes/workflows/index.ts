@@ -32,6 +32,15 @@ import { createWorkflowDownloadContentDisposition, readWorkflowProjectDownload }
 
 export const workflowsRouter = Router();
 
+workflowsRouter.use((req, res, next) => {
+  if (req.method === 'GET') {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+  }
+
+  next();
+});
+
 const moveSchema = z.object({
   itemType: z.enum(['project', 'folder']),
   sourceRelativePath: z.unknown(),
