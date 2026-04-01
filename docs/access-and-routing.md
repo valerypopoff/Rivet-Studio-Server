@@ -1,89 +1,147 @@
 # Access And Routing
 
-This document describes the externally visible route families, the nginx gate, and the trust boundary between `proxy`, `api`, and `executor`.
+This document describes the current external route families, the nginx gate, and the trust boundary between `proxy`, `api`, and `executor`.
 
-## Route families
+## Proxy-exposed routes
 
-The stack exposes four important request families through nginx:
+The Docker dev and production stacks expose these route families through nginx:
 
-- `/` serves the hosted browser app
-- `/api/*` serves wrapper compatibility endpoints
-- `${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH:-/workflows}/*` serves the last published workflow snapshot
-- `${RIVET_LATEST_WORKFLOWS_BASE_PATH:-/workflows-latest}/*` serves the latest working version of a published workflow
+| Path | Backing service | Purpose |
+|---|---|---|
+| `/` | `web` | Wrapper dashboard shell |
+| `/?editor` | `web` | Hosted Rivet editor iframe |
+| `POST /__rivet_auth` | `api` (`/ui-auth`) | UI gate form exchange |
+| `/api/*` | `api` | Wrapper API surface |
+| `${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH:-/workflows}/:endpointName` | `api` | Execute frozen published workflow snapshot |
+| `${RIVET_LATEST_WORKFLOWS_BASE_PATH:-/workflows-latest}/:endpointName` | `api` | Execute latest live file for a published workflow |
+| `/ws/latest-debugger` | `api` | Latest-workflow remote debugger websocket |
+| `/ws/executor/internal` | `executor` | Hosted editor execution websocket |
+| `/ws/executor` | `executor` | Upstream-compatible executor websocket path |
 
-Within `/api/*`, the recordings browser uses:
+The nginx configs also set `client_max_body_size 100m`, so large API/editor payloads are allowed up to that limit.
 
-- `GET /api/workflows/tree` to list workflow folders and projects for the main sidebar
-- `GET /api/workflows/recordings/workflows` to list workflows that are published now or still have recording history
-- `GET /api/workflows/recordings/workflows/:workflowId/runs?page=1&pageSize=20&status=all|failed` to page through stored runs for one workflow, where `status=failed` returns both failed and suspicious runs
-- `GET /api/workflows/recordings/:recordingId/recording` to load the serialized `ExecutionRecorder` payload
-- `GET /api/workflows/recordings/:recordingId/replay-project` to load the replay project snapshot
-- `GET /api/workflows/recordings/:recordingId/replay-dataset` to load the replay dataset snapshot when present
-- `DELETE /api/workflows/recordings/:recordingId` to remove one stored run and its replay bundle
+## `/api/*` route families
 
-`GET /api/workflows/recordings` remains as a compatibility alias for the workflow-list response, but the dashboard uses the more explicit `/recordings/workflows` route family.
+The wrapper API currently exposes these groups behind `/api`:
 
-Websocket routes are split as follows:
+- `/api/workflows/*`
+  - `GET /api/workflows/tree`
+  - `POST /api/workflows/move`
+  - `POST|PATCH|DELETE /api/workflows/folders`
+  - `POST|PATCH|DELETE /api/workflows/projects`
+  - `POST /api/workflows/projects/publish`
+  - `POST /api/workflows/projects/unpublish`
+  - `GET /api/workflows/recordings/workflows`
+  - `GET /api/workflows/recordings/workflows/:workflowId/runs?page=1&pageSize=20&status=all|failed`
+  - `GET /api/workflows/recordings/:recordingId/recording`
+  - `GET /api/workflows/recordings/:recordingId/replay-project`
+  - `GET /api/workflows/recordings/:recordingId/replay-dataset`
+  - `DELETE /api/workflows/recordings/:recordingId`
+- `/api/runtime-libraries/*`
+  - `GET /api/runtime-libraries/`
+  - `POST /api/runtime-libraries/install`
+  - `POST /api/runtime-libraries/remove`
+  - `GET /api/runtime-libraries/jobs/:jobId`
+  - `GET /api/runtime-libraries/jobs/:jobId/stream`
+- `/api/native/*`
+  - hosted filesystem read/write/list/remove helpers used by the editor
+- `/api/projects/*`
+  - `GET /api/projects/list`
+  - `POST /api/projects/open-dialog`
+- `/api/plugins/*`
+  - `POST /api/plugins/install-package`
+  - `POST /api/plugins/load-package-main`
+- `/api/shell/exec`
+  - allowlisted shell execution
+- `/api/config`, `/api/path/app-local-data-dir`, `/api/path/app-log-dir`, `/api/config/env/:name`
+  - hosted env/config helpers
 
-- `/ws/executor/*` proxies to the executor service for editor-driven Node execution
-- `/ws/latest-debugger` proxies to the API service for latest-workflow remote debugging
+`GET /healthz` lives on the API service itself and is used by the Docker healthchecks.
 
 ## UI gate
 
 The browser/editor surface can be protected at the nginx layer:
 
-- `RIVET_REQUIRE_UI_GATE_KEY=true` enables the gate
-- `RIVET_KEY` is the shared secret
-- `RIVET_UI_TOKEN_FREE_HOSTS` lists hosts that bypass the gate
+- `RIVET_REQUIRE_UI_GATE_KEY=true` enables the gate.
+- `RIVET_KEY` is the shared secret used for the gate.
+- `RIVET_UI_TOKEN_FREE_HOSTS` lists hosts that bypass the gate.
 
 When the gate is enabled for a host that is not exempt:
 
 - `GET /` serves the prompt page from `ops/ui-gate-prompt.html`
-- `POST /__rivet_auth` exchanges the entered key for an HTTP-only session cookie
-- the cookie is then used for `/`, `/api/*`, `/ws/executor*`, and `/ws/latest-debugger`
+- `POST /__rivet_auth` forwards to the API's internal `/ui-auth` route
+- the API validates the submitted `key` or `token` form field
+- on success the response sets an HTTP-only `rivet_ui_token` cookie
+- the cookie then gates `/`, `/api/*`, `/ws/executor*`, and `/ws/latest-debugger`
+
+If the gate is enabled but `RIVET_KEY` is empty, nginx/API do not fall back to open access for non-exempt hosts; they deny the gated requests.
 
 ## Trusted proxy boundary
 
-The intended external access path is `browser -> nginx -> api/executor`.
+The intended access path is:
 
-The API independently treats nginx as a trusted proxy boundary:
+```text
+browser -> nginx -> api / executor
+```
 
-- `/api/*`
-- `/ui-auth`
-- `/ws/latest-debugger`
+The API independently enforces that boundary:
 
-These paths are expected to be reached through nginx, not directly against the API container. The API validates the trusted proxy header that nginx injects for those requests.
+- `/api/*` requires the trusted proxy header
+- `/ui-auth` requires the trusted proxy header
+- `/ws/latest-debugger` requires the trusted proxy header during websocket upgrade
+
+nginx injects `X-Rivet-Proxy-Auth`, derived from `RIVET_KEY`, for those requests.
+Direct access to the API container for `/api/*`, `/ui-auth`, or `/ws/latest-debugger` bypasses that header and is rejected.
+
+The public workflow execution routes are mounted outside `/api`, so they do not use the `requireAuth` middleware. They still rely on nginx to mediate access and, for token-free hosts, inject the token-free-host hint.
+
+## Workflow execution contract
+
+All three workflow execution handlers are `POST`-only:
+
+- `${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH:-/workflows}/:endpointName`
+- `${RIVET_LATEST_WORKFLOWS_BASE_PATH:-/workflows-latest}/:endpointName`
+- `/internal/workflows/:endpointName`
+
+Current request/response behavior:
+
+- the incoming JSON body becomes the workflow's `input` value
+- an empty request body is treated as `{}`
+- if the workflow's final `output` port is typed as `any`, the HTTP response body is that raw value
+- otherwise the response body is the full outputs object
+- every execution response sets `x-duration-ms`
+- if the success payload is an object and does not already include `durationMs`, the API injects `durationMs` into the JSON body
+- failures return JSON shaped like `{ "error": { "name"?: string, "message": string }, "durationMs": number }`
 
 ## Workflow execution auth
 
 Workflow execution auth is separate from the UI gate:
 
-- `RIVET_REQUIRE_WORKFLOW_KEY=true` enables bearer-token checks on public workflow execution routes
-- `Authorization: Bearer <RIVET_KEY>` is required on public workflow routes when enabled
-- hosts listed in `RIVET_UI_TOKEN_FREE_HOSTS` can bypass public workflow bearer auth because nginx marks them as trusted internal hosts
+- `RIVET_REQUIRE_WORKFLOW_KEY=true` enables bearer-token checks on the public workflow routes
+- `Authorization: Bearer <RIVET_KEY>` is required on `${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH}` and `${RIVET_LATEST_WORKFLOWS_BASE_PATH}` when enabled
+- if the flag is enabled but `RIVET_KEY` is empty, public execution fails with `500`
+- hosts listed in `RIVET_UI_TOKEN_FREE_HOSTS` bypass public workflow bearer auth because nginx forwards `X-Rivet-Token-Free-Host: 1`
 
-There is also an internal API-only route:
+The internal API-only route:
 
-- `/internal/workflows/:endpointName`
+- `POST /internal/workflows/:endpointName`
 
-That route is not exposed through nginx and intentionally skips bearer auth so trusted intra-stack callers can use `http://api/internal/workflows/:endpointName`.
-
-All three execution handlers (`/workflows`, `/workflows-latest`, and `/internal/workflows`) persist execution recordings under the workflow root. Auth changes who can execute a workflow, not whether the run is recorded.
-
-Recording persistence is intentionally best-effort. Endpoint responses are sent first, then recording writes are queued in the background. Under sustained write pressure the queue can drop recordings so endpoint execution is not slowed or blocked.
+is mounted directly on the API service, is not exposed through nginx, and intentionally skips bearer auth for trusted intra-stack callers.
 
 ## Latest debugger model
 
-Latest-workflow remote debugging is intentionally opt-in and separate from the executor websocket:
+Latest-workflow remote debugging is opt-in and separate from the executor websocket:
 
 - it is enabled only when `RIVET_ENABLE_LATEST_REMOTE_DEBUGGER=true`
 - it applies only to latest-workflow endpoint runs
-- published workflow endpoint runs remain debugger-free
-- the browser-facing websocket is `/ws/latest-debugger`
+- published workflow endpoint runs never attach the remote debugger
+- the browser-facing websocket path is `/ws/latest-debugger`
+- when disabled, websocket upgrades on `/ws/latest-debugger` are rejected with `404`
 
-This means the two debug/execution paths are different:
+Endpoint recording persistence is unaffected by debugger state. Latest-workflow runs still write normal recording bundles when recordings are enabled.
 
-- editor Node execution uses the executor websocket
-- endpoint remote debugging uses the API-hosted latest debugger websocket
+## Local dev note
 
-Latest-workflow runs still persist normal recording bundles even when the remote debugger is enabled.
+`npm run dev` preserves the nginx routing and auth model described above.
+
+`npm run dev:local` does not recreate that proxy boundary. It starts the services directly and serves the web app from Vite on `http://localhost:5174`, so Docker dev remains the authoritative path for validating proxy-injected auth, the UI gate, and production-like routing behavior.
