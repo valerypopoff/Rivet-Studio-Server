@@ -37,6 +37,12 @@ async function withWorkflowApiServer(run: (baseUrl: string) => Promise<void>) {
   const app = express();
   app.use(express.json({ strict: false }));
   app.use('/workflows', workflowRoutes.workflowsRouter);
+  app.use((_req, res) => {
+    res.status(404).json({ error: 'Not found' });
+  });
+  app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    res.status((err as { status?: number }).status ?? 500).json({ error: err.message });
+  });
 
   const server = http.createServer(app);
   await new Promise<void>((resolve) => {
@@ -72,6 +78,12 @@ async function withWorkflowExecutionServer(
   app.use('/api/workflows', workflowRoutes.workflowsRouter);
   app.use('/workflows', workflowRoutes.publishedWorkflowsRouter);
   app.use('/workflows-latest', workflowRoutes.latestWorkflowsRouter);
+  app.use((_req, res) => {
+    res.status(404).json({ error: 'Not found' });
+  });
+  app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    res.status((err as { status?: number }).status ?? 500).json({ error: err.message });
+  });
 
   const server = http.createServer(app);
   await new Promise<void>((resolve) => {
@@ -272,6 +284,83 @@ test('workflow project stats count serialized graph nodes', async () => {
   assert.equal(project.stats?.totalNodeCount, 1);
 });
 
+test('workflow project duplication creates an unpublished copy in the same folder', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'Example');
+
+  const duplicate = await workflowMutations.duplicateWorkflowProjectItem(created.relativePath);
+
+  assert.equal(duplicate.relativePath, 'Example Copy.rivet-project');
+  assert.equal(duplicate.name, 'Example Copy');
+  assert.equal(duplicate.settings.status, 'unpublished');
+  assert.equal(duplicate.settings.endpointName, '');
+  assert.equal(await workflowFs.pathExists(duplicate.absolutePath), true);
+});
+
+test('workflow project duplication assigns a fresh project id and matching title', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'Independent');
+
+  const duplicate = await workflowMutations.duplicateWorkflowProjectItem(created.relativePath);
+  const originalProject = await rivetNode.loadProjectFromFile(created.absolutePath);
+  const duplicateProject = await rivetNode.loadProjectFromFile(duplicate.absolutePath);
+
+  assert.notEqual(duplicateProject.metadata.id, originalProject.metadata.id);
+  assert.equal(duplicateProject.metadata.title, 'Independent Copy');
+});
+
+test('workflow project duplication does not copy dataset or settings sidecars', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'Sidecars');
+  const originalSidecars = workflowFs.getProjectSidecarPaths(created.absolutePath);
+
+  await fs.writeFile(originalSidecars.dataset, '{"rows":[]}', 'utf8');
+  await fs.writeFile(originalSidecars.settings, '{"endpointName":"published-demo"}', 'utf8');
+
+  const duplicate = await workflowMutations.duplicateWorkflowProjectItem(created.relativePath);
+  const duplicateSidecars = workflowFs.getProjectSidecarPaths(duplicate.absolutePath);
+
+  assert.equal(await workflowFs.pathExists(originalSidecars.dataset), true);
+  assert.equal(await workflowFs.pathExists(originalSidecars.settings), true);
+  assert.equal(await workflowFs.pathExists(duplicateSidecars.dataset), false);
+  assert.equal(await workflowFs.pathExists(duplicateSidecars.settings), false);
+});
+
+test('workflow project duplication resolves naming collisions with numbered copy suffixes', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'Collision');
+
+  const firstDuplicate = await workflowMutations.duplicateWorkflowProjectItem(created.relativePath);
+  const secondDuplicate = await workflowMutations.duplicateWorkflowProjectItem(created.relativePath);
+  const thirdDuplicate = await workflowMutations.duplicateWorkflowProjectItem(created.relativePath);
+
+  assert.equal(firstDuplicate.relativePath, 'Collision Copy.rivet-project');
+  assert.equal(secondDuplicate.relativePath, 'Collision Copy 1.rivet-project');
+  assert.equal(thirdDuplicate.relativePath, 'Collision Copy 2.rivet-project');
+});
+
+test('workflow project duplication uses literal copy naming when duplicating a duplicate', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'Literal');
+  const duplicate = await workflowMutations.duplicateWorkflowProjectItem(created.relativePath);
+
+  const duplicateOfDuplicate = await workflowMutations.duplicateWorkflowProjectItem(duplicate.relativePath);
+
+  assert.equal(duplicate.relativePath, 'Literal Copy.rivet-project');
+  assert.equal(duplicateOfDuplicate.relativePath, 'Literal Copy Copy.rivet-project');
+});
+
+test('workflow project duplication keeps published source state detached from the copy', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'PublishedSource');
+
+  await workflowMutations.publishWorkflowProjectItem(created.relativePath, {
+    endpointName: 'published-source-endpoint',
+  });
+
+  const duplicate = await workflowMutations.duplicateWorkflowProjectItem(created.relativePath);
+  const duplicateSidecars = workflowFs.getProjectSidecarPaths(duplicate.absolutePath);
+
+  assert.equal(duplicate.settings.status, 'unpublished');
+  assert.equal(duplicate.settings.endpointName, '');
+  assert.equal(await workflowFs.pathExists(duplicateSidecars.settings), false);
+  assert.equal(await workflowFs.pathExists(duplicateSidecars.dataset), false);
+});
+
 test('workflow routes support folder/project create, move, rename, and delete flows over HTTP', async () => {
   await withWorkflowApiServer(async (baseUrl) => {
     const createdFolder = await readJson<{ folder: { relativePath: string } }>(await fetch(`${baseUrl}/folders`, {
@@ -332,6 +421,57 @@ test('workflow routes support folder/project create, move, rename, and delete fl
       body: JSON.stringify({ relativePath: createdFolder.folder.relativePath }),
     }));
     assert.equal(deleteFolderResponse.deleted, true);
+  });
+});
+
+test('workflow duplicate route creates a duplicate and exposes it through the tree', async () => {
+  await withWorkflowApiServer(async (baseUrl) => {
+    const createdProject = await readJson<{ project: { relativePath: string } }>(await fetch(`${baseUrl}/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'HttpDuplicate' }),
+    }));
+
+    const duplicated = await readJson<{ project: { relativePath: string; settings: { status: string; endpointName: string } } }>(
+      await fetch(`${baseUrl}/projects/duplicate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ relativePath: createdProject.project.relativePath }),
+      }),
+    );
+
+    assert.equal(duplicated.project.relativePath, 'HttpDuplicate Copy.rivet-project');
+    assert.equal(duplicated.project.settings.status, 'unpublished');
+    assert.equal(duplicated.project.settings.endpointName, '');
+
+    const tree = await readJson<{ projects: Array<{ relativePath: string }> }>(await fetch(`${baseUrl}/tree`));
+    assert.deepEqual(
+      tree.projects.map((project) => project.relativePath),
+      ['HttpDuplicate Copy.rivet-project', 'HttpDuplicate.rivet-project'],
+    );
+  });
+});
+
+test('workflow duplicate route returns a controlled 400 for invalid project files', async () => {
+  await withWorkflowApiServer(async (baseUrl) => {
+    const createdProject = await readJson<{ project: { relativePath: string; absolutePath: string } }>(await fetch(`${baseUrl}/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'BrokenDuplicate' }),
+    }));
+
+    await fs.writeFile(createdProject.project.absolutePath, 'not: valid: yaml: [', 'utf8');
+
+    const response = await fetch(`${baseUrl}/projects/duplicate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ relativePath: createdProject.project.relativePath }),
+    });
+
+    const body = await response.json() as { error?: string };
+
+    assert.equal(response.status, 400);
+    assert.equal(body.error, 'Could not duplicate project: invalid project file');
   });
 });
 

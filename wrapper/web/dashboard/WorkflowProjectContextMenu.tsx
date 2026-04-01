@@ -1,0 +1,97 @@
+import {
+  offset,
+  shift,
+  useDismiss,
+  useFloating,
+  useInteractions,
+  useRole,
+  type VirtualElement,
+} from '@floating-ui/react';
+import { useEffect, type FC } from 'react';
+import type { WorkflowProjectItem } from './types';
+
+type WorkflowProjectContextMenuProps = {
+  isOpen: boolean;
+  project: WorkflowProjectItem | null;
+  x: number;
+  y: number;
+  onClose: () => void;
+  onDuplicate: () => void;
+};
+
+function createVirtualContextTarget(x: number, y: number): VirtualElement {
+  return {
+    getBoundingClientRect() {
+      return {
+        x,
+        y,
+        top: y,
+        right: x,
+        bottom: y,
+        left: x,
+        width: 0,
+        height: 0,
+      };
+    },
+  };
+}
+
+export const WorkflowProjectContextMenu: FC<WorkflowProjectContextMenuProps> = ({
+  isOpen,
+  project,
+  x,
+  y,
+  onClose,
+  onDuplicate,
+}) => {
+  const { context, refs, floatingStyles, update } = useFloating({
+    open: isOpen,
+    onOpenChange(nextOpen) {
+      if (!nextOpen) {
+        onClose();
+      }
+    },
+    placement: 'bottom-start',
+    strategy: 'fixed',
+    middleware: [
+      offset(6),
+      shift({ padding: 8 }),
+    ],
+  });
+
+  const dismiss = useDismiss(context);
+  const role = useRole(context, { role: 'menu' });
+  const { getFloatingProps } = useInteractions([dismiss, role]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return;
+    }
+
+    refs.setPositionReference(createVirtualContextTarget(x, y));
+    void update();
+  }, [isOpen, refs, update, x, y]);
+
+  if (!isOpen || !project) {
+    return null;
+  }
+
+  return (
+    <div
+      ref={refs.setFloating}
+      className="workflow-project-context-menu"
+      style={floatingStyles}
+      aria-label={`Actions for ${project.name}`}
+      {...getFloatingProps()}
+    >
+      <button
+        type="button"
+        className="workflow-project-context-menu-item"
+        role="menuitem"
+        onClick={onDuplicate}
+      >
+        Duplicate
+      </button>
+    </div>
+  );
+};

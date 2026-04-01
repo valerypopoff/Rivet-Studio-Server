@@ -21,6 +21,7 @@ import {
   createWorkflowProjectItem,
   deleteWorkflowFolderItem,
   deleteWorkflowProjectItem,
+  duplicateWorkflowProjectItem,
   publishWorkflowProjectItem,
   renameWorkflowFolderItem,
   renameWorkflowProjectItem,
@@ -180,6 +181,11 @@ workflowsRouter.post('/projects', validateBody(createProjectSchema), asyncHandle
 workflowsRouter.patch('/projects', validateBody(renameProjectSchema), asyncHandler(async (req, res) => {
   const { relativePath, newName } = req.body as z.infer<typeof renameProjectSchema>;
   res.json(await renameWorkflowProjectItem(relativePath, newName));
+}));
+
+workflowsRouter.post('/projects/duplicate', validateBody(pathOnlySchema), asyncHandler(async (req, res) => {
+  const { relativePath } = req.body as z.infer<typeof pathOnlySchema>;
+  res.status(201).json({ project: await duplicateWorkflowProjectItem(relativePath) });
 }));
 
 workflowsRouter.post('/projects/publish', validateBody(publishProjectSchema), asyncHandler(async (req, res) => {

@@ -12,6 +12,7 @@ type WorkflowProjectRowProps = {
   onDragEnd: () => void;
   onSelect: (path: string) => void;
   onOpen: (path: string) => void;
+  onContextMenu: (project: WorkflowProjectItem, event: React.MouseEvent<HTMLButtonElement>) => void;
   getParentRelativePath: (relativePath: string) => string;
 };
 
@@ -25,6 +26,7 @@ export const WorkflowProjectRow: FC<WorkflowProjectRowProps> = ({
   onDragEnd,
   onSelect,
   onOpen,
+  onContextMenu,
   getParentRelativePath,
 }) => {
   return (
@@ -45,6 +47,7 @@ export const WorkflowProjectRow: FC<WorkflowProjectRowProps> = ({
       onDragEnd={onDragEnd}
       onClick={() => onSelect(project.absolutePath)}
       onDoubleClick={() => onOpen(project.absolutePath)}
+      onContextMenu={(event) => onContextMenu(project, event)}
       title={editorReady ? project.fileName : 'Loading editor...'}
     >
       <div className="project-main">

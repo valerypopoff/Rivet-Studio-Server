@@ -4,6 +4,7 @@ import CollapseLeftIcon from '../icons/arrow-collapse-left.svg?react';
 import { toast } from 'react-toastify';
 import { ActiveProjectSection } from './ActiveProjectSection';
 import { WorkflowFolderTree } from './WorkflowFolderTree';
+import { WorkflowProjectContextMenu } from './WorkflowProjectContextMenu';
 import { ProjectSettingsModal } from './ProjectSettingsModal';
 import { RuntimeLibrariesModal } from './RuntimeLibrariesModal';
 import { RunRecordingsModal } from './RunRecordingsModal';
@@ -11,6 +12,7 @@ import {
   createWorkflowFolder,
   createWorkflowProject,
   deleteWorkflowFolder,
+  duplicateWorkflowProject,
   fetchWorkflowTree,
   moveWorkflowItem,
   renameWorkflowFolder,
@@ -129,6 +131,12 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   const [settingsModalProject, setSettingsModalProject] = useState<WorkflowProjectItem | null>(null);
   const [runtimeLibsOpen, setRuntimeLibsOpen] = useState(false);
   const [runRecordingsOpen, setRunRecordingsOpen] = useState(false);
+  const [projectContextMenuState, setProjectContextMenuState] = useState<{
+    project: WorkflowProjectItem;
+    x: number;
+    y: number;
+  } | null>(null);
+  const [duplicatingProjectPath, setDuplicatingProjectPath] = useState<string | null>(null);
   const refreshRequestIdRef = useRef(0);
 
   const refresh = useCallback(async (showLoading = true) => {
@@ -480,6 +488,50 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     }
   };
 
+  const closeProjectContextMenu = useCallback(() => {
+    setProjectContextMenuState(null);
+  }, []);
+
+  const handleProjectContextMenu = useCallback((
+    project: WorkflowProjectItem,
+    event: React.MouseEvent<HTMLButtonElement>,
+  ) => {
+    if (duplicatingProjectPath) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    setProjectContextMenuState({
+      project,
+      x: event.clientX,
+      y: event.clientY,
+    });
+  }, [duplicatingProjectPath]);
+
+  const handleDuplicateProject = useCallback(async () => {
+    const targetProject = projectContextMenuState?.project;
+    if (!targetProject || duplicatingProjectPath) {
+      return;
+    }
+
+    closeProjectContextMenu();
+    setDuplicatingProjectPath(targetProject.relativePath);
+
+    try {
+      await duplicateWorkflowProject(targetProject.relativePath);
+      await refresh(false);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to duplicate project');
+    } finally {
+      setDuplicatingProjectPath((currentPath) =>
+        currentPath === targetProject.relativePath ? null : currentPath);
+    }
+  }, [closeProjectContextMenu, duplicatingProjectPath, projectContextMenuState, refresh]);
+
   const handleOpenSettings = () => {
     if (!activeProject) {
       return;
@@ -533,6 +585,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
         }}
         onProjectSelect={setSelectedProjectPath}
         onProjectOpen={onOpenProject}
+        onProjectContextMenu={handleProjectContextMenu}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
         onFolderClick={handleFolderRowClick}
@@ -651,6 +704,14 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
           setRunRecordingsOpen(false);
           onOpenRecording(recordingId);
         }}
+      />
+      <WorkflowProjectContextMenu
+        isOpen={projectContextMenuState != null}
+        project={projectContextMenuState?.project ?? null}
+        x={projectContextMenuState?.x ?? 0}
+        y={projectContextMenuState?.y ?? 0}
+        onClose={closeProjectContextMenu}
+        onDuplicate={() => void handleDuplicateProject()}
       />
     </div>
   );

@@ -1,10 +1,14 @@
 import fs from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { loadProjectFromFile } from '@ironclad/rivet-node';
+import {
+  loadProjectAndAttachedDataFromFile,
+  loadProjectFromFile,
+  serializeProject,
+} from '@ironclad/rivet-node';
 
 import { validatePath } from '../../security.js';
-import { conflict } from '../../utils/httpError.js';
+import { conflict, createHttpError } from '../../utils/httpError.js';
 import {
   createBlankProjectFile,
   deleteProjectWithSidecars,
@@ -94,6 +98,87 @@ export async function createWorkflowProjectItem(folderRelativePath: unknown, nam
 
   await fs.writeFile(filePath, createBlankProjectFile(projectName), 'utf8');
   return getWorkflowProject(root, filePath);
+}
+
+function getDuplicateWorkflowProjectName(sourceProjectName: string, duplicateIndex: number): string {
+  return duplicateIndex === 0
+    ? `${sourceProjectName} Copy`
+    : `${sourceProjectName} Copy ${duplicateIndex}`;
+}
+
+function getDuplicateWorkflowProjectPath(sourceProjectPath: string, duplicateIndex: number): {
+  duplicateProjectName: string;
+  duplicateProjectPath: string;
+} {
+  const sourceProjectName = path.basename(sourceProjectPath, PROJECT_EXTENSION);
+  const sourceFolderPath = path.dirname(sourceProjectPath);
+  const duplicateProjectName = getDuplicateWorkflowProjectName(sourceProjectName, duplicateIndex);
+  const duplicateProjectPath = validatePath(path.join(sourceFolderPath, `${duplicateProjectName}${PROJECT_EXTENSION}`));
+
+  return {
+    duplicateProjectName,
+    duplicateProjectPath,
+  };
+}
+
+export async function duplicateWorkflowProjectItem(relativePath: unknown) {
+  const root = await ensureWorkflowsRoot();
+  const sourceProjectPath = requireProjectPath(resolveWorkflowRelativePath(root, relativePath, {
+    allowProjectFile: true,
+  }));
+
+  if (!await pathExists(sourceProjectPath)) {
+    throw createHttpError(404, 'Project not found');
+  }
+
+  let project: Awaited<ReturnType<typeof loadProjectAndAttachedDataFromFile>>[0];
+  let attachedData: Awaited<ReturnType<typeof loadProjectAndAttachedDataFromFile>>[1];
+
+  try {
+    [project, attachedData] = await loadProjectAndAttachedDataFromFile(sourceProjectPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw createHttpError(404, 'Project not found');
+    }
+
+    throw createHttpError(400, 'Could not duplicate project: invalid project file');
+  }
+
+  const duplicateProjectId = randomUUID() as typeof project.metadata.id;
+
+  for (let duplicateIndex = 0; ; duplicateIndex += 1) {
+    const { duplicateProjectName, duplicateProjectPath } = getDuplicateWorkflowProjectPath(sourceProjectPath, duplicateIndex);
+    let serializedProject: string;
+
+    try {
+      project.metadata.id = duplicateProjectId;
+      project.metadata.title = duplicateProjectName;
+
+      const nextSerializedProject = serializeProject(project, attachedData);
+      if (typeof nextSerializedProject !== 'string') {
+        throw new Error('Project serialization did not return a string');
+      }
+
+      serializedProject = nextSerializedProject;
+    } catch (error) {
+      throw createHttpError(400, 'Could not duplicate project: invalid project file');
+    }
+
+    try {
+      await fs.writeFile(duplicateProjectPath, serializedProject, { encoding: 'utf8', flag: 'wx' });
+      return getWorkflowProject(root, duplicateProjectPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EEXIST') {
+        continue;
+      }
+
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        throw createHttpError(404, 'Project not found');
+      }
+
+      throw error;
+    }
+  }
 }
 
 export async function renameWorkflowProjectItem(relativePath: unknown, newName: unknown) {

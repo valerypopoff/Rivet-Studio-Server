@@ -168,6 +168,17 @@ export async function renameWorkflowProject(
   return parseJsonResponse<{ project: WorkflowProjectItem; movedProjectPaths: WorkflowMoveResponse['movedProjectPaths'] }>(response);
 }
 
+export async function duplicateWorkflowProject(relativePath: string): Promise<WorkflowProjectItem> {
+  const response = await fetch(`${API}/workflows/projects/duplicate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ relativePath }),
+  });
+
+  const data = await parseJsonResponse<{ project: WorkflowProjectItem }>(response);
+  return data.project;
+}
+
 export async function moveWorkflowItem(
   itemType: 'folder' | 'project',
   sourceRelativePath: string,

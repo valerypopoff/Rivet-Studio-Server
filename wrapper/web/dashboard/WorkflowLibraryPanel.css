@@ -704,6 +704,39 @@
   cursor: pointer;
 }
 
+.workflow-project-context-menu {
+  min-width: 160px;
+  padding: 6px;
+  background: #1f1f22;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.42);
+  z-index: 60;
+}
+
+.workflow-project-context-menu-item {
+  width: 100%;
+  border: none;
+  appearance: none;
+  background: transparent;
+  color: var(--grey-lightest);
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 9px 12px;
+  border-radius: 7px;
+  text-align: left;
+  font-size: var(--workflow-library-font-size-s);
+  line-height: 1.4;
+  cursor: pointer;
+}
+
+.workflow-project-context-menu-item:hover,
+.workflow-project-context-menu-item:focus-visible {
+  background: rgba(255, 255, 255, 0.08);
+  outline: none;
+}
+
 .workflow-library-panel .project-settings-modal-backdrop {
   position: fixed;
   inset: 0;
