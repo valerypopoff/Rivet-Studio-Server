@@ -28,13 +28,14 @@ In local direct-process mode, the services run separately without nginx.
 ## Hosted UI model
 
 - The top-level page is the wrapper dashboard. It renders the workflow library, project settings, runtime libraries, run recordings, and an `<iframe src="/?editor">`.
+- The workflow library tree now includes a project-row context menu. The current custom action is `Duplicate`, which creates a sibling project file through the API and refreshes the tree without changing the current selection or editor tab.
 - The iframe renders the upstream Rivet app plus `EditorMessageBridge`, which coordinates open/save/delete/replay commands with the dashboard via `window.postMessage`.
 - `HostedIOProvider` replaces desktop file APIs with API-backed load/save behavior and supports virtual replay paths of the form `recording://<recordingId>/replay.rivet-project`.
 - Wrapper-specific UI lives under `wrapper/web/dashboard/`. Upstream editor UI still lives under `rivet/packages/app/`.
 
 ## API surface overview
 
-- `/api/workflows/*` manages workflow folders/projects, publication, movement/rename, and the recordings browser APIs.
+- `/api/workflows/*` manages workflow folders/projects, project duplication, publication, movement/rename, and the recordings browser APIs.
 - `/api/runtime-libraries/*` manages runtime-library state plus install/remove jobs and live log streaming over SSE.
 - `/api/native/*` exposes the hosted editor's filesystem API, constrained to allowed roots and supported base dirs.
 - `/api/projects/*` exposes lightweight project discovery for the hosted IO provider.

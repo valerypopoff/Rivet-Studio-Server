@@ -29,6 +29,7 @@ The wrapper API currently exposes these groups behind `/api`:
   - `POST /api/workflows/move`
   - `POST|PATCH|DELETE /api/workflows/folders`
   - `POST|PATCH|DELETE /api/workflows/projects`
+  - `POST /api/workflows/projects/duplicate`
   - `POST /api/workflows/projects/publish`
   - `POST /api/workflows/projects/unpublish`
   - `GET /api/workflows/recordings/workflows`
@@ -57,6 +58,13 @@ The wrapper API currently exposes these groups behind `/api`:
   - hosted env/config helpers
 
 `GET /healthz` lives on the API service itself and is used by the Docker healthchecks.
+
+Current duplicate-route behavior:
+
+- `POST /api/workflows/projects/duplicate` accepts `{ "relativePath": string }`
+- it returns `201 { "project": WorkflowProjectItem }`
+- it creates a sibling `.rivet-project` using `Name Copy`, then `Name Copy 1`, `Name Copy 2`, and so on
+- it writes only the new project file; dataset sidecars, wrapper settings, published snapshots, and recordings are intentionally not copied
 
 ## UI gate
 

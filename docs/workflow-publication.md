@@ -81,6 +81,30 @@ If the project has already been published before, the current implementation reu
 
 In the current dashboard UI, users must unpublish a project before the Delete action appears. The API delete route itself still handles cleanup even if called directly for a published project.
 
+## Project duplication
+
+Projects can now be duplicated from the workflow tree's project-row context menu or through:
+
+- `POST /api/workflows/projects/duplicate`
+
+Current duplication behavior:
+
+- the duplicate is created in the same folder as the source project
+- names are generated literally as `Name Copy`, then `Name Copy 1`, `Name Copy 2`, and so on
+- duplicating an already duplicated project stays literal, so `Name Copy` becomes `Name Copy Copy` before numbered variants are needed
+- the server loads the source project, assigns a fresh `project.metadata.id`, updates `project.metadata.title` to the generated duplicate name, and serializes a brand-new `.rivet-project` file
+- the duplicate is therefore an independent workflow project, not a filesystem clone that still shares the original project ID
+- the dashboard refreshes the tree after duplication but does not auto-select, auto-open, auto-expand folders, highlight, or otherwise change the current editor session
+
+What duplication does **not** copy:
+
+- the settings sidecar (`*.wrapper-settings.json`)
+- the dataset sidecar (`*.rivet-data`)
+- published snapshots under `.published/`
+- execution recordings under `.recordings/`
+
+That means a duplicated published project starts as a normal unpublished workflow with no endpoint draft, no published endpoint, no snapshot, and no copied recording history.
+
 ## Endpoint resolution
 
 Two public endpoint families exist:
@@ -240,11 +264,15 @@ When a run is opened, the hosted editor:
 
 ## Project rename, move, and delete behavior
 
-When a project is renamed, moved, or deleted, sidecars and publication artifacts stay consistent:
+When a project is renamed, moved, duplicated, or deleted, sidecars and publication artifacts stay consistent:
 
 - **Rename/move**
   - `moveProjectWithSidecars()` renames the project, `.rivet-data`, and `.wrapper-settings.json`
   - folder moves calculate all affected absolute project paths so the dashboard/editor bridge can retarget open tabs
+- **Duplicate**
+  - creates only a new `.rivet-project` file in the same folder
+  - gives the duplicate a fresh workflow metadata ID and updates its stored title
+  - does not copy `.rivet-data`, `.wrapper-settings.json`, `.published/`, or `.recordings/`
 - **Delete**
   - deletes the project file and sidecars
   - deletes the published snapshot if one exists
@@ -257,6 +285,6 @@ When a project is renamed, moved, or deleted, sidecars and publication artifacts
 - `wrapper/api/src/routes/workflows/recordings.ts` - recording persistence, listing, migration, and cleanup
 - `wrapper/api/src/routes/workflows/recordings-config.ts` - recording env parsing and defaults
 - `wrapper/api/src/routes/workflows/recordings-db.ts` - SQLite recording index
-- `wrapper/api/src/routes/workflows/workflow-mutations.ts` - publish, unpublish, delete orchestration
+- `wrapper/api/src/routes/workflows/workflow-mutations.ts` - duplicate, publish, unpublish, and delete orchestration
 - `wrapper/api/src/routes/workflows/fs-helpers.ts` - sidecar paths, move/delete helpers
 - `wrapper/shared/workflow-recording-types.ts` - shared recording types and virtual replay path helpers

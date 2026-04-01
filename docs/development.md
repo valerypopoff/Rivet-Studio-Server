@@ -95,6 +95,13 @@ For wrapper/web changes:
 
 1. `npm --prefix wrapper/web run build`
 
+For workflow-library mutations that change on-disk project state:
+
+1. `npm run dev`
+2. validate the browser flow through `http://localhost:8080`
+3. right-click a project in the left panel and run `Duplicate`
+4. confirm the new project appears in the same folder with a `Copy` name and that the current selection/editor tab did not change
+
 For routing/auth/deployment changes:
 
 1. `npm run dev`
