@@ -63,7 +63,7 @@ Important constraints:
 
 Current behavior:
 
-- the browser entrypoint is still `http://localhost:8080` through nginx
+- the browser entrypoint is still `http://localhost:8080` through nginx by default; override it with `RIVET_PORT` if needed
 - the API is also exposed directly on `http://localhost:3100` for diagnostics
 - the `web` service runs the Vite dev server inside the container with live bind mounts
 - the `api` and `executor` services rebuild from Dockerfiles, so Node/runtime changes are picked up without a separate manual build step
@@ -98,11 +98,22 @@ For wrapper/web changes:
 For workflow-library mutations that change on-disk project state:
 
 1. `npm run dev`
-2. validate the browser flow through `http://localhost:8080`
+2. validate the browser flow through `http://localhost:8080` by default, or your configured `RIVET_PORT`
 3. right-click a project in the left panel and run `Duplicate`
 4. confirm the new project appears in the same folder with a `Copy` name and that the current selection/editor tab did not change
+
+For workflow-library download behavior:
+
+1. `npm run dev`
+2. validate the browser flow through `http://localhost:8080` by default, or your configured `RIVET_PORT`
+3. right-click a project in the left panel and run `Download`
+4. for `unpublished`, confirm the browser downloads `Name [unpublished].rivet-project`
+5. for `published`, confirm the browser downloads `Name [published].rivet-project`
+6. for `unpublished_changes`, confirm the chooser appears and both saved versions download correctly
+7. make unsaved editor changes and confirm downloads still reflect only the saved server-side versions
+8. confirm the download flow does not change selection, open a different tab, or expand folders
 
 For routing/auth/deployment changes:
 
 1. `npm run dev`
-2. validate the browser flow through `http://localhost:8080`
+2. validate the browser flow through `http://localhost:8080` by default, or your configured `RIVET_PORT`

@@ -28,14 +28,16 @@ In local direct-process mode, the services run separately without nginx.
 ## Hosted UI model
 
 - The top-level page is the wrapper dashboard. It renders the workflow library, project settings, runtime libraries, run recordings, and an `<iframe src="/?editor">`.
-- The workflow library tree now includes a project-row context menu. The current custom action is `Duplicate`, which creates a sibling project file through the API and refreshes the tree without changing the current selection or editor tab.
+- The workflow library tree now includes a project-row context menu on project entries. Current custom actions are `Duplicate` and `Download`; folders still do not expose a custom menu.
+- `Duplicate` creates a sibling project file through the API and refreshes the tree without changing the current selection or editor tab.
+- `Download` streams a saved `.rivet-project` file to the browser. It ignores unsaved editor changes and, for `unpublished_changes`, lets the user choose between the saved live file and the published snapshot. The download flow also leaves selection, open tabs, and folder expansion unchanged.
 - The iframe renders the upstream Rivet app plus `EditorMessageBridge`, which coordinates open/save/delete/replay commands with the dashboard via `window.postMessage`.
 - `HostedIOProvider` replaces desktop file APIs with API-backed load/save behavior and supports virtual replay paths of the form `recording://<recordingId>/replay.rivet-project`.
 - Wrapper-specific UI lives under `wrapper/web/dashboard/`. Upstream editor UI still lives under `rivet/packages/app/`.
 
 ## API surface overview
 
-- `/api/workflows/*` manages workflow folders/projects, project duplication, publication, movement/rename, and the recordings browser APIs.
+- `/api/workflows/*` manages workflow folders/projects, project duplication/downloading, publication, movement/rename, and the recordings browser APIs.
 - `/api/runtime-libraries/*` manages runtime-library state plus install/remove jobs and live log streaming over SSE.
 - `/api/native/*` exposes the hosted editor's filesystem API, constrained to allowed roots and supported base dirs.
 - `/api/projects/*` exposes lightweight project discovery for the hosted IO provider.
@@ -105,8 +107,8 @@ Workflow recording settings are documented in detail in [workflow-publication.md
 | Mode | Entry command | Browser entry | Notes |
 |---|---|---|---|
 | Local direct-process | `npm run dev:local` | `http://localhost:5174` | Runs API, web, and executor directly. Good for process-level work, but nginx-specific routing/auth behavior is not reproduced exactly. |
-| Docker dev | `npm run dev` | `http://localhost:8080` | Closest to production while still using bind mounts and a Vite dev server. |
-| Production-style Docker | `npm run prod` | `http://localhost:8080` | Uses prebuilt images when available, otherwise falls back to local builds. |
+| Docker dev | `npm run dev` | `http://localhost:8080` by default | Closest to production while still using bind mounts and a Vite dev server. The proxy port can be overridden with `RIVET_PORT`. |
+| Production-style Docker | `npm run prod` | `http://localhost:8080` by default | Uses prebuilt images when available, otherwise falls back to local builds. The proxy port can be overridden with `RIVET_PORT`. |
 
 The API now depends on Node's built-in `node:sqlite`, so host-based API execution requires Node 24+.
 

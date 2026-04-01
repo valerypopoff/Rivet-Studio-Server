@@ -70,6 +70,11 @@
   backdrop-filter: blur(2px);
 }
 
+[data-testid='workflow-project-download-modal--blanket'] {
+  background: rgba(0, 0, 0, 0.56) !important;
+  backdrop-filter: blur(2px);
+}
+
 [data-testid='workflow-project-settings-modal'] {
   background: #1f1f22 !important;
   border: 1px solid rgba(255, 255, 255, 0.08) !important;
@@ -91,6 +96,13 @@
   color: var(--grey-lightest) !important;
 }
 
+[data-testid='workflow-project-download-modal'] {
+  background: #1f1f22 !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.38) !important;
+  color: var(--grey-lightest) !important;
+}
+
 [data-testid='workflow-project-settings-modal--header'] {
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
@@ -103,6 +115,10 @@
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
+[data-testid='workflow-project-download-modal--header'] {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
 [data-testid='workflow-project-settings-modal--body'] {
   padding: 0 !important;
 }
@@ -112,6 +128,10 @@
 }
 
 [data-testid='run-recordings-modal--body'] {
+  padding: 0 !important;
+}
+
+[data-testid='workflow-project-download-modal--body'] {
   padding: 0 !important;
 }
 
@@ -723,6 +743,7 @@
   display: flex;
   align-items: center;
   justify-content: flex-start;
+  gap: 8px;
   padding: 9px 12px;
   border-radius: 7px;
   text-align: left;
@@ -731,10 +752,71 @@
   cursor: pointer;
 }
 
+.workflow-project-context-menu-item-icon {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+}
+
 .workflow-project-context-menu-item:hover,
 .workflow-project-context-menu-item:focus-visible {
   background: rgba(255, 255, 255, 0.08);
   outline: none;
+}
+
+.workflow-project-download-modal-content {
+  gap: 20px;
+}
+
+.workflow-project-download-help {
+  padding-right: 0;
+}
+
+.workflow-project-download-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.workflow-project-download-secondary-button {
+  border: none;
+  cursor: pointer;
+}
+
+.workflow-project-download-published-button {
+  border: 1px solid #7ee294 !important;
+  background: rgba(126, 226, 148, 0.12) !important;
+  color: #7ee294 !important;
+}
+
+.workflow-project-download-published-button > span {
+  color: #7ee294 !important;
+}
+
+.workflow-project-download-published-button:hover:not(:disabled),
+.workflow-project-download-published-button:focus-visible:not(:disabled) {
+  background: rgba(126, 226, 148, 0.2) !important;
+}
+
+.workflow-project-download-live-button {
+  border: 1px solid #ffd76a !important;
+  background: rgba(255, 215, 106, 0.12) !important;
+  color: #ffd76a !important;
+}
+
+.workflow-project-download-live-button > span {
+  color: #ffd76a !important;
+}
+
+.workflow-project-download-live-button:hover:not(:disabled),
+.workflow-project-download-live-button:focus-visible:not(:disabled) {
+  background: rgba(255, 215, 106, 0.2) !important;
+}
+
+.workflow-project-download-footer {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .workflow-library-panel .project-settings-modal-backdrop {

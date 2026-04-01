@@ -5,6 +5,7 @@ import { toast } from 'react-toastify';
 import { ActiveProjectSection } from './ActiveProjectSection';
 import { WorkflowFolderTree } from './WorkflowFolderTree';
 import { WorkflowProjectContextMenu } from './WorkflowProjectContextMenu';
+import { WorkflowProjectDownloadModal } from './WorkflowProjectDownloadModal';
 import { ProjectSettingsModal } from './ProjectSettingsModal';
 import { RuntimeLibrariesModal } from './RuntimeLibrariesModal';
 import { RunRecordingsModal } from './RunRecordingsModal';
@@ -12,6 +13,7 @@ import {
   createWorkflowFolder,
   createWorkflowProject,
   deleteWorkflowFolder,
+  downloadWorkflowProject,
   duplicateWorkflowProject,
   fetchWorkflowTree,
   moveWorkflowItem,
@@ -19,6 +21,7 @@ import {
 } from './workflowApi';
 import type {
   WorkflowFolderItem,
+  WorkflowProjectDownloadVersion,
   WorkflowProjectItem,
   WorkflowProjectPathMove,
 } from './types';
@@ -136,6 +139,9 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     x: number;
     y: number;
   } | null>(null);
+  const [downloadModalProject, setDownloadModalProject] = useState<WorkflowProjectItem | null>(null);
+  const [downloadingProjectPath, setDownloadingProjectPath] = useState<string | null>(null);
+  const [downloadingVersion, setDownloadingVersion] = useState<WorkflowProjectDownloadVersion | null>(null);
   const [duplicatingProjectPath, setDuplicatingProjectPath] = useState<string | null>(null);
   const refreshRequestIdRef = useRef(0);
 
@@ -496,7 +502,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     project: WorkflowProjectItem,
     event: React.MouseEvent<HTMLButtonElement>,
   ) => {
-    if (duplicatingProjectPath) {
+    if (duplicatingProjectPath || downloadingProjectPath) {
       event.preventDefault();
       event.stopPropagation();
       return;
@@ -510,7 +516,15 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
       x: event.clientX,
       y: event.clientY,
     });
-  }, [duplicatingProjectPath]);
+  }, [downloadingProjectPath, duplicatingProjectPath]);
+
+  const closeDownloadModal = useCallback(() => {
+    if (downloadingVersion) {
+      return;
+    }
+
+    setDownloadModalProject(null);
+  }, [downloadingVersion]);
 
   const handleDuplicateProject = useCallback(async () => {
     const targetProject = projectContextMenuState?.project;
@@ -531,6 +545,46 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
         currentPath === targetProject.relativePath ? null : currentPath);
     }
   }, [closeProjectContextMenu, duplicatingProjectPath, projectContextMenuState, refresh]);
+
+  const startDownloadProject = useCallback(async (
+    project: WorkflowProjectItem,
+    version: WorkflowProjectDownloadVersion,
+    options?: { closeModal?: boolean },
+  ) => {
+    setDownloadingProjectPath(project.relativePath);
+    setDownloadingVersion(version);
+
+    try {
+      await downloadWorkflowProject(project.relativePath, version);
+      if (options?.closeModal) {
+        setDownloadModalProject(null);
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to download project');
+    } finally {
+      setDownloadingVersion((currentVersion) => currentVersion === version ? null : currentVersion);
+      setDownloadingProjectPath((currentPath) => currentPath === project.relativePath ? null : currentPath);
+    }
+  }, []);
+
+  const handleDownloadProject = useCallback(() => {
+    const targetProject = projectContextMenuState?.project;
+    if (!targetProject || downloadingProjectPath || duplicatingProjectPath) {
+      return;
+    }
+
+    closeProjectContextMenu();
+
+    if (targetProject.settings.status === 'unpublished_changes') {
+      setDownloadModalProject(targetProject);
+      return;
+    }
+
+    void startDownloadProject(
+      targetProject,
+      targetProject.settings.status === 'published' ? 'published' : 'live',
+    );
+  }, [closeProjectContextMenu, downloadingProjectPath, duplicatingProjectPath, projectContextMenuState, startDownloadProject]);
 
   const handleOpenSettings = () => {
     if (!activeProject) {
@@ -705,13 +759,37 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
           onOpenRecording(recordingId);
         }}
       />
-      <WorkflowProjectContextMenu
-        isOpen={projectContextMenuState != null}
-        project={projectContextMenuState?.project ?? null}
-        x={projectContextMenuState?.x ?? 0}
-        y={projectContextMenuState?.y ?? 0}
-        onClose={closeProjectContextMenu}
-        onDuplicate={() => void handleDuplicateProject()}
+      {projectContextMenuState ? (
+        <WorkflowProjectContextMenu
+          key={`${projectContextMenuState.project.relativePath}:${projectContextMenuState.x}:${projectContextMenuState.y}`}
+          isOpen
+          project={projectContextMenuState.project}
+          x={projectContextMenuState.x}
+          y={projectContextMenuState.y}
+          onClose={closeProjectContextMenu}
+          onDownload={() => void handleDownloadProject()}
+          onDuplicate={() => void handleDuplicateProject()}
+        />
+      ) : null}
+      <WorkflowProjectDownloadModal
+        isOpen={downloadModalProject != null}
+        project={downloadModalProject}
+        downloadingVersion={downloadingProjectPath === downloadModalProject?.relativePath ? downloadingVersion : null}
+        onClose={closeDownloadModal}
+        onDownloadPublished={() => {
+          if (!downloadModalProject) {
+            return;
+          }
+
+          void startDownloadProject(downloadModalProject, 'published', { closeModal: true });
+        }}
+        onDownloadUnpublishedChanges={() => {
+          if (!downloadModalProject) {
+            return;
+          }
+
+          void startDownloadProject(downloadModalProject, 'live', { closeModal: true });
+        }}
       />
     </div>
   );

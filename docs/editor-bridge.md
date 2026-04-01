@@ -44,8 +44,9 @@ All message types live in `wrapper/shared/editor-bridge.ts`. Both sides import f
 8. `delete-workflow-project` removes the matching open tab inside the editor. If that tab was active, the bridge selects a fallback open project when possible.
 9. `workflow-paths-moved` rewrites already-open project paths after rename/move so open tabs, loaded-project state, and later saves keep pointing at the new location.
 10. Project duplication does not use the editor bridge. The dashboard calls `POST /api/workflows/projects/duplicate` directly, refreshes the workflow tree, and intentionally leaves selection and open tabs unchanged.
-11. On `project-saved`, the dashboard optimistically marks published workflows as `unpublished_changes` for the saved path and then refreshes the workflow tree from the API.
-12. If the iframe reloads, `onLoad` resets `editorReady` to `false`, re-enabling the command buffer until `editor-ready` is sent again.
+11. Project downloading also does not use the editor bridge. The dashboard calls `POST /api/workflows/projects/download` directly and only downloads saved server-side project files.
+12. On `project-saved`, the dashboard optimistically marks published workflows as `unpublished_changes` for the saved path and then refreshes the workflow tree from the API.
+13. If the iframe reloads, `onLoad` resets `editorReady` to `false`, re-enabling the command buffer until `editor-ready` is sent again.
 
 ## Save behavior
 

@@ -27,6 +27,7 @@ import {
   renameWorkflowProjectItem,
   unpublishWorkflowProjectItem,
 } from './workflow-mutations.js';
+import { createWorkflowDownloadContentDisposition, readWorkflowProjectDownload } from './workflow-download.js';
 
 export const workflowsRouter = Router();
 
@@ -67,6 +68,11 @@ const publishProjectSchema = z.object({
 
 const pathOnlySchema = z.object({
   relativePath: z.unknown(),
+});
+
+const downloadProjectSchema = z.object({
+  relativePath: z.unknown(),
+  version: z.enum(['live', 'published']),
 });
 
 const recordingsRunsQuerySchema = z.object({
@@ -186,6 +192,14 @@ workflowsRouter.patch('/projects', validateBody(renameProjectSchema), asyncHandl
 workflowsRouter.post('/projects/duplicate', validateBody(pathOnlySchema), asyncHandler(async (req, res) => {
   const { relativePath } = req.body as z.infer<typeof pathOnlySchema>;
   res.status(201).json({ project: await duplicateWorkflowProjectItem(relativePath) });
+}));
+
+workflowsRouter.post('/projects/download', validateBody(downloadProjectSchema), asyncHandler(async (req, res) => {
+  const { relativePath, version } = req.body as z.infer<typeof downloadProjectSchema>;
+  const download = await readWorkflowProjectDownload(relativePath, version);
+  res.setHeader('Content-Type', 'application/x-yaml; charset=utf-8');
+  res.setHeader('Content-Disposition', createWorkflowDownloadContentDisposition(download.fileName));
+  res.status(200).send(download.contents);
 }));
 
 workflowsRouter.post('/projects/publish', validateBody(publishProjectSchema), asyncHandler(async (req, res) => {

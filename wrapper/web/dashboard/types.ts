@@ -1,5 +1,6 @@
 import type {
   WorkflowFolderItem,
+  WorkflowProjectDownloadVersion,
   WorkflowProjectItem,
   WorkflowProjectPathMove,
   WorkflowProjectSettings,
@@ -18,6 +19,7 @@ import type {
 
 export type {
   WorkflowFolderItem,
+  WorkflowProjectDownloadVersion,
   WorkflowProjectItem,
   WorkflowProjectPathMove,
   WorkflowProjectSettings,

@@ -30,6 +30,7 @@ The wrapper API currently exposes these groups behind `/api`:
   - `POST|PATCH|DELETE /api/workflows/folders`
   - `POST|PATCH|DELETE /api/workflows/projects`
   - `POST /api/workflows/projects/duplicate`
+  - `POST /api/workflows/projects/download`
   - `POST /api/workflows/projects/publish`
   - `POST /api/workflows/projects/unpublish`
   - `GET /api/workflows/recordings/workflows`
@@ -65,6 +66,17 @@ Current duplicate-route behavior:
 - it returns `201 { "project": WorkflowProjectItem }`
 - it creates a sibling `.rivet-project` using `Name Copy`, then `Name Copy 1`, `Name Copy 2`, and so on
 - it writes only the new project file; dataset sidecars, wrapper settings, published snapshots, and recordings are intentionally not copied
+
+Current download-route behavior:
+
+- `POST /api/workflows/projects/download` accepts `{ "relativePath": string, "version": "live" | "published" }`
+- it returns the raw `.rivet-project` file body, not JSON
+- it currently serves `application/x-yaml; charset=utf-8` with `Content-Disposition: attachment`
+- it sets attachment headers so the browser downloads the file with a status tag such as `Name [published].rivet-project`
+- `version: "live"` reads the saved live workflow file from the workflow tree
+- `version: "published"` resolves the published snapshot through the publication model and returns `409` if no published version is available
+- the dashboard calls this route directly from the project-row context menu: `unpublished` downloads `live`, `published` downloads `published`, and `unpublished_changes` opens a chooser for the user to pick which saved version to download
+- downloads intentionally ignore unsaved editor changes and never include sidecars or recordings
 
 ## UI gate
 

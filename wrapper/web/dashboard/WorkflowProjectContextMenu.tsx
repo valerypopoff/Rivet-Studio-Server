@@ -7,7 +7,8 @@ import {
   useRole,
   type VirtualElement,
 } from '@floating-ui/react';
-import { useEffect, type FC } from 'react';
+import ArrowDownIcon from 'majesticons/line/arrow-down-line.svg?react';
+import { useLayoutEffect, type FC } from 'react';
 import type { WorkflowProjectItem } from './types';
 
 type WorkflowProjectContextMenuProps = {
@@ -16,6 +17,7 @@ type WorkflowProjectContextMenuProps = {
   x: number;
   y: number;
   onClose: () => void;
+  onDownload: () => void;
   onDuplicate: () => void;
 };
 
@@ -42,6 +44,7 @@ export const WorkflowProjectContextMenu: FC<WorkflowProjectContextMenuProps> = (
   x,
   y,
   onClose,
+  onDownload,
   onDuplicate,
 }) => {
   const { context, refs, floatingStyles, update } = useFloating({
@@ -63,7 +66,7 @@ export const WorkflowProjectContextMenu: FC<WorkflowProjectContextMenuProps> = (
   const role = useRole(context, { role: 'menu' });
   const { getFloatingProps } = useInteractions([dismiss, role]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!isOpen) {
       return;
     }
@@ -88,9 +91,18 @@ export const WorkflowProjectContextMenu: FC<WorkflowProjectContextMenuProps> = (
         type="button"
         className="workflow-project-context-menu-item"
         role="menuitem"
+        onClick={onDownload}
+      >
+        <ArrowDownIcon className="workflow-project-context-menu-item-icon" aria-hidden="true" />
+        <span>Download</span>
+      </button>
+      <button
+        type="button"
+        className="workflow-project-context-menu-item"
+        role="menuitem"
         onClick={onDuplicate}
       >
-        Duplicate
+        <span>Duplicate</span>
       </button>
     </div>
   );

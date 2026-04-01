@@ -14,6 +14,7 @@ process.env.RIVET_APP_DATA_ROOT = appDataRoot;
 const workflowMutations = await import('../routes/workflows/workflow-mutations.js');
 const workflowQuery = await import('../routes/workflows/workflow-query.js');
 const workflowFs = await import('../routes/workflows/fs-helpers.js');
+const workflowDownload = await import('../routes/workflows/workflow-download.js');
 const workflowPublication = await import('../routes/workflows/publication.js');
 const workflowRecordings = await import('../routes/workflows/recordings.js');
 const workflowExecution = await import('../routes/workflows/execution.js');
@@ -361,6 +362,66 @@ test('workflow project duplication keeps published source state detached from th
   assert.equal(await workflowFs.pathExists(duplicateSidecars.dataset), false);
 });
 
+test('workflow project download reads the live unpublished file with an unpublished tag', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'DownloadUnpublished');
+  const liveContents = await fs.readFile(created.absolutePath, 'utf8');
+
+  const download = await workflowDownload.readWorkflowProjectDownload(created.relativePath, 'live');
+
+  assert.equal(download.contents, liveContents);
+  assert.equal(download.fileName, 'DownloadUnpublished [unpublished].rivet-project');
+});
+
+test('workflow project download reads the published snapshot with a published tag', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'DownloadPublished');
+  const originalLiveContents = await fs.readFile(created.absolutePath, 'utf8');
+
+  await workflowMutations.publishWorkflowProjectItem(created.relativePath, {
+    endpointName: 'download-published-endpoint',
+  });
+
+  const download = await workflowDownload.readWorkflowProjectDownload(created.relativePath, 'published');
+
+  assert.equal(download.contents, originalLiveContents);
+  assert.equal(download.fileName, 'DownloadPublished [published].rivet-project');
+});
+
+test('workflow project download distinguishes live unpublished changes from the published version', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'DownloadChanged');
+  const originalLiveContents = await fs.readFile(created.absolutePath, 'utf8');
+
+  await workflowMutations.publishWorkflowProjectItem(created.relativePath, {
+    endpointName: 'download-changed-endpoint',
+  });
+
+  const changedLiveContents = originalLiveContents.replace('title: "DownloadChanged"', 'title: "DownloadChanged Live"');
+  await fs.writeFile(created.absolutePath, changedLiveContents, 'utf8');
+
+  const liveDownload = await workflowDownload.readWorkflowProjectDownload(created.relativePath, 'live');
+  const publishedDownload = await workflowDownload.readWorkflowProjectDownload(created.relativePath, 'published');
+
+  assert.equal(liveDownload.contents, changedLiveContents);
+  assert.equal(liveDownload.fileName, 'DownloadChanged [unpublished changes].rivet-project');
+  assert.equal(publishedDownload.contents, originalLiveContents);
+  assert.equal(publishedDownload.fileName, 'DownloadChanged [published].rivet-project');
+});
+
+test('workflow project download rejects published downloads for unpublished projects', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'NoPublishedDownload');
+
+  await assert.rejects(
+    workflowDownload.readWorkflowProjectDownload(created.relativePath, 'published'),
+    /Published version is not available for this project/,
+  );
+});
+
+test('workflow project download returns not found for missing projects', async () => {
+  await assert.rejects(
+    workflowDownload.readWorkflowProjectDownload('Missing.rivet-project', 'live'),
+    /Project not found/,
+  );
+});
+
 test('workflow routes support folder/project create, move, rename, and delete flows over HTTP', async () => {
   await withWorkflowApiServer(async (baseUrl) => {
     const createdFolder = await readJson<{ folder: { relativePath: string } }>(await fetch(`${baseUrl}/folders`, {
@@ -472,6 +533,118 @@ test('workflow duplicate route returns a controlled 400 for invalid project file
 
     assert.equal(response.status, 400);
     assert.equal(body.error, 'Could not duplicate project: invalid project file');
+  });
+});
+
+test('workflow download route streams unpublished projects with attachment headers', async () => {
+  await withWorkflowApiServer(async (baseUrl) => {
+    const createdProject = await readJson<{ project: { relativePath: string; absolutePath: string } }>(await fetch(`${baseUrl}/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'HttpDownloadUnpublished' }),
+    }));
+    const expectedContents = await fs.readFile(createdProject.project.absolutePath, 'utf8');
+
+    const response = await fetch(`${baseUrl}/projects/download`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ relativePath: createdProject.project.relativePath, version: 'live' }),
+    });
+
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type') ?? '', /application\/x-yaml/);
+    assert.match(
+      response.headers.get('content-disposition') ?? '',
+      /filename="HttpDownloadUnpublished \[unpublished\]\.rivet-project"/,
+    );
+    assert.equal(await response.text(), expectedContents);
+  });
+});
+
+test('workflow download route streams published and unpublished-changes variants separately', async () => {
+  await withWorkflowApiServer(async (baseUrl) => {
+    const createdProject = await readJson<{ project: { relativePath: string; absolutePath: string } }>(await fetch(`${baseUrl}/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'HttpDownloadChanged' }),
+    }));
+    const originalContents = await fs.readFile(createdProject.project.absolutePath, 'utf8');
+
+    await readJson<{ project: { settings: { status: string } } }>(await fetch(`${baseUrl}/projects/publish`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        relativePath: createdProject.project.relativePath,
+        settings: { endpointName: 'http-download-changed-endpoint' },
+      }),
+    }));
+
+    const changedContents = originalContents.replace('title: "HttpDownloadChanged"', 'title: "HttpDownloadChanged Live"');
+    await fs.writeFile(createdProject.project.absolutePath, changedContents, 'utf8');
+
+    const publishedResponse = await fetch(`${baseUrl}/projects/download`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ relativePath: createdProject.project.relativePath, version: 'published' }),
+    });
+    const liveResponse = await fetch(`${baseUrl}/projects/download`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ relativePath: createdProject.project.relativePath, version: 'live' }),
+    });
+
+    assert.equal(publishedResponse.status, 200);
+    assert.equal(liveResponse.status, 200);
+    assert.match(
+      publishedResponse.headers.get('content-disposition') ?? '',
+      /filename="HttpDownloadChanged \[published\]\.rivet-project"/,
+    );
+    assert.match(
+      liveResponse.headers.get('content-disposition') ?? '',
+      /filename="HttpDownloadChanged \[unpublished changes\]\.rivet-project"/,
+    );
+    assert.equal(await publishedResponse.text(), originalContents);
+    assert.equal(await liveResponse.text(), changedContents);
+  });
+});
+
+test('workflow download route validates request shape and reports missing or unpublished sources cleanly', async () => {
+  await withWorkflowApiServer(async (baseUrl) => {
+    const invalidResponse = await fetch(`${baseUrl}/projects/download`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ relativePath: 'Anything.rivet-project', version: 'invalid' }),
+    });
+    const invalidBody = await invalidResponse.json() as { error?: string };
+
+    assert.equal(invalidResponse.status, 400);
+    assert.ok(invalidBody.error);
+
+    const missingResponse = await fetch(`${baseUrl}/projects/download`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ relativePath: 'Missing.rivet-project', version: 'live' }),
+    });
+    const missingBody = await missingResponse.json() as { error?: string };
+
+    assert.equal(missingResponse.status, 404);
+    assert.equal(missingBody.error, 'Project not found');
+
+    const createdProject = await readJson<{ project: { relativePath: string } }>(await fetch(`${baseUrl}/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'HttpDownloadUnavailable' }),
+    }));
+
+    const unavailableResponse = await fetch(`${baseUrl}/projects/download`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ relativePath: createdProject.project.relativePath, version: 'published' }),
+    });
+    const unavailableBody = await unavailableResponse.json() as { error?: string };
+
+    assert.equal(unavailableResponse.status, 409);
+    assert.equal(unavailableBody.error, 'Published version is not available for this project');
   });
 });
 
