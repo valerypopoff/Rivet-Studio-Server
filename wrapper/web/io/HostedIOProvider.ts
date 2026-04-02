@@ -60,15 +60,40 @@ async function pickSingleFile(options: { accept?: string } = {}): Promise<File |
   return new Promise((resolve) => {
     const input = document.createElement('input');
     input.type = 'file';
+    input.style.display = 'none';
 
     if (options.accept) {
       input.accept = options.accept;
     }
 
-    input.onchange = () => {
-      resolve(input.files?.[0] ?? null);
+    let settled = false;
+    let focusTimerId: number | null = null;
+    const finish = (file: File | null) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      if (focusTimerId != null) {
+        window.clearTimeout(focusTimerId);
+        focusTimerId = null;
+      }
+      window.removeEventListener('focus', handleWindowFocus, true);
+      input.remove();
+      resolve(file);
     };
 
+    const handleWindowFocus = () => {
+      focusTimerId = window.setTimeout(() => {
+        finish(input.files?.[0] ?? null);
+      }, 300);
+    };
+
+    input.addEventListener('change', () => {
+      finish(input.files?.[0] ?? null);
+    }, { once: true });
+    window.addEventListener('focus', handleWindowFocus, true);
+    document.body.appendChild(input);
     input.click();
   });
 }
@@ -143,9 +168,8 @@ export class HostedIOProvider implements IOProvider {
   async loadGraphData(callback: (graphData: NodeGraph) => void): Promise<void> {
     if ('showOpenFilePicker' in window) {
       try {
-        const [fileHandle] = await (window as any).showOpenFilePicker({
-          types: [{ description: 'Rivet Graph', accept: { 'application/octet-stream': ['.rivet-graph'] } }],
-        });
+        // Chromium rejects custom extensions like ".rivet-graph" in picker type filters.
+        const [fileHandle] = await (window as any).showOpenFilePicker();
         const file = await fileHandle.getFile();
         const text = await file.text();
         callback(deserializeGraph(text));
@@ -251,9 +275,8 @@ export class HostedIOProvider implements IOProvider {
   async loadRecordingData(callback: (data: { recorder: ExecutionRecorder; path: string }) => void): Promise<void> {
     if ('showOpenFilePicker' in window) {
       try {
-        const [fileHandle] = await (window as any).showOpenFilePicker({
-          types: [{ description: 'Rivet Recording', accept: { 'application/octet-stream': ['.rivet-recording'] } }],
-        });
+        // Chromium rejects custom extensions like ".rivet-recording" in picker type filters.
+        const [fileHandle] = await (window as any).showOpenFilePicker();
         const file = await fileHandle.getFile();
         const text = await file.text();
         callback({ recorder: ExecutionRecorder.deserializeFromString(text), path: fileHandle.name });

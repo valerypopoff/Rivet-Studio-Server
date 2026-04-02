@@ -3,7 +3,10 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FC } from 'reac
 import CollapseLeftIcon from '../icons/arrow-collapse-left.svg?react';
 import { toast } from 'react-toastify';
 import { ActiveProjectSection } from './ActiveProjectSection';
+import { WorkflowFolderContextMenu } from './WorkflowFolderContextMenu';
 import { WorkflowFolderTree } from './WorkflowFolderTree';
+import { WorkflowProjectContextMenu } from './WorkflowProjectContextMenu';
+import { WorkflowProjectDownloadModal } from './WorkflowProjectDownloadModal';
 import { ProjectSettingsModal } from './ProjectSettingsModal';
 import { RuntimeLibrariesModal } from './RuntimeLibrariesModal';
 import { RunRecordingsModal } from './RunRecordingsModal';
@@ -11,12 +14,16 @@ import {
   createWorkflowFolder,
   createWorkflowProject,
   deleteWorkflowFolder,
+  downloadWorkflowProject,
+  duplicateWorkflowProject,
   fetchWorkflowTree,
   moveWorkflowItem,
   renameWorkflowFolder,
+  uploadWorkflowProject,
 } from './workflowApi';
 import type {
   WorkflowFolderItem,
+  WorkflowProjectDownloadVersion,
   WorkflowProjectItem,
   WorkflowProjectPathMove,
 } from './types';
@@ -31,11 +38,16 @@ import {
 } from './workflowLibraryHelpers';
 import './WorkflowLibraryPanel.css';
 
+const PROJECT_SAVE_REFRESH_DELAY_MS = 400;
+
 const markSavedPublishedProjectAsChanged = (
   project: WorkflowProjectItem,
   savedProjectPath: string,
 ): WorkflowProjectItem => {
-  if (project.absolutePath !== savedProjectPath || project.settings.status !== 'published') {
+  if (
+    normalizeWorkflowPath(project.absolutePath) !== normalizeWorkflowPath(savedProjectPath) ||
+    project.settings.status !== 'published'
+  ) {
     return project;
   }
 
@@ -88,6 +100,63 @@ const updateSavedProjectStatusInFolders = (
   return changed ? nextFolders : folders;
 };
 
+async function pickWorkflowProjectFile(): Promise<File | null> {
+  if ('showOpenFilePicker' in window) {
+    try {
+      const [fileHandle] = await (window as Window & {
+        showOpenFilePicker?: (options?: Record<string, unknown>) => Promise<Array<{ getFile: () => Promise<File> }>>;
+      }).showOpenFilePicker?.({
+        multiple: false,
+      }) ?? [];
+
+      return fileHandle ? fileHandle.getFile() : null;
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return null;
+      }
+
+      throw error;
+    }
+  }
+
+  return new Promise((resolve) => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.rivet-project';
+    input.style.display = 'none';
+
+    let settled = false;
+    let focusTimerId: number | null = null;
+    const finish = (file: File | null) => {
+      if (settled) {
+        return;
+      }
+
+      settled = true;
+      if (focusTimerId != null) {
+        window.clearTimeout(focusTimerId);
+        focusTimerId = null;
+      }
+      window.removeEventListener('focus', handleWindowFocus, true);
+      input.remove();
+      resolve(file);
+    };
+
+    const handleWindowFocus = () => {
+      focusTimerId = window.setTimeout(() => {
+        finish(input.files?.[0] ?? null);
+      }, 300);
+    };
+
+    input.addEventListener('change', () => {
+      finish(input.files?.[0] ?? null);
+    }, { once: true });
+    window.addEventListener('focus', handleWindowFocus, true);
+    document.body.appendChild(input);
+    input.click();
+  });
+}
+
 interface WorkflowLibraryPanelProps {
   onOpenProject: (path: string, options?: { replaceCurrent?: boolean }) => void;
   onOpenRecording: (recordingId: string, options?: { replaceCurrent?: boolean }) => void;
@@ -129,7 +198,23 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   const [settingsModalProject, setSettingsModalProject] = useState<WorkflowProjectItem | null>(null);
   const [runtimeLibsOpen, setRuntimeLibsOpen] = useState(false);
   const [runRecordingsOpen, setRunRecordingsOpen] = useState(false);
+  const [folderContextMenuState, setFolderContextMenuState] = useState<{
+    folder: WorkflowFolderItem;
+    x: number;
+    y: number;
+  } | null>(null);
+  const [projectContextMenuState, setProjectContextMenuState] = useState<{
+    project: WorkflowProjectItem;
+    x: number;
+    y: number;
+  } | null>(null);
+  const [uploadingFolderPath, setUploadingFolderPath] = useState<string | null>(null);
+  const [downloadModalProject, setDownloadModalProject] = useState<WorkflowProjectItem | null>(null);
+  const [downloadingProjectPath, setDownloadingProjectPath] = useState<string | null>(null);
+  const [downloadingVersion, setDownloadingVersion] = useState<WorkflowProjectDownloadVersion | null>(null);
+  const [duplicatingProjectPath, setDuplicatingProjectPath] = useState<string | null>(null);
   const refreshRequestIdRef = useRef(0);
+  const projectSaveRefreshTimeoutRef = useRef<number | null>(null);
 
   const refresh = useCallback(async (showLoading = true) => {
     const requestId = ++refreshRequestIdRef.current;
@@ -172,6 +257,23 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  const scheduleProjectSaveRefresh = useCallback(() => {
+    if (projectSaveRefreshTimeoutRef.current != null) {
+      window.clearTimeout(projectSaveRefreshTimeoutRef.current);
+    }
+
+    projectSaveRefreshTimeoutRef.current = window.setTimeout(() => {
+      projectSaveRefreshTimeoutRef.current = null;
+      void refresh(false);
+    }, PROJECT_SAVE_REFRESH_DELAY_MS);
+  }, [refresh]);
+
+  useEffect(() => () => {
+    if (projectSaveRefreshTimeoutRef.current != null) {
+      window.clearTimeout(projectSaveRefreshTimeoutRef.current);
+    }
+  }, []);
 
   const activePath = selectedProjectPath || openedProjectPath;
 
@@ -236,9 +338,8 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
 
     setRootProjects((prev) => updateSavedProjectStatus(prev, lastSavedProjectPath));
     setFolders((prev) => updateSavedProjectStatusInFolders(prev, lastSavedProjectPath));
-
-    void refresh(false);
-  }, [lastSavedProjectPath, projectSaveSequence, refresh]);
+    scheduleProjectSaveRefresh();
+  }, [lastSavedProjectPath, projectSaveSequence, scheduleProjectSaveRefresh]);
 
   const activeAncestorFolderIds = useMemo(() => {
     if (!activePath) {
@@ -480,6 +581,181 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     }
   };
 
+  const closeProjectContextMenu = useCallback(() => {
+    setProjectContextMenuState(null);
+  }, []);
+
+  const closeFolderContextMenu = useCallback(() => {
+    setFolderContextMenuState(null);
+  }, []);
+
+  const handleFolderContextMenu = useCallback((
+    folder: WorkflowFolderItem,
+    event: React.MouseEvent<HTMLDivElement>,
+  ) => {
+    const target = event.target as HTMLElement | null;
+    if (target?.closest('.folder-actions')) {
+      return;
+    }
+
+    if (duplicatingProjectPath || downloadingProjectPath || uploadingFolderPath) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    setProjectContextMenuState(null);
+    setFolderContextMenuState({
+      folder,
+      x: event.clientX,
+      y: event.clientY,
+    });
+  }, [downloadingProjectPath, duplicatingProjectPath, uploadingFolderPath]);
+
+  const handleProjectContextMenu = useCallback((
+    project: WorkflowProjectItem,
+    event: React.MouseEvent<HTMLButtonElement>,
+  ) => {
+    if (duplicatingProjectPath || downloadingProjectPath || uploadingFolderPath) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    setFolderContextMenuState(null);
+    setProjectContextMenuState({
+      project,
+      x: event.clientX,
+      y: event.clientY,
+    });
+  }, [downloadingProjectPath, duplicatingProjectPath, uploadingFolderPath]);
+
+  const handleUploadProjectFromFolder = useCallback(async () => {
+    const targetFolder = folderContextMenuState?.folder;
+    if (!targetFolder || duplicatingProjectPath || downloadingProjectPath || uploadingFolderPath) {
+      return;
+    }
+
+    closeFolderContextMenu();
+    let selectedFile: File | null;
+    try {
+      selectedFile = await pickWorkflowProjectFile();
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to open upload picker');
+      return;
+    }
+
+    if (!selectedFile) {
+      return;
+    }
+
+    if (!selectedFile.name.toLowerCase().endsWith('.rivet-project')) {
+      toast.error('Choose a .rivet-project file to upload');
+      return;
+    }
+
+    setUploadingFolderPath(targetFolder.relativePath);
+
+    try {
+      const contents = await selectedFile.text();
+      await uploadWorkflowProject(targetFolder.relativePath, selectedFile.name, contents);
+      await refresh(false);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to upload project');
+    } finally {
+      setUploadingFolderPath((currentPath) =>
+        currentPath === targetFolder.relativePath ? null : currentPath);
+    }
+  }, [
+    closeFolderContextMenu,
+    downloadingProjectPath,
+    duplicatingProjectPath,
+    folderContextMenuState,
+    refresh,
+    uploadingFolderPath,
+  ]);
+
+  const closeDownloadModal = useCallback(() => {
+    if (downloadingVersion) {
+      return;
+    }
+
+    setDownloadModalProject(null);
+  }, [downloadingVersion]);
+
+  const handleDuplicateProject = useCallback(async () => {
+    const targetProject = projectContextMenuState?.project;
+    if (!targetProject || duplicatingProjectPath || uploadingFolderPath) {
+      return;
+    }
+
+    closeProjectContextMenu();
+    setDuplicatingProjectPath(targetProject.relativePath);
+
+    try {
+      await duplicateWorkflowProject(targetProject.relativePath);
+      await refresh(false);
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to duplicate project');
+    } finally {
+      setDuplicatingProjectPath((currentPath) =>
+        currentPath === targetProject.relativePath ? null : currentPath);
+    }
+  }, [closeProjectContextMenu, duplicatingProjectPath, projectContextMenuState, refresh, uploadingFolderPath]);
+
+  const startDownloadProject = useCallback(async (
+    project: WorkflowProjectItem,
+    version: WorkflowProjectDownloadVersion,
+    options?: { closeModal?: boolean },
+  ) => {
+    setDownloadingProjectPath(project.relativePath);
+    setDownloadingVersion(version);
+
+    try {
+      await downloadWorkflowProject(project.relativePath, version);
+      if (options?.closeModal) {
+        setDownloadModalProject(null);
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to download project');
+    } finally {
+      setDownloadingVersion((currentVersion) => currentVersion === version ? null : currentVersion);
+      setDownloadingProjectPath((currentPath) => currentPath === project.relativePath ? null : currentPath);
+    }
+  }, []);
+
+  const handleDownloadProject = useCallback(() => {
+    const targetProject = projectContextMenuState?.project;
+    if (!targetProject || downloadingProjectPath || duplicatingProjectPath || uploadingFolderPath) {
+      return;
+    }
+
+    closeProjectContextMenu();
+
+    if (targetProject.settings.status === 'unpublished_changes') {
+      setDownloadModalProject(targetProject);
+      return;
+    }
+
+    void startDownloadProject(
+      targetProject,
+      targetProject.settings.status === 'published' ? 'published' : 'live',
+    );
+  }, [
+    closeProjectContextMenu,
+    downloadingProjectPath,
+    duplicatingProjectPath,
+    projectContextMenuState,
+    startDownloadProject,
+    uploadingFolderPath,
+  ]);
+
   const handleOpenSettings = () => {
     if (!activeProject) {
       return;
@@ -533,6 +809,8 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
         }}
         onProjectSelect={setSelectedProjectPath}
         onProjectOpen={onOpenProject}
+        onProjectContextMenu={handleProjectContextMenu}
+        onFolderContextMenu={handleFolderContextMenu}
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
         onFolderClick={handleFolderRowClick}
@@ -650,6 +928,49 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
         onOpenRecording={(recordingId) => {
           setRunRecordingsOpen(false);
           onOpenRecording(recordingId);
+        }}
+      />
+      {folderContextMenuState ? (
+        <WorkflowFolderContextMenu
+          key={`${folderContextMenuState.folder.relativePath}:${folderContextMenuState.x}:${folderContextMenuState.y}`}
+          isOpen
+          folder={folderContextMenuState.folder}
+          x={folderContextMenuState.x}
+          y={folderContextMenuState.y}
+          onClose={closeFolderContextMenu}
+          onUploadProject={() => void handleUploadProjectFromFolder()}
+        />
+      ) : null}
+      {projectContextMenuState ? (
+        <WorkflowProjectContextMenu
+          key={`${projectContextMenuState.project.relativePath}:${projectContextMenuState.x}:${projectContextMenuState.y}`}
+          isOpen
+          project={projectContextMenuState.project}
+          x={projectContextMenuState.x}
+          y={projectContextMenuState.y}
+          onClose={closeProjectContextMenu}
+          onDownload={() => void handleDownloadProject()}
+          onDuplicate={() => void handleDuplicateProject()}
+        />
+      ) : null}
+      <WorkflowProjectDownloadModal
+        isOpen={downloadModalProject != null}
+        project={downloadModalProject}
+        downloadingVersion={downloadingProjectPath === downloadModalProject?.relativePath ? downloadingVersion : null}
+        onClose={closeDownloadModal}
+        onDownloadPublished={() => {
+          if (!downloadModalProject) {
+            return;
+          }
+
+          void startDownloadProject(downloadModalProject, 'published', { closeModal: true });
+        }}
+        onDownloadUnpublishedChanges={() => {
+          if (!downloadModalProject) {
+            return;
+          }
+
+          void startDownloadProject(downloadModalProject, 'live', { closeModal: true });
         }}
       />
     </div>

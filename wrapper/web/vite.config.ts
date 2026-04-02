@@ -13,6 +13,7 @@ import { createBrowserSubpathAliases, createModuleOverrideAliases, createTauriSh
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 
+const workspaceRoot = resolve(__dirname, '../..');
 const upstreamApp = resolve(__dirname, '../../rivet/packages/app');
 const upstreamCore = resolve(__dirname, '../../rivet/packages/core');
 const upstreamTrivet = resolve(__dirname, '../../rivet/packages/trivet');
@@ -263,6 +264,17 @@ export default defineConfig({
 
     server: {
       allowedHosts: true,
+      fs: {
+        // Dev mode imports vendored Rivet source and workers from the mounted workspace tree.
+        strict: false,
+        allow: [
+          normalizePath(workspaceRoot),
+          normalizePath('/workspace'),
+          normalizePath(upstreamApp),
+          normalizePath(upstreamCore),
+          normalizePath(upstreamTrivet),
+        ],
+      },
       port: 5174,
       watch: {
         usePolling: true,

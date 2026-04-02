@@ -1,8 +1,12 @@
 # Runtime Libraries
 
-## Layout
+Managed runtime libraries let hosted Rivet `Code` nodes `require()` packages that are not baked into the base images.
 
-Runtime libraries use a simple on-disk layout:
+The dashboard exposes this through the `Runtime libraries` button in the left panel.
+
+## On-disk layout
+
+Runtime libraries use a simple persistent layout rooted at `RIVET_RUNTIME_LIBRARIES_ROOT`:
 
 ```text
 <root>/
@@ -13,46 +17,78 @@ Runtime libraries use a simple on-disk layout:
   staging/
 ```
 
-The root path is controlled by `RIVET_RUNTIME_LIBRARIES_ROOT`.
+During activation, the job runner may also create a transient `current.previous` backup while swapping the staged release into place.
 
-## UI and API
+## API surface
 
-The feature is exposed from the dashboard through the `Runtime libraries` action in the projects pane.
+The runtime-library API lives under `/api/runtime-libraries`:
 
-The adjacent `Run recordings` action is separate. It browses stored workflow execution recordings, pages and filters runs through `/api/workflows/recordings/*`, opens replay bundles back into the editor by `recordingId`, and can delete individual stored runs; see [workflow-publication.md](workflow-publication.md) for that flow.
-
-The API surface lives under `/api/runtime-libraries`:
-
-- `GET /` returns current state plus any active job
+- `GET /` returns the current manifest, `hasActiveLibraries`, `updatedAt`, and any active job
 - `POST /install` starts an install job
 - `POST /remove` starts a removal job
-- `GET /jobs/:jobId` returns job state
-- `GET /jobs/:jobId/stream` streams live logs over SSE
+- `GET /jobs/:jobId` returns the current/most-recent job state
+- `GET /jobs/:jobId/stream` streams job logs and status changes over SSE
 
-Only one install/remove job runs at a time.
+Only one install/remove job can run at a time.
 
-## Activation model
+## Job lifecycle
 
-- install/remove jobs build a candidate set in `staging/`
-- the candidate is validated before activation
-- activation swaps `staging/` into `current/`
-- if activation fails, the previous `current/` set is restored
+Current job statuses are:
 
-Because both execution paths resolve the active library directory per invocation, newly activated libraries take effect without restarting the API or executor containers.
+- `queued`
+- `running`
+- `validating`
+- `activating`
+- `succeeded`
+- `failed`
 
-## Compatibility
+The dashboard opens an `EventSource` to `/jobs/:jobId/stream` and appends log lines live while the job runs.
 
-Startup still migrates the older `active-release` plus `releases/NNNN/` layout into `current/` if it exists.
+## Install/remove model
 
-## Resolution
+Install and remove both rebuild a complete candidate release:
 
-- API-side code execution resolves packages from `current/node_modules`
-- executor-side code execution resolves packages from the same path via the bundle patch
+1. Read `manifest.json`.
+2. Add or remove the requested package entries from the candidate set.
+3. Recreate `staging/`.
+4. Generate a synthetic `package.json` with the candidate dependencies.
+5. Run `npm install --production --no-audit --no-fund` in `staging/` when dependencies are present.
+6. Validate every requested package by resolving it from `staging/node_modules`.
+7. Atomically promote `staging/` to `current/`.
+8. Update `manifest.json`.
 
-Workflow replay loading is separate from this system. Replays load frozen project/dataset artifacts from recording storage and do not mutate the active runtime-library set.
+If activation fails after moving the previous `current/` aside, the runner restores the backup release.
 
-## Persistence and fallback
+## Resolution behavior
 
-- runtime libraries are persisted outside the container image and survive rebuilds
-- API startup reconciles stale or legacy runtime-library state
-- when no managed runtime-library set is active, execution falls back to image-baked dependencies
+Both execution paths resolve managed libraries from `current/node_modules`:
+
+- the API uses `ManagedCodeRunner`
+- the executor bundle is patched to resolve from the same runtime-library root
+
+That means newly activated libraries take effect on the next workflow execution without restarting the API or executor containers.
+
+If no managed runtime-library set is active, code execution falls back to the dependencies baked into the running image / normal Node resolution.
+
+## Persistence and reconciliation
+
+Current persistence rules:
+
+- runtime libraries live outside the container image and survive rebuilds/restarts
+- startup creates missing directories
+- startup migrates the older `active-release` plus `releases/<id>/` layout into the current `current/` layout if needed
+- if `manifest.json` says packages are installed but `current/node_modules` is missing, startup clears the stale manifest state and starts clean
+
+## UI behavior
+
+The current wrapper UI exposes a simple single-package workflow:
+
+- install one package name/version at a time
+- remove installed packages one at a time
+- show the live job log inline in the modal
+
+The underlying API accepts arrays for install/remove requests, so bulk operations are possible programmatically even though the dashboard currently uses one-at-a-time actions.
+
+## Related feature
+
+The adjacent `Run recordings` action is separate. It browses stored workflow execution recordings, opens replay bundles back into the editor by `recordingId`, and can delete individual runs; see [workflow-publication.md](workflow-publication.md).

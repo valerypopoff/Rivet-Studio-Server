@@ -1,6 +1,7 @@
 import { RIVET_API_BASE_URL } from '../../shared/hosted-env';
 import type {
   WorkflowFolderItem,
+  WorkflowProjectDownloadVersion,
   WorkflowMoveResponse,
   WorkflowProjectItem,
   WorkflowProjectSettingsDraft,
@@ -57,6 +58,68 @@ async function parseTextResponse(response: Response): Promise<string> {
   }
 
   return response.text();
+}
+
+async function parseBlobResponse(response: Response): Promise<{ blob: Blob; fileName: string | null }> {
+  const contentType = response.headers.get('content-type') ?? '';
+
+  if (!response.ok) {
+    if (contentType.includes('application/json')) {
+      const data = await response.json().catch(() => ({ error: response.statusText }));
+      throw createResponseError(response.status, data.error || response.statusText);
+    }
+
+    throw createResponseError(response.status, response.statusText);
+  }
+
+  if (contentType.includes('text/html')) {
+    throw new Error(
+      'Workflow download returned HTML instead of a project file. Make sure you are accessing the app through the proxy and that /api/workflows is routed to the API service.',
+    );
+  }
+
+  return {
+    blob: await response.blob(),
+    fileName: getContentDispositionFileName(response.headers.get('content-disposition')),
+  };
+}
+
+function decodeContentDispositionValue(value: string): string {
+  if (value.startsWith("UTF-8''")) {
+    return decodeURIComponent(value.slice("UTF-8''".length));
+  }
+
+  return value;
+}
+
+function getContentDispositionFileName(contentDisposition: string | null): string | null {
+  if (!contentDisposition) {
+    return null;
+  }
+
+  const utf8Match = contentDisposition.match(/filename\*=([^;]+)/i);
+  if (utf8Match?.[1]) {
+    return decodeContentDispositionValue(utf8Match[1].trim());
+  }
+
+  const asciiMatch = contentDisposition.match(/filename="([^"]+)"/i);
+  if (asciiMatch?.[1]) {
+    return asciiMatch[1];
+  }
+
+  return null;
+}
+
+function triggerBrowserDownload(blob: Blob, fileName: string): void {
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = fileName;
+  anchor.style.display = 'none';
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 export async function fetchWorkflowTree(): Promise<WorkflowTreeResponse> {
@@ -155,6 +218,21 @@ export async function createWorkflowProject(
   return data.project;
 }
 
+export async function uploadWorkflowProject(
+  folderRelativePath: string,
+  fileName: string,
+  contents: string,
+): Promise<WorkflowProjectItem> {
+  const response = await fetch(`${API}/workflows/projects/upload`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ folderRelativePath, fileName, contents }),
+  });
+
+  const data = await parseJsonResponse<{ project: WorkflowProjectItem }>(response);
+  return data.project;
+}
+
 export async function renameWorkflowProject(
   relativePath: string,
   newName: string,
@@ -166,6 +244,31 @@ export async function renameWorkflowProject(
   });
 
   return parseJsonResponse<{ project: WorkflowProjectItem; movedProjectPaths: WorkflowMoveResponse['movedProjectPaths'] }>(response);
+}
+
+export async function duplicateWorkflowProject(relativePath: string): Promise<WorkflowProjectItem> {
+  const response = await fetch(`${API}/workflows/projects/duplicate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ relativePath }),
+  });
+
+  const data = await parseJsonResponse<{ project: WorkflowProjectItem }>(response);
+  return data.project;
+}
+
+export async function downloadWorkflowProject(
+  relativePath: string,
+  version: WorkflowProjectDownloadVersion,
+): Promise<void> {
+  const response = await fetch(`${API}/workflows/projects/download`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ relativePath, version }),
+  });
+
+  const { blob, fileName } = await parseBlobResponse(response);
+  triggerBrowserDownload(blob, fileName ?? 'project.rivet-project');
 }
 
 export async function moveWorkflowItem(

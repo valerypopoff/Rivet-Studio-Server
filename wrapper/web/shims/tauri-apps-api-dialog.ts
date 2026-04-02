@@ -16,6 +16,13 @@ export interface SaveDialogOptions {
   defaultPath?: string;
 }
 
+function getSupportedPickerExtensions(extensions: string[] | undefined): string[] {
+  return (extensions ?? [])
+    .map((extension) => extension.startsWith('.') ? extension : `.${extension}`)
+    // File System Access type filters reject custom extensions with characters like "-".
+    .filter((extension) => /^\.[A-Za-z0-9]+$/.test(extension));
+}
+
 export async function open(options?: OpenDialogOptions): Promise<string | string[] | null> {
   if (options?.directory) {
     if ('showDirectoryPicker' in window) {
@@ -34,10 +41,15 @@ export async function open(options?: OpenDialogOptions): Promise<string | string
       const accepts: { description?: string; accept?: Record<string, string[]> }[] = [];
       if (options?.filters) {
         for (const filter of options.filters) {
+          const supportedExtensions = getSupportedPickerExtensions(filter.extensions);
+          if (supportedExtensions.length === 0) {
+            continue;
+          }
+
           accepts.push({
             description: filter.name,
             accept: {
-              'application/octet-stream': filter.extensions.map((e) => `.${e}`),
+              'application/octet-stream': supportedExtensions,
             },
           });
         }
@@ -64,10 +76,15 @@ export async function save(options?: SaveDialogOptions): Promise<string | null> 
       const types: any[] = [];
       if (options?.filters) {
         for (const filter of options.filters) {
+          const supportedExtensions = getSupportedPickerExtensions(filter.extensions);
+          if (supportedExtensions.length === 0) {
+            continue;
+          }
+
           types.push({
             description: filter.name,
             accept: {
-              'application/octet-stream': filter.extensions.map((e) => `.${e}`),
+              'application/octet-stream': supportedExtensions,
             },
           });
         }

@@ -98,6 +98,7 @@ services:
         no_proxy: ${no_proxy:-${NO_PROXY:-}}
     env_file:
       - ../.env
+    working_dir: /app
     ports:
       - "${RIVET_API_PORT:-3100}:80"
     environment:
@@ -138,11 +139,15 @@ services:
       - ${RIVET_RUNTIME_LIBS_HOST_PATH:-rivet_runtime_libs}:/data/runtime-libraries
     command: >
       sh -lc "
+        cd /app &&
         if [ ! -f /opt/proxy-bootstrap/node_modules/.package-lock.json ] || ! cmp -s /opt/proxy-bootstrap/package-lock.json /opt/proxy-bootstrap/node_modules/.package-lock.json; then
           npm --prefix /opt/proxy-bootstrap ci &&
           cp /opt/proxy-bootstrap/package-lock.json /opt/proxy-bootstrap/node_modules/.package-lock.json;
         fi &&
-        if [ ! -f node_modules/.package-lock.json ] || ! cmp -s package-lock.json node_modules/.package-lock.json; then npm ci && cp package-lock.json node_modules/.package-lock.json; fi &&
+        if [ ! -f node_modules/.package-lock.json ] || ! cmp -s /app/package-lock.json node_modules/.package-lock.json; then
+          npm ci &&
+          cp /app/package-lock.json node_modules/.package-lock.json;
+        fi &&
         NODE_OPTIONS='${NODE_OPTIONS:-} --import=/opt/proxy-bootstrap/bootstrap.mjs' npm run dev
       "
     healthcheck:

@@ -96,23 +96,24 @@ export const DashboardPage: FC = () => {
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
-      const isIframeFocused = document.activeElement === iframeRef.current;
-      if (!isSaveShortcutEvent(event) || event.defaultPrevented || !editorReady) {
+      if (event.defaultPrevented || !editorReady) {
         return;
       }
 
-      if (isIframeFocused) {
-        return;
+      if (isSaveShortcutEvent(event)) {
+        if (document.activeElement === iframeRef.current) {
+          return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+
+        if (!activeWorkflowProjectPath) {
+          return;
+        }
+
+        handleSaveProject();
       }
-
-      event.preventDefault();
-      event.stopPropagation();
-
-      if (!activeWorkflowProjectPath) {
-        return;
-      }
-
-      handleSaveProject();
     };
 
     window.addEventListener('keydown', handler, true);

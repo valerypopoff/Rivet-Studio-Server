@@ -21,13 +21,25 @@ import {
   createWorkflowProjectItem,
   deleteWorkflowFolderItem,
   deleteWorkflowProjectItem,
+  duplicateWorkflowProjectItem,
   publishWorkflowProjectItem,
   renameWorkflowFolderItem,
   renameWorkflowProjectItem,
+  uploadWorkflowProjectItem,
   unpublishWorkflowProjectItem,
 } from './workflow-mutations.js';
+import { createWorkflowDownloadContentDisposition, readWorkflowProjectDownload } from './workflow-download.js';
 
 export const workflowsRouter = Router();
+
+workflowsRouter.use((req, res, next) => {
+  if (req.method === 'GET') {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+  }
+
+  next();
+});
 
 const moveSchema = z.object({
   itemType: z.enum(['project', 'folder']),
@@ -54,6 +66,12 @@ const createProjectSchema = z.object({
   name: z.unknown(),
 });
 
+const uploadProjectSchema = z.object({
+  folderRelativePath: z.unknown().optional(),
+  fileName: z.unknown(),
+  contents: z.unknown(),
+});
+
 const renameProjectSchema = z.object({
   relativePath: z.unknown(),
   newName: z.unknown(),
@@ -66,6 +84,11 @@ const publishProjectSchema = z.object({
 
 const pathOnlySchema = z.object({
   relativePath: z.unknown(),
+});
+
+const downloadProjectSchema = z.object({
+  relativePath: z.unknown(),
+  version: z.enum(['live', 'published']),
 });
 
 const recordingsRunsQuerySchema = z.object({
@@ -180,6 +203,24 @@ workflowsRouter.post('/projects', validateBody(createProjectSchema), asyncHandle
 workflowsRouter.patch('/projects', validateBody(renameProjectSchema), asyncHandler(async (req, res) => {
   const { relativePath, newName } = req.body as z.infer<typeof renameProjectSchema>;
   res.json(await renameWorkflowProjectItem(relativePath, newName));
+}));
+
+workflowsRouter.post('/projects/duplicate', validateBody(pathOnlySchema), asyncHandler(async (req, res) => {
+  const { relativePath } = req.body as z.infer<typeof pathOnlySchema>;
+  res.status(201).json({ project: await duplicateWorkflowProjectItem(relativePath) });
+}));
+
+workflowsRouter.post('/projects/upload', validateBody(uploadProjectSchema), asyncHandler(async (req, res) => {
+  const { folderRelativePath, fileName, contents } = req.body as z.infer<typeof uploadProjectSchema>;
+  res.status(201).json({ project: await uploadWorkflowProjectItem(folderRelativePath, fileName, contents) });
+}));
+
+workflowsRouter.post('/projects/download', validateBody(downloadProjectSchema), asyncHandler(async (req, res) => {
+  const { relativePath, version } = req.body as z.infer<typeof downloadProjectSchema>;
+  const download = await readWorkflowProjectDownload(relativePath, version);
+  res.setHeader('Content-Type', 'application/x-yaml; charset=utf-8');
+  res.setHeader('Content-Disposition', createWorkflowDownloadContentDisposition(download.fileName));
+  res.status(200).send(download.contents);
 }));
 
 workflowsRouter.post('/projects/publish', validateBody(publishProjectSchema), asyncHandler(async (req, res) => {

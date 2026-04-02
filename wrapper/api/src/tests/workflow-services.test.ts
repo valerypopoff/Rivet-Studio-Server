@@ -14,6 +14,7 @@ process.env.RIVET_APP_DATA_ROOT = appDataRoot;
 const workflowMutations = await import('../routes/workflows/workflow-mutations.js');
 const workflowQuery = await import('../routes/workflows/workflow-query.js');
 const workflowFs = await import('../routes/workflows/fs-helpers.js');
+const workflowDownload = await import('../routes/workflows/workflow-download.js');
 const workflowPublication = await import('../routes/workflows/publication.js');
 const workflowRecordings = await import('../routes/workflows/recordings.js');
 const workflowExecution = await import('../routes/workflows/execution.js');
@@ -37,6 +38,12 @@ async function withWorkflowApiServer(run: (baseUrl: string) => Promise<void>) {
   const app = express();
   app.use(express.json({ strict: false }));
   app.use('/workflows', workflowRoutes.workflowsRouter);
+  app.use((_req, res) => {
+    res.status(404).json({ error: 'Not found' });
+  });
+  app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    res.status((err as { status?: number }).status ?? 500).json({ error: err.message });
+  });
 
   const server = http.createServer(app);
   await new Promise<void>((resolve) => {
@@ -72,6 +79,12 @@ async function withWorkflowExecutionServer(
   app.use('/api/workflows', workflowRoutes.workflowsRouter);
   app.use('/workflows', workflowRoutes.publishedWorkflowsRouter);
   app.use('/workflows-latest', workflowRoutes.latestWorkflowsRouter);
+  app.use((_req, res) => {
+    res.status(404).json({ error: 'Not found' });
+  });
+  app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    res.status((err as { status?: number }).status ?? 500).json({ error: err.message });
+  });
 
   const server = http.createServer(app);
   await new Promise<void>((resolve) => {
@@ -272,6 +285,230 @@ test('workflow project stats count serialized graph nodes', async () => {
   assert.equal(project.stats?.totalNodeCount, 1);
 });
 
+test('workflow tree route disables caching', async () => {
+  await workflowMutations.createWorkflowProjectItem('', 'CacheHeaders');
+
+  await withWorkflowApiServer(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/tree`);
+
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('cache-control'), 'no-store, no-cache, must-revalidate');
+    assert.equal(response.headers.get('pragma'), 'no-cache');
+  });
+});
+
+test('workflow project duplication creates an unpublished copy in the same folder', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'Example');
+
+  const duplicate = await workflowMutations.duplicateWorkflowProjectItem(created.relativePath);
+
+  assert.equal(duplicate.relativePath, 'Example Copy.rivet-project');
+  assert.equal(duplicate.name, 'Example Copy');
+  assert.equal(duplicate.settings.status, 'unpublished');
+  assert.equal(duplicate.settings.endpointName, '');
+  assert.equal(await workflowFs.pathExists(duplicate.absolutePath), true);
+});
+
+test('workflow project duplication assigns a fresh project id and matching title', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'Independent');
+
+  const duplicate = await workflowMutations.duplicateWorkflowProjectItem(created.relativePath);
+  const originalProject = await rivetNode.loadProjectFromFile(created.absolutePath);
+  const duplicateProject = await rivetNode.loadProjectFromFile(duplicate.absolutePath);
+
+  assert.notEqual(duplicateProject.metadata.id, originalProject.metadata.id);
+  assert.equal(duplicateProject.metadata.title, 'Independent Copy');
+});
+
+test('workflow project duplication does not copy dataset or settings sidecars', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'Sidecars');
+  const originalSidecars = workflowFs.getProjectSidecarPaths(created.absolutePath);
+
+  await fs.writeFile(originalSidecars.dataset, '{"rows":[]}', 'utf8');
+  await fs.writeFile(originalSidecars.settings, '{"endpointName":"published-demo"}', 'utf8');
+
+  const duplicate = await workflowMutations.duplicateWorkflowProjectItem(created.relativePath);
+  const duplicateSidecars = workflowFs.getProjectSidecarPaths(duplicate.absolutePath);
+
+  assert.equal(await workflowFs.pathExists(originalSidecars.dataset), true);
+  assert.equal(await workflowFs.pathExists(originalSidecars.settings), true);
+  assert.equal(await workflowFs.pathExists(duplicateSidecars.dataset), false);
+  assert.equal(await workflowFs.pathExists(duplicateSidecars.settings), false);
+});
+
+test('workflow project duplication resolves naming collisions with numbered copy suffixes', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'Collision');
+
+  const firstDuplicate = await workflowMutations.duplicateWorkflowProjectItem(created.relativePath);
+  const secondDuplicate = await workflowMutations.duplicateWorkflowProjectItem(created.relativePath);
+  const thirdDuplicate = await workflowMutations.duplicateWorkflowProjectItem(created.relativePath);
+
+  assert.equal(firstDuplicate.relativePath, 'Collision Copy.rivet-project');
+  assert.equal(secondDuplicate.relativePath, 'Collision Copy 1.rivet-project');
+  assert.equal(thirdDuplicate.relativePath, 'Collision Copy 2.rivet-project');
+});
+
+test('workflow project duplication uses literal copy naming when duplicating a duplicate', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'Literal');
+  const duplicate = await workflowMutations.duplicateWorkflowProjectItem(created.relativePath);
+
+  const duplicateOfDuplicate = await workflowMutations.duplicateWorkflowProjectItem(duplicate.relativePath);
+
+  assert.equal(duplicate.relativePath, 'Literal Copy.rivet-project');
+  assert.equal(duplicateOfDuplicate.relativePath, 'Literal Copy Copy.rivet-project');
+});
+
+test('workflow project duplication keeps published source state detached from the copy', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'PublishedSource');
+
+  await workflowMutations.publishWorkflowProjectItem(created.relativePath, {
+    endpointName: 'published-source-endpoint',
+  });
+
+  const duplicate = await workflowMutations.duplicateWorkflowProjectItem(created.relativePath);
+  const duplicateSidecars = workflowFs.getProjectSidecarPaths(duplicate.absolutePath);
+
+  assert.equal(duplicate.settings.status, 'unpublished');
+  assert.equal(duplicate.settings.endpointName, '');
+  assert.equal(await workflowFs.pathExists(duplicateSidecars.settings), false);
+  assert.equal(await workflowFs.pathExists(duplicateSidecars.dataset), false);
+});
+
+test('workflow project upload imports a project into the selected folder with a fresh id', async () => {
+  await workflowMutations.createWorkflowFolderItem('Uploads', '');
+  const created = await workflowMutations.createWorkflowProjectItem('', 'Imported');
+  const uploadedContents = await fs.readFile(created.absolutePath, 'utf8');
+  const originalProject = rivetNode.loadProjectFromString(uploadedContents);
+
+  const uploaded = await workflowMutations.uploadWorkflowProjectItem(
+    'Uploads',
+    'Imported.rivet-project',
+    uploadedContents,
+  );
+  const uploadedProject = await rivetNode.loadProjectFromFile(uploaded.absolutePath);
+
+  assert.equal(uploaded.relativePath, 'Uploads/Imported.rivet-project');
+  assert.equal(uploaded.name, 'Imported');
+  assert.equal(uploaded.settings.status, 'unpublished');
+  assert.equal(uploaded.settings.endpointName, '');
+  assert.notEqual(uploadedProject.metadata.id, originalProject.metadata.id);
+  assert.equal(uploadedProject.metadata.title, 'Imported');
+});
+
+test('workflow project upload resolves naming collisions with numbered suffixes', async () => {
+  await workflowMutations.createWorkflowFolderItem('Uploads', '');
+  const created = await workflowMutations.createWorkflowProjectItem('', 'CollisionUpload');
+  const uploadedContents = await fs.readFile(created.absolutePath, 'utf8');
+
+  const firstUpload = await workflowMutations.uploadWorkflowProjectItem(
+    'Uploads',
+    'CollisionUpload.rivet-project',
+    uploadedContents,
+  );
+  const secondUpload = await workflowMutations.uploadWorkflowProjectItem(
+    'Uploads',
+    'CollisionUpload.rivet-project',
+    uploadedContents,
+  );
+  const secondUploadedProject = await rivetNode.loadProjectFromFile(secondUpload.absolutePath);
+
+  assert.equal(firstUpload.relativePath, 'Uploads/CollisionUpload.rivet-project');
+  assert.equal(secondUpload.relativePath, 'Uploads/CollisionUpload 1.rivet-project');
+  assert.equal(secondUploadedProject.metadata.title, 'CollisionUpload 1');
+});
+
+test('workflow project upload keeps published source state detached from the imported copy', async () => {
+  await workflowMutations.createWorkflowFolderItem('Uploads', '');
+  const created = await workflowMutations.createWorkflowProjectItem('', 'UploadedPublishedSource');
+  const originalSidecars = workflowFs.getProjectSidecarPaths(created.absolutePath);
+
+  await fs.writeFile(originalSidecars.dataset, '{"rows":[]}', 'utf8');
+  await workflowMutations.publishWorkflowProjectItem(created.relativePath, {
+    endpointName: 'uploaded-published-source-endpoint',
+  });
+
+  const uploaded = await workflowMutations.uploadWorkflowProjectItem(
+    'Uploads',
+    'UploadedPublishedSource.rivet-project',
+    await fs.readFile(created.absolutePath, 'utf8'),
+  );
+  const uploadedSidecars = workflowFs.getProjectSidecarPaths(uploaded.absolutePath);
+
+  assert.equal(uploaded.settings.status, 'unpublished');
+  assert.equal(uploaded.settings.endpointName, '');
+  assert.equal(await workflowFs.pathExists(uploadedSidecars.dataset), false);
+  assert.equal(await workflowFs.pathExists(uploadedSidecars.settings), false);
+});
+
+test('workflow project upload rejects invalid project files', async () => {
+  await workflowMutations.createWorkflowFolderItem('Uploads', '');
+
+  await assert.rejects(
+    workflowMutations.uploadWorkflowProjectItem('Uploads', 'Broken.rivet-project', 'not: valid: yaml: ['),
+    /Could not upload project: invalid project file/,
+  );
+});
+
+test('workflow project download reads the live unpublished file with an unpublished tag', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'DownloadUnpublished');
+  const liveContents = await fs.readFile(created.absolutePath, 'utf8');
+
+  const download = await workflowDownload.readWorkflowProjectDownload(created.relativePath, 'live');
+
+  assert.equal(download.contents, liveContents);
+  assert.equal(download.fileName, 'DownloadUnpublished [unpublished].rivet-project');
+});
+
+test('workflow project download reads the published snapshot with a published tag', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'DownloadPublished');
+  const originalLiveContents = await fs.readFile(created.absolutePath, 'utf8');
+
+  await workflowMutations.publishWorkflowProjectItem(created.relativePath, {
+    endpointName: 'download-published-endpoint',
+  });
+
+  const download = await workflowDownload.readWorkflowProjectDownload(created.relativePath, 'published');
+
+  assert.equal(download.contents, originalLiveContents);
+  assert.equal(download.fileName, 'DownloadPublished [published].rivet-project');
+});
+
+test('workflow project download distinguishes live unpublished changes from the published version', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'DownloadChanged');
+  const originalLiveContents = await fs.readFile(created.absolutePath, 'utf8');
+
+  await workflowMutations.publishWorkflowProjectItem(created.relativePath, {
+    endpointName: 'download-changed-endpoint',
+  });
+
+  const changedLiveContents = originalLiveContents.replace('title: "DownloadChanged"', 'title: "DownloadChanged Live"');
+  await fs.writeFile(created.absolutePath, changedLiveContents, 'utf8');
+
+  const liveDownload = await workflowDownload.readWorkflowProjectDownload(created.relativePath, 'live');
+  const publishedDownload = await workflowDownload.readWorkflowProjectDownload(created.relativePath, 'published');
+
+  assert.equal(liveDownload.contents, changedLiveContents);
+  assert.equal(liveDownload.fileName, 'DownloadChanged [unpublished changes].rivet-project');
+  assert.equal(publishedDownload.contents, originalLiveContents);
+  assert.equal(publishedDownload.fileName, 'DownloadChanged [published].rivet-project');
+});
+
+test('workflow project download rejects published downloads for unpublished projects', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'NoPublishedDownload');
+
+  await assert.rejects(
+    workflowDownload.readWorkflowProjectDownload(created.relativePath, 'published'),
+    /Published version is not available for this project/,
+  );
+});
+
+test('workflow project download returns not found for missing projects', async () => {
+  await assert.rejects(
+    workflowDownload.readWorkflowProjectDownload('Missing.rivet-project', 'live'),
+    /Project not found/,
+  );
+});
+
 test('workflow routes support folder/project create, move, rename, and delete flows over HTTP', async () => {
   await withWorkflowApiServer(async (baseUrl) => {
     const createdFolder = await readJson<{ folder: { relativePath: string } }>(await fetch(`${baseUrl}/folders`, {
@@ -332,6 +569,247 @@ test('workflow routes support folder/project create, move, rename, and delete fl
       body: JSON.stringify({ relativePath: createdFolder.folder.relativePath }),
     }));
     assert.equal(deleteFolderResponse.deleted, true);
+  });
+});
+
+test('workflow duplicate route creates a duplicate and exposes it through the tree', async () => {
+  await withWorkflowApiServer(async (baseUrl) => {
+    const createdProject = await readJson<{ project: { relativePath: string } }>(await fetch(`${baseUrl}/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'HttpDuplicate' }),
+    }));
+
+    const duplicated = await readJson<{ project: { relativePath: string; settings: { status: string; endpointName: string } } }>(
+      await fetch(`${baseUrl}/projects/duplicate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ relativePath: createdProject.project.relativePath }),
+      }),
+    );
+
+    assert.equal(duplicated.project.relativePath, 'HttpDuplicate Copy.rivet-project');
+    assert.equal(duplicated.project.settings.status, 'unpublished');
+    assert.equal(duplicated.project.settings.endpointName, '');
+
+    const tree = await readJson<{ projects: Array<{ relativePath: string }> }>(await fetch(`${baseUrl}/tree`));
+    assert.deepEqual(
+      tree.projects.map((project) => project.relativePath),
+      ['HttpDuplicate Copy.rivet-project', 'HttpDuplicate.rivet-project'],
+    );
+  });
+});
+
+test('workflow duplicate route returns a controlled 400 for invalid project files', async () => {
+  await withWorkflowApiServer(async (baseUrl) => {
+    const createdProject = await readJson<{ project: { relativePath: string; absolutePath: string } }>(await fetch(`${baseUrl}/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'BrokenDuplicate' }),
+    }));
+
+    await fs.writeFile(createdProject.project.absolutePath, 'not: valid: yaml: [', 'utf8');
+
+    const response = await fetch(`${baseUrl}/projects/duplicate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ relativePath: createdProject.project.relativePath }),
+    });
+
+    const body = await response.json() as { error?: string };
+
+    assert.equal(response.status, 400);
+    assert.equal(body.error, 'Could not duplicate project: invalid project file');
+  });
+});
+
+test('workflow upload route imports projects into folders and numbers collisions', async () => {
+  await withWorkflowApiServer(async (baseUrl) => {
+    const createdFolder = await readJson<{ folder: { relativePath: string } }>(await fetch(`${baseUrl}/folders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Uploads' }),
+    }));
+    const sourceProject = await workflowMutations.createWorkflowProjectItem('', 'HttpUpload');
+    const sourceContents = await fs.readFile(sourceProject.absolutePath, 'utf8');
+
+    const firstUpload = await readJson<{ project: { relativePath: string; settings: { status: string; endpointName: string } } }>(
+      await fetch(`${baseUrl}/projects/upload`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          folderRelativePath: createdFolder.folder.relativePath,
+          fileName: 'HttpUpload.rivet-project',
+          contents: sourceContents,
+        }),
+      }),
+    );
+    const secondUpload = await readJson<{ project: { relativePath: string } }>(
+      await fetch(`${baseUrl}/projects/upload`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          folderRelativePath: createdFolder.folder.relativePath,
+          fileName: 'HttpUpload.rivet-project',
+          contents: sourceContents,
+        }),
+      }),
+    );
+
+    assert.equal(firstUpload.project.relativePath, 'Uploads/HttpUpload.rivet-project');
+    assert.equal(firstUpload.project.settings.status, 'unpublished');
+    assert.equal(firstUpload.project.settings.endpointName, '');
+    assert.equal(secondUpload.project.relativePath, 'Uploads/HttpUpload 1.rivet-project');
+
+    const tree = await readJson<{ folders: Array<{ relativePath: string; projects: Array<{ relativePath: string }> }> }>(
+      await fetch(`${baseUrl}/tree`),
+    );
+    const uploadsFolder = tree.folders.find((folder) => folder.relativePath === 'Uploads');
+
+    assert.deepEqual(
+      uploadsFolder?.projects.map((project) => project.relativePath),
+      ['Uploads/HttpUpload 1.rivet-project', 'Uploads/HttpUpload.rivet-project'],
+    );
+  });
+});
+
+test('workflow upload route validates request shape and missing folders cleanly', async () => {
+  await withWorkflowApiServer(async (baseUrl) => {
+    const invalidResponse = await fetch(`${baseUrl}/projects/upload`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folderRelativePath: '', fileName: 'Broken.txt', contents: 'hello' }),
+    });
+    const invalidBody = await invalidResponse.json() as { error?: string };
+
+    assert.equal(invalidResponse.status, 400);
+    assert.equal(invalidBody.error, 'Expected .rivet-project file');
+
+    const missingFolderResponse = await fetch(`${baseUrl}/projects/upload`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        folderRelativePath: 'MissingFolder',
+        fileName: 'Uploaded.rivet-project',
+        contents: await fs.readFile((await workflowMutations.createWorkflowProjectItem('', 'UploadedSource')).absolutePath, 'utf8'),
+      }),
+    });
+    const missingFolderBody = await missingFolderResponse.json() as { error?: string };
+
+    assert.equal(missingFolderResponse.status, 404);
+    assert.equal(missingFolderBody.error, 'Folder not found');
+  });
+});
+
+test('workflow download route streams unpublished projects with attachment headers', async () => {
+  await withWorkflowApiServer(async (baseUrl) => {
+    const createdProject = await readJson<{ project: { relativePath: string; absolutePath: string } }>(await fetch(`${baseUrl}/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'HttpDownloadUnpublished' }),
+    }));
+    const expectedContents = await fs.readFile(createdProject.project.absolutePath, 'utf8');
+
+    const response = await fetch(`${baseUrl}/projects/download`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ relativePath: createdProject.project.relativePath, version: 'live' }),
+    });
+
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get('content-type') ?? '', /application\/x-yaml/);
+    assert.match(
+      response.headers.get('content-disposition') ?? '',
+      /filename="HttpDownloadUnpublished \[unpublished\]\.rivet-project"/,
+    );
+    assert.equal(await response.text(), expectedContents);
+  });
+});
+
+test('workflow download route streams published and unpublished-changes variants separately', async () => {
+  await withWorkflowApiServer(async (baseUrl) => {
+    const createdProject = await readJson<{ project: { relativePath: string; absolutePath: string } }>(await fetch(`${baseUrl}/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'HttpDownloadChanged' }),
+    }));
+    const originalContents = await fs.readFile(createdProject.project.absolutePath, 'utf8');
+
+    await readJson<{ project: { settings: { status: string } } }>(await fetch(`${baseUrl}/projects/publish`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        relativePath: createdProject.project.relativePath,
+        settings: { endpointName: 'http-download-changed-endpoint' },
+      }),
+    }));
+
+    const changedContents = originalContents.replace('title: "HttpDownloadChanged"', 'title: "HttpDownloadChanged Live"');
+    await fs.writeFile(createdProject.project.absolutePath, changedContents, 'utf8');
+
+    const publishedResponse = await fetch(`${baseUrl}/projects/download`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ relativePath: createdProject.project.relativePath, version: 'published' }),
+    });
+    const liveResponse = await fetch(`${baseUrl}/projects/download`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ relativePath: createdProject.project.relativePath, version: 'live' }),
+    });
+
+    assert.equal(publishedResponse.status, 200);
+    assert.equal(liveResponse.status, 200);
+    assert.match(
+      publishedResponse.headers.get('content-disposition') ?? '',
+      /filename="HttpDownloadChanged \[published\]\.rivet-project"/,
+    );
+    assert.match(
+      liveResponse.headers.get('content-disposition') ?? '',
+      /filename="HttpDownloadChanged \[unpublished changes\]\.rivet-project"/,
+    );
+    assert.equal(await publishedResponse.text(), originalContents);
+    assert.equal(await liveResponse.text(), changedContents);
+  });
+});
+
+test('workflow download route validates request shape and reports missing or unpublished sources cleanly', async () => {
+  await withWorkflowApiServer(async (baseUrl) => {
+    const invalidResponse = await fetch(`${baseUrl}/projects/download`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ relativePath: 'Anything.rivet-project', version: 'invalid' }),
+    });
+    const invalidBody = await invalidResponse.json() as { error?: string };
+
+    assert.equal(invalidResponse.status, 400);
+    assert.ok(invalidBody.error);
+
+    const missingResponse = await fetch(`${baseUrl}/projects/download`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ relativePath: 'Missing.rivet-project', version: 'live' }),
+    });
+    const missingBody = await missingResponse.json() as { error?: string };
+
+    assert.equal(missingResponse.status, 404);
+    assert.equal(missingBody.error, 'Project not found');
+
+    const createdProject = await readJson<{ project: { relativePath: string } }>(await fetch(`${baseUrl}/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'HttpDownloadUnavailable' }),
+    }));
+
+    const unavailableResponse = await fetch(`${baseUrl}/projects/download`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ relativePath: createdProject.project.relativePath, version: 'published' }),
+    });
+    const unavailableBody = await unavailableResponse.json() as { error?: string };
+
+    assert.equal(unavailableResponse.status, 409);
+    assert.equal(unavailableBody.error, 'Published version is not available for this project');
   });
 });
 

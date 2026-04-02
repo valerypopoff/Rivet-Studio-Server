@@ -1,4 +1,5 @@
 export type WorkflowProjectStatus = 'unpublished' | 'published' | 'unpublished_changes';
+export type WorkflowProjectDownloadVersion = 'live' | 'published';
 
 export type WorkflowProjectSettings = {
   status: WorkflowProjectStatus;
