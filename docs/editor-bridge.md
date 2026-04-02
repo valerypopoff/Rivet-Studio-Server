@@ -17,7 +17,7 @@ All message types live in `wrapper/shared/editor-bridge.ts`. Both sides import f
 |---|---|---|
 | `open-project` | `path`, `replaceCurrent` | User opens or creates a workflow project |
 | `open-recording` | `recordingId`, `replaceCurrent` | User opens a stored workflow run from the recordings browser |
-| `save-project` | (none) | User saves from the dashboard or presses the save shortcut outside the iframe |
+| `save-project` | (none) | User saves from the dashboard surface or presses the save shortcut outside the iframe |
 | `delete-workflow-project` | `path` | User deletes a workflow project from the dashboard |
 | `workflow-paths-moved` | `moves[]` | A project or folder rename/move changed one or more absolute project paths |
 
@@ -53,7 +53,7 @@ All message types live in `wrapper/shared/editor-bridge.ts`. Both sides import f
 
 Save can be initiated from either context:
 
-- inside the iframe, the editor bridge listens for the save shortcut and calls the editor's normal save flow
+- inside the iframe, the editor bridge listens for `Ctrl+S` / `Cmd+S` and calls the editor's normal save flow across platforms, including hosted Windows browser sessions
 - outside the iframe, the dashboard captures the save shortcut and sends `save-project`
 
 That lets the hosted shell behave like a single app even though the editor lives in an iframe.
@@ -66,7 +66,8 @@ Node copy/paste shortcuts do not cross the editor bridge.
 - The dashboard does not relay those shortcuts to the iframe. That approach was intentionally avoided because iframe-focused keyboard events are not reliable at the parent-page level.
 - In hosted mode, shortcut reliability depends on editor focus, not dashboard focus. The hosted wrapper therefore makes the node canvas focusable and shifts focus back to it on normal canvas/node interactions.
 - The editor also clears focus from temporary editor-local inputs such as context-menu search when those surfaces close, so keyboard node actions are not accidentally blocked by a hidden or stale focused input.
-- Save is still special: it crosses the bridge when initiated outside the iframe, but copy/paste/duplicate stay editor-local.
+- The hosted wrapper keeps the iframe and canvas focusable for keyboard reliability but suppresses their visible browser focus outline, so the editor does not show a white perimeter when focused.
+- Save is still special: it crosses the bridge when initiated outside the iframe, but copy/paste/duplicate stay editor-local and iframe-focused save is handled directly inside the editor context.
 
 ## Key files
 

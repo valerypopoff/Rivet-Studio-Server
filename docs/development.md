@@ -143,7 +143,9 @@ For hosted editor keyboard-node behavior:
 4. click a node normally and confirm `Ctrl+C` then `Ctrl+V` duplicates it through the internal node clipboard
 5. confirm `Shift+click` multi-selection still copies multiple nodes
 6. open and close an editor context menu or search UI, then confirm `Ctrl+C` and `Ctrl+V` still work after returning to the canvas
-7. confirm the browser can still type normally inside real text inputs and that copy/paste shortcuts do not hijack active editor form fields
+7. confirm `Ctrl+S` works while focus is inside the workflow iframe, including on Windows browsers
+8. confirm the browser can still type normally inside real text inputs and that copy/paste/save shortcuts do not hijack active editor form fields
+9. confirm focusing the workflow canvas does not leave a visible white perimeter around the iframe/editor surface
 
 For routing/auth/deployment changes:
 

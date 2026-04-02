@@ -37,6 +37,12 @@
   height: 100vh;
 }
 
+.dashboard-page .dashboard-editor-frame:focus,
+.dashboard-page .dashboard-editor-frame:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
 .dashboard-page .dashboard-editor-frame.dashboard-editor-frame-resizing {
   pointer-events: none;
 }
