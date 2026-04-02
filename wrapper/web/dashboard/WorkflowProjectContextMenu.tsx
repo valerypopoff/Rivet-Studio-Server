@@ -7,6 +7,7 @@ import {
   useRole,
   type VirtualElement,
 } from '@floating-ui/react';
+import CopyIcon from '@atlaskit/icon/glyph/copy';
 import ArrowDownIcon from 'majesticons/line/arrow-down-line.svg?react';
 import DeleteBinIcon from 'majesticons/line/delete-bin-line.svg?react';
 import { useLayoutEffect, type FC } from 'react';
@@ -18,6 +19,7 @@ type WorkflowProjectContextMenuProps = {
   x: number;
   y: number;
   onClose: () => void;
+  onRename: () => void;
   onDownload: () => void;
   onDuplicate: () => void;
   canDelete: boolean;
@@ -47,6 +49,7 @@ export const WorkflowProjectContextMenu: FC<WorkflowProjectContextMenuProps> = (
   x,
   y,
   onClose,
+  onRename,
   onDownload,
   onDuplicate,
   canDelete,
@@ -96,6 +99,15 @@ export const WorkflowProjectContextMenu: FC<WorkflowProjectContextMenuProps> = (
         type="button"
         className="workflow-project-context-menu-item"
         role="menuitem"
+        onClick={onRename}
+      >
+        <span>Rename project</span>
+      </button>
+      <div className="workflow-project-context-menu-separator" role="separator" aria-hidden="true" />
+      <button
+        type="button"
+        className="workflow-project-context-menu-item"
+        role="menuitem"
         onClick={onDownload}
       >
         <ArrowDownIcon className="workflow-project-context-menu-item-icon" aria-hidden="true" />
@@ -107,6 +119,9 @@ export const WorkflowProjectContextMenu: FC<WorkflowProjectContextMenuProps> = (
         role="menuitem"
         onClick={onDuplicate}
       >
+        <span className="workflow-project-context-menu-item-icon" aria-hidden="true">
+          <CopyIcon label="" size="small" />
+        </span>
         <span>Duplicate</span>
       </button>
       <div className="workflow-project-context-menu-separator" role="separator" aria-hidden="true" />

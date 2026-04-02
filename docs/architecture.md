@@ -29,10 +29,11 @@ In local direct-process mode, the services run separately without nginx.
 
 - The top-level page is the wrapper dashboard. It renders the workflow library, project settings, runtime libraries, run recordings, and an `<iframe src="/?editor">`.
 - The workflow library tree now includes custom context menus on both project and folder entries.
-- Project rows currently expose `Download`, `Duplicate`, and a guarded `Delete project` action.
+- Project rows currently expose `Rename project`, `Download`, `Duplicate`, and a guarded `Delete project` action.
 - Folder rows currently expose `Create project` and `Upload project`.
 - Folder-level project creation now lives only in the folder context menu, not in an inline `+` button on the row.
 - `Create project` prompts for a name, creates a new blank `.rivet-project` in the target folder through the workflow API, expands that folder, refreshes the tree, and opens the new project in the editor.
+- `Rename project` in the project context menu does not rename inline. It opens the existing Project Settings modal for that project, and the rename flow still happens there.
 - `Duplicate` creates a sibling project file through the API and refreshes the tree without changing the current selection or editor tab. For `unpublished_changes`, the dashboard opens a chooser so the user can duplicate either the saved live version or the published snapshot.
 - `Download` streams a saved `.rivet-project` file to the browser. It ignores unsaved editor changes and, for `unpublished_changes`, lets the user choose between the saved live file and the published snapshot. The download flow also leaves selection, open tabs, and folder expansion unchanged.
 - `Delete project` in the project context menu never deletes immediately. For unpublished projects it opens the existing Project Settings modal, where the user must click `Delete project` again. For published or `unpublished_changes` projects it shows a toast telling the user to unpublish first.

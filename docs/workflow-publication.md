@@ -91,7 +91,11 @@ That means:
 2. Server clears `publishedEndpointName`, `publishedSnapshotId`, and `publishedStateHash`.
 3. Server keeps `endpointName` in the settings sidecar as the saved draft endpoint name.
 
-In the current dashboard UI, the project-row context menu always exposes `Delete project`, but it is guarded:
+In the current dashboard UI, the project-row context menu exposes `Rename project`, `Download`, `Duplicate`, and `Delete project`.
+
+- `Rename project` opens Project Settings for that workflow and reuses the existing rename flow there
+
+`Delete project` is still guarded:
 
 - for `unpublished` projects, clicking it opens Project Settings and the user must click `Delete project` there to complete deletion
 - for `published` or `unpublished_changes` projects, the dashboard shows a toast telling the user to unpublish first

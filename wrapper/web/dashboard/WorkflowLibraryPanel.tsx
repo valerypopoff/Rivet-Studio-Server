@@ -895,6 +895,23 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     uploadingFolderPath,
   ]);
 
+  const handleRenameProjectFromContextMenu = useCallback(() => {
+    const targetProject = projectContextMenuState?.project;
+    if (!targetProject || downloadingProjectPath || duplicatingProjectPath || uploadingFolderPath) {
+      return;
+    }
+
+    closeProjectContextMenu();
+    openProjectSettingsModal(targetProject);
+  }, [
+    closeProjectContextMenu,
+    downloadingProjectPath,
+    duplicatingProjectPath,
+    openProjectSettingsModal,
+    projectContextMenuState,
+    uploadingFolderPath,
+  ]);
+
   const handleWorkflowProjectPathsMoved = (moves: WorkflowProjectPathMove[]) => {
     if (moves.length === 0) {
       return;
@@ -1074,6 +1091,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
           x={projectContextMenuState.x}
           y={projectContextMenuState.y}
           onClose={closeProjectContextMenu}
+          onRename={() => void handleRenameProjectFromContextMenu()}
           onDownload={() => void handleDownloadProject()}
           onDuplicate={() => void handleDuplicateProject()}
           canDelete={projectContextMenuState.project.settings.status === 'unpublished'}

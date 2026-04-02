@@ -102,8 +102,7 @@ export const WorkflowFolderContextMenu: FC<WorkflowFolderContextMenuProps> = ({
         role="menuitem"
         onClick={onRename}
       >
-        <EditPenIcon className="workflow-project-context-menu-item-icon" aria-hidden="true" />
-        <span>Rename</span>
+        <span>Rename folder</span>
       </button>
       <div className="workflow-project-context-menu-separator" role="separator" aria-hidden="true" />
       <button

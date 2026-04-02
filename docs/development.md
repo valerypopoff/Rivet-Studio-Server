@@ -149,6 +149,15 @@ For workflow-library project deletion behavior:
 7. confirm the UI shows `To delete a project, unpublish it first`
 8. confirm the guarded delete action does not change selection, open a different tab, or delete anything directly from the context menu
 
+For workflow-library project rename entry behavior:
+
+1. `npm run dev`
+2. validate the browser flow through `http://localhost:8080` by default, or your configured `RIVET_PORT`
+3. right-click a project in the left panel and run `Rename project`
+4. confirm the context-menu action opens Project Settings for that project instead of renaming immediately
+5. confirm the rename still completes only through the existing Project Settings flow
+6. confirm the menu action does not change the current selection or open a different project on its own
+
 For hosted editor keyboard-node behavior:
 
 1. `npm run dev`
