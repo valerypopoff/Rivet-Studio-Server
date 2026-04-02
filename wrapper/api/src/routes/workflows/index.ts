@@ -86,6 +86,11 @@ const pathOnlySchema = z.object({
   relativePath: z.unknown(),
 });
 
+const duplicateProjectSchema = z.object({
+  relativePath: z.unknown(),
+  version: z.enum(['live', 'published']).optional(),
+});
+
 const downloadProjectSchema = z.object({
   relativePath: z.unknown(),
   version: z.enum(['live', 'published']),
@@ -204,9 +209,9 @@ workflowsRouter.patch('/projects', validateBody(renameProjectSchema), asyncHandl
   res.json(await renameWorkflowProjectItem(relativePath, newName));
 }));
 
-workflowsRouter.post('/projects/duplicate', validateBody(pathOnlySchema), asyncHandler(async (req, res) => {
-  const { relativePath } = req.body as z.infer<typeof pathOnlySchema>;
-  res.status(201).json({ project: await duplicateWorkflowProjectItem(relativePath) });
+workflowsRouter.post('/projects/duplicate', validateBody(duplicateProjectSchema), asyncHandler(async (req, res) => {
+  const { relativePath, version } = req.body as z.infer<typeof duplicateProjectSchema>;
+  res.status(201).json({ project: await duplicateWorkflowProjectItem(relativePath, version ?? 'live') });
 }));
 
 workflowsRouter.post('/projects/upload', validateBody(uploadProjectSchema), asyncHandler(async (req, res) => {

@@ -7,6 +7,7 @@ import {
   loadProjectFromFile,
   serializeProject,
 } from '@ironclad/rivet-node';
+import type { WorkflowProjectDownloadVersion } from '../../../../shared/workflow-types.js';
 
 import { validatePath } from '../../security.js';
 import { conflict, createHttpError } from '../../utils/httpError.js';
@@ -30,6 +31,7 @@ import {
   ensureWorkflowEndpointNameIsUnique,
   normalizeWorkflowProjectSettingsDraft,
   readStoredWorkflowProjectSettings,
+  resolvePublishedWorkflowProjectPath,
   writePublishedWorkflowSnapshot,
   writeStoredWorkflowProjectSettings,
 } from './publication.js';
@@ -211,14 +213,48 @@ async function ensureWorkflowFolderExists(folderPath: string): Promise<void> {
   }
 }
 
-export async function duplicateWorkflowProjectItem(relativePath: unknown) {
+async function resolveDuplicateSourceProjectPath(
+  root: string,
+  projectPath: string,
+  projectName: string,
+  version: WorkflowProjectDownloadVersion,
+): Promise<string> {
+  if (version === 'live') {
+    return projectPath;
+  }
+
+  const storedSettings = await readStoredWorkflowProjectSettings(projectPath, projectName);
+  const publishedProjectPath = await resolvePublishedWorkflowProjectPath(root, projectPath, storedSettings);
+  if (!publishedProjectPath) {
+    throw conflict('Published version is not available for this project');
+  }
+
+  return publishedProjectPath;
+}
+
+export async function duplicateWorkflowProjectItem(
+  relativePath: unknown,
+  version: WorkflowProjectDownloadVersion = 'live',
+) {
   const root = await ensureWorkflowsRoot();
-  const sourceProjectPath = requireProjectPath(resolveWorkflowRelativePath(root, relativePath, {
+  const projectPath = requireProjectPath(resolveWorkflowRelativePath(root, relativePath, {
     allowProjectFile: true,
   }));
+  const projectName = path.basename(projectPath, PROJECT_EXTENSION);
 
-  if (!await pathExists(sourceProjectPath)) {
+  if (!await pathExists(projectPath)) {
     throw createHttpError(404, 'Project not found');
+  }
+
+  let sourceProjectPath = projectPath;
+  try {
+    sourceProjectPath = await resolveDuplicateSourceProjectPath(root, projectPath, projectName, version);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw createHttpError(404, 'Project not found');
+    }
+
+    throw error;
   }
 
   let project: Awaited<ReturnType<typeof loadProjectAndAttachedDataFromFile>>[0];
@@ -237,7 +273,7 @@ export async function duplicateWorkflowProjectItem(relativePath: unknown) {
   const duplicateProjectId = randomUUID() as typeof project.metadata.id;
 
   for (let duplicateIndex = 0; ; duplicateIndex += 1) {
-    const { duplicateProjectName, duplicateProjectPath } = getDuplicateWorkflowProjectPath(sourceProjectPath, duplicateIndex);
+    const { duplicateProjectName, duplicateProjectPath } = getDuplicateWorkflowProjectPath(projectPath, duplicateIndex);
     let serializedProject: string;
 
     try {

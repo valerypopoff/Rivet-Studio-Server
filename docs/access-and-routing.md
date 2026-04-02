@@ -63,10 +63,13 @@ The wrapper API currently exposes these groups behind `/api`:
 
 Current duplicate-route behavior:
 
-- `POST /api/workflows/projects/duplicate` accepts `{ "relativePath": string }`
+- `POST /api/workflows/projects/duplicate` accepts `{ "relativePath": string, "version"?: "live" | "published" }`
 - it returns `201 { "project": WorkflowProjectItem }`
 - it creates a sibling `.rivet-project` using `Name Copy`, then `Name Copy 1`, `Name Copy 2`, and so on
+- `version: "live"` duplicates the saved live workflow file
+- `version: "published"` resolves the published snapshot through the publication model and returns `409` if no published version is available
 - it writes only the new project file; dataset sidecars, wrapper settings, published snapshots, and recordings are intentionally not copied
+- the dashboard calls this route directly from the project-row context menu: `unpublished` duplicates `live`, `published` duplicates `published`, and `unpublished_changes` opens a chooser for the user to pick which saved version to duplicate
 
 Current create-project route behavior:
 

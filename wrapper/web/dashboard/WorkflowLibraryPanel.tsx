@@ -15,7 +15,7 @@ import {
   createWorkflowProject,
   deleteWorkflowFolder,
   downloadWorkflowProject,
-  duplicateWorkflowProject,
+  duplicateWorkflowProjectVersion,
   fetchWorkflowTree,
   moveWorkflowItem,
   renameWorkflowFolder,
@@ -199,9 +199,11 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   } | null>(null);
   const [uploadingFolderPath, setUploadingFolderPath] = useState<string | null>(null);
   const [downloadModalProject, setDownloadModalProject] = useState<WorkflowProjectItem | null>(null);
+  const [duplicateModalProject, setDuplicateModalProject] = useState<WorkflowProjectItem | null>(null);
   const [downloadingProjectPath, setDownloadingProjectPath] = useState<string | null>(null);
   const [downloadingVersion, setDownloadingVersion] = useState<WorkflowProjectDownloadVersion | null>(null);
   const [duplicatingProjectPath, setDuplicatingProjectPath] = useState<string | null>(null);
+  const [duplicatingVersion, setDuplicatingVersion] = useState<WorkflowProjectDownloadVersion | null>(null);
   const refreshRequestIdRef = useRef(0);
   const projectSaveRefreshTimeoutRef = useRef<number | null>(null);
 
@@ -746,25 +748,66 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     setDownloadModalProject(null);
   }, [downloadingVersion]);
 
-  const handleDuplicateProject = useCallback(async () => {
+  const closeDuplicateModal = useCallback(() => {
+    if (duplicatingVersion) {
+      return;
+    }
+
+    setDuplicateModalProject(null);
+  }, [duplicatingVersion]);
+
+  const startDuplicateProject = useCallback(async (
+    project: WorkflowProjectItem,
+    version: WorkflowProjectDownloadVersion,
+    options?: { closeModal?: boolean },
+  ) => {
+    setDuplicatingProjectPath(project.relativePath);
+    setDuplicatingVersion(version);
+
+    try {
+      await duplicateWorkflowProjectVersion(project.relativePath, version);
+      if (options?.closeModal) {
+        setDuplicateModalProject(null);
+      }
+
+      try {
+        await refresh(false);
+      } catch (refreshError: any) {
+        toast.error(refreshError?.message || 'Project duplicated, but failed to refresh the tree');
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to duplicate project');
+    } finally {
+      setDuplicatingVersion((currentVersion) => currentVersion === version ? null : currentVersion);
+      setDuplicatingProjectPath((currentPath) => currentPath === project.relativePath ? null : currentPath);
+    }
+  }, [refresh]);
+
+  const handleDuplicateProject = useCallback(() => {
     const targetProject = projectContextMenuState?.project;
     if (!targetProject || duplicatingProjectPath || uploadingFolderPath) {
       return;
     }
 
     closeProjectContextMenu();
-    setDuplicatingProjectPath(targetProject.relativePath);
 
-    try {
-      await duplicateWorkflowProject(targetProject.relativePath);
-      await refresh(false);
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to duplicate project');
-    } finally {
-      setDuplicatingProjectPath((currentPath) =>
-        currentPath === targetProject.relativePath ? null : currentPath);
+    if (targetProject.settings.status === 'unpublished_changes') {
+      setDownloadModalProject(null);
+      setDuplicateModalProject(targetProject);
+      return;
     }
-  }, [closeProjectContextMenu, duplicatingProjectPath, projectContextMenuState, refresh, uploadingFolderPath]);
+
+    void startDuplicateProject(
+      targetProject,
+      targetProject.settings.status === 'published' ? 'published' : 'live',
+    );
+  }, [
+    closeProjectContextMenu,
+    duplicatingProjectPath,
+    projectContextMenuState,
+    startDuplicateProject,
+    uploadingFolderPath,
+  ]);
 
   const startDownloadProject = useCallback(async (
     project: WorkflowProjectItem,
@@ -796,6 +839,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     closeProjectContextMenu();
 
     if (targetProject.settings.status === 'unpublished_changes') {
+      setDuplicateModalProject(null);
       setDownloadModalProject(targetProject);
       return;
     }
@@ -1039,21 +1083,43 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
       <WorkflowProjectDownloadModal
         isOpen={downloadModalProject != null}
         project={downloadModalProject}
-        downloadingVersion={downloadingProjectPath === downloadModalProject?.relativePath ? downloadingVersion : null}
+        actionLabel="Download"
+        activeVersion={downloadingProjectPath === downloadModalProject?.relativePath ? downloadingVersion : null}
         onClose={closeDownloadModal}
-        onDownloadPublished={() => {
+        onSelectPublished={() => {
           if (!downloadModalProject) {
             return;
           }
 
           void startDownloadProject(downloadModalProject, 'published', { closeModal: true });
         }}
-        onDownloadUnpublishedChanges={() => {
+        onSelectUnpublishedChanges={() => {
           if (!downloadModalProject) {
             return;
           }
 
           void startDownloadProject(downloadModalProject, 'live', { closeModal: true });
+        }}
+      />
+      <WorkflowProjectDownloadModal
+        isOpen={duplicateModalProject != null}
+        project={duplicateModalProject}
+        actionLabel="Duplicate"
+        activeVersion={duplicatingProjectPath === duplicateModalProject?.relativePath ? duplicatingVersion : null}
+        onClose={closeDuplicateModal}
+        onSelectPublished={() => {
+          if (!duplicateModalProject) {
+            return;
+          }
+
+          void startDuplicateProject(duplicateModalProject, 'published', { closeModal: true });
+        }}
+        onSelectUnpublishedChanges={() => {
+          if (!duplicateModalProject) {
+            return;
+          }
+
+          void startDuplicateProject(duplicateModalProject, 'live', { closeModal: true });
         }}
       />
     </div>

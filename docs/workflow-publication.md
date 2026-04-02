@@ -18,7 +18,7 @@ The metadata index is separate: it lives under `RIVET_APP_DATA_ROOT` as `recordi
 
 ## Stored settings model
 
-The settings sidecar stores four publication-related fields:
+The settings sidecar stores five publication-related fields:
 
 - `endpointName`
   - the editable draft endpoint name shown in the UI
@@ -28,11 +28,15 @@ The settings sidecar stores four publication-related fields:
   - the snapshot ID under `.published/`
 - `publishedStateHash`
   - SHA-256 of `endpointName + project file + dataset state` at publish time
+- `lastPublishedAt`
+  - ISO timestamp of the last successful publish operation
 
 Important current behavior:
 
 - publishing updates both `endpointName` and `publishedEndpointName`
+- publishing also updates `lastPublishedAt`
 - unpublishing clears only the `published*` fields and keeps `endpointName` as the saved draft/default
+- unpublishing keeps `lastPublishedAt`, so the UI can still show when the project was last published once it becomes published again
 - endpoint lookup is case-insensitive, but the stored/public casing is preserved
 
 ## Status model
@@ -49,6 +53,12 @@ Status is derived from the stored settings plus a fresh state hash; it is not st
 
 The dashboard does not maintain its own separate optimistic publication-status model after save. It refreshes `/api/workflows/tree` and uses the API's derived status.
 
+In Project Settings:
+
+- `Published` and `Unpublished changes` show `Last published at ...`
+- `Unpublished` does not show that line
+- older already-published projects that predate the explicit `lastPublishedAt` field fall back to the settings-sidecar file timestamp
+
 ## Publish flow
 
 1. User sets an endpoint name and clicks `Publish`.
@@ -58,7 +68,7 @@ The dashboard does not maintain its own separate optimistic publication-status m
    - unique across all workflow projects, case-insensitively
 3. Server computes a SHA-256 hash of `endpointName + project file + dataset state`.
 4. Server writes or overwrites `.published/<snapshotId>.rivet-project` and its dataset sidecar.
-5. Server writes the settings sidecar with `endpointName`, `publishedEndpointName`, `publishedSnapshotId`, and `publishedStateHash`.
+5. Server writes the settings sidecar with `endpointName`, `publishedEndpointName`, `publishedSnapshotId`, `publishedStateHash`, and `lastPublishedAt`.
 
 If the project has already been published before, the current implementation reuses the existing `publishedSnapshotId` instead of generating a new one.
 
@@ -112,9 +122,13 @@ Projects can now be duplicated from the workflow tree's project-row context menu
 Current duplication behavior:
 
 - the duplicate is created in the same folder as the source project
+- `POST /api/workflows/projects/duplicate` now accepts `{ "relativePath": string, "version"?: "live" | "published" }`
 - names are generated literally as `Name Copy`, then `Name Copy 1`, `Name Copy 2`, and so on
 - duplicating an already duplicated project stays literal, so `Name Copy` becomes `Name Copy Copy` before numbered variants are needed
-- the server loads the source project, assigns a fresh `project.metadata.id`, updates `project.metadata.title` to the generated duplicate name, and serializes a brand-new `.rivet-project` file
+- for `unpublished`, the dashboard duplicates the saved live file immediately
+- for `published`, the dashboard duplicates the published snapshot immediately
+- for `unpublished_changes`, the dashboard opens a chooser so the user can duplicate either the published snapshot or the saved live file with unpublished changes
+- the server loads the chosen saved source version, assigns a fresh `project.metadata.id`, updates `project.metadata.title` to the generated duplicate name, and serializes a brand-new `.rivet-project` file
 - the duplicate is therefore an independent workflow project, not a filesystem clone that still shares the original project ID
 - the dashboard refreshes the tree after duplication but does not auto-select, auto-open, auto-expand folders, highlight, or otherwise change the current editor session
 
@@ -357,6 +371,7 @@ When a project is renamed, moved, duplicated, uploaded, downloaded, or deleted, 
   - folder moves calculate all affected absolute project paths so the dashboard/editor bridge can retarget open tabs
 - **Duplicate**
   - creates only a new `.rivet-project` file in the same folder
+  - can duplicate either the saved live file or the published snapshot when both exist
   - gives the duplicate a fresh workflow metadata ID and updates its stored title
   - does not copy `.rivet-data`, `.wrapper-settings.json`, `.published/`, or `.recordings/`
 - **Upload**

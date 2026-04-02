@@ -396,6 +396,31 @@ test('workflow project duplication keeps published source state detached from th
   assert.equal(await workflowFs.pathExists(duplicateSidecars.dataset), false);
 });
 
+test('workflow project duplication can use the published snapshot when unpublished changes exist', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'PublishedVariant');
+
+  await workflowMutations.publishWorkflowProjectItem(created.relativePath, {
+    endpointName: 'published-variant-endpoint',
+  });
+
+  const liveContents = await fs.readFile(created.absolutePath, 'utf8');
+  await fs.writeFile(
+    created.absolutePath,
+    liveContents.replace('        description: ""', '        description: "Live only"'),
+    'utf8',
+  );
+
+  const publishedDuplicate = await workflowMutations.duplicateWorkflowProjectItem(created.relativePath, 'published');
+  const liveDuplicate = await workflowMutations.duplicateWorkflowProjectItem(created.relativePath, 'live');
+  const publishedDuplicateProject = await rivetNode.loadProjectFromFile(publishedDuplicate.absolutePath);
+  const liveDuplicateProject = await rivetNode.loadProjectFromFile(liveDuplicate.absolutePath);
+  const publishedGraph = Object.values(publishedDuplicateProject.graphs)[0];
+  const liveGraph = Object.values(liveDuplicateProject.graphs)[0];
+
+  assert.equal(publishedGraph?.metadata?.description ?? '', '');
+  assert.equal(liveGraph?.metadata?.description ?? '', 'Live only');
+});
+
 test('workflow project upload imports a project into the selected folder with a fresh id', async () => {
   await workflowMutations.createWorkflowFolderItem('Uploads', '');
   const created = await workflowMutations.createWorkflowProjectItem('', 'Imported');
@@ -658,6 +683,45 @@ test('workflow duplicate route creates a duplicate and exposes it through the tr
   });
 });
 
+test('workflow duplicate route can duplicate the published snapshot for projects with unpublished changes', async () => {
+  await withWorkflowApiServer(async (baseUrl) => {
+    const createdProject = await readJson<{ project: { relativePath: string; absolutePath: string } }>(await fetch(`${baseUrl}/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'HttpDuplicatePublished' }),
+    }));
+
+    await readJson<{ project: { settings: { status: string } } }>(await fetch(`${baseUrl}/projects/publish`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        relativePath: createdProject.project.relativePath,
+        settings: { endpointName: 'http-duplicate-published-endpoint' },
+      }),
+    }));
+
+    const liveContents = await fs.readFile(createdProject.project.absolutePath, 'utf8');
+    await fs.writeFile(
+      createdProject.project.absolutePath,
+      liveContents.replace('        description: ""', '        description: "Changed after publish"'),
+      'utf8',
+    );
+
+    const duplicated = await readJson<{ project: { absolutePath: string; relativePath: string } }>(
+      await fetch(`${baseUrl}/projects/duplicate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ relativePath: createdProject.project.relativePath, version: 'published' }),
+      }),
+    );
+    const duplicatedProject = await rivetNode.loadProjectFromFile(duplicated.project.absolutePath);
+    const duplicatedGraph = Object.values(duplicatedProject.graphs)[0];
+
+    assert.equal(duplicated.project.relativePath, 'HttpDuplicatePublished Copy.rivet-project');
+    assert.equal(duplicatedGraph?.metadata?.description ?? '', '');
+  });
+});
+
 test('workflow duplicate route returns a controlled 400 for invalid project files', async () => {
   await withWorkflowApiServer(async (baseUrl) => {
     const createdProject = await readJson<{ project: { relativePath: string; absolutePath: string } }>(await fetch(`${baseUrl}/projects`, {
@@ -678,6 +742,26 @@ test('workflow duplicate route returns a controlled 400 for invalid project file
 
     assert.equal(response.status, 400);
     assert.equal(body.error, 'Could not duplicate project: invalid project file');
+  });
+});
+
+test('workflow duplicate route rejects published duplication when no published version exists', async () => {
+  await withWorkflowApiServer(async (baseUrl) => {
+    const createdProject = await readJson<{ project: { relativePath: string } }>(await fetch(`${baseUrl}/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'NoPublishedDuplicate' }),
+    }));
+
+    const response = await fetch(`${baseUrl}/projects/duplicate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ relativePath: createdProject.project.relativePath, version: 'published' }),
+    });
+    const body = await response.json() as { error?: string };
+
+    assert.equal(response.status, 409);
+    assert.equal(body.error, 'Published version is not available for this project');
   });
 });
 
