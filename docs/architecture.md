@@ -36,6 +36,7 @@ In local direct-process mode, the services run separately without nginx.
 - `Upload project` opens a browser file picker, uploads a chosen `.rivet-project` into the target folder, refreshes the tree, and leaves selection, open tabs, and folder expansion unchanged.
 - Browser picker filtering for Rivet's custom file extensions is not fully reliable across browsers, so the dashboard validates the selected filename after picking and the API validates it again before writing anything.
 - The iframe renders the upstream Rivet app plus `EditorMessageBridge`, which coordinates open/save/delete/replay commands with the dashboard via `window.postMessage`.
+- Editor keyboard node actions such as `Ctrl+C`, `Ctrl+V`, and `Ctrl+D` remain editor-local behavior inside the iframe. The hosted wrapper now makes the node canvas itself a focus target and clears stale editor search/context-menu input focus on normal canvas interactions so those shortcuts behave like the desktop app instead of depending on whichever editor input was focused last.
 - `HostedIOProvider` replaces desktop file APIs with API-backed load/save behavior and supports virtual replay paths of the form `recording://<recordingId>/replay.rivet-project`.
 - Wrapper-specific UI lives under `wrapper/web/dashboard/`. Upstream editor UI still lives under `rivet/packages/app/`.
 

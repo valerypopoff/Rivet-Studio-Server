@@ -244,7 +244,16 @@ export const EditorMessageBridge: FC = () => {
 
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
-  }, [currentProject.metadata.id, loadedProject, openedProjectIds, openedProjects, setLoadedProject, setLoadedRecording, setProjects, setSelectedExecutor]);
+  }, [
+    currentProject.metadata.id,
+    loadedProject,
+    openedProjectIds,
+    openedProjects,
+    setLoadedProject,
+    setLoadedRecording,
+    setProjects,
+    setSelectedExecutor,
+  ]);
 
   useEffect(() => {
     const activeProjectInfo = openedProjects[currentProject.metadata.id];

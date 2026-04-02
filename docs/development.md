@@ -94,6 +94,7 @@ For wrapper/API changes:
 For wrapper/web changes:
 
 1. `npm --prefix wrapper/web run build`
+2. if the change affects editor focus, keyboard shortcuts, or iframe interaction, prefer a real browser smoke test in Docker dev instead of relying only on HMR
 
 For workflow-library mutations that change on-disk project state:
 
@@ -123,6 +124,16 @@ For workflow-library download behavior:
 6. for `unpublished_changes`, confirm the chooser appears and both saved versions download correctly
 7. make unsaved editor changes and confirm downloads still reflect only the saved server-side versions
 8. confirm the download flow does not change selection, open a different tab, or expand folders
+
+For hosted editor keyboard-node behavior:
+
+1. `npm run dev`
+2. validate through `http://localhost:8080` by default, or your configured `RIVET_PORT`
+3. open a workflow in the editor iframe
+4. click a node normally and confirm `Ctrl+C` then `Ctrl+V` duplicates it through the internal node clipboard
+5. confirm `Shift+click` multi-selection still copies multiple nodes
+6. open and close an editor context menu or search UI, then confirm `Ctrl+C` and `Ctrl+V` still work after returning to the canvas
+7. confirm the browser can still type normally inside real text inputs and that copy/paste shortcuts do not hijack active editor form fields
 
 For routing/auth/deployment changes:
 
