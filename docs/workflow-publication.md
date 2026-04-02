@@ -79,7 +79,12 @@ If the project has already been published before, the current implementation reu
 2. Server clears `publishedEndpointName`, `publishedSnapshotId`, and `publishedStateHash`.
 3. Server keeps `endpointName` in the settings sidecar as the saved draft endpoint name.
 
-In the current dashboard UI, users must unpublish a project before the Delete action appears. The API delete route itself still handles cleanup even if called directly for a published project.
+In the current dashboard UI, the project-row context menu always exposes `Delete project`, but it is guarded:
+
+- for `unpublished` projects, clicking it opens Project Settings and the user must click `Delete project` there to complete deletion
+- for `published` or `unpublished_changes` projects, the dashboard shows a toast telling the user to unpublish first
+
+The API delete route itself still handles cleanup even if called directly for a published project.
 
 ## Project creation
 

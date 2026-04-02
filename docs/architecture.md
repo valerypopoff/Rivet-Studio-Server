@@ -29,12 +29,13 @@ In local direct-process mode, the services run separately without nginx.
 
 - The top-level page is the wrapper dashboard. It renders the workflow library, project settings, runtime libraries, run recordings, and an `<iframe src="/?editor">`.
 - The workflow library tree now includes custom context menus on both project and folder entries.
-- Project rows currently expose download and duplicate actions.
+- Project rows currently expose `Download`, `Duplicate`, and a guarded `Delete project` action.
 - Folder rows currently expose `Create project` and `Upload project`.
 - Folder-level project creation now lives only in the folder context menu, not in an inline `+` button on the row.
 - `Create project` prompts for a name, creates a new blank `.rivet-project` in the target folder through the workflow API, expands that folder, refreshes the tree, and opens the new project in the editor.
 - `Duplicate` creates a sibling project file through the API and refreshes the tree without changing the current selection or editor tab.
 - `Download` streams a saved `.rivet-project` file to the browser. It ignores unsaved editor changes and, for `unpublished_changes`, lets the user choose between the saved live file and the published snapshot. The download flow also leaves selection, open tabs, and folder expansion unchanged.
+- `Delete project` in the project context menu never deletes immediately. For unpublished projects it opens the existing Project Settings modal, where the user must click `Delete project` again. For published or `unpublished_changes` projects it shows a toast telling the user to unpublish first.
 - `Upload project` opens a browser file picker, uploads a chosen `.rivet-project` into the target folder, refreshes the tree, and leaves selection, open tabs, and folder expansion unchanged.
 - Browser picker filtering for Rivet's custom file extensions is not fully reliable across browsers, so the dashboard validates the selected filename after picking and the API validates it again before writing anything.
 - The iframe renders the upstream Rivet app plus `EditorMessageBridge`, which coordinates open/save/delete/replay commands with the dashboard via `window.postMessage`.

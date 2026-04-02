@@ -886,6 +886,35 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     setSettingsModalOpen(true);
   };
 
+  const openProjectSettingsModal = useCallback((project: WorkflowProjectItem) => {
+    setSettingsModalProject(project);
+    setSettingsModalOpen(true);
+  }, []);
+
+  const handleDeleteProjectFromContextMenu = useCallback(() => {
+    const targetProject = projectContextMenuState?.project;
+    if (!targetProject || downloadingProjectPath || duplicatingProjectPath || uploadingFolderPath) {
+      return;
+    }
+
+    if (targetProject.settings.status !== 'unpublished') {
+      toast.error('To delete a project, unpublish it first', {
+        transition: instantWarningToastTransition,
+      });
+      return;
+    }
+
+    closeProjectContextMenu();
+    openProjectSettingsModal(targetProject);
+  }, [
+    closeProjectContextMenu,
+    downloadingProjectPath,
+    duplicatingProjectPath,
+    openProjectSettingsModal,
+    projectContextMenuState,
+    uploadingFolderPath,
+  ]);
+
   const handleWorkflowProjectPathsMoved = (moves: WorkflowProjectPathMove[]) => {
     if (moves.length === 0) {
       return;
@@ -1067,6 +1096,8 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
           onClose={closeProjectContextMenu}
           onDownload={() => void handleDownloadProject()}
           onDuplicate={() => void handleDuplicateProject()}
+          canDelete={projectContextMenuState.project.settings.status === 'unpublished'}
+          onDelete={() => void handleDeleteProjectFromContextMenu()}
         />
       ) : null}
       <WorkflowProjectDownloadModal

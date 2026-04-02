@@ -135,6 +135,17 @@ For workflow-library download behavior:
 7. make unsaved editor changes and confirm downloads still reflect only the saved server-side versions
 8. confirm the download flow does not change selection, open a different tab, or expand folders
 
+For workflow-library project deletion behavior:
+
+1. `npm run dev`
+2. validate the browser flow through `http://localhost:8080` by default, or your configured `RIVET_PORT`
+3. right-click an `unpublished` project in the left panel and run `Delete project`
+4. confirm the context-menu action only opens Project Settings and does not delete immediately
+5. confirm the project is deleted only after clicking `Delete project` again inside Project Settings
+6. right-click a `published` or `unpublished_changes` project and run `Delete project`
+7. confirm the UI shows `To delete a project, unpublish it first`
+8. confirm the guarded delete action does not change selection, open a different tab, or delete anything directly from the context menu
+
 For hosted editor keyboard-node behavior:
 
 1. `npm run dev`
