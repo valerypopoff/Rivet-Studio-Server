@@ -68,6 +68,15 @@ Current duplicate-route behavior:
 - it creates a sibling `.rivet-project` using `Name Copy`, then `Name Copy 1`, `Name Copy 2`, and so on
 - it writes only the new project file; dataset sidecars, wrapper settings, published snapshots, and recordings are intentionally not copied
 
+Current create-project route behavior:
+
+- `POST /api/workflows/projects` accepts `{ "folderRelativePath"?: string, "name": string }`
+- it returns `201 { "project": WorkflowProjectItem }`
+- it creates a new blank `.rivet-project` file in the target folder and uses the provided name for both the filename base and initial project title
+- the dashboard currently calls this route from the folder-row context menu's `Create project` action
+- folder-level project creation currently exists only in that custom folder context menu, not in an inline row button
+- if the target folder already contains that exact project name, the route returns `409`
+
 Current upload-route behavior:
 
 - `POST /api/workflows/projects/upload` accepts `{ "folderRelativePath": string, "fileName": string, "contents": string }`

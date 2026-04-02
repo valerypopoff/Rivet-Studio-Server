@@ -103,6 +103,16 @@ For workflow-library mutations that change on-disk project state:
 3. right-click a project in the left panel and run `Duplicate`
 4. confirm the new project appears in the same folder with a `Copy` name and that the current selection/editor tab did not change
 
+For workflow-library project creation behavior:
+
+1. `npm run dev`
+2. validate the browser flow through `http://localhost:8080` by default, or your configured `RIVET_PORT`
+3. right-click a folder in the left panel and run `Create project`
+4. enter a new project name when prompted
+5. confirm the folder expands and the new project opens in the editor
+6. confirm there is no inline `+` create-project button on folder rows anymore
+7. try an existing name in the same folder and confirm the UI shows the API conflict instead of silently overwriting the file
+
 For workflow-library upload behavior:
 
 1. `npm run dev`

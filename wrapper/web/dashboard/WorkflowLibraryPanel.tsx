@@ -1,7 +1,7 @@
 import Button from '@atlaskit/button';
 import { useCallback, useEffect, useMemo, useRef, useState, type FC } from 'react';
 import CollapseLeftIcon from '../icons/arrow-collapse-left.svg?react';
-import { toast } from 'react-toastify';
+import { cssTransition, toast } from 'react-toastify';
 import { ActiveProjectSection } from './ActiveProjectSection';
 import { WorkflowFolderContextMenu } from './WorkflowFolderContextMenu';
 import { WorkflowFolderTree } from './WorkflowFolderTree';
@@ -39,6 +39,57 @@ import {
 import './WorkflowLibraryPanel.css';
 
 const PROJECT_SAVE_REFRESH_DELAY_MS = 400;
+const instantWarningToastTransition = cssTransition({
+  enter: 'workflow-toast-instant-enter',
+  exit: 'workflow-toast-instant-exit',
+  collapse: false,
+});
+
+const isFolderEmpty = (folder: WorkflowFolderItem): boolean =>
+  folder.folders.length === 0 && folder.projects.length === 0;
+
+const normalizePromptValue = (value: string | null): string | null => {
+  if (value == null) {
+    return null;
+  }
+
+  const normalizedValue = value.trim();
+  return normalizedValue || null;
+};
+
+const remapExpandedFolderIds = (
+  expandedFolders: Record<string, boolean>,
+  fromRelativePath: string,
+  toRelativePath: string,
+): Record<string, boolean> => {
+  const normalizedFromPath = normalizeWorkflowPath(fromRelativePath);
+  const normalizedToPath = normalizeWorkflowPath(toRelativePath);
+
+  if (normalizedFromPath === normalizedToPath) {
+    return expandedFolders;
+  }
+
+  let changed = false;
+  const nextExpandedFolders: Record<string, boolean> = {};
+
+  for (const [folderId, isExpanded] of Object.entries(expandedFolders)) {
+    const normalizedFolderId = normalizeWorkflowPath(folderId);
+
+    if (
+      normalizedFolderId === normalizedFromPath ||
+      normalizedFolderId.startsWith(`${normalizedFromPath}/`)
+    ) {
+      const suffix = normalizedFolderId.slice(normalizedFromPath.length);
+      nextExpandedFolders[`${normalizedToPath}${suffix}`] = isExpanded;
+      changed = true;
+      continue;
+    }
+
+    nextExpandedFolders[folderId] = isExpanded;
+  }
+
+  return changed ? nextExpandedFolders : expandedFolders;
+};
 
 const markSavedPublishedProjectAsChanged = (
   project: WorkflowProjectItem,
@@ -233,13 +284,26 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
       setFolders(tree.folders);
       setRootProjects(tree.projects);
       setExpandedFolders((prev) => {
-        const next = { ...prev };
-        for (const folderId of collectFolderIds(tree.folders)) {
-          if (next[folderId] == null) {
-            next[folderId] = false;
+        const validFolderIds = new Set(collectFolderIds(tree.folders));
+        const next: Record<string, boolean> = {};
+        let changed = false;
+
+        for (const [folderId, isExpanded] of Object.entries(prev)) {
+          if (validFolderIds.has(folderId)) {
+            next[folderId] = isExpanded;
+          } else {
+            changed = true;
           }
         }
-        return next;
+
+        for (const folderId of validFolderIds) {
+          if (next[folderId] == null) {
+            next[folderId] = false;
+            changed = true;
+          }
+        }
+
+        return changed ? next : prev;
       });
     } catch (err: any) {
       if (requestId !== refreshRequestIdRef.current) {
@@ -425,22 +489,12 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     setExpandedFolders((prev) => ({ ...prev, [folderId]: !(prev[folderId] ?? false) }));
   };
 
-  const handleFolderRowClick = (folder: WorkflowFolderItem) => (event: React.MouseEvent<HTMLElement>) => {
-    const target = event.target as HTMLElement | null;
-    if (target?.closest('.folder-actions')) {
-      return;
-    }
-
+  const handleFolderRowClick = (folder: WorkflowFolderItem) => (_event: React.MouseEvent<HTMLElement>) => {
     toggleFolderExpanded(folder.id);
   };
 
   const handleFolderRowKeyDown =
     (folder: WorkflowFolderItem) => (event: React.KeyboardEvent<HTMLDivElement>) => {
-      const target = event.target as HTMLElement | null;
-      if (target?.closest('.folder-actions')) {
-        return;
-      }
-
       if (event.key !== 'Enter' && event.key !== ' ') {
         return;
       }
@@ -463,7 +517,17 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
 
       if (result.folder) {
         const movedFolder = result.folder;
-        setExpandedFolders((prev) => ({ ...prev, [movedFolder.id]: true }));
+        if (draggedItem.itemType === 'folder') {
+          setExpandedFolders((prev) => {
+            const next = remapExpandedFolderIds(prev, draggedItem.relativePath, movedFolder.relativePath);
+            return {
+              ...next,
+              [movedFolder.id]: true,
+            };
+          });
+        } else {
+          setExpandedFolders((prev) => ({ ...prev, [movedFolder.id]: true }));
+        }
       }
 
       if (result.movedProjectPaths.length > 0) {
@@ -523,7 +587,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   };
 
   const handleCreateFolder = async () => {
-    const name = prompt('New folder name:');
+    const name = normalizePromptValue(prompt('New folder name:'));
     if (!name) {
       return;
     }
@@ -538,13 +602,17 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   };
 
   const handleRenameFolder = async (folder: WorkflowFolderItem) => {
-    const newName = prompt('Rename folder:', folder.name);
+    const newName = normalizePromptValue(prompt('Rename folder:', folder.name));
     if (!newName || newName === folder.name) {
       return;
     }
 
     try {
-      await renameWorkflowFolder(folder.relativePath, newName);
+      const result = await renameWorkflowFolder(folder.relativePath, newName);
+      setExpandedFolders((prev) => remapExpandedFolderIds(prev, folder.relativePath, result.folder.relativePath));
+      if (result.movedProjectPaths.length > 0) {
+        onWorkflowPathsMoved(result.movedProjectPaths);
+      }
       await refresh();
     } catch (err: any) {
       toast.error(err.message || 'Failed to rename folder');
@@ -552,7 +620,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   };
 
   const handleAddProject = async (folder: WorkflowFolderItem) => {
-    const name = prompt(`New Rivet project name in folder "${folder.name}":`);
+    const name = normalizePromptValue(prompt(`New Rivet project name in folder "${folder.name}":`));
     if (!name) {
       return;
     }
@@ -593,11 +661,6 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     folder: WorkflowFolderItem,
     event: React.MouseEvent<HTMLDivElement>,
   ) => {
-    const target = event.target as HTMLElement | null;
-    if (target?.closest('.folder-actions')) {
-      return;
-    }
-
     if (duplicatingProjectPath || downloadingProjectPath || uploadingFolderPath) {
       event.preventDefault();
       event.stopPropagation();
@@ -678,6 +741,64 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     duplicatingProjectPath,
     folderContextMenuState,
     refresh,
+    uploadingFolderPath,
+  ]);
+
+  const handleCreateProjectFromFolder = useCallback(async () => {
+    const targetFolder = folderContextMenuState?.folder;
+    if (!targetFolder || duplicatingProjectPath || downloadingProjectPath || uploadingFolderPath) {
+      return;
+    }
+
+    closeFolderContextMenu();
+    await handleAddProject(targetFolder);
+  }, [
+    closeFolderContextMenu,
+    downloadingProjectPath,
+    duplicatingProjectPath,
+    folderContextMenuState,
+    handleAddProject,
+    uploadingFolderPath,
+  ]);
+
+  const handleRenameFolderFromContextMenu = useCallback(async () => {
+    const targetFolder = folderContextMenuState?.folder;
+    if (!targetFolder || duplicatingProjectPath || downloadingProjectPath || uploadingFolderPath) {
+      return;
+    }
+
+    closeFolderContextMenu();
+    await handleRenameFolder(targetFolder);
+  }, [
+    closeFolderContextMenu,
+    downloadingProjectPath,
+    duplicatingProjectPath,
+    folderContextMenuState,
+    handleRenameFolder,
+    uploadingFolderPath,
+  ]);
+
+  const handleDeleteFolderFromContextMenu = useCallback(async () => {
+    const targetFolder = folderContextMenuState?.folder;
+    if (!targetFolder || duplicatingProjectPath || downloadingProjectPath || uploadingFolderPath) {
+      return;
+    }
+
+    if (!isFolderEmpty(targetFolder)) {
+      toast.error('You can only delete empty folders', {
+        transition: instantWarningToastTransition,
+      });
+      return;
+    }
+
+    closeFolderContextMenu();
+    await handleDeleteFolder(targetFolder);
+  }, [
+    closeFolderContextMenu,
+    downloadingProjectPath,
+    duplicatingProjectPath,
+    folderContextMenuState,
+    handleDeleteFolder,
     uploadingFolderPath,
   ]);
 
@@ -822,15 +943,6 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
             setDropTargetFolderPath(null);
           }
         }}
-        onFolderRename={(folder) => {
-          void handleRenameFolder(folder);
-        }}
-        onFolderAddProject={(folder) => {
-          void handleAddProject(folder);
-        }}
-        onFolderDelete={(folder) => {
-          void handleDeleteFolder(folder);
-        }}
         getParentRelativePath={getParentRelativePath}
       />
     );
@@ -938,7 +1050,11 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
           x={folderContextMenuState.x}
           y={folderContextMenuState.y}
           onClose={closeFolderContextMenu}
+          canDelete={isFolderEmpty(folderContextMenuState.folder)}
+          onRename={() => void handleRenameFolderFromContextMenu()}
+          onCreateProject={() => void handleCreateProjectFromFolder()}
           onUploadProject={() => void handleUploadProjectFromFolder()}
+          onDelete={() => void handleDeleteFolderFromContextMenu()}
         />
       ) : null}
       {projectContextMenuState ? (

@@ -258,9 +258,31 @@ test('workflow folder rename handles case-only renames', async () => {
 
   const renamedFolder = await workflowMutations.renameWorkflowFolderItem(createdFolder.relativePath, 'folder');
 
-  assert.equal(renamedFolder.name, 'folder');
-  assert.equal(renamedFolder.relativePath, 'folder');
+  assert.equal(renamedFolder.folder.name, 'folder');
+  assert.equal(renamedFolder.folder.relativePath, 'folder');
+  assert.deepEqual(renamedFolder.movedProjectPaths, []);
   assert.equal(await workflowFs.pathExists(path.join(workflowsRoot, 'folder')), true);
+});
+
+test('workflow folder rename reports moved project paths for nested projects', async () => {
+  const createdFolder = await workflowMutations.createWorkflowFolderItem('Folder', '');
+  const nestedFolder = await workflowMutations.createWorkflowFolderItem('Nested', createdFolder.relativePath);
+  const rootProject = await workflowMutations.createWorkflowProjectItem(createdFolder.relativePath, 'Root Project');
+  const nestedProject = await workflowMutations.createWorkflowProjectItem(nestedFolder.relativePath, 'Nested Project');
+
+  const renamedFolder = await workflowMutations.renameWorkflowFolderItem(createdFolder.relativePath, 'Renamed Folder');
+
+  assert.equal(renamedFolder.folder.relativePath, 'Renamed Folder');
+  assert.deepEqual(renamedFolder.movedProjectPaths, [
+    {
+      fromAbsolutePath: rootProject.absolutePath,
+      toAbsolutePath: path.join(workflowsRoot, 'Renamed Folder', 'Root Project.rivet-project'),
+    },
+    {
+      fromAbsolutePath: nestedProject.absolutePath,
+      toAbsolutePath: path.join(workflowsRoot, 'Renamed Folder', 'Nested', 'Nested Project.rivet-project'),
+    },
+  ]);
 });
 
 test('workflow project stats count serialized graph nodes', async () => {
@@ -569,6 +591,42 @@ test('workflow routes support folder/project create, move, rename, and delete fl
       body: JSON.stringify({ relativePath: createdFolder.folder.relativePath }),
     }));
     assert.equal(deleteFolderResponse.deleted, true);
+  });
+});
+
+test('workflow folder rename route reports moved project paths over HTTP', async () => {
+  await withWorkflowApiServer(async (baseUrl) => {
+    const createdFolder = await readJson<{ folder: { relativePath: string } }>(await fetch(`${baseUrl}/folders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Folder' }),
+    }));
+
+    const createdProject = await readJson<{ project: { absolutePath: string } }>(await fetch(`${baseUrl}/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folderRelativePath: createdFolder.folder.relativePath, name: 'Example' }),
+    }));
+
+    const renamedFolder = await readJson<{
+      folder: { relativePath: string };
+      movedProjectPaths: Array<{ fromAbsolutePath: string; toAbsolutePath: string }>;
+    }>(await fetch(`${baseUrl}/folders`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        relativePath: createdFolder.folder.relativePath,
+        newName: 'Renamed Folder',
+      }),
+    }));
+
+    assert.equal(renamedFolder.folder.relativePath, 'Renamed Folder');
+    assert.deepEqual(renamedFolder.movedProjectPaths, [
+      {
+        fromAbsolutePath: createdProject.project.absolutePath,
+        toAbsolutePath: path.join(workflowsRoot, 'Renamed Folder', 'Example.rivet-project'),
+      },
+    ]);
   });
 });
 

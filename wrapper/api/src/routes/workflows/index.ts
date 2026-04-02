@@ -184,8 +184,7 @@ workflowsRouter.post('/folders', validateBody(createFolderSchema), asyncHandler(
 
 workflowsRouter.patch('/folders', validateBody(renameFolderSchema), asyncHandler(async (req, res) => {
   const { relativePath, newName } = req.body as z.infer<typeof renameFolderSchema>;
-  const folder = await renameWorkflowFolderItem(relativePath, newName);
-  res.json({ folder });
+  res.json(await renameWorkflowFolderItem(relativePath, newName));
 }));
 
 workflowsRouter.delete('/folders', validateBody(deleteFolderSchema), asyncHandler(async (req, res) => {

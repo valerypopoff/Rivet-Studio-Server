@@ -14,6 +14,7 @@ import {
   createBlankProjectFile,
   deleteProjectWithSidecars,
   ensureWorkflowsRoot,
+  listProjectPathsRecursive,
   moveProjectWithSidecars,
   pathExists,
   pathsDifferOnlyByCase,
@@ -34,6 +35,19 @@ import {
 } from './publication.js';
 import { deleteWorkflowRecordingsBySourceProjectPath, deleteWorkflowRecordingsByWorkflowId } from './recordings.js';
 import { getWorkflowFolder, getWorkflowProject } from './workflow-query.js';
+import type { WorkflowProjectPathMove } from './types.js';
+
+async function getFolderProjectPathMoves(
+  sourceFolderPath: string,
+  targetFolderPath: string,
+): Promise<WorkflowProjectPathMove[]> {
+  const projectPaths = await listProjectPathsRecursive(sourceFolderPath);
+
+  return projectPaths.map((projectPath) => ({
+    fromAbsolutePath: projectPath,
+    toAbsolutePath: validatePath(path.join(targetFolderPath, path.relative(sourceFolderPath, projectPath))),
+  }));
+}
 
 export async function createWorkflowFolderItem(name: unknown, parentRelativePath: unknown) {
   const folderName = sanitizeWorkflowName(name, 'folder name');
@@ -60,13 +74,21 @@ export async function renameWorkflowFolderItem(relativePath: unknown, newName: u
   const sanitizedName = sanitizeWorkflowName(newName, 'new folder name');
   const renamedFolderPath = validatePath(path.join(path.dirname(currentFolderPath), sanitizedName));
   const isCaseOnlyRename = pathsDifferOnlyByCase(currentFolderPath, renamedFolderPath);
+  const movedProjectPaths =
+    renamedFolderPath === currentFolderPath
+      ? []
+      : await getFolderProjectPathMoves(currentFolderPath, renamedFolderPath);
 
   if (renamedFolderPath !== currentFolderPath && !isCaseOnlyRename && await pathExists(renamedFolderPath)) {
     throw conflict(`Folder already exists: ${sanitizedName}`);
   }
 
   await renamePathHandlingCaseChange(currentFolderPath, renamedFolderPath);
-  return getWorkflowFolder(root, renamedFolderPath);
+
+  return {
+    folder: await getWorkflowFolder(root, renamedFolderPath),
+    movedProjectPaths,
+  };
 }
 
 export async function deleteWorkflowFolderItem(relativePath: unknown) {

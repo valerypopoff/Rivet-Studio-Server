@@ -1,5 +1,4 @@
 import { type FC } from 'react';
-import Button from '@atlaskit/button';
 import ChevronDownIcon from 'majesticons/line/chevron-down-line.svg?react';
 import ChevronRightIcon from 'majesticons/line/chevron-right-line.svg?react';
 import type { WorkflowFolderItem, WorkflowProjectItem } from './types';
@@ -27,9 +26,6 @@ type WorkflowFolderTreeProps = {
   onFolderDragOver: (folder: WorkflowFolderItem) => (event: React.DragEvent<HTMLElement>) => void;
   onFolderDrop: (folder: WorkflowFolderItem) => (event: React.DragEvent<HTMLElement>) => void;
   onFolderDragLeave: (folder: WorkflowFolderItem) => void;
-  onFolderRename: (folder: WorkflowFolderItem) => void;
-  onFolderAddProject: (folder: WorkflowFolderItem) => void;
-  onFolderDelete: (folder: WorkflowFolderItem) => void;
   getParentRelativePath: (relativePath: string) => string;
 };
 
@@ -53,9 +49,6 @@ export const WorkflowFolderTree: FC<WorkflowFolderTreeProps> = ({
   onFolderDragOver,
   onFolderDrop,
   onFolderDragLeave,
-  onFolderRename,
-  onFolderAddProject,
-  onFolderDelete,
   getParentRelativePath,
 }) => {
   const renderProjectRow = (project: WorkflowProjectItem) => (
@@ -106,37 +99,14 @@ export const WorkflowFolderTree: FC<WorkflowFolderTreeProps> = ({
             {expanded ? <ChevronDownIcon /> : <ChevronRightIcon />}
           </span>
           <div className="folder-content">
-            <button
-              type="button"
-              className="folder-name-button"
-              onDoubleClick={(event) => {
-                event.stopPropagation();
-                onFolderRename(folder);
-              }}
-              title={folder.name}
-            >
+            <div className="folder-name-button" title={folder.name}>
               <div className="folder-main">
                 <div className="label">{folder.name}</div>
                 <div className="folder-project-count" aria-label={`${projectCount} project${projectCount === 1 ? '' : 's'} in ${folder.name}`}>
                   {projectCount}
                 </div>
               </div>
-            </button>
-          </div>
-          <div className="folder-actions">
-            <Button
-              appearance="subtle"
-              spacing="compact"
-              className="icon-button"
-              onClick={(event) => {
-                event.stopPropagation();
-                onFolderAddProject(folder);
-              }}
-              title={`Create project in ${folder.name}`}
-              aria-label={`Create project in ${folder.name}`}
-            >
-              +
-            </Button>
+            </div>
           </div>
         </div>
 
@@ -146,9 +116,6 @@ export const WorkflowFolderTree: FC<WorkflowFolderTreeProps> = ({
             {(folder.folders ?? []).length === 0 && folder.projects.length === 0 ? (
               <div className="state folder-empty-state">
                 <span>No Rivet projects in this folder.</span>
-                <button type="button" className="state-action" onClick={() => onFolderDelete(folder)}>
-                  Delete
-                </button>
               </div>
             ) : null}
             {folder.projects.map((project) => renderProjectRow(project))}

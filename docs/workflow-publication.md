@@ -81,6 +81,21 @@ If the project has already been published before, the current implementation reu
 
 In the current dashboard UI, users must unpublish a project before the Delete action appears. The API delete route itself still handles cleanup even if called directly for a published project.
 
+## Project creation
+
+Projects can now also be created inside workflow folders from the folder-row context menu or through:
+
+- `POST /api/workflows/projects`
+
+Current creation behavior:
+
+- folder-level project creation currently exists only in the folder-row context menu's `Create project` action
+- the dashboard prompts for a new project name and posts that name plus the target folder path to the API
+- the server writes a new blank `.rivet-project` file in the selected folder and returns it as a normal unpublished workflow project
+- after successful creation, the dashboard expands the folder, refreshes the tree, and opens the new project in the editor
+- unlike upload/duplicate/download, creation is intentionally disruptive to the current editor session because opening the new project is part of the UX
+- if the folder already contains that exact project name, the API returns `409` instead of auto-numbering or overwriting
+
 ## Project duplication
 
 Projects can now be duplicated from the workflow tree's project-row context menu or through:
