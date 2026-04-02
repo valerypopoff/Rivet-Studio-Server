@@ -101,7 +101,20 @@ For workflow-library mutations that change on-disk project state:
 1. `npm run dev`
 2. validate the browser flow through `http://localhost:8080` by default, or your configured `RIVET_PORT`
 3. right-click a project in the left panel and run `Duplicate`
-4. confirm the new project appears in the same folder with a `Copy` name and that the current selection/editor tab did not change
+4. for `unpublished`, confirm the new project appears in the same folder with a `Copy` name and that the current selection/editor tab did not change
+5. for `published`, confirm duplication uses the published snapshot
+6. for `unpublished_changes`, confirm the chooser appears and both saved versions duplicate correctly
+7. confirm duplication still leaves the current selection/editor tab unchanged
+
+For workflow-library project creation behavior:
+
+1. `npm run dev`
+2. validate the browser flow through `http://localhost:8080` by default, or your configured `RIVET_PORT`
+3. right-click a folder in the left panel and run `Create project`
+4. enter a new project name when prompted
+5. confirm the folder expands and the new project opens in the editor
+6. confirm there is no inline `+` create-project button on folder rows anymore
+7. try an existing name in the same folder and confirm the UI shows the API conflict instead of silently overwriting the file
 
 For workflow-library upload behavior:
 
@@ -125,6 +138,17 @@ For workflow-library download behavior:
 7. make unsaved editor changes and confirm downloads still reflect only the saved server-side versions
 8. confirm the download flow does not change selection, open a different tab, or expand folders
 
+For workflow-library project deletion behavior:
+
+1. `npm run dev`
+2. validate the browser flow through `http://localhost:8080` by default, or your configured `RIVET_PORT`
+3. right-click an `unpublished` project in the left panel and run `Delete project`
+4. confirm the context-menu action only opens Project Settings and does not delete immediately
+5. confirm the project is deleted only after clicking `Delete project` again inside Project Settings
+6. right-click a `published` or `unpublished_changes` project and run `Delete project`
+7. confirm the UI shows `To delete a project, unpublish it first`
+8. confirm the guarded delete action does not change selection, open a different tab, or delete anything directly from the context menu
+
 For hosted editor keyboard-node behavior:
 
 1. `npm run dev`
@@ -133,7 +157,17 @@ For hosted editor keyboard-node behavior:
 4. click a node normally and confirm `Ctrl+C` then `Ctrl+V` duplicates it through the internal node clipboard
 5. confirm `Shift+click` multi-selection still copies multiple nodes
 6. open and close an editor context menu or search UI, then confirm `Ctrl+C` and `Ctrl+V` still work after returning to the canvas
-7. confirm the browser can still type normally inside real text inputs and that copy/paste shortcuts do not hijack active editor form fields
+7. confirm `Ctrl+S` works while focus is inside the workflow iframe, including on Windows browsers
+8. confirm the browser can still type normally inside real text inputs and that copy/paste/save shortcuts do not hijack active editor form fields
+9. confirm focusing the workflow canvas does not leave a visible white perimeter around the iframe/editor surface
+
+For published-project save status behavior:
+
+1. `npm run dev`
+2. validate through `http://localhost:8080` by default, or your configured `RIVET_PORT`
+3. publish a workflow project
+4. save it with no actual changes and confirm the sidebar stays `Published` without a brief `Unpublished changes` flicker
+5. then make a real saved change, save again, and confirm the sidebar updates to `Unpublished changes`
 
 For routing/auth/deployment changes:
 

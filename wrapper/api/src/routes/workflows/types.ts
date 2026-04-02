@@ -15,6 +15,7 @@ export type StoredWorkflowProjectSettings = {
   publishedEndpointName: string;
   publishedSnapshotId: string | null;
   publishedStateHash: string | null;
+  lastPublishedAt: string | null;
   legacyStatus?: SharedWorkflowProjectStatus;
 };
 

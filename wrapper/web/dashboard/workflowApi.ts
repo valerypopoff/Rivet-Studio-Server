@@ -183,15 +183,19 @@ export async function createWorkflowFolder(name: string): Promise<WorkflowFolder
   return data.folder;
 }
 
-export async function renameWorkflowFolder(relativePath: string, newName: string): Promise<WorkflowFolderItem> {
+export async function renameWorkflowFolder(
+  relativePath: string,
+  newName: string,
+): Promise<{ folder: WorkflowFolderItem; movedProjectPaths: WorkflowMoveResponse['movedProjectPaths'] }> {
   const response = await fetch(`${API}/workflows/folders`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ relativePath, newName }),
   });
 
-  const data = await parseJsonResponse<{ folder: WorkflowFolderItem }>(response);
-  return data.folder;
+  return parseJsonResponse<{ folder: WorkflowFolderItem; movedProjectPaths: WorkflowMoveResponse['movedProjectPaths'] }>(
+    response,
+  );
 }
 
 export async function deleteWorkflowFolder(relativePath: string): Promise<void> {
@@ -246,11 +250,14 @@ export async function renameWorkflowProject(
   return parseJsonResponse<{ project: WorkflowProjectItem; movedProjectPaths: WorkflowMoveResponse['movedProjectPaths'] }>(response);
 }
 
-export async function duplicateWorkflowProject(relativePath: string): Promise<WorkflowProjectItem> {
+export async function duplicateWorkflowProjectVersion(
+  relativePath: string,
+  version: WorkflowProjectDownloadVersion,
+): Promise<WorkflowProjectItem> {
   const response = await fetch(`${API}/workflows/projects/duplicate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ relativePath }),
+    body: JSON.stringify({ relativePath, version }),
   });
 
   const data = await parseJsonResponse<{ project: WorkflowProjectItem }>(response);

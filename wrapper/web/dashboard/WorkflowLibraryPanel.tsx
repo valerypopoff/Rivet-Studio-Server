@@ -1,7 +1,7 @@
 import Button from '@atlaskit/button';
 import { useCallback, useEffect, useMemo, useRef, useState, type FC } from 'react';
 import CollapseLeftIcon from '../icons/arrow-collapse-left.svg?react';
-import { toast } from 'react-toastify';
+import { cssTransition, toast } from 'react-toastify';
 import { ActiveProjectSection } from './ActiveProjectSection';
 import { WorkflowFolderContextMenu } from './WorkflowFolderContextMenu';
 import { WorkflowFolderTree } from './WorkflowFolderTree';
@@ -15,7 +15,7 @@ import {
   createWorkflowProject,
   deleteWorkflowFolder,
   downloadWorkflowProject,
-  duplicateWorkflowProject,
+  duplicateWorkflowProjectVersion,
   fetchWorkflowTree,
   moveWorkflowItem,
   renameWorkflowFolder,
@@ -38,66 +38,57 @@ import {
 } from './workflowLibraryHelpers';
 import './WorkflowLibraryPanel.css';
 
-const PROJECT_SAVE_REFRESH_DELAY_MS = 400;
+const PROJECT_SAVE_REFRESH_DELAY_MS = 150;
+const instantWarningToastTransition = cssTransition({
+  enter: 'workflow-toast-instant-enter',
+  exit: 'workflow-toast-instant-exit',
+  collapse: false,
+});
 
-const markSavedPublishedProjectAsChanged = (
-  project: WorkflowProjectItem,
-  savedProjectPath: string,
-): WorkflowProjectItem => {
-  if (
-    normalizeWorkflowPath(project.absolutePath) !== normalizeWorkflowPath(savedProjectPath) ||
-    project.settings.status !== 'published'
-  ) {
-    return project;
+const isFolderEmpty = (folder: WorkflowFolderItem): boolean =>
+  folder.folders.length === 0 && folder.projects.length === 0;
+
+const normalizePromptValue = (value: string | null): string | null => {
+  if (value == null) {
+    return null;
   }
 
-  return {
-    ...project,
-    settings: {
-      ...project.settings,
-      status: 'unpublished_changes',
-    },
-  };
+  const normalizedValue = value.trim();
+  return normalizedValue || null;
 };
 
-const updateSavedProjectStatus = (
-  projects: WorkflowProjectItem[],
-  savedProjectPath: string,
-): WorkflowProjectItem[] => {
+const remapExpandedFolderIds = (
+  expandedFolders: Record<string, boolean>,
+  fromRelativePath: string,
+  toRelativePath: string,
+): Record<string, boolean> => {
+  const normalizedFromPath = normalizeWorkflowPath(fromRelativePath);
+  const normalizedToPath = normalizeWorkflowPath(toRelativePath);
+
+  if (normalizedFromPath === normalizedToPath) {
+    return expandedFolders;
+  }
+
   let changed = false;
-  const nextProjects = projects.map((project) => {
-    const nextProject = markSavedPublishedProjectAsChanged(project, savedProjectPath);
-    if (nextProject !== project) {
+  const nextExpandedFolders: Record<string, boolean> = {};
+
+  for (const [folderId, isExpanded] of Object.entries(expandedFolders)) {
+    const normalizedFolderId = normalizeWorkflowPath(folderId);
+
+    if (
+      normalizedFolderId === normalizedFromPath ||
+      normalizedFolderId.startsWith(`${normalizedFromPath}/`)
+    ) {
+      const suffix = normalizedFolderId.slice(normalizedFromPath.length);
+      nextExpandedFolders[`${normalizedToPath}${suffix}`] = isExpanded;
       changed = true;
-    }
-    return nextProject;
-  });
-
-  return changed ? nextProjects : projects;
-};
-
-const updateSavedProjectStatusInFolders = (
-  folders: WorkflowFolderItem[],
-  savedProjectPath: string,
-): WorkflowFolderItem[] => {
-  let changed = false;
-  const nextFolders = folders.map((folder) => {
-    const nextChildFolders = updateSavedProjectStatusInFolders(folder.folders, savedProjectPath);
-    const nextProjects = updateSavedProjectStatus(folder.projects, savedProjectPath);
-
-    if (nextChildFolders !== folder.folders || nextProjects !== folder.projects) {
-      changed = true;
-      return {
-        ...folder,
-        folders: nextChildFolders,
-        projects: nextProjects,
-      };
+      continue;
     }
 
-    return folder;
-  });
+    nextExpandedFolders[folderId] = isExpanded;
+  }
 
-  return changed ? nextFolders : folders;
+  return changed ? nextExpandedFolders : expandedFolders;
 };
 
 async function pickWorkflowProjectFile(): Promise<File | null> {
@@ -167,7 +158,6 @@ interface WorkflowLibraryPanelProps {
   openedProjectPath: string;
   editorReady: boolean;
   projectSaveSequence: number;
-  lastSavedProjectPath: string;
   onCollapse?: () => void;
 }
 
@@ -181,7 +171,6 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   openedProjectPath,
   editorReady,
   projectSaveSequence,
-  lastSavedProjectPath,
   onCollapse,
 }) => {
   const [folders, setFolders] = useState<WorkflowFolderItem[]>([]);
@@ -210,9 +199,11 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   } | null>(null);
   const [uploadingFolderPath, setUploadingFolderPath] = useState<string | null>(null);
   const [downloadModalProject, setDownloadModalProject] = useState<WorkflowProjectItem | null>(null);
+  const [duplicateModalProject, setDuplicateModalProject] = useState<WorkflowProjectItem | null>(null);
   const [downloadingProjectPath, setDownloadingProjectPath] = useState<string | null>(null);
   const [downloadingVersion, setDownloadingVersion] = useState<WorkflowProjectDownloadVersion | null>(null);
   const [duplicatingProjectPath, setDuplicatingProjectPath] = useState<string | null>(null);
+  const [duplicatingVersion, setDuplicatingVersion] = useState<WorkflowProjectDownloadVersion | null>(null);
   const refreshRequestIdRef = useRef(0);
   const projectSaveRefreshTimeoutRef = useRef<number | null>(null);
 
@@ -233,13 +224,26 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
       setFolders(tree.folders);
       setRootProjects(tree.projects);
       setExpandedFolders((prev) => {
-        const next = { ...prev };
-        for (const folderId of collectFolderIds(tree.folders)) {
-          if (next[folderId] == null) {
-            next[folderId] = false;
+        const validFolderIds = new Set(collectFolderIds(tree.folders));
+        const next: Record<string, boolean> = {};
+        let changed = false;
+
+        for (const [folderId, isExpanded] of Object.entries(prev)) {
+          if (validFolderIds.has(folderId)) {
+            next[folderId] = isExpanded;
+          } else {
+            changed = true;
           }
         }
-        return next;
+
+        for (const folderId of validFolderIds) {
+          if (next[folderId] == null) {
+            next[folderId] = false;
+            changed = true;
+          }
+        }
+
+        return changed ? next : prev;
       });
     } catch (err: any) {
       if (requestId !== refreshRequestIdRef.current) {
@@ -332,14 +336,12 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   }, [onActiveWorkflowProjectPathChange, openedWorkflowProjectPath]);
 
   useEffect(() => {
-    if (projectSaveSequence === 0 || !lastSavedProjectPath) {
+    if (projectSaveSequence === 0) {
       return;
     }
 
-    setRootProjects((prev) => updateSavedProjectStatus(prev, lastSavedProjectPath));
-    setFolders((prev) => updateSavedProjectStatusInFolders(prev, lastSavedProjectPath));
     scheduleProjectSaveRefresh();
-  }, [lastSavedProjectPath, projectSaveSequence, scheduleProjectSaveRefresh]);
+  }, [projectSaveSequence, scheduleProjectSaveRefresh]);
 
   const activeAncestorFolderIds = useMemo(() => {
     if (!activePath) {
@@ -425,22 +427,12 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     setExpandedFolders((prev) => ({ ...prev, [folderId]: !(prev[folderId] ?? false) }));
   };
 
-  const handleFolderRowClick = (folder: WorkflowFolderItem) => (event: React.MouseEvent<HTMLElement>) => {
-    const target = event.target as HTMLElement | null;
-    if (target?.closest('.folder-actions')) {
-      return;
-    }
-
+  const handleFolderRowClick = (folder: WorkflowFolderItem) => (_event: React.MouseEvent<HTMLElement>) => {
     toggleFolderExpanded(folder.id);
   };
 
   const handleFolderRowKeyDown =
     (folder: WorkflowFolderItem) => (event: React.KeyboardEvent<HTMLDivElement>) => {
-      const target = event.target as HTMLElement | null;
-      if (target?.closest('.folder-actions')) {
-        return;
-      }
-
       if (event.key !== 'Enter' && event.key !== ' ') {
         return;
       }
@@ -463,7 +455,17 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
 
       if (result.folder) {
         const movedFolder = result.folder;
-        setExpandedFolders((prev) => ({ ...prev, [movedFolder.id]: true }));
+        if (draggedItem.itemType === 'folder') {
+          setExpandedFolders((prev) => {
+            const next = remapExpandedFolderIds(prev, draggedItem.relativePath, movedFolder.relativePath);
+            return {
+              ...next,
+              [movedFolder.id]: true,
+            };
+          });
+        } else {
+          setExpandedFolders((prev) => ({ ...prev, [movedFolder.id]: true }));
+        }
       }
 
       if (result.movedProjectPaths.length > 0) {
@@ -523,7 +525,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   };
 
   const handleCreateFolder = async () => {
-    const name = prompt('New folder name:');
+    const name = normalizePromptValue(prompt('New folder name:'));
     if (!name) {
       return;
     }
@@ -538,13 +540,17 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   };
 
   const handleRenameFolder = async (folder: WorkflowFolderItem) => {
-    const newName = prompt('Rename folder:', folder.name);
+    const newName = normalizePromptValue(prompt('Rename folder:', folder.name));
     if (!newName || newName === folder.name) {
       return;
     }
 
     try {
-      await renameWorkflowFolder(folder.relativePath, newName);
+      const result = await renameWorkflowFolder(folder.relativePath, newName);
+      setExpandedFolders((prev) => remapExpandedFolderIds(prev, folder.relativePath, result.folder.relativePath));
+      if (result.movedProjectPaths.length > 0) {
+        onWorkflowPathsMoved(result.movedProjectPaths);
+      }
       await refresh();
     } catch (err: any) {
       toast.error(err.message || 'Failed to rename folder');
@@ -552,7 +558,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   };
 
   const handleAddProject = async (folder: WorkflowFolderItem) => {
-    const name = prompt(`New Rivet project name in folder "${folder.name}":`);
+    const name = normalizePromptValue(prompt(`New Rivet project name in folder "${folder.name}":`));
     if (!name) {
       return;
     }
@@ -593,11 +599,6 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     folder: WorkflowFolderItem,
     event: React.MouseEvent<HTMLDivElement>,
   ) => {
-    const target = event.target as HTMLElement | null;
-    if (target?.closest('.folder-actions')) {
-      return;
-    }
-
     if (duplicatingProjectPath || downloadingProjectPath || uploadingFolderPath) {
       event.preventDefault();
       event.stopPropagation();
@@ -681,6 +682,64 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     uploadingFolderPath,
   ]);
 
+  const handleCreateProjectFromFolder = useCallback(async () => {
+    const targetFolder = folderContextMenuState?.folder;
+    if (!targetFolder || duplicatingProjectPath || downloadingProjectPath || uploadingFolderPath) {
+      return;
+    }
+
+    closeFolderContextMenu();
+    await handleAddProject(targetFolder);
+  }, [
+    closeFolderContextMenu,
+    downloadingProjectPath,
+    duplicatingProjectPath,
+    folderContextMenuState,
+    handleAddProject,
+    uploadingFolderPath,
+  ]);
+
+  const handleRenameFolderFromContextMenu = useCallback(async () => {
+    const targetFolder = folderContextMenuState?.folder;
+    if (!targetFolder || duplicatingProjectPath || downloadingProjectPath || uploadingFolderPath) {
+      return;
+    }
+
+    closeFolderContextMenu();
+    await handleRenameFolder(targetFolder);
+  }, [
+    closeFolderContextMenu,
+    downloadingProjectPath,
+    duplicatingProjectPath,
+    folderContextMenuState,
+    handleRenameFolder,
+    uploadingFolderPath,
+  ]);
+
+  const handleDeleteFolderFromContextMenu = useCallback(async () => {
+    const targetFolder = folderContextMenuState?.folder;
+    if (!targetFolder || duplicatingProjectPath || downloadingProjectPath || uploadingFolderPath) {
+      return;
+    }
+
+    if (!isFolderEmpty(targetFolder)) {
+      toast.error('You can only delete empty folders', {
+        transition: instantWarningToastTransition,
+      });
+      return;
+    }
+
+    closeFolderContextMenu();
+    await handleDeleteFolder(targetFolder);
+  }, [
+    closeFolderContextMenu,
+    downloadingProjectPath,
+    duplicatingProjectPath,
+    folderContextMenuState,
+    handleDeleteFolder,
+    uploadingFolderPath,
+  ]);
+
   const closeDownloadModal = useCallback(() => {
     if (downloadingVersion) {
       return;
@@ -689,25 +748,66 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     setDownloadModalProject(null);
   }, [downloadingVersion]);
 
-  const handleDuplicateProject = useCallback(async () => {
+  const closeDuplicateModal = useCallback(() => {
+    if (duplicatingVersion) {
+      return;
+    }
+
+    setDuplicateModalProject(null);
+  }, [duplicatingVersion]);
+
+  const startDuplicateProject = useCallback(async (
+    project: WorkflowProjectItem,
+    version: WorkflowProjectDownloadVersion,
+    options?: { closeModal?: boolean },
+  ) => {
+    setDuplicatingProjectPath(project.relativePath);
+    setDuplicatingVersion(version);
+
+    try {
+      await duplicateWorkflowProjectVersion(project.relativePath, version);
+      if (options?.closeModal) {
+        setDuplicateModalProject(null);
+      }
+
+      try {
+        await refresh(false);
+      } catch (refreshError: any) {
+        toast.error(refreshError?.message || 'Project duplicated, but failed to refresh the tree');
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to duplicate project');
+    } finally {
+      setDuplicatingVersion((currentVersion) => currentVersion === version ? null : currentVersion);
+      setDuplicatingProjectPath((currentPath) => currentPath === project.relativePath ? null : currentPath);
+    }
+  }, [refresh]);
+
+  const handleDuplicateProject = useCallback(() => {
     const targetProject = projectContextMenuState?.project;
     if (!targetProject || duplicatingProjectPath || uploadingFolderPath) {
       return;
     }
 
     closeProjectContextMenu();
-    setDuplicatingProjectPath(targetProject.relativePath);
 
-    try {
-      await duplicateWorkflowProject(targetProject.relativePath);
-      await refresh(false);
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to duplicate project');
-    } finally {
-      setDuplicatingProjectPath((currentPath) =>
-        currentPath === targetProject.relativePath ? null : currentPath);
+    if (targetProject.settings.status === 'unpublished_changes') {
+      setDownloadModalProject(null);
+      setDuplicateModalProject(targetProject);
+      return;
     }
-  }, [closeProjectContextMenu, duplicatingProjectPath, projectContextMenuState, refresh, uploadingFolderPath]);
+
+    void startDuplicateProject(
+      targetProject,
+      targetProject.settings.status === 'published' ? 'published' : 'live',
+    );
+  }, [
+    closeProjectContextMenu,
+    duplicatingProjectPath,
+    projectContextMenuState,
+    startDuplicateProject,
+    uploadingFolderPath,
+  ]);
 
   const startDownloadProject = useCallback(async (
     project: WorkflowProjectItem,
@@ -739,6 +839,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     closeProjectContextMenu();
 
     if (targetProject.settings.status === 'unpublished_changes') {
+      setDuplicateModalProject(null);
       setDownloadModalProject(targetProject);
       return;
     }
@@ -764,6 +865,35 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     setSettingsModalProject(activeProject);
     setSettingsModalOpen(true);
   };
+
+  const openProjectSettingsModal = useCallback((project: WorkflowProjectItem) => {
+    setSettingsModalProject(project);
+    setSettingsModalOpen(true);
+  }, []);
+
+  const handleDeleteProjectFromContextMenu = useCallback(() => {
+    const targetProject = projectContextMenuState?.project;
+    if (!targetProject || downloadingProjectPath || duplicatingProjectPath || uploadingFolderPath) {
+      return;
+    }
+
+    if (targetProject.settings.status !== 'unpublished') {
+      toast.error('To delete a project, unpublish it first', {
+        transition: instantWarningToastTransition,
+      });
+      return;
+    }
+
+    closeProjectContextMenu();
+    openProjectSettingsModal(targetProject);
+  }, [
+    closeProjectContextMenu,
+    downloadingProjectPath,
+    duplicatingProjectPath,
+    openProjectSettingsModal,
+    projectContextMenuState,
+    uploadingFolderPath,
+  ]);
 
   const handleWorkflowProjectPathsMoved = (moves: WorkflowProjectPathMove[]) => {
     if (moves.length === 0) {
@@ -821,15 +951,6 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
           if (dropTargetFolderPath === folder.relativePath) {
             setDropTargetFolderPath(null);
           }
-        }}
-        onFolderRename={(folder) => {
-          void handleRenameFolder(folder);
-        }}
-        onFolderAddProject={(folder) => {
-          void handleAddProject(folder);
-        }}
-        onFolderDelete={(folder) => {
-          void handleDeleteFolder(folder);
         }}
         getParentRelativePath={getParentRelativePath}
       />
@@ -938,7 +1059,11 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
           x={folderContextMenuState.x}
           y={folderContextMenuState.y}
           onClose={closeFolderContextMenu}
+          canDelete={isFolderEmpty(folderContextMenuState.folder)}
+          onRename={() => void handleRenameFolderFromContextMenu()}
+          onCreateProject={() => void handleCreateProjectFromFolder()}
           onUploadProject={() => void handleUploadProjectFromFolder()}
+          onDelete={() => void handleDeleteFolderFromContextMenu()}
         />
       ) : null}
       {projectContextMenuState ? (
@@ -951,26 +1076,50 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
           onClose={closeProjectContextMenu}
           onDownload={() => void handleDownloadProject()}
           onDuplicate={() => void handleDuplicateProject()}
+          canDelete={projectContextMenuState.project.settings.status === 'unpublished'}
+          onDelete={() => void handleDeleteProjectFromContextMenu()}
         />
       ) : null}
       <WorkflowProjectDownloadModal
         isOpen={downloadModalProject != null}
         project={downloadModalProject}
-        downloadingVersion={downloadingProjectPath === downloadModalProject?.relativePath ? downloadingVersion : null}
+        actionLabel="Download"
+        activeVersion={downloadingProjectPath === downloadModalProject?.relativePath ? downloadingVersion : null}
         onClose={closeDownloadModal}
-        onDownloadPublished={() => {
+        onSelectPublished={() => {
           if (!downloadModalProject) {
             return;
           }
 
           void startDownloadProject(downloadModalProject, 'published', { closeModal: true });
         }}
-        onDownloadUnpublishedChanges={() => {
+        onSelectUnpublishedChanges={() => {
           if (!downloadModalProject) {
             return;
           }
 
           void startDownloadProject(downloadModalProject, 'live', { closeModal: true });
+        }}
+      />
+      <WorkflowProjectDownloadModal
+        isOpen={duplicateModalProject != null}
+        project={duplicateModalProject}
+        actionLabel="Duplicate"
+        activeVersion={duplicatingProjectPath === duplicateModalProject?.relativePath ? duplicatingVersion : null}
+        onClose={closeDuplicateModal}
+        onSelectPublished={() => {
+          if (!duplicateModalProject) {
+            return;
+          }
+
+          void startDuplicateProject(duplicateModalProject, 'published', { closeModal: true });
+        }}
+        onSelectUnpublishedChanges={() => {
+          if (!duplicateModalProject) {
+            return;
+          }
+
+          void startDuplicateProject(duplicateModalProject, 'live', { closeModal: true });
         }}
       />
     </div>

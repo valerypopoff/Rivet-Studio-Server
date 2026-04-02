@@ -8,6 +8,7 @@ import {
   type VirtualElement,
 } from '@floating-ui/react';
 import ArrowDownIcon from 'majesticons/line/arrow-down-line.svg?react';
+import DeleteBinIcon from 'majesticons/line/delete-bin-line.svg?react';
 import { useLayoutEffect, type FC } from 'react';
 import type { WorkflowProjectItem } from './types';
 
@@ -19,6 +20,8 @@ type WorkflowProjectContextMenuProps = {
   onClose: () => void;
   onDownload: () => void;
   onDuplicate: () => void;
+  canDelete: boolean;
+  onDelete: () => void;
 };
 
 function createVirtualContextTarget(x: number, y: number): VirtualElement {
@@ -46,6 +49,8 @@ export const WorkflowProjectContextMenu: FC<WorkflowProjectContextMenuProps> = (
   onClose,
   onDownload,
   onDuplicate,
+  canDelete,
+  onDelete,
 }) => {
   const { context, refs, floatingStyles, update } = useFloating({
     open: isOpen,
@@ -103,6 +108,17 @@ export const WorkflowProjectContextMenu: FC<WorkflowProjectContextMenuProps> = (
         onClick={onDuplicate}
       >
         <span>Duplicate</span>
+      </button>
+      <div className="workflow-project-context-menu-separator" role="separator" aria-hidden="true" />
+      <button
+        type="button"
+        className={`workflow-project-context-menu-item workflow-project-context-menu-item-danger${!canDelete ? ' workflow-project-context-menu-item-disabled' : ''}`}
+        role="menuitem"
+        aria-disabled={!canDelete}
+        onClick={onDelete}
+      >
+        <DeleteBinIcon className="workflow-project-context-menu-item-icon" aria-hidden="true" />
+        <span>Delete project</span>
       </button>
     </div>
   );

@@ -21,7 +21,6 @@ import {
 import { getWorkflowRecordingVirtualProjectPath } from '../../shared/workflow-recording-types';
 import { fetchWorkflowRecordingArtifactText } from './workflowApi';
 
-const isWindowsPlatform = typeof navigator !== 'undefined' && /Win/.test(navigator.platform ?? '');
 const isSaveShortcutEvent = (event: KeyboardEvent) =>
   (event.ctrlKey || event.metaKey) &&
   !event.altKey &&
@@ -94,10 +93,7 @@ export const EditorMessageBridge: FC = () => {
 
       event.preventDefault();
       event.stopPropagation();
-
-      if (!isWindowsPlatform) {
-        await saveCurrentProject();
-      }
+      await saveCurrentProject();
     };
 
     window.addEventListener('keydown', handler, true);

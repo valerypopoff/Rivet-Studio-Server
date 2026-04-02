@@ -258,9 +258,31 @@ test('workflow folder rename handles case-only renames', async () => {
 
   const renamedFolder = await workflowMutations.renameWorkflowFolderItem(createdFolder.relativePath, 'folder');
 
-  assert.equal(renamedFolder.name, 'folder');
-  assert.equal(renamedFolder.relativePath, 'folder');
+  assert.equal(renamedFolder.folder.name, 'folder');
+  assert.equal(renamedFolder.folder.relativePath, 'folder');
+  assert.deepEqual(renamedFolder.movedProjectPaths, []);
   assert.equal(await workflowFs.pathExists(path.join(workflowsRoot, 'folder')), true);
+});
+
+test('workflow folder rename reports moved project paths for nested projects', async () => {
+  const createdFolder = await workflowMutations.createWorkflowFolderItem('Folder', '');
+  const nestedFolder = await workflowMutations.createWorkflowFolderItem('Nested', createdFolder.relativePath);
+  const rootProject = await workflowMutations.createWorkflowProjectItem(createdFolder.relativePath, 'Root Project');
+  const nestedProject = await workflowMutations.createWorkflowProjectItem(nestedFolder.relativePath, 'Nested Project');
+
+  const renamedFolder = await workflowMutations.renameWorkflowFolderItem(createdFolder.relativePath, 'Renamed Folder');
+
+  assert.equal(renamedFolder.folder.relativePath, 'Renamed Folder');
+  assert.deepEqual(renamedFolder.movedProjectPaths, [
+    {
+      fromAbsolutePath: rootProject.absolutePath,
+      toAbsolutePath: path.join(workflowsRoot, 'Renamed Folder', 'Root Project.rivet-project'),
+    },
+    {
+      fromAbsolutePath: nestedProject.absolutePath,
+      toAbsolutePath: path.join(workflowsRoot, 'Renamed Folder', 'Nested', 'Nested Project.rivet-project'),
+    },
+  ]);
 });
 
 test('workflow project stats count serialized graph nodes', async () => {
@@ -372,6 +394,31 @@ test('workflow project duplication keeps published source state detached from th
   assert.equal(duplicate.settings.endpointName, '');
   assert.equal(await workflowFs.pathExists(duplicateSidecars.settings), false);
   assert.equal(await workflowFs.pathExists(duplicateSidecars.dataset), false);
+});
+
+test('workflow project duplication can use the published snapshot when unpublished changes exist', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'PublishedVariant');
+
+  await workflowMutations.publishWorkflowProjectItem(created.relativePath, {
+    endpointName: 'published-variant-endpoint',
+  });
+
+  const liveContents = await fs.readFile(created.absolutePath, 'utf8');
+  await fs.writeFile(
+    created.absolutePath,
+    liveContents.replace('        description: ""', '        description: "Live only"'),
+    'utf8',
+  );
+
+  const publishedDuplicate = await workflowMutations.duplicateWorkflowProjectItem(created.relativePath, 'published');
+  const liveDuplicate = await workflowMutations.duplicateWorkflowProjectItem(created.relativePath, 'live');
+  const publishedDuplicateProject = await rivetNode.loadProjectFromFile(publishedDuplicate.absolutePath);
+  const liveDuplicateProject = await rivetNode.loadProjectFromFile(liveDuplicate.absolutePath);
+  const publishedGraph = Object.values(publishedDuplicateProject.graphs)[0];
+  const liveGraph = Object.values(liveDuplicateProject.graphs)[0];
+
+  assert.equal(publishedGraph?.metadata?.description ?? '', '');
+  assert.equal(liveGraph?.metadata?.description ?? '', 'Live only');
 });
 
 test('workflow project upload imports a project into the selected folder with a fresh id', async () => {
@@ -572,6 +619,42 @@ test('workflow routes support folder/project create, move, rename, and delete fl
   });
 });
 
+test('workflow folder rename route reports moved project paths over HTTP', async () => {
+  await withWorkflowApiServer(async (baseUrl) => {
+    const createdFolder = await readJson<{ folder: { relativePath: string } }>(await fetch(`${baseUrl}/folders`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Folder' }),
+    }));
+
+    const createdProject = await readJson<{ project: { absolutePath: string } }>(await fetch(`${baseUrl}/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ folderRelativePath: createdFolder.folder.relativePath, name: 'Example' }),
+    }));
+
+    const renamedFolder = await readJson<{
+      folder: { relativePath: string };
+      movedProjectPaths: Array<{ fromAbsolutePath: string; toAbsolutePath: string }>;
+    }>(await fetch(`${baseUrl}/folders`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        relativePath: createdFolder.folder.relativePath,
+        newName: 'Renamed Folder',
+      }),
+    }));
+
+    assert.equal(renamedFolder.folder.relativePath, 'Renamed Folder');
+    assert.deepEqual(renamedFolder.movedProjectPaths, [
+      {
+        fromAbsolutePath: createdProject.project.absolutePath,
+        toAbsolutePath: path.join(workflowsRoot, 'Renamed Folder', 'Example.rivet-project'),
+      },
+    ]);
+  });
+});
+
 test('workflow duplicate route creates a duplicate and exposes it through the tree', async () => {
   await withWorkflowApiServer(async (baseUrl) => {
     const createdProject = await readJson<{ project: { relativePath: string } }>(await fetch(`${baseUrl}/projects`, {
@@ -600,6 +683,45 @@ test('workflow duplicate route creates a duplicate and exposes it through the tr
   });
 });
 
+test('workflow duplicate route can duplicate the published snapshot for projects with unpublished changes', async () => {
+  await withWorkflowApiServer(async (baseUrl) => {
+    const createdProject = await readJson<{ project: { relativePath: string; absolutePath: string } }>(await fetch(`${baseUrl}/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'HttpDuplicatePublished' }),
+    }));
+
+    await readJson<{ project: { settings: { status: string } } }>(await fetch(`${baseUrl}/projects/publish`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        relativePath: createdProject.project.relativePath,
+        settings: { endpointName: 'http-duplicate-published-endpoint' },
+      }),
+    }));
+
+    const liveContents = await fs.readFile(createdProject.project.absolutePath, 'utf8');
+    await fs.writeFile(
+      createdProject.project.absolutePath,
+      liveContents.replace('        description: ""', '        description: "Changed after publish"'),
+      'utf8',
+    );
+
+    const duplicated = await readJson<{ project: { absolutePath: string; relativePath: string } }>(
+      await fetch(`${baseUrl}/projects/duplicate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ relativePath: createdProject.project.relativePath, version: 'published' }),
+      }),
+    );
+    const duplicatedProject = await rivetNode.loadProjectFromFile(duplicated.project.absolutePath);
+    const duplicatedGraph = Object.values(duplicatedProject.graphs)[0];
+
+    assert.equal(duplicated.project.relativePath, 'HttpDuplicatePublished Copy.rivet-project');
+    assert.equal(duplicatedGraph?.metadata?.description ?? '', '');
+  });
+});
+
 test('workflow duplicate route returns a controlled 400 for invalid project files', async () => {
   await withWorkflowApiServer(async (baseUrl) => {
     const createdProject = await readJson<{ project: { relativePath: string; absolutePath: string } }>(await fetch(`${baseUrl}/projects`, {
@@ -620,6 +742,26 @@ test('workflow duplicate route returns a controlled 400 for invalid project file
 
     assert.equal(response.status, 400);
     assert.equal(body.error, 'Could not duplicate project: invalid project file');
+  });
+});
+
+test('workflow duplicate route rejects published duplication when no published version exists', async () => {
+  await withWorkflowApiServer(async (baseUrl) => {
+    const createdProject = await readJson<{ project: { relativePath: string } }>(await fetch(`${baseUrl}/projects`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'NoPublishedDuplicate' }),
+    }));
+
+    const response = await fetch(`${baseUrl}/projects/duplicate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ relativePath: createdProject.project.relativePath, version: 'published' }),
+    });
+    const body = await response.json() as { error?: string };
+
+    assert.equal(response.status, 409);
+    assert.equal(body.error, 'Published version is not available for this project');
   });
 });
 
@@ -822,11 +964,13 @@ test('publish and unpublish keep workflow project behavior stable', async () => 
 
   assert.equal(published.settings.status, 'published');
   assert.equal(published.settings.endpointName, 'demo-endpoint');
+  assert.match(published.settings.lastPublishedAt ?? '', /^\d{4}-\d{2}-\d{2}T/);
   assert.equal(await workflowFs.pathExists(path.join(workflowsRoot, '.published')), true);
 
   const unpublished = await workflowMutations.unpublishWorkflowProjectItem(created.relativePath);
   assert.equal(unpublished.settings.status, 'unpublished');
   assert.equal(unpublished.settings.endpointName, 'demo-endpoint');
+  assert.equal(unpublished.settings.lastPublishedAt, published.settings.lastPublishedAt);
 });
 
 test('workflow publish and unpublish routes preserve publication state over HTTP', async () => {
@@ -837,7 +981,7 @@ test('workflow publish and unpublish routes preserve publication state over HTTP
       body: JSON.stringify({ name: 'Published' }),
     }));
 
-    const published = await readJson<{ project: { settings: { status: string; endpointName: string } } }>(
+    const published = await readJson<{ project: { settings: { status: string; endpointName: string; lastPublishedAt: string | null } } }>(
       await fetch(`${baseUrl}/projects/publish`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -850,8 +994,9 @@ test('workflow publish and unpublish routes preserve publication state over HTTP
 
     assert.equal(published.project.settings.status, 'published');
     assert.equal(published.project.settings.endpointName, 'http-endpoint');
+    assert.match(published.project.settings.lastPublishedAt ?? '', /^\d{4}-\d{2}-\d{2}T/);
 
-    const unpublished = await readJson<{ project: { settings: { status: string; endpointName: string } } }>(
+    const unpublished = await readJson<{ project: { settings: { status: string; endpointName: string; lastPublishedAt: string | null } } }>(
       await fetch(`${baseUrl}/projects/unpublish`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -861,6 +1006,7 @@ test('workflow publish and unpublish routes preserve publication state over HTTP
 
     assert.equal(unpublished.project.settings.status, 'unpublished');
     assert.equal(unpublished.project.settings.endpointName, 'http-endpoint');
+    assert.equal(unpublished.project.settings.lastPublishedAt, published.project.settings.lastPublishedAt);
   });
 });
 
@@ -903,6 +1049,7 @@ test('published and latest workflow resolution split after unpublished changes',
   assert.equal(latestMatch.projectPath, created.absolutePath);
   assert.notEqual(publishedMatch.publishedProjectPath, created.absolutePath);
   assert.equal(currentSettings.status, 'unpublished_changes');
+  assert.match(currentSettings.lastPublishedAt ?? '', /^\d{4}-\d{2}-\d{2}T/);
 
   const publishedContents = await fs.readFile(publishedMatch.publishedProjectPath, 'utf8');
   const latestContents = await fs.readFile(latestMatch.projectPath, 'utf8');
@@ -916,6 +1063,24 @@ test('published and latest workflow resolution split after unpublished changes',
 
   assert.notEqual(publishedContents, latestContents);
   assert.equal(publishedDatasetContents, '{"before":true}');
+});
+
+test('legacy published settings without lastPublishedAt still expose a fallback timestamp', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'LegacyPublished');
+  const published = await workflowMutations.publishWorkflowProjectItem(created.relativePath, {
+    endpointName: 'legacy-published-endpoint',
+  });
+  const sidecars = workflowFs.getProjectSidecarPaths(created.absolutePath);
+  const storedSettings = JSON.parse(await fs.readFile(sidecars.settings, 'utf8')) as Record<string, unknown>;
+
+  delete storedSettings.lastPublishedAt;
+  await fs.writeFile(sidecars.settings, `${JSON.stringify(storedSettings, null, 2)}\n`, 'utf8');
+
+  const fallbackSettings = await workflowPublication.getWorkflowProjectSettings(created.absolutePath, created.name);
+
+  assert.equal(fallbackSettings.status, published.settings.status);
+  assert.equal(fallbackSettings.endpointName, published.settings.endpointName);
+  assert.match(fallbackSettings.lastPublishedAt ?? '', /^\d{4}-\d{2}-\d{2}T/);
 });
 
 test('published workflow keeps referenced projects resolvable after the referenced project is moved', async () => {

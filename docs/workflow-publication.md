@@ -18,7 +18,7 @@ The metadata index is separate: it lives under `RIVET_APP_DATA_ROOT` as `recordi
 
 ## Stored settings model
 
-The settings sidecar stores four publication-related fields:
+The settings sidecar stores five publication-related fields:
 
 - `endpointName`
   - the editable draft endpoint name shown in the UI
@@ -28,11 +28,15 @@ The settings sidecar stores four publication-related fields:
   - the snapshot ID under `.published/`
 - `publishedStateHash`
   - SHA-256 of `endpointName + project file + dataset state` at publish time
+- `lastPublishedAt`
+  - ISO timestamp of the last successful publish operation
 
 Important current behavior:
 
 - publishing updates both `endpointName` and `publishedEndpointName`
+- publishing also updates `lastPublishedAt`
 - unpublishing clears only the `published*` fields and keeps `endpointName` as the saved draft/default
+- unpublishing keeps `lastPublishedAt`, so the UI can still show when the project was last published once it becomes published again
 - endpoint lookup is case-insensitive, but the stored/public casing is preserved
 
 ## Status model
@@ -47,10 +51,13 @@ Each project has a derived status:
 
 Status is derived from the stored settings plus a fresh state hash; it is not stored as the source of truth.
 
-The dashboard still does a small optimistic UI update after save:
+The dashboard does not maintain its own separate optimistic publication-status model after save. It refreshes `/api/workflows/tree` and uses the API's derived status.
 
-- when a published project is saved, the sidebar immediately flips it to `unpublished_changes`
-- the dashboard then refreshes `/api/workflows/tree` and reconciles against server-derived state
+In Project Settings:
+
+- `Published` and `Unpublished changes` show `Last published at ...`
+- `Unpublished` does not show that line
+- older already-published projects that predate the explicit `lastPublishedAt` field fall back to the settings-sidecar file timestamp
 
 ## Publish flow
 
@@ -61,7 +68,7 @@ The dashboard still does a small optimistic UI update after save:
    - unique across all workflow projects, case-insensitively
 3. Server computes a SHA-256 hash of `endpointName + project file + dataset state`.
 4. Server writes or overwrites `.published/<snapshotId>.rivet-project` and its dataset sidecar.
-5. Server writes the settings sidecar with `endpointName`, `publishedEndpointName`, `publishedSnapshotId`, and `publishedStateHash`.
+5. Server writes the settings sidecar with `endpointName`, `publishedEndpointName`, `publishedSnapshotId`, `publishedStateHash`, and `lastPublishedAt`.
 
 If the project has already been published before, the current implementation reuses the existing `publishedSnapshotId` instead of generating a new one.
 
@@ -70,8 +77,13 @@ If the project has already been published before, the current implementation reu
 1. User saves the project in the editor.
 2. The editor writes the updated project file and dataset sidecar.
 3. The editor emits `project-saved`.
-4. The dashboard optimistically marks the project as `unpublished_changes`.
-5. The dashboard refreshes `/api/workflows/tree` and reconciles against the API's derived status.
+4. The dashboard refreshes `/api/workflows/tree`.
+5. The sidebar updates from the API's derived status.
+
+That means:
+
+- saving a published project with real saved changes transitions to `unpublished_changes` once the refresh returns
+- saving a published project with no actual saved changes stays `published` and does not briefly flicker to `unpublished_changes`
 
 ## Unpublish flow
 
@@ -79,7 +91,27 @@ If the project has already been published before, the current implementation reu
 2. Server clears `publishedEndpointName`, `publishedSnapshotId`, and `publishedStateHash`.
 3. Server keeps `endpointName` in the settings sidecar as the saved draft endpoint name.
 
-In the current dashboard UI, users must unpublish a project before the Delete action appears. The API delete route itself still handles cleanup even if called directly for a published project.
+In the current dashboard UI, the project-row context menu always exposes `Delete project`, but it is guarded:
+
+- for `unpublished` projects, clicking it opens Project Settings and the user must click `Delete project` there to complete deletion
+- for `published` or `unpublished_changes` projects, the dashboard shows a toast telling the user to unpublish first
+
+The API delete route itself still handles cleanup even if called directly for a published project.
+
+## Project creation
+
+Projects can now also be created inside workflow folders from the folder-row context menu or through:
+
+- `POST /api/workflows/projects`
+
+Current creation behavior:
+
+- folder-level project creation currently exists only in the folder-row context menu's `Create project` action
+- the dashboard prompts for a new project name and posts that name plus the target folder path to the API
+- the server writes a new blank `.rivet-project` file in the selected folder and returns it as a normal unpublished workflow project
+- after successful creation, the dashboard expands the folder, refreshes the tree, and opens the new project in the editor
+- unlike upload/duplicate/download, creation is intentionally disruptive to the current editor session because opening the new project is part of the UX
+- if the folder already contains that exact project name, the API returns `409` instead of auto-numbering or overwriting
 
 ## Project duplication
 
@@ -90,9 +122,13 @@ Projects can now be duplicated from the workflow tree's project-row context menu
 Current duplication behavior:
 
 - the duplicate is created in the same folder as the source project
+- `POST /api/workflows/projects/duplicate` now accepts `{ "relativePath": string, "version"?: "live" | "published" }`
 - names are generated literally as `Name Copy`, then `Name Copy 1`, `Name Copy 2`, and so on
 - duplicating an already duplicated project stays literal, so `Name Copy` becomes `Name Copy Copy` before numbered variants are needed
-- the server loads the source project, assigns a fresh `project.metadata.id`, updates `project.metadata.title` to the generated duplicate name, and serializes a brand-new `.rivet-project` file
+- for `unpublished`, the dashboard duplicates the saved live file immediately
+- for `published`, the dashboard duplicates the published snapshot immediately
+- for `unpublished_changes`, the dashboard opens a chooser so the user can duplicate either the published snapshot or the saved live file with unpublished changes
+- the server loads the chosen saved source version, assigns a fresh `project.metadata.id`, updates `project.metadata.title` to the generated duplicate name, and serializes a brand-new `.rivet-project` file
 - the duplicate is therefore an independent workflow project, not a filesystem clone that still shares the original project ID
 - the dashboard refreshes the tree after duplication but does not auto-select, auto-open, auto-expand folders, highlight, or otherwise change the current editor session
 
@@ -335,6 +371,7 @@ When a project is renamed, moved, duplicated, uploaded, downloaded, or deleted, 
   - folder moves calculate all affected absolute project paths so the dashboard/editor bridge can retarget open tabs
 - **Duplicate**
   - creates only a new `.rivet-project` file in the same folder
+  - can duplicate either the saved live file or the published snapshot when both exist
   - gives the duplicate a fresh workflow metadata ID and updates its stored title
   - does not copy `.rivet-data`, `.wrapper-settings.json`, `.published/`, or `.recordings/`
 - **Upload**

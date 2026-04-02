@@ -7,6 +7,7 @@ import {
   loadProjectFromFile,
   serializeProject,
 } from '@ironclad/rivet-node';
+import type { WorkflowProjectDownloadVersion } from '../../../../shared/workflow-types.js';
 
 import { validatePath } from '../../security.js';
 import { conflict, createHttpError } from '../../utils/httpError.js';
@@ -14,6 +15,7 @@ import {
   createBlankProjectFile,
   deleteProjectWithSidecars,
   ensureWorkflowsRoot,
+  listProjectPathsRecursive,
   moveProjectWithSidecars,
   pathExists,
   pathsDifferOnlyByCase,
@@ -29,11 +31,25 @@ import {
   ensureWorkflowEndpointNameIsUnique,
   normalizeWorkflowProjectSettingsDraft,
   readStoredWorkflowProjectSettings,
+  resolvePublishedWorkflowProjectPath,
   writePublishedWorkflowSnapshot,
   writeStoredWorkflowProjectSettings,
 } from './publication.js';
 import { deleteWorkflowRecordingsBySourceProjectPath, deleteWorkflowRecordingsByWorkflowId } from './recordings.js';
 import { getWorkflowFolder, getWorkflowProject } from './workflow-query.js';
+import type { WorkflowProjectPathMove } from './types.js';
+
+async function getFolderProjectPathMoves(
+  sourceFolderPath: string,
+  targetFolderPath: string,
+): Promise<WorkflowProjectPathMove[]> {
+  const projectPaths = await listProjectPathsRecursive(sourceFolderPath);
+
+  return projectPaths.map((projectPath) => ({
+    fromAbsolutePath: projectPath,
+    toAbsolutePath: validatePath(path.join(targetFolderPath, path.relative(sourceFolderPath, projectPath))),
+  }));
+}
 
 export async function createWorkflowFolderItem(name: unknown, parentRelativePath: unknown) {
   const folderName = sanitizeWorkflowName(name, 'folder name');
@@ -60,13 +76,21 @@ export async function renameWorkflowFolderItem(relativePath: unknown, newName: u
   const sanitizedName = sanitizeWorkflowName(newName, 'new folder name');
   const renamedFolderPath = validatePath(path.join(path.dirname(currentFolderPath), sanitizedName));
   const isCaseOnlyRename = pathsDifferOnlyByCase(currentFolderPath, renamedFolderPath);
+  const movedProjectPaths =
+    renamedFolderPath === currentFolderPath
+      ? []
+      : await getFolderProjectPathMoves(currentFolderPath, renamedFolderPath);
 
   if (renamedFolderPath !== currentFolderPath && !isCaseOnlyRename && await pathExists(renamedFolderPath)) {
     throw conflict(`Folder already exists: ${sanitizedName}`);
   }
 
   await renamePathHandlingCaseChange(currentFolderPath, renamedFolderPath);
-  return getWorkflowFolder(root, renamedFolderPath);
+
+  return {
+    folder: await getWorkflowFolder(root, renamedFolderPath),
+    movedProjectPaths,
+  };
 }
 
 export async function deleteWorkflowFolderItem(relativePath: unknown) {
@@ -189,14 +213,48 @@ async function ensureWorkflowFolderExists(folderPath: string): Promise<void> {
   }
 }
 
-export async function duplicateWorkflowProjectItem(relativePath: unknown) {
+async function resolveDuplicateSourceProjectPath(
+  root: string,
+  projectPath: string,
+  projectName: string,
+  version: WorkflowProjectDownloadVersion,
+): Promise<string> {
+  if (version === 'live') {
+    return projectPath;
+  }
+
+  const storedSettings = await readStoredWorkflowProjectSettings(projectPath, projectName);
+  const publishedProjectPath = await resolvePublishedWorkflowProjectPath(root, projectPath, storedSettings);
+  if (!publishedProjectPath) {
+    throw conflict('Published version is not available for this project');
+  }
+
+  return publishedProjectPath;
+}
+
+export async function duplicateWorkflowProjectItem(
+  relativePath: unknown,
+  version: WorkflowProjectDownloadVersion = 'live',
+) {
   const root = await ensureWorkflowsRoot();
-  const sourceProjectPath = requireProjectPath(resolveWorkflowRelativePath(root, relativePath, {
+  const projectPath = requireProjectPath(resolveWorkflowRelativePath(root, relativePath, {
     allowProjectFile: true,
   }));
+  const projectName = path.basename(projectPath, PROJECT_EXTENSION);
 
-  if (!await pathExists(sourceProjectPath)) {
+  if (!await pathExists(projectPath)) {
     throw createHttpError(404, 'Project not found');
+  }
+
+  let sourceProjectPath = projectPath;
+  try {
+    sourceProjectPath = await resolveDuplicateSourceProjectPath(root, projectPath, projectName, version);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw createHttpError(404, 'Project not found');
+    }
+
+    throw error;
   }
 
   let project: Awaited<ReturnType<typeof loadProjectAndAttachedDataFromFile>>[0];
@@ -215,7 +273,7 @@ export async function duplicateWorkflowProjectItem(relativePath: unknown) {
   const duplicateProjectId = randomUUID() as typeof project.metadata.id;
 
   for (let duplicateIndex = 0; ; duplicateIndex += 1) {
-    const { duplicateProjectName, duplicateProjectPath } = getDuplicateWorkflowProjectPath(sourceProjectPath, duplicateIndex);
+    const { duplicateProjectName, duplicateProjectPath } = getDuplicateWorkflowProjectPath(projectPath, duplicateIndex);
     let serializedProject: string;
 
     try {
@@ -352,12 +410,14 @@ export async function publishWorkflowProjectItem(relativePath: unknown, settings
   await ensureWorkflowEndpointNameIsUnique(root, projectPath, normalizedSettings.endpointName);
   const publishedStateHash = await createWorkflowPublicationStateHash(projectPath, normalizedSettings.endpointName);
   const publishedSnapshotId = existingSettings.publishedSnapshotId ?? randomUUID();
+  const lastPublishedAt = new Date().toISOString();
   await writePublishedWorkflowSnapshot(root, projectPath, publishedSnapshotId);
   await writeStoredWorkflowProjectSettings(projectPath, {
     endpointName: normalizedSettings.endpointName,
     publishedEndpointName: normalizedSettings.endpointName,
     publishedSnapshotId,
     publishedStateHash,
+    lastPublishedAt,
   });
 
   return getWorkflowProject(root, projectPath);
@@ -377,6 +437,7 @@ export async function unpublishWorkflowProjectItem(relativePath: unknown) {
     publishedEndpointName: '',
     publishedSnapshotId: null,
     publishedStateHash: null,
+    lastPublishedAt: existingSettings.lastPublishedAt,
   });
 
   return getWorkflowProject(root, projectPath);

@@ -31,6 +31,7 @@ export async function getWorkflowProjectSettings(projectPath: string, projectNam
   return {
     status,
     endpointName: storedSettings.endpointName,
+    lastPublishedAt: await resolveWorkflowLastPublishedAt(projectPath, storedSettings, status),
   };
 }
 
@@ -61,6 +62,7 @@ export function createDefaultStoredWorkflowProjectSettings(): StoredWorkflowProj
     publishedEndpointName: '',
     publishedSnapshotId: null,
     publishedStateHash: null,
+    lastPublishedAt: null,
   };
 }
 
@@ -91,6 +93,11 @@ export function normalizeStoredWorkflowProjectSettings(value: unknown): StoredWo
     : raw.publishedStateHash === null
       ? null
       : defaults.publishedStateHash;
+  const lastPublishedAt = typeof raw.lastPublishedAt === 'string'
+    ? raw.lastPublishedAt
+    : raw.lastPublishedAt === null
+      ? null
+      : defaults.lastPublishedAt;
   const legacyStatus = typeof raw.status === 'string' ? raw.status : undefined;
 
   if (
@@ -107,6 +114,7 @@ export function normalizeStoredWorkflowProjectSettings(value: unknown): StoredWo
     publishedEndpointName: normalizeStoredEndpointName(publishedEndpointName || (publishedStateHash ? endpointName : '')),
     publishedSnapshotId,
     publishedStateHash,
+    lastPublishedAt,
     legacyStatus,
   };
 }
@@ -124,6 +132,31 @@ export function getDerivedWorkflowProjectStatus(
   }
 
   return 'unpublished';
+}
+
+async function resolveWorkflowLastPublishedAt(
+  projectPath: string,
+  settings: StoredWorkflowProjectSettings,
+  status: WorkflowProjectStatus,
+): Promise<string | null> {
+  if (settings.lastPublishedAt) {
+    return settings.lastPublishedAt;
+  }
+
+  if (status === 'unpublished') {
+    return null;
+  }
+
+  try {
+    const settingsStats = await fs.stat(getWorkflowProjectSettingsPath(projectPath));
+    return settingsStats.mtime.toISOString();
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return null;
+    }
+
+    throw error;
+  }
 }
 
 export function normalizeStoredEndpointName(value: string): string {
