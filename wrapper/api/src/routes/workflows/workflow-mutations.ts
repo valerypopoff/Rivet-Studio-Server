@@ -29,12 +29,14 @@ import {
   createWorkflowPublicationStateHash,
   deletePublishedWorkflowSnapshot,
   ensureWorkflowEndpointNameIsUnique,
+  getWorkflowProjectSettings,
   normalizeWorkflowProjectSettingsDraft,
   readStoredWorkflowProjectSettings,
   resolvePublishedWorkflowProjectPath,
   writePublishedWorkflowSnapshot,
   writeStoredWorkflowProjectSettings,
 } from './publication.js';
+import { getWorkflowDuplicateProjectName } from './workflow-project-naming.js';
 import { deleteWorkflowRecordingsBySourceProjectPath, deleteWorkflowRecordingsByWorkflowId } from './recordings.js';
 import { getWorkflowFolder, getWorkflowProject } from './workflow-query.js';
 import type { WorkflowProjectPathMove } from './types.js';
@@ -125,19 +127,23 @@ export async function createWorkflowProjectItem(folderRelativePath: unknown, nam
   return getWorkflowProject(root, filePath);
 }
 
-function getDuplicateWorkflowProjectName(sourceProjectName: string, duplicateIndex: number): string {
-  return duplicateIndex === 0
-    ? `${sourceProjectName} Copy`
-    : `${sourceProjectName} Copy ${duplicateIndex}`;
-}
-
-function getDuplicateWorkflowProjectPath(sourceProjectPath: string, duplicateIndex: number): {
+function getDuplicateWorkflowProjectPath(
+  sourceProjectPath: string,
+  sourceProjectName: string,
+  version: WorkflowProjectDownloadVersion,
+  sourceStatus: Awaited<ReturnType<typeof getWorkflowProjectSettings>>['status'],
+  duplicateIndex: number,
+): {
   duplicateProjectName: string;
   duplicateProjectPath: string;
 } {
-  const sourceProjectName = path.basename(sourceProjectPath, PROJECT_EXTENSION);
   const sourceFolderPath = path.dirname(sourceProjectPath);
-  const duplicateProjectName = getDuplicateWorkflowProjectName(sourceProjectName, duplicateIndex);
+  const duplicateProjectName = getWorkflowDuplicateProjectName(
+    sourceProjectName,
+    version,
+    sourceStatus,
+    duplicateIndex,
+  );
   const duplicateProjectPath = validatePath(path.join(sourceFolderPath, `${duplicateProjectName}${PROJECT_EXTENSION}`));
 
   return {
@@ -246,6 +252,17 @@ export async function duplicateWorkflowProjectItem(
     throw createHttpError(404, 'Project not found');
   }
 
+  let sourceSettings: Awaited<ReturnType<typeof getWorkflowProjectSettings>>;
+  try {
+    sourceSettings = await getWorkflowProjectSettings(projectPath, projectName);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      throw createHttpError(404, 'Project not found');
+    }
+
+    throw error;
+  }
+
   let sourceProjectPath = projectPath;
   try {
     sourceProjectPath = await resolveDuplicateSourceProjectPath(root, projectPath, projectName, version);
@@ -273,7 +290,13 @@ export async function duplicateWorkflowProjectItem(
   const duplicateProjectId = randomUUID() as typeof project.metadata.id;
 
   for (let duplicateIndex = 0; ; duplicateIndex += 1) {
-    const { duplicateProjectName, duplicateProjectPath } = getDuplicateWorkflowProjectPath(projectPath, duplicateIndex);
+    const { duplicateProjectName, duplicateProjectPath } = getDuplicateWorkflowProjectPath(
+      projectPath,
+      projectName,
+      version,
+      sourceSettings.status,
+      duplicateIndex,
+    );
     let serializedProject: string;
 
     try {

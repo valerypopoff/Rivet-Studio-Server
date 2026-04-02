@@ -65,7 +65,9 @@ Current duplicate-route behavior:
 
 - `POST /api/workflows/projects/duplicate` accepts `{ "relativePath": string, "version"?: "live" | "published" }`
 - it returns `201 { "project": WorkflowProjectItem }`
-- it creates a sibling `.rivet-project` using `Name Copy`, then `Name Copy 1`, `Name Copy 2`, and so on
+- it creates a sibling `.rivet-project` using the same saved-version tag model as downloads, for example `Name [unpublished] Copy`, `Name [published] Copy`, or `Name [unpublished changes] Copy`
+- repeated duplicates of the same duplicate stem are numbered as `... Copy 1`, `... Copy 2`, and so on
+- duplicating an already duplicated project stays literal, so `Name [unpublished] Copy` becomes `Name [unpublished] Copy [unpublished] Copy` before numbered variants are needed
 - `version: "live"` duplicates the saved live workflow file
 - `version: "published"` resolves the published snapshot through the publication model and returns `409` if no published version is available
 - it writes only the new project file; dataset sidecars, wrapper settings, published snapshots, and recordings are intentionally not copied

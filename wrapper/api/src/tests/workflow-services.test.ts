@@ -324,8 +324,8 @@ test('workflow project duplication creates an unpublished copy in the same folde
 
   const duplicate = await workflowMutations.duplicateWorkflowProjectItem(created.relativePath);
 
-  assert.equal(duplicate.relativePath, 'Example Copy.rivet-project');
-  assert.equal(duplicate.name, 'Example Copy');
+  assert.equal(duplicate.relativePath, 'Example [unpublished] Copy.rivet-project');
+  assert.equal(duplicate.name, 'Example [unpublished] Copy');
   assert.equal(duplicate.settings.status, 'unpublished');
   assert.equal(duplicate.settings.endpointName, '');
   assert.equal(await workflowFs.pathExists(duplicate.absolutePath), true);
@@ -339,7 +339,7 @@ test('workflow project duplication assigns a fresh project id and matching title
   const duplicateProject = await rivetNode.loadProjectFromFile(duplicate.absolutePath);
 
   assert.notEqual(duplicateProject.metadata.id, originalProject.metadata.id);
-  assert.equal(duplicateProject.metadata.title, 'Independent Copy');
+  assert.equal(duplicateProject.metadata.title, 'Independent [unpublished] Copy');
 });
 
 test('workflow project duplication does not copy dataset or settings sidecars', async () => {
@@ -365,19 +365,31 @@ test('workflow project duplication resolves naming collisions with numbered copy
   const secondDuplicate = await workflowMutations.duplicateWorkflowProjectItem(created.relativePath);
   const thirdDuplicate = await workflowMutations.duplicateWorkflowProjectItem(created.relativePath);
 
-  assert.equal(firstDuplicate.relativePath, 'Collision Copy.rivet-project');
-  assert.equal(secondDuplicate.relativePath, 'Collision Copy 1.rivet-project');
-  assert.equal(thirdDuplicate.relativePath, 'Collision Copy 2.rivet-project');
+  assert.equal(firstDuplicate.relativePath, 'Collision [unpublished] Copy.rivet-project');
+  assert.equal(secondDuplicate.relativePath, 'Collision [unpublished] Copy 1.rivet-project');
+  assert.equal(thirdDuplicate.relativePath, 'Collision [unpublished] Copy 2.rivet-project');
 });
 
-test('workflow project duplication uses literal copy naming when duplicating a duplicate', async () => {
+test('workflow project duplication stays literal when duplicating a duplicate', async () => {
   const created = await workflowMutations.createWorkflowProjectItem('', 'Literal');
   const duplicate = await workflowMutations.duplicateWorkflowProjectItem(created.relativePath);
 
   const duplicateOfDuplicate = await workflowMutations.duplicateWorkflowProjectItem(duplicate.relativePath);
 
-  assert.equal(duplicate.relativePath, 'Literal Copy.rivet-project');
-  assert.equal(duplicateOfDuplicate.relativePath, 'Literal Copy Copy.rivet-project');
+  assert.equal(duplicate.relativePath, 'Literal [unpublished] Copy.rivet-project');
+  assert.equal(duplicateOfDuplicate.relativePath, 'Literal [unpublished] Copy [unpublished] Copy.rivet-project');
+});
+
+test('workflow project duplication preserves literal user-authored names that already end with a copy-style suffix', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'LiteralSuffix');
+  const renamed = await workflowMutations.renameWorkflowProjectItem(created.relativePath, 'LiteralSuffix [unpublished] Copy');
+
+  const duplicate = await workflowMutations.duplicateWorkflowProjectItem(renamed.project.relativePath);
+
+  assert.equal(
+    duplicate.relativePath,
+    'LiteralSuffix [unpublished] Copy [unpublished] Copy.rivet-project',
+  );
 });
 
 test('workflow project duplication keeps published source state detached from the copy', async () => {
@@ -390,6 +402,7 @@ test('workflow project duplication keeps published source state detached from th
   const duplicate = await workflowMutations.duplicateWorkflowProjectItem(created.relativePath);
   const duplicateSidecars = workflowFs.getProjectSidecarPaths(duplicate.absolutePath);
 
+  assert.equal(duplicate.relativePath, 'PublishedSource [published] Copy.rivet-project');
   assert.equal(duplicate.settings.status, 'unpublished');
   assert.equal(duplicate.settings.endpointName, '');
   assert.equal(await workflowFs.pathExists(duplicateSidecars.settings), false);
@@ -417,6 +430,8 @@ test('workflow project duplication can use the published snapshot when unpublish
   const publishedGraph = Object.values(publishedDuplicateProject.graphs)[0];
   const liveGraph = Object.values(liveDuplicateProject.graphs)[0];
 
+  assert.equal(publishedDuplicate.relativePath, 'PublishedVariant [published] Copy.rivet-project');
+  assert.equal(liveDuplicate.relativePath, 'PublishedVariant [unpublished changes] Copy.rivet-project');
   assert.equal(publishedGraph?.metadata?.description ?? '', '');
   assert.equal(liveGraph?.metadata?.description ?? '', 'Live only');
 });
@@ -671,14 +686,14 @@ test('workflow duplicate route creates a duplicate and exposes it through the tr
       }),
     );
 
-    assert.equal(duplicated.project.relativePath, 'HttpDuplicate Copy.rivet-project');
+    assert.equal(duplicated.project.relativePath, 'HttpDuplicate [unpublished] Copy.rivet-project');
     assert.equal(duplicated.project.settings.status, 'unpublished');
     assert.equal(duplicated.project.settings.endpointName, '');
 
     const tree = await readJson<{ projects: Array<{ relativePath: string }> }>(await fetch(`${baseUrl}/tree`));
     assert.deepEqual(
       tree.projects.map((project) => project.relativePath),
-      ['HttpDuplicate Copy.rivet-project', 'HttpDuplicate.rivet-project'],
+      ['HttpDuplicate [unpublished] Copy.rivet-project', 'HttpDuplicate.rivet-project'],
     );
   });
 });
@@ -717,7 +732,7 @@ test('workflow duplicate route can duplicate the published snapshot for projects
     const duplicatedProject = await rivetNode.loadProjectFromFile(duplicated.project.absolutePath);
     const duplicatedGraph = Object.values(duplicatedProject.graphs)[0];
 
-    assert.equal(duplicated.project.relativePath, 'HttpDuplicatePublished Copy.rivet-project');
+    assert.equal(duplicated.project.relativePath, 'HttpDuplicatePublished [published] Copy.rivet-project');
     assert.equal(duplicatedGraph?.metadata?.description ?? '', '');
   });
 });

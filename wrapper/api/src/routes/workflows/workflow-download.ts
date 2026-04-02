@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import type { WorkflowProjectDownloadVersion, WorkflowProjectStatus } from '../../../../shared/workflow-types.js';
+import type { WorkflowProjectDownloadVersion } from '../../../../shared/workflow-types.js';
 import { createHttpError, conflict } from '../../utils/httpError.js';
 import {
   ensureWorkflowsRoot,
@@ -11,6 +11,7 @@ import {
   resolveWorkflowRelativePath,
 } from './fs-helpers.js';
 import { getWorkflowProjectSettings, readStoredWorkflowProjectSettings, resolvePublishedWorkflowProjectPath } from './publication.js';
+import { getWorkflowDownloadFileName } from './workflow-project-naming.js';
 
 type WorkflowProjectDownloadResult = {
   contents: string;
@@ -20,25 +21,6 @@ type WorkflowProjectDownloadResult = {
 function rethrowWorkflowProjectNotFound(error: unknown): never | void {
   if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
     throw createHttpError(404, 'Project not found');
-  }
-}
-
-function getWorkflowProjectDownloadTag(
-  version: WorkflowProjectDownloadVersion,
-  status: WorkflowProjectStatus,
-): string {
-  if (version === 'published') {
-    return 'published';
-  }
-
-  switch (status) {
-    case 'published':
-      return 'published';
-    case 'unpublished_changes':
-      return 'unpublished changes';
-    case 'unpublished':
-    default:
-      return 'unpublished';
   }
 }
 
@@ -74,8 +56,6 @@ export async function readWorkflowProjectDownload(
     throw error;
   }
 
-  const downloadTag = getWorkflowProjectDownloadTag(version, settings.status);
-
   let sourcePath = projectPath;
   if (version === 'published') {
     let publishedProjectPath: string | null;
@@ -97,7 +77,7 @@ export async function readWorkflowProjectDownload(
   try {
     return {
       contents: await fs.readFile(sourcePath, 'utf8'),
-      fileName: `${projectName} [${downloadTag}]${PROJECT_EXTENSION}`,
+      fileName: getWorkflowDownloadFileName(projectName, version, settings.status),
     };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {

@@ -127,8 +127,12 @@ Current duplication behavior:
 
 - the duplicate is created in the same folder as the source project
 - `POST /api/workflows/projects/duplicate` now accepts `{ "relativePath": string, "version"?: "live" | "published" }`
-- names are generated literally as `Name Copy`, then `Name Copy 1`, `Name Copy 2`, and so on
-- duplicating an already duplicated project stays literal, so `Name Copy` becomes `Name Copy Copy` before numbered variants are needed
+- duplicate names use the same saved-version tag model as downloads:
+  - `Name [unpublished] Copy`
+  - `Name [published] Copy`
+  - `Name [unpublished changes] Copy`
+- if that exact duplicate stem already exists in the folder, the API numbers it as `... Copy 1`, `... Copy 2`, and so on
+- duplicating an already duplicated project stays literal, so `Name [unpublished] Copy` becomes `Name [unpublished] Copy [unpublished] Copy` before numbered variants are needed
 - for `unpublished`, the dashboard duplicates the saved live file immediately
 - for `published`, the dashboard duplicates the published snapshot immediately
 - for `unpublished_changes`, the dashboard opens a chooser so the user can duplicate either the published snapshot or the saved live file with unpublished changes
