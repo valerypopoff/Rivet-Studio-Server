@@ -41,7 +41,6 @@ export const DashboardPage: FC = () => {
   const [editorReady, setEditorReady] = useState(false);
   const [openProjectCount, setOpenProjectCount] = useState(0);
   const [projectSaveSequence, setProjectSaveSequence] = useState(0);
-  const [lastSavedProjectPath, setLastSavedProjectPath] = useState('');
   const [sidebarWidth, setSidebarWidth] = useState(() => parseInt(WORKFLOW_DASHBOARD_SIDEBAR_WIDTH, 10) || 300);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarResizing, setSidebarResizing] = useState(false);
@@ -200,7 +199,6 @@ export const DashboardPage: FC = () => {
           setOpenProjectCount(event.data.count);
           break;
         case 'project-saved':
-          setLastSavedProjectPath(event.data.path);
           setProjectSaveSequence((prev) => prev + 1);
           break;
         case 'project-open-failed':
@@ -268,7 +266,6 @@ export const DashboardPage: FC = () => {
             openedProjectPath={openedProjectPath}
             editorReady={editorReady}
             projectSaveSequence={projectSaveSequence}
-            lastSavedProjectPath={lastSavedProjectPath}
             onCollapse={openProjectCount === 0 ? undefined : handleCollapseSidebar}
           />
           <div className="dashboard-sidebar-resizer" role="separator" aria-orientation="vertical" aria-label="Resize folders pane" />

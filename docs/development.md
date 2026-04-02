@@ -158,6 +158,14 @@ For hosted editor keyboard-node behavior:
 8. confirm the browser can still type normally inside real text inputs and that copy/paste/save shortcuts do not hijack active editor form fields
 9. confirm focusing the workflow canvas does not leave a visible white perimeter around the iframe/editor surface
 
+For published-project save status behavior:
+
+1. `npm run dev`
+2. validate through `http://localhost:8080` by default, or your configured `RIVET_PORT`
+3. publish a workflow project
+4. save it with no actual changes and confirm the sidebar stays `Published` without a brief `Unpublished changes` flicker
+5. then make a real saved change, save again, and confirm the sidebar updates to `Unpublished changes`
+
 For routing/auth/deployment changes:
 
 1. `npm run dev`

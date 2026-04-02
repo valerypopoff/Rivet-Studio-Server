@@ -46,7 +46,7 @@ All message types live in `wrapper/shared/editor-bridge.ts`. Both sides import f
 10. Project duplication does not use the editor bridge. The dashboard calls `POST /api/workflows/projects/duplicate` directly, refreshes the workflow tree, and intentionally leaves selection and open tabs unchanged.
 11. Project uploading also does not use the editor bridge. The dashboard opens a browser file picker, posts the selected file to `POST /api/workflows/projects/upload`, refreshes the workflow tree, and leaves selection and open tabs unchanged.
 12. Project downloading also does not use the editor bridge. The dashboard calls `POST /api/workflows/projects/download` directly and only downloads saved server-side project files.
-13. On `project-saved`, the dashboard optimistically marks published workflows as `unpublished_changes` for the saved path and then refreshes the workflow tree from the API.
+13. On `project-saved`, the dashboard refreshes the workflow tree from the API and trusts the server-derived publication status. It does not locally force a `published -> unpublished_changes` status flip first.
 14. If the iframe reloads, `onLoad` resets `editorReady` to `false`, re-enabling the command buffer until `editor-ready` is sent again.
 
 ## Save behavior

@@ -47,10 +47,7 @@ Each project has a derived status:
 
 Status is derived from the stored settings plus a fresh state hash; it is not stored as the source of truth.
 
-The dashboard still does a small optimistic UI update after save:
-
-- when a published project is saved, the sidebar immediately flips it to `unpublished_changes`
-- the dashboard then refreshes `/api/workflows/tree` and reconciles against server-derived state
+The dashboard does not maintain its own separate optimistic publication-status model after save. It refreshes `/api/workflows/tree` and uses the API's derived status.
 
 ## Publish flow
 
@@ -70,8 +67,13 @@ If the project has already been published before, the current implementation reu
 1. User saves the project in the editor.
 2. The editor writes the updated project file and dataset sidecar.
 3. The editor emits `project-saved`.
-4. The dashboard optimistically marks the project as `unpublished_changes`.
-5. The dashboard refreshes `/api/workflows/tree` and reconciles against the API's derived status.
+4. The dashboard refreshes `/api/workflows/tree`.
+5. The sidebar updates from the API's derived status.
+
+That means:
+
+- saving a published project with real saved changes transitions to `unpublished_changes` once the refresh returns
+- saving a published project with no actual saved changes stays `published` and does not briefly flicker to `unpublished_changes`
 
 ## Unpublish flow
 
