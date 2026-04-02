@@ -101,9 +101,9 @@ For workflow-library mutations that change on-disk project state:
 1. `npm run dev`
 2. validate the browser flow through `http://localhost:8080` by default, or your configured `RIVET_PORT`
 3. right-click a project in the left panel and run `Duplicate`
-4. for `unpublished`, confirm the new project appears in the same folder with a `Copy` name and that the current selection/editor tab did not change
-5. for `published`, confirm duplication uses the published snapshot
-6. for `unpublished_changes`, confirm the chooser appears and both saved versions duplicate correctly
+4. for `unpublished`, confirm the new project appears in the same folder as `Name [unpublished] Copy.rivet-project` and that the current selection/editor tab did not change
+5. for `published`, confirm duplication uses the published snapshot and names the duplicate `Name [published] Copy.rivet-project`
+6. for `unpublished_changes`, confirm the chooser appears and both saved versions duplicate correctly, including the expected `Name [published] Copy.rivet-project` vs `Name [unpublished changes] Copy.rivet-project` naming
 7. confirm duplication still leaves the current selection/editor tab unchanged
 
 For workflow-library project creation behavior:
@@ -148,6 +148,15 @@ For workflow-library project deletion behavior:
 6. right-click a `published` or `unpublished_changes` project and run `Delete project`
 7. confirm the UI shows `To delete a project, unpublish it first`
 8. confirm the guarded delete action does not change selection, open a different tab, or delete anything directly from the context menu
+
+For workflow-library project rename entry behavior:
+
+1. `npm run dev`
+2. validate the browser flow through `http://localhost:8080` by default, or your configured `RIVET_PORT`
+3. right-click a project in the left panel and run `Rename project`
+4. confirm the context-menu action opens Project Settings for that project instead of renaming immediately
+5. confirm the rename still completes only through the existing Project Settings flow
+6. confirm the menu action does not change the current selection or open a different project on its own
 
 For hosted editor keyboard-node behavior:
 

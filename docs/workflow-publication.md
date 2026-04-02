@@ -91,7 +91,11 @@ That means:
 2. Server clears `publishedEndpointName`, `publishedSnapshotId`, and `publishedStateHash`.
 3. Server keeps `endpointName` in the settings sidecar as the saved draft endpoint name.
 
-In the current dashboard UI, the project-row context menu always exposes `Delete project`, but it is guarded:
+In the current dashboard UI, the project-row context menu exposes `Rename project`, `Download`, `Duplicate`, and `Delete project`.
+
+- `Rename project` opens Project Settings for that workflow and reuses the existing rename flow there
+
+`Delete project` is still guarded:
 
 - for `unpublished` projects, clicking it opens Project Settings and the user must click `Delete project` there to complete deletion
 - for `published` or `unpublished_changes` projects, the dashboard shows a toast telling the user to unpublish first
@@ -123,8 +127,12 @@ Current duplication behavior:
 
 - the duplicate is created in the same folder as the source project
 - `POST /api/workflows/projects/duplicate` now accepts `{ "relativePath": string, "version"?: "live" | "published" }`
-- names are generated literally as `Name Copy`, then `Name Copy 1`, `Name Copy 2`, and so on
-- duplicating an already duplicated project stays literal, so `Name Copy` becomes `Name Copy Copy` before numbered variants are needed
+- duplicate names use the same saved-version tag model as downloads:
+  - `Name [unpublished] Copy`
+  - `Name [published] Copy`
+  - `Name [unpublished changes] Copy`
+- if that exact duplicate stem already exists in the folder, the API numbers it as `... Copy 1`, `... Copy 2`, and so on
+- duplicating an already duplicated project stays literal, so `Name [unpublished] Copy` becomes `Name [unpublished] Copy [unpublished] Copy` before numbered variants are needed
 - for `unpublished`, the dashboard duplicates the saved live file immediately
 - for `published`, the dashboard duplicates the published snapshot immediately
 - for `unpublished_changes`, the dashboard opens a chooser so the user can duplicate either the published snapshot or the saved live file with unpublished changes
