@@ -374,12 +374,14 @@ export async function publishWorkflowProjectItem(relativePath: unknown, settings
   await ensureWorkflowEndpointNameIsUnique(root, projectPath, normalizedSettings.endpointName);
   const publishedStateHash = await createWorkflowPublicationStateHash(projectPath, normalizedSettings.endpointName);
   const publishedSnapshotId = existingSettings.publishedSnapshotId ?? randomUUID();
+  const lastPublishedAt = new Date().toISOString();
   await writePublishedWorkflowSnapshot(root, projectPath, publishedSnapshotId);
   await writeStoredWorkflowProjectSettings(projectPath, {
     endpointName: normalizedSettings.endpointName,
     publishedEndpointName: normalizedSettings.endpointName,
     publishedSnapshotId,
     publishedStateHash,
+    lastPublishedAt,
   });
 
   return getWorkflowProject(root, projectPath);
@@ -399,6 +401,7 @@ export async function unpublishWorkflowProjectItem(relativePath: unknown) {
     publishedEndpointName: '',
     publishedSnapshotId: null,
     publishedStateHash: null,
+    lastPublishedAt: existingSettings.lastPublishedAt,
   });
 
   return getWorkflowProject(root, projectPath);

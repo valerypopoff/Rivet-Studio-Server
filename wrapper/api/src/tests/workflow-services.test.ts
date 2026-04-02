@@ -880,11 +880,13 @@ test('publish and unpublish keep workflow project behavior stable', async () => 
 
   assert.equal(published.settings.status, 'published');
   assert.equal(published.settings.endpointName, 'demo-endpoint');
+  assert.match(published.settings.lastPublishedAt ?? '', /^\d{4}-\d{2}-\d{2}T/);
   assert.equal(await workflowFs.pathExists(path.join(workflowsRoot, '.published')), true);
 
   const unpublished = await workflowMutations.unpublishWorkflowProjectItem(created.relativePath);
   assert.equal(unpublished.settings.status, 'unpublished');
   assert.equal(unpublished.settings.endpointName, 'demo-endpoint');
+  assert.equal(unpublished.settings.lastPublishedAt, published.settings.lastPublishedAt);
 });
 
 test('workflow publish and unpublish routes preserve publication state over HTTP', async () => {
@@ -895,7 +897,7 @@ test('workflow publish and unpublish routes preserve publication state over HTTP
       body: JSON.stringify({ name: 'Published' }),
     }));
 
-    const published = await readJson<{ project: { settings: { status: string; endpointName: string } } }>(
+    const published = await readJson<{ project: { settings: { status: string; endpointName: string; lastPublishedAt: string | null } } }>(
       await fetch(`${baseUrl}/projects/publish`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -908,8 +910,9 @@ test('workflow publish and unpublish routes preserve publication state over HTTP
 
     assert.equal(published.project.settings.status, 'published');
     assert.equal(published.project.settings.endpointName, 'http-endpoint');
+    assert.match(published.project.settings.lastPublishedAt ?? '', /^\d{4}-\d{2}-\d{2}T/);
 
-    const unpublished = await readJson<{ project: { settings: { status: string; endpointName: string } } }>(
+    const unpublished = await readJson<{ project: { settings: { status: string; endpointName: string; lastPublishedAt: string | null } } }>(
       await fetch(`${baseUrl}/projects/unpublish`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -919,6 +922,7 @@ test('workflow publish and unpublish routes preserve publication state over HTTP
 
     assert.equal(unpublished.project.settings.status, 'unpublished');
     assert.equal(unpublished.project.settings.endpointName, 'http-endpoint');
+    assert.equal(unpublished.project.settings.lastPublishedAt, published.project.settings.lastPublishedAt);
   });
 });
 
@@ -961,6 +965,7 @@ test('published and latest workflow resolution split after unpublished changes',
   assert.equal(latestMatch.projectPath, created.absolutePath);
   assert.notEqual(publishedMatch.publishedProjectPath, created.absolutePath);
   assert.equal(currentSettings.status, 'unpublished_changes');
+  assert.match(currentSettings.lastPublishedAt ?? '', /^\d{4}-\d{2}-\d{2}T/);
 
   const publishedContents = await fs.readFile(publishedMatch.publishedProjectPath, 'utf8');
   const latestContents = await fs.readFile(latestMatch.projectPath, 'utf8');
@@ -974,6 +979,24 @@ test('published and latest workflow resolution split after unpublished changes',
 
   assert.notEqual(publishedContents, latestContents);
   assert.equal(publishedDatasetContents, '{"before":true}');
+});
+
+test('legacy published settings without lastPublishedAt still expose a fallback timestamp', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'LegacyPublished');
+  const published = await workflowMutations.publishWorkflowProjectItem(created.relativePath, {
+    endpointName: 'legacy-published-endpoint',
+  });
+  const sidecars = workflowFs.getProjectSidecarPaths(created.absolutePath);
+  const storedSettings = JSON.parse(await fs.readFile(sidecars.settings, 'utf8')) as Record<string, unknown>;
+
+  delete storedSettings.lastPublishedAt;
+  await fs.writeFile(sidecars.settings, `${JSON.stringify(storedSettings, null, 2)}\n`, 'utf8');
+
+  const fallbackSettings = await workflowPublication.getWorkflowProjectSettings(created.absolutePath, created.name);
+
+  assert.equal(fallbackSettings.status, published.settings.status);
+  assert.equal(fallbackSettings.endpointName, published.settings.endpointName);
+  assert.match(fallbackSettings.lastPublishedAt ?? '', /^\d{4}-\d{2}-\d{2}T/);
 });
 
 test('published workflow keeps referenced projects resolvable after the referenced project is moved', async () => {

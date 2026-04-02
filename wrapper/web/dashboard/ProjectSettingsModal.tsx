@@ -32,6 +32,25 @@ const STATUS_LABELS: Record<WorkflowProjectStatus, string> = {
   unpublished_changes: 'Unpublished changes',
 };
 
+const formatLastPublishedAtLabel = (
+  status: WorkflowProjectStatus,
+  lastPublishedAt: string | null | undefined,
+): string | null => {
+  if (status === 'unpublished' || !lastPublishedAt) {
+    return null;
+  }
+
+  const publishedAtDate = new Date(lastPublishedAt);
+  if (Number.isNaN(publishedAtDate.getTime())) {
+    return null;
+  }
+
+  return `Last published on ${new Intl.DateTimeFormat(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(publishedAtDate)}`;
+};
+
 const renderStatusExplanation = (status: WorkflowProjectStatus, endpointName: string): ReactNode => {
   switch (status) {
     case 'unpublished':
@@ -39,7 +58,11 @@ const renderStatusExplanation = (status: WorkflowProjectStatus, endpointName: st
     case 'published':
       return (
         <>
-          Workflow is accessible via the endpoint on {`${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH}/${endpointName}`}.
+          The workflow is accessible via the endpoint on 
+          <br />
+          <code className="project-settings-endpoint-code">
+            {`${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH}/${endpointName}`}
+          </code>
           <br />
           <br />
           To change the endpoint path, unpublish it.
@@ -49,10 +72,21 @@ const renderStatusExplanation = (status: WorkflowProjectStatus, endpointName: st
     case 'unpublished_changes':
       return (
         <>
-          Workflow has changes that are not live. The published workflow version is still accessible on {`${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH}/${endpointName}`}.
+          Workflow has changes that are not live. 
           <br />
           <br />
-          The unpublished changes are accessible on {`${RIVET_LATEST_WORKFLOWS_BASE_PATH}/${endpointName}`}.
+          The published workflow version is still accessible on 
+          <br />
+          <code className="project-settings-endpoint-code">
+            {`${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH}/${endpointName}`}
+          </code>
+          <br />
+          <br />
+          The unpublished changes are accessible on 
+          <br />
+          <code className="project-settings-endpoint-code">
+            {`${RIVET_LATEST_WORKFLOWS_BASE_PATH}/${endpointName}`}
+          </code>
         </>
       );
     default:
@@ -184,6 +218,10 @@ export const ProjectSettingsModal: FC<ProjectSettingsModalProps> = ({
   const isUnpublishedProject = displayedProjectStatus === 'unpublished';
   const isPublishedProject = displayedProjectStatus === 'published';
   const isUnpublishedChangesProject = displayedProjectStatus === 'unpublished_changes';
+  const lastPublishedAtLabel = useMemo(
+    () => formatLastPublishedAtLabel(displayedProjectStatus, activeProject.settings.lastPublishedAt),
+    [activeProject.settings.lastPublishedAt, displayedProjectStatus],
+  );
   const shouldShowPublishSettings = isUnpublishedProject && showPublishSettings;
   const canCloseModal = !savingSettings && !deletingProject && !editingProjectName && !renamingProject;
   const disablePublishAction = savingSettings || deletingProject || endpointValidationError != null;
@@ -379,6 +417,9 @@ export const ProjectSettingsModal: FC<ProjectSettingsModalProps> = ({
                     <span className={`project-status-badge ${displayedProjectStatus}`}>
                       {STATUS_LABELS[displayedProjectStatus]}
                     </span>
+                    {lastPublishedAtLabel ? (
+                      <span className="project-settings-last-published-at">{lastPublishedAtLabel}</span>
+                    ) : null}
                   </div>
                   <div className="project-settings-help project-settings-status-help">
                     {renderStatusExplanation(displayedProjectStatus, displayedEndpointName)}

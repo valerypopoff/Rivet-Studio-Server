@@ -4,6 +4,7 @@ export type WorkflowProjectDownloadVersion = 'live' | 'published';
 export type WorkflowProjectSettings = {
   status: WorkflowProjectStatus;
   endpointName: string;
+  lastPublishedAt: string | null;
 };
 
 export type WorkflowProjectSettingsDraft = {
