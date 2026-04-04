@@ -1,5 +1,7 @@
 # Development
 
+See also: [Mistakes and Misconceptions](./mistakes-and-misconceptions.md)
+
 ## Setup commands
 
 - `npm run setup`
@@ -111,8 +113,8 @@ For host-based API execution, that means the runtime must support `node:sqlite` 
 ## Source of truth
 
 - authored source lives under `wrapper/`, `ops/`, `scripts/`, and `docs/`
-- hosted editor patches that must survive production image builds should live under `wrapper/web/overrides/`, `wrapper/web/dashboard/`, or other tracked wrapper files rather than local edits under `rivet/`
-- `rivet/` is upstream source that can be replaced or refreshed
+- hosted editor patches that must survive production image builds should live under `wrapper/web/overrides/`, `wrapper/web/dashboard/`, or other tracked wrapper files
+- `rivet/` is upstream source that can be replaced or refreshed and should be treated as read-only input for this repo
 - generated build output should not be treated as authored source
 
 ## Safe verification workflow
