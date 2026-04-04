@@ -32,14 +32,18 @@
 
 .dashboard-page .dashboard-editor-frame {
   flex: 1;
-  border: none;
+  border: 0;
+  outline: 0 solid transparent;
+  outline-offset: 0;
+  box-shadow: none;
   width: 0;
   height: 100vh;
 }
 
 .dashboard-page .dashboard-editor-frame:focus,
 .dashboard-page .dashboard-editor-frame:focus-visible {
-  outline: none;
+  outline: 0 solid transparent;
+  outline-offset: 0;
   box-shadow: none;
 }
 

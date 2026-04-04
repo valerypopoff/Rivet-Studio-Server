@@ -81,6 +81,7 @@ For host-based API execution, that means the runtime must support `node:sqlite` 
 ## Source of truth
 
 - authored source lives under `wrapper/`, `ops/`, `scripts/`, and `docs/`
+- hosted editor patches that must survive production image builds should live under `wrapper/web/overrides/`
 - `rivet/` is upstream source that can be replaced or refreshed
 - generated build output should not be treated as authored source
 
@@ -95,6 +96,7 @@ For wrapper/web changes:
 
 1. `npm --prefix wrapper/web run build`
 2. if the change affects editor focus, keyboard shortcuts, or iframe interaction, prefer a real browser smoke test in Docker dev instead of relying only on HMR
+3. if the change lives under `wrapper/web/overrides/` or affects hosted editor save/hotkey behavior, also verify with `npm run prod:local-build`; `npm run prod` may pull already-published images instead of using your local workspace changes
 
 For workflow-library mutations that change on-disk project state:
 
@@ -162,13 +164,14 @@ For hosted editor keyboard-node behavior:
 
 1. `npm run dev`
 2. validate through `http://localhost:8080` by default, or your configured `RIVET_PORT`
-3. open a workflow in the editor iframe
-4. click a node normally and confirm `Ctrl+C` then `Ctrl+V` duplicates it through the internal node clipboard
-5. confirm `Shift+click` multi-selection still copies multiple nodes
-6. open and close an editor context menu or search UI, then confirm `Ctrl+C` and `Ctrl+V` still work after returning to the canvas
-7. confirm `Ctrl+S` works while focus is inside the workflow iframe, including on Windows browsers
-8. confirm the browser can still type normally inside real text inputs and that copy/paste/save shortcuts do not hijack active editor form fields
-9. confirm focusing the workflow canvas does not leave a visible white perimeter around the iframe/editor surface
+3. open a workflow in the editor iframe and confirm the workflow-library row that opened it does not keep the visible browser focus outline
+4. confirm the editor iframe receives keyboard focus after open without showing a visible white perimeter
+5. click a node normally and confirm `Ctrl+C` then `Ctrl+V` duplicates it through the internal node clipboard
+6. deliberately return focus to the workflow library, then confirm `Shift+click` multi-selection inside the editor reclaims iframe focus and still copies multiple nodes
+7. deliberately return focus to the workflow library, then click blank canvas background and confirm `Ctrl+C` / `Ctrl+V` work again without an extra recovery click on a node
+8. open and close an editor context menu or search UI, then confirm `Ctrl+C` and `Ctrl+V` still work after returning to the canvas
+9. confirm `Ctrl+S` works while focus is inside the workflow iframe, including on Windows browsers
+10. confirm the browser can still type normally inside real text inputs and that copy/paste/save shortcuts do not hijack active editor form fields
 
 For published-project save status behavior:
 

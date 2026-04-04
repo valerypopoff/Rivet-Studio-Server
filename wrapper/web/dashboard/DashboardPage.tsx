@@ -33,6 +33,18 @@ type SidebarGhostState = {
   active: boolean;
 } | null;
 
+const focusIframeElement = (iframe: HTMLIFrameElement | null) => {
+  if (!iframe) {
+    return;
+  }
+
+  try {
+    iframe.focus({ preventScroll: true });
+  } catch {
+    iframe.focus();
+  }
+};
+
 export const DashboardPage: FC = () => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const restoreButtonRef = useRef<HTMLButtonElement>(null);
@@ -67,6 +79,10 @@ export const DashboardPage: FC = () => {
   const handleSaveProject = useCallback(() => {
     postEditorCommand({ type: 'save-project' });
   }, [postEditorCommand]);
+
+  const focusEditorFrame = useCallback(() => {
+    focusIframeElement(iframeRef.current);
+  }, []);
 
   const handleDeleteProject = useCallback((path: string) => {
     setOpenedProjectPath((prev) => (prev === path ? '' : prev));
@@ -190,6 +206,7 @@ export const DashboardPage: FC = () => {
         case 'project-opened':
           setOpenedProjectPath(event.data.path);
           setActiveWorkflowProjectPath(event.data.path);
+          focusEditorFrame();
           break;
         case 'active-project-path-changed':
           setOpenedProjectPath(event.data.path);
@@ -208,7 +225,7 @@ export const DashboardPage: FC = () => {
     };
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
-  }, []);
+  }, [focusEditorFrame]);
 
   const showEditorLoading = !editorReady;
   const showSidebar = openProjectCount === 0 || !sidebarCollapsed;
