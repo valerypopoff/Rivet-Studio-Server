@@ -6,6 +6,10 @@
   "scripts": {
     "setup": "node scripts/ensure-dev-deps.mjs",
     "setup:rivet": "node scripts/bootstrap-rivet.mjs",
+    "ui:observe": "node scripts/playwright-observe.mjs test",
+    "ui:observe:debug": "node scripts/playwright-observe.mjs debug",
+    "ui:observe:install": "node scripts/playwright-observe.mjs install",
+    "ui:observe:report": "node scripts/playwright-observe.mjs report",
     "prod": "node scripts/prod-docker.mjs auto",
     "prod:prebuilt": "node scripts/prod-docker.mjs prod-prebuilt",
     "prod:prebuilt:recreate": "node scripts/prod-docker.mjs recreate-prebuilt",

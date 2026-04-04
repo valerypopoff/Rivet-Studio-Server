@@ -63,7 +63,9 @@ function ensureRivetRepo() {
 ensureRivetRepo();
 
 const needsApiDeps = !exists('wrapper/api/node_modules/.bin/tsx');
-const needsWebDeps = !exists('wrapper/web/node_modules/.bin/vite');
+const needsWebDeps =
+  !exists('wrapper/web/node_modules/.bin/vite') ||
+  !exists('wrapper/web/node_modules/.bin/playwright');
 const needsRivetDeps =
   !exists('rivet/.pnp.cjs') ||
   !exists('rivet/.yarn/unplugged') ||
@@ -84,7 +86,7 @@ if (needsApiDeps) {
 
 if (needsWebDeps) {
   console.log('[predev] Installing wrapper/web dependencies');
-  run(npmCmd, ['--prefix', 'wrapper/web', 'install']);
+  run(npmCmd, ['--prefix', 'wrapper/web', 'install', '--legacy-peer-deps']);
 }
 
 if (needsRivetDeps) {

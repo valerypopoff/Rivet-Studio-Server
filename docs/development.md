@@ -28,6 +28,10 @@
 | `npm run prod` | Starts the production-style Docker stack | Smoke-test deployment behavior |
 | `npm run prod:prebuilt` | Pulls prebuilt images and starts without building | Fast deploy verification |
 | `npm run prod:local-build` | Forces a local production image build | Test custom image changes |
+| `npm run ui:observe:install` | Installs Playwright Chromium for observable frontend runs | First-time browser setup |
+| `npm run ui:observe` | Runs the headed slow-motion Playwright flow against the current hosted app | Watch the browser click through a real scenario |
+| `npm run ui:observe:debug` | Runs the same flow with Playwright Inspector enabled | Step through or pause browser actions |
+| `npm run ui:observe:report` | Opens the last Playwright HTML report | Review traces, screenshots, and videos after a run |
 
 ## Environment loading
 
@@ -42,6 +46,32 @@ Current behavior:
   - `RIVET_APP_DATA_ROOT`
   - `RIVET_RUNTIME_LIBRARIES_ROOT`
 - if `RIVET_WORKFLOWS_HOST_PATH` or `RIVET_RUNTIME_LIBS_HOST_PATH` is present, the launcher resolves it to an absolute host path before invoking Docker Compose
+
+## Observable Playwright flow
+
+The repo now includes a headed Playwright workflow for frontend debugging and demos where you want to watch the browser actions live.
+
+Current behavior:
+
+- `npm run ui:observe` launches Chromium in headed mode with `slowMo`, trace capture, video capture, and HTML reporting enabled
+- the runner loads the same `.env` / `.env.dev` file as the Docker scripts, so UI-gated hosts automatically reuse `RIVET_KEY`
+- unless `PLAYWRIGHT_BASE_URL` is already set, the runner targets `http://127.0.0.1:${RIVET_PORT}` from your env file, defaulting to `8080`
+- the current observable spec opens the first project in the first workflow folder, then visibly exercises the hosted editor focus/clipboard recovery path
+- trace, video, screenshots, and the HTML report are written under `artifacts/playwright/`
+
+Typical usage:
+
+1. start the app you want to watch, for example `npm run dev` or `npm run prod:local-build`
+2. if this is the first Playwright run on the machine, run `npm run ui:observe:install`
+3. run `npm run ui:observe`
+4. if you want the Playwright Inspector alongside the browser, run `npm run ui:observe:debug`
+5. after the run, open `npm run ui:observe:report`
+
+Windows PowerShell override example:
+
+1. `$env:PLAYWRIGHT_BASE_URL='http://127.0.0.1:8086'`
+2. `$env:PLAYWRIGHT_SLOW_MO='500'`
+3. `npm run ui:observe`
 
 ## Local direct-process mode
 
