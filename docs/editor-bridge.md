@@ -47,7 +47,8 @@ All message types live in `wrapper/shared/editor-bridge.ts`. Both sides import f
 11. Project uploading also does not use the editor bridge. The dashboard opens a browser file picker, posts the selected file to `POST /api/workflows/projects/upload`, refreshes the workflow tree, and leaves selection and open tabs unchanged.
 12. Project downloading also does not use the editor bridge. The dashboard calls `POST /api/workflows/projects/download` directly and only downloads saved server-side project files.
 13. On `project-saved`, the dashboard refreshes the workflow tree from the API and trusts the server-derived publication status. It does not locally force a `published -> unpublished_changes` status flip first.
-14. If the iframe reloads, `onLoad` resets `editorReady` to `false`, re-enabling the command buffer until `editor-ready` is sent again.
+14. On `project-opened`, both sides of the hosted bridge explicitly move focus to the editor iframe so keyboard shortcuts target the editor instead of the workflow-library row that triggered the open.
+15. If the iframe reloads, `onLoad` resets `editorReady` to `false`, re-enabling the command buffer until `editor-ready` is sent again.
 
 ## Save behavior
 
@@ -55,6 +56,8 @@ Save can be initiated from either context:
 
 - inside the iframe, the editor bridge listens for `Ctrl+S` / `Cmd+S` and calls the editor's normal save flow across platforms, including hosted Windows browser sessions
 - outside the iframe, the dashboard captures the save shortcut and sends `save-project`
+- in hosted mode, the tracked wrapper override of the upstream save hook emits the `rivet-project-saved` DOM event after a successful save, and the bridge forwards that as `project-saved`
+- the hosted wrapper also overrides the upstream Windows hotkey fallback so `Ctrl+S` does not trigger a second save via the legacy keyup path
 
 That lets the hosted shell behave like a single app even though the editor lives in an iframe.
 
@@ -64,7 +67,8 @@ Node copy/paste shortcuts do not cross the editor bridge.
 
 - `Ctrl+C`, `Ctrl+V`, and `Ctrl+D` are handled entirely inside the iframe by the upstream editor-side hotkey logic.
 - The dashboard does not relay those shortcuts to the iframe. That approach was intentionally avoided because iframe-focused keyboard events are not reliable at the parent-page level.
-- In hosted mode, shortcut reliability depends on editor focus, not dashboard focus. The hosted wrapper therefore makes the node canvas focusable and shifts focus back to it on normal canvas/node interactions.
+- In hosted mode, shortcut reliability depends on editor focus, not dashboard focus. The hosted wrapper therefore explicitly focuses the iframe after `project-opened` and reclaims iframe focus on capture-phase pointer interactions inside `.node-canvas`.
+- Once the iframe owns top-level focus again, the upstream node-canvas focus logic continues the handoff inside the iframe document so node-local hotkeys target the canvas rather than a stale sidebar button.
 - The editor also clears focus from temporary editor-local inputs such as context-menu search when those surfaces close, so keyboard node actions are not accidentally blocked by a hidden or stale focused input.
 - The hosted wrapper keeps the iframe and canvas focusable for keyboard reliability but suppresses their visible browser focus outline, so the editor does not show a white perimeter when focused.
 - Save is still special: it crosses the bridge when initiated outside the iframe, but copy/paste/duplicate stay editor-local and iframe-focused save is handled directly inside the editor context.
@@ -78,6 +82,9 @@ Node copy/paste shortcuts do not cross the editor bridge.
 - `wrapper/web/dashboard/useEditorCommandQueue.ts` - pre-ready command buffering
 - `wrapper/web/dashboard/useOpenWorkflowProject.ts` - open/replace-current behavior inside the editor
 - `wrapper/web/io/HostedIOProvider.ts` - API-backed project loading/saving plus replay-project loading
+- `wrapper/web/overrides/hooks/useSaveProject.ts` - hosted save hook override that dispatches `rivet-project-saved`
+- `wrapper/web/overrides/hooks/useWindowsHotkeysFix.tsx` - hosted Windows hotkey override that suppresses duplicate save fallback
+- `wrapper/web/vite-aliases.ts` - Vite alias wiring that redirects hosted builds to tracked wrapper overrides
 - `rivet/packages/app/src/hooks/useCopyNodesHotkeys.ts` - editor-local node copy/paste/duplicate hotkeys
 - `rivet/packages/app/src/components/NodeCanvas.tsx` - hosted canvas focus handoff for keyboard node actions
 - `rivet/packages/app/src/hooks/useContextMenu.ts` - editor context-menu close behavior that clears stale focused search inputs

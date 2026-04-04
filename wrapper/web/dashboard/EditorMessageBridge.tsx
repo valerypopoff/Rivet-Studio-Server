@@ -27,6 +27,34 @@ const isSaveShortcutEvent = (event: KeyboardEvent) =>
   !event.shiftKey &&
   (event.code === 'KeyS' || event.key.toLowerCase() === 's');
 
+const EDITOR_CANVAS_SELECTOR = '.node-canvas';
+const EDITABLE_SURFACE_SELECTOR = 'input, textarea, select, [contenteditable="true"], [contenteditable=""], [role="textbox"]';
+
+const focusIframeElement = (iframe: HTMLIFrameElement | null) => {
+  if (!iframe) {
+    return;
+  }
+
+  try {
+    iframe.focus({ preventScroll: true });
+  } catch {
+    iframe.focus();
+  }
+};
+
+const focusHostedEditorFrame = () => {
+  const frameElement = window.frameElement;
+
+  if (!(frameElement instanceof HTMLIFrameElement)) {
+    return;
+  }
+
+  focusIframeElement(frameElement);
+};
+
+const shouldIgnoreCanvasPointerTarget = (target: Element) =>
+  target.closest(EDITABLE_SURFACE_SELECTOR) !== null || (target instanceof HTMLElement && target.isContentEditable);
+
 function getRecordingStartGraphId(recorder: ExecutionRecorder): string | undefined {
   for (const event of recorder.events) {
     if (event.type === 'start') {
@@ -101,6 +129,29 @@ export const EditorMessageBridge: FC = () => {
     return () => {
       window.removeEventListener('keydown', handler, true);
       document.removeEventListener('keydown', handler, true);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handler = (event: PointerEvent) => {
+      if (!(event.target instanceof Element)) {
+        return;
+      }
+
+      if (shouldIgnoreCanvasPointerTarget(event.target)) {
+        return;
+      }
+
+      if (!event.target.closest(EDITOR_CANVAS_SELECTOR)) {
+        return;
+      }
+
+      focusHostedEditorFrame();
+    };
+
+    document.addEventListener('pointerdown', handler, true);
+    return () => {
+      document.removeEventListener('pointerdown', handler, true);
     };
   }, []);
 
@@ -197,6 +248,7 @@ export const EditorMessageBridge: FC = () => {
           try {
             await openProjectRef.current(event.data.path, { replaceCurrent: Boolean(event.data.replaceCurrent) });
             setLoadedRecording(null);
+            focusHostedEditorFrame();
             postMessageToDashboard({ type: 'project-opened', path: event.data.path });
           } catch (error) {
             const message = getError(error).message;
@@ -226,6 +278,7 @@ export const EditorMessageBridge: FC = () => {
               recorder,
             });
 
+            focusHostedEditorFrame();
             postMessageToDashboard({ type: 'project-opened', path: virtualProjectPath });
           } catch (error) {
             const message = getError(error).message;

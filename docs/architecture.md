@@ -3,7 +3,7 @@
 ## Repository layout
 
 - `rivet/` is upstream Rivet source. `npm run setup` may clone it as a Git checkout for local development, while `npm run setup:rivet` downloads a versioned upstream snapshot for Docker builds.
-- `wrapper/web/` contains the hosted dashboard, browser entrypoint, and browser-safe overrides of upstream editor behavior.
+- `wrapper/web/` contains the hosted dashboard, browser entrypoint, and the tracked alias-based override layer for upstream editor behavior.
 - `wrapper/api/` contains workflow management, publication, recordings, runtime-library management, native IO shims, plugin install/load routes, and guarded shell/config endpoints.
 - `wrapper/shared/` contains browser/server contracts such as hosted env constants, editor-bridge messages, workflow types, and recording helpers.
 - `wrapper/executor/` is the packaged Node executor used behind the executor websocket.
@@ -40,10 +40,10 @@ In local direct-process mode, the services run separately without nginx.
 - `Upload project` opens a browser file picker, uploads a chosen `.rivet-project` into the target folder, refreshes the tree, and leaves selection, open tabs, and folder expansion unchanged.
 - Project Settings shows `Last published at ...` next to the `Published` or `Unpublished changes` status badge. That timestamp comes from stored publication metadata, with a fallback for older already-published projects that predate the explicit field.
 - Browser picker filtering for Rivet's custom file extensions is not fully reliable across browsers, so the dashboard validates the selected filename after picking and the API validates it again before writing anything.
-- The iframe renders the upstream Rivet app plus `EditorMessageBridge`, which coordinates open/save/delete/replay commands with the dashboard via `window.postMessage`.
+- The iframe renders the upstream Rivet app plus wrapper-provided overrides and `EditorMessageBridge`, which coordinates open/save/delete/replay commands with the dashboard via `window.postMessage`.
 - Editor keyboard actions such as `Ctrl+C`, `Ctrl+V`, `Ctrl+D`, and iframe-focused `Ctrl+S` stay anchored to editor-side behavior inside the iframe. The hosted wrapper now makes the node canvas itself a focus target, clears stale editor search/context-menu input focus on normal canvas interactions, and suppresses the browser focus ring on the iframe/canvas so those shortcuts behave like the desktop app without leaving a visible white perimeter.
 - `HostedIOProvider` replaces desktop file APIs with API-backed load/save behavior and supports virtual replay paths of the form `recording://<recordingId>/replay.rivet-project`.
-- Wrapper-specific UI lives under `wrapper/web/dashboard/`. Upstream editor UI still lives under `rivet/packages/app/`.
+- Wrapper-specific UI lives under `wrapper/web/dashboard/`. Hosted editor hook/component overrides live under `wrapper/web/overrides/`. Upstream editor UI still lives under `rivet/packages/app/`.
 
 ## API surface overview
 
@@ -126,5 +126,6 @@ The API now depends on Node's built-in `node:sqlite`, so host-based API executio
 
 - Treat `rivet/` as replaceable upstream code, not as the default home for hosted features.
 - Prefer implementing hosted behavior in `wrapper/` first.
+- If a hosted fix needs to change upstream editor behavior, prefer `wrapper/web/overrides/` plus Vite aliasing over editing `rivet/` directly.
 - `wrapper/shared/` is for contracts both the browser and server need.
 - Route files should stay thin request/response glue; domain logic belongs in helpers or service modules.
