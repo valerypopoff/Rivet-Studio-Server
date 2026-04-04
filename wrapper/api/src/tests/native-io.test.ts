@@ -73,3 +73,35 @@ test('native exists route rejects unsupported baseDir values', async () => {
     assert.match(body.error ?? '', /Invalid option|baseDir/i);
   });
 });
+
+test('native readDir filters apply globs before ignores', () => {
+  const results = nativeIo.applyReadDirFilters(
+    [
+      '/managed/workflows/Alpha.rivet-project',
+      '/managed/workflows/Alpha.rivet-data',
+      '/managed/workflows/nested/Beta.rivet-project',
+      '/managed/workflows/nested/Gamma.rivet-project',
+    ],
+    {
+      filterGlobs: ['**/*.rivet-project'],
+      ignores: ['**/nested/**'],
+    },
+  );
+
+  assert.deepEqual(results, ['/managed/workflows/Alpha.rivet-project']);
+});
+
+test('native readDir filters preserve entries when no filters are provided', () => {
+  const entries = [
+    '/managed/workflows/Alpha.rivet-project',
+    '/managed/workflows/Beta.rivet-project',
+  ];
+
+  assert.deepEqual(
+    nativeIo.applyReadDirFilters(entries, {
+      filterGlobs: [],
+      ignores: [],
+    }),
+    entries,
+  );
+});

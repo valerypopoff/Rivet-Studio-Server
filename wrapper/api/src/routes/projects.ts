@@ -1,46 +1,57 @@
 import { Router } from 'express';
-import fs from 'node:fs/promises';
-import path from 'node:path';
-import { getWorkspaceRoot } from '../security.js';
+import { z } from 'zod';
+
+import { validateBody } from '../middleware/validate.js';
 import { asyncHandler } from '../utils/asyncHandler.js';
+import { getWorkspaceRoot } from '../security.js';
+import {
+  listHostedProjectPaths,
+  loadHostedProject,
+  saveHostedProject,
+} from './workflows/storage-backend.js';
 
 export const projectsRouter = Router();
 
-// GET /api/projects/list — list .rivet-project files in workspace
+const loadProjectSchema = z.object({
+  path: z.string().min(1, 'path is required'),
+});
+
+const saveProjectSchema = z.object({
+  path: z.string().min(1, 'path is required'),
+  contents: z.string(),
+  datasetsContents: z.string().nullable().optional().default(null),
+  expectedRevisionId: z.string().nullable().optional().default(null),
+});
+
 projectsRouter.get('/list', asyncHandler(async (_req, res) => {
-  const root = getWorkspaceRoot();
-  const files = await findProjectFiles(root, 3);
-  res.json({ files });
+  res.json({ files: await listHostedProjectPaths() });
 }));
 
-// POST /api/projects/open-dialog — return list of .rivet-project files
 projectsRouter.post('/open-dialog', asyncHandler(async (_req, res) => {
-  const root = getWorkspaceRoot();
-  const files = await findProjectFiles(root, 5);
-  res.json({ files });
+  res.json({ files: await listHostedProjectPaths() });
 }));
 
-async function findProjectFiles(dir: string, maxDepth: number, depth = 0): Promise<string[]> {
-  if (depth > maxDepth) return [];
+projectsRouter.post('/load', validateBody(loadProjectSchema), asyncHandler(async (req, res) => {
+  const { path } = req.body as z.infer<typeof loadProjectSchema>;
+  res.json(await loadHostedProject(path));
+}));
 
-  const results: string[] = [];
+projectsRouter.post('/save', validateBody(saveProjectSchema), asyncHandler(async (req, res) => {
+  const {
+    path,
+    contents,
+    datasetsContents,
+    expectedRevisionId,
+  } = req.body as z.infer<typeof saveProjectSchema>;
 
-  try {
-    const entries = await fs.readdir(dir, { withFileTypes: true });
+  res.json(await saveHostedProject({
+    projectPath: path,
+    contents,
+    datasetsContents,
+    expectedRevisionId,
+  }));
+}));
 
-    for (const entry of entries) {
-      const fullPath = path.join(dir, entry.name);
-
-      if (entry.isFile() && entry.name.endsWith('.rivet-project')) {
-        results.push(fullPath);
-      } else if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules') {
-        const subResults = await findProjectFiles(fullPath, maxDepth, depth + 1);
-        results.push(...subResults);
-      }
-    }
-  } catch {
-    // Skip directories we can't read
-  }
-
-  return results;
-}
+projectsRouter.get('/workspace-root', (_req, res) => {
+  res.json({ path: getWorkspaceRoot() });
+});

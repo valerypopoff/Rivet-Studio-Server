@@ -6,6 +6,9 @@
   "scripts": {
     "setup": "node scripts/ensure-dev-deps.mjs",
     "setup:rivet": "node scripts/bootstrap-rivet.mjs",
+    "workflow-storage:migrate": "node scripts/run-with-env.mjs \"npm --prefix wrapper/api run workflow-storage:migrate\"",
+    "workflow-storage:verify": "node scripts/run-with-env.mjs \"npm --prefix wrapper/api run workflow-storage:verify\"",
+    "workflow-storage:dangerously-nuke-managed-state": "node scripts/run-with-env.mjs \"npm --prefix wrapper/api run workflow-storage:dangerously-nuke-managed-state --\"",
     "ui:observe": "node scripts/playwright-observe.mjs test",
     "ui:observe:debug": "node scripts/playwright-observe.mjs debug",
     "ui:observe:install": "node scripts/playwright-observe.mjs install",

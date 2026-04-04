@@ -76,8 +76,14 @@ function cleanupSocket() {
 }
 
 function doConnect(url: string) {
+  const nextUrl = url || RIVET_REMOTE_DEBUGGER_DEFAULT_WS;
+
+  if (ws && wsUrl === nextUrl && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+    return;
+  }
+
   cleanupSocket();
-  wsUrl = url || RIVET_REMOTE_DEBUGGER_DEFAULT_WS;
+  wsUrl = nextUrl;
   const socket = new WebSocket(wsUrl);
   ws = socket;
 

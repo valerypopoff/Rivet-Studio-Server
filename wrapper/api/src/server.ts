@@ -14,8 +14,7 @@ import { reconcileRuntimeLibraries } from './runtime-libraries/startup.js';
 import { initializeLatestWorkflowRemoteDebugger } from './latestWorkflowRemoteDebugger.js';
 import { LATEST_WORKFLOWS_BASE_PATH, PUBLISHED_WORKFLOWS_BASE_PATH } from './workflowEndpointPaths.js';
 import { requireAuth } from './middleware/auth.js';
-import { ensureWorkflowsRoot } from './routes/workflows/fs-helpers.js';
-import { initializeWorkflowRecordingStorage } from './routes/workflows/recordings.js';
+import { initializeWorkflowStorage } from './routes/workflows/storage-backend.js';
 
 const app = express();
 const server = createServer(app);
@@ -71,9 +70,8 @@ server.listen(PORT, () => {
     console.error('[runtime-libraries] Startup reconciliation failed:', err);
   });
 
-  ensureWorkflowsRoot()
-    .then((root) => initializeWorkflowRecordingStorage(root))
+  initializeWorkflowStorage()
     .catch((err) => {
-      console.error('[workflow-recordings] Startup reconciliation failed:', err);
+      console.error('[workflow-storage] Startup reconciliation failed:', err);
     });
 });

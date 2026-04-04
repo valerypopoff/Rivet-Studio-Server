@@ -1,4 +1,51 @@
 services:
+  workflow-postgres:
+    profiles: ["workflow-managed"]
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_DB=${RIVET_WORKFLOWS_LOCAL_DOCKER_POSTGRES_DB:-rivet}
+      - POSTGRES_USER=${RIVET_WORKFLOWS_LOCAL_DOCKER_POSTGRES_USER:-rivet}
+      - POSTGRES_PASSWORD=${RIVET_WORKFLOWS_LOCAL_DOCKER_POSTGRES_PASSWORD:-rivet}
+    ports:
+      - "${RIVET_WORKFLOWS_LOCAL_DOCKER_POSTGRES_PORT:-54329}:5432"
+    volumes:
+      - workflow_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${RIVET_WORKFLOWS_LOCAL_DOCKER_POSTGRES_USER:-rivet} -d ${RIVET_WORKFLOWS_LOCAL_DOCKER_POSTGRES_DB:-rivet}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  workflow-minio:
+    profiles: ["workflow-managed"]
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=${RIVET_WORKFLOWS_LOCAL_DOCKER_OBJECT_STORAGE_ACCESS_KEY_ID:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${RIVET_WORKFLOWS_LOCAL_DOCKER_OBJECT_STORAGE_SECRET_ACCESS_KEY:-minioadmin}
+    ports:
+      - "${RIVET_WORKFLOWS_LOCAL_DOCKER_OBJECT_STORAGE_PORT:-9000}:9000"
+      - "${RIVET_WORKFLOWS_LOCAL_DOCKER_OBJECT_STORAGE_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - workflow_minio_data:/data
+    restart: unless-stopped
+
+  workflow-minio-init:
+    profiles: ["workflow-managed"]
+    image: minio/mc:latest
+    depends_on:
+      workflow-minio:
+        condition: service_started
+    entrypoint: >
+      /bin/sh -c "
+        until mc alias set local http://workflow-minio:9000 ${RIVET_WORKFLOWS_LOCAL_DOCKER_OBJECT_STORAGE_ACCESS_KEY_ID:-minioadmin} ${RIVET_WORKFLOWS_LOCAL_DOCKER_OBJECT_STORAGE_SECRET_ACCESS_KEY:-minioadmin}; do
+          sleep 1;
+        done &&
+        mc mb -p local/${RIVET_WORKFLOWS_LOCAL_DOCKER_OBJECT_STORAGE_BUCKET:-rivet-workflows} || true
+      "
+    restart: "no"
+
   proxy:
     image: nginx:alpine
     ports:
@@ -118,6 +165,49 @@ services:
       - RIVET_RUNTIME_LIBRARIES_ROOT=/data/runtime-libraries
       - RIVET_PUBLISHED_WORKFLOWS_BASE_PATH=${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH:-/workflows}
       - RIVET_LATEST_WORKFLOWS_BASE_PATH=${RIVET_LATEST_WORKFLOWS_BASE_PATH:-/workflows-latest}
+      - RIVET_STORAGE_MODE
+      - RIVET_STORAGE_BACKEND
+      - RIVET_DATABASE_MODE
+      - RIVET_DATABASE_URL
+      - RIVET_DATABASE_CONNECTION_STRING
+      - RIVET_DATABASE_SSL_MODE
+      - RIVET_OBJECT_STORAGE_BUCKET
+      - RIVET_OBJECT_STORAGE_REGION
+      - RIVET_OBJECT_STORAGE_ENDPOINT
+      - RIVET_OBJECT_STORAGE_ACCESS_KEY_ID
+      - RIVET_OBJECT_STORAGE_SECRET_ACCESS_KEY
+      - RIVET_OBJECT_STORAGE_PREFIX
+      - RIVET_OBJECT_STORAGE_FORCE_PATH_STYLE
+      - RIVET_STORAGE_URL
+      - RIVET_STORAGE_BUCKET
+      - RIVET_STORAGE_REGION
+      - RIVET_STORAGE_ENDPOINT
+      - RIVET_STORAGE_ACCESS_KEY_ID
+      - RIVET_STORAGE_SECRET_ACCESS_KEY
+      - RIVET_STORAGE_ACCESS_KEY
+      - RIVET_STORAGE_PREFIX
+      - RIVET_STORAGE_FORCE_PATH_STYLE
+      - RIVET_WORKFLOWS_STORAGE_BACKEND
+      - RIVET_WORKFLOWS_DATABASE_MODE
+      - RIVET_WORKFLOWS_DATABASE_URL
+      - RIVET_WORKFLOWS_DATABASE_CONNECTION_STRING
+      - RIVET_WORKFLOWS_DATABASE_SSL_MODE
+      - RIVET_WORKFLOWS_OBJECT_STORAGE_BUCKET
+      - RIVET_WORKFLOWS_OBJECT_STORAGE_REGION
+      - RIVET_WORKFLOWS_OBJECT_STORAGE_ENDPOINT
+      - RIVET_WORKFLOWS_OBJECT_STORAGE_ACCESS_KEY_ID
+      - RIVET_WORKFLOWS_OBJECT_STORAGE_SECRET_ACCESS_KEY
+      - RIVET_WORKFLOWS_OBJECT_STORAGE_PREFIX
+      - RIVET_WORKFLOWS_OBJECT_STORAGE_FORCE_PATH_STYLE
+      - RIVET_WORKFLOWS_STORAGE_URL
+      - RIVET_WORKFLOWS_STORAGE_BUCKET
+      - RIVET_WORKFLOWS_STORAGE_REGION
+      - RIVET_WORKFLOWS_STORAGE_ENDPOINT
+      - RIVET_WORKFLOWS_STORAGE_ACCESS_KEY_ID
+      - RIVET_WORKFLOWS_STORAGE_SECRET_ACCESS_KEY
+      - RIVET_WORKFLOWS_STORAGE_ACCESS_KEY
+      - RIVET_WORKFLOWS_STORAGE_PREFIX
+      - RIVET_WORKFLOWS_STORAGE_FORCE_PATH_STYLE
       - CHOKIDAR_USEPOLLING=true
       - CHOKIDAR_INTERVAL=300
       - RIVET_ENV_ALLOWLIST=${RIVET_ENV_ALLOWLIST:-}
@@ -200,6 +290,10 @@ services:
     restart: unless-stopped
 
 volumes:
+  workflow_postgres_data:
+    driver: local
+  workflow_minio_data:
+    driver: local
   rivet_node_modules:
     driver: local
   wrapper_web_node_modules:

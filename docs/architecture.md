@@ -78,6 +78,7 @@ In local direct-process mode, the services run separately without nginx.
 
 In Docker-based modes:
 
+- `RIVET_ARTIFACTS_HOST_PATH` can act as a shared host root for filesystem-backed artifacts; the launcher derives `workflows/` and `runtime-libraries/` subfolders from it unless the per-path envs are set explicitly.
 - `RIVET_WORKFLOWS_HOST_PATH` backs `/workflows`, so it stores live projects, published snapshots, and recording bundles.
 - `RIVET_RUNTIME_LIBS_HOST_PATH` backs `/data/runtime-libraries`.
 - the app-data directory is a separate volume and holds `recordings.sqlite`, plugin files, and app logs.

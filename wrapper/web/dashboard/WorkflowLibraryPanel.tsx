@@ -472,7 +472,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
         onWorkflowPathsMoved(result.movedProjectPaths);
       }
 
-      await refresh();
+      await refresh(false);
     } catch (err: any) {
       toast.error(err.message || 'Failed to move workflow item');
     } finally {
@@ -533,7 +533,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     try {
       const folder = await createWorkflowFolder(name);
       setExpandedFolders((prev) => ({ ...prev, [folder.id]: true }));
-      await refresh();
+      await refresh(false);
     } catch (err: any) {
       toast.error(err.message || 'Failed to create folder');
     }
@@ -551,7 +551,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
       if (result.movedProjectPaths.length > 0) {
         onWorkflowPathsMoved(result.movedProjectPaths);
       }
-      await refresh();
+      await refresh(false);
     } catch (err: any) {
       toast.error(err.message || 'Failed to rename folder');
     }
@@ -566,7 +566,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     try {
       const project = await createWorkflowProject(folder.relativePath, name);
       setExpandedFolders((prev) => ({ ...prev, [folder.id]: true }));
-      await refresh();
+      await refresh(false);
       onOpenProject(project.absolutePath);
     } catch (err: any) {
       toast.error(err.message || 'Failed to create project');
@@ -581,7 +581,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
 
     try {
       await deleteWorkflowFolder(folder.relativePath);
-      await refresh();
+      await refresh(false);
     } catch (err: any) {
       toast.error(err.message || 'Failed to delete folder');
     }

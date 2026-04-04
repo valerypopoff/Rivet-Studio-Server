@@ -47,7 +47,11 @@ Current behavior:
   - `RIVET_WORKSPACE_ROOT`
   - `RIVET_APP_DATA_ROOT`
   - `RIVET_RUNTIME_LIBRARIES_ROOT`
+- if `RIVET_ARTIFACTS_HOST_PATH` is present, the launcher resolves it to an absolute host path and derives:
+  - `RIVET_WORKFLOWS_HOST_PATH=<artifactsRoot>/workflows`
+  - `RIVET_RUNTIME_LIBS_HOST_PATH=<artifactsRoot>/runtime-libraries`
 - if `RIVET_WORKFLOWS_HOST_PATH` or `RIVET_RUNTIME_LIBS_HOST_PATH` is present, the launcher resolves it to an absolute host path before invoking Docker Compose
+- explicit `RIVET_WORKFLOWS_HOST_PATH` and `RIVET_RUNTIME_LIBS_HOST_PATH` values override the derived paths from `RIVET_ARTIFACTS_HOST_PATH`
 
 ## Observable Playwright flow
 

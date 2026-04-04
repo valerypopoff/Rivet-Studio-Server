@@ -81,6 +81,35 @@ function assertValidPort(value, fallback) {
   return parsed;
 }
 
+function readNormalizedEnv(env, ...names) {
+  for (const name of names) {
+    const value = String(env[name] ?? '').trim().toLowerCase();
+    if (value) {
+      return value;
+    }
+  }
+
+  return '';
+}
+
+function enableManagedWorkflowProfileIfNeeded(env) {
+  const storageBackend = readNormalizedEnv(env, 'RIVET_STORAGE_MODE', 'RIVET_STORAGE_BACKEND', 'RIVET_WORKFLOWS_STORAGE_BACKEND');
+  const databaseMode = readNormalizedEnv(env, 'RIVET_DATABASE_MODE', 'RIVET_WORKFLOWS_DATABASE_MODE');
+  if (storageBackend !== 'managed' || databaseMode !== 'local-docker') {
+    return;
+  }
+
+  const existingProfiles = String(env.COMPOSE_PROFILES ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  if (!existingProfiles.includes('workflow-managed')) {
+    existingProfiles.push('workflow-managed');
+    env.COMPOSE_PROFILES = existingProfiles.join(',');
+  }
+}
+
 function ensurePortAvailable(port) {
   return new Promise((resolve, reject) => {
     const server = net.createServer();
@@ -130,6 +159,8 @@ async function main() {
   if (!Object.prototype.hasOwnProperty.call(mergedEnv, 'COMPOSE_PARALLEL_LIMIT')) {
     mergedEnv.COMPOSE_PARALLEL_LIMIT = '1';
   }
+
+  enableManagedWorkflowProfileIfNeeded(mergedEnv);
 
   const waitTimeoutSeconds = parseInt(mergedEnv.RIVET_DOCKER_WAIT_TIMEOUT ?? '900', 10);
   const proxyPort = assertValidPort(mergedEnv.RIVET_PORT, 8080);

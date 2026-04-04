@@ -24,6 +24,18 @@ export function loadDevEnv(rootDir) {
     mergedEnv.RIVET_RUNTIME_LIBRARIES_ROOT = path.join(rootDir, '.data', 'runtime-libraries');
   }
 
+  if (Object.prototype.hasOwnProperty.call(fileEnv, 'RIVET_ARTIFACTS_HOST_PATH')) {
+    const artifactsRoot = path.resolve(rootDir, fileEnv.RIVET_ARTIFACTS_HOST_PATH);
+
+    if (!Object.prototype.hasOwnProperty.call(fileEnv, 'RIVET_WORKFLOWS_HOST_PATH')) {
+      mergedEnv.RIVET_WORKFLOWS_HOST_PATH = path.join(artifactsRoot, 'workflows');
+    }
+
+    if (!Object.prototype.hasOwnProperty.call(fileEnv, 'RIVET_RUNTIME_LIBS_HOST_PATH')) {
+      mergedEnv.RIVET_RUNTIME_LIBS_HOST_PATH = path.join(artifactsRoot, 'runtime-libraries');
+    }
+  }
+
   if (Object.prototype.hasOwnProperty.call(fileEnv, 'RIVET_WORKFLOWS_HOST_PATH')) {
     mergedEnv.RIVET_WORKFLOWS_HOST_PATH = path.resolve(rootDir, fileEnv.RIVET_WORKFLOWS_HOST_PATH);
   }

@@ -13,10 +13,6 @@ declare let window: HotkeyFixWindow;
 
 const isWindowsPlatform = typeof navigator !== 'undefined' && navigator.userAgent.includes('Win64');
 
-if (isWindowsPlatform) {
-  console.warn('Fix applied for Windows platform');
-}
-
 const isHostedMode = () => {
   if (typeof (tauriUtils as { isHostedMode?: () => boolean }).isHostedMode === 'function') {
     return (tauriUtils as { isHostedMode: () => boolean }).isHostedMode();
@@ -60,7 +56,6 @@ export const useWindowsHotkeysFix = () => {
         return;
       }
 
-      console.warn(`Hotkey Fix: ${code} -> ${menuId}`);
       runMenuCommandImpl(menuId);
     };
 
