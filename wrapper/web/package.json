@@ -110,6 +110,7 @@
     "yaml": "^2.3.3"
   },
   "devDependencies": {
+    "@playwright/test": "^1.53.0",
     "concurrently": "^9.1.2"
   }
 }

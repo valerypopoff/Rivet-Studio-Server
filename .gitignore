@@ -9,6 +9,7 @@ node_modules/
 wrapper/**/node_modules/
 wrapper/api/dist/
 wrapper/web/dist/
+artifacts/playwright/
 
 # Local runtime data
 .data/
