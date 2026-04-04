@@ -46,6 +46,7 @@ if (!('process' in globalScope)) {
 
 await import('../../rivet/packages/app/src/index.css');
 await import('../../rivet/packages/app/src/colors.css');
+await import('./hosted-editor.css');
 
 const isEditorFrame = new URLSearchParams(window.location.search).has('editor');
 

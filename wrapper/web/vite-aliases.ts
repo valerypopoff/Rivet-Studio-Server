@@ -21,6 +21,8 @@ export function createModuleOverrideAliases(overrideDir: string) {
     { find: /^\.\.?\/(?:.*\/)?tauri(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'utils/tauri.ts') },
     { find: /^\.\.?\/(?:.*\/)?ioProvider(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'utils/globals/ioProvider.ts') },
     { find: /^\.\.?\/(?:.*\/)?settings(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'state/settings.ts') },
+    { find: /^\.\.?\/(?:.*\/)?useContextMenu(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'hooks/useContextMenu.ts') },
+    { find: /^\.\.?\/(?:.*\/)?useCopyNodesHotkeys(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'hooks/useCopyNodesHotkeys.ts') },
     { find: /^\.\.?\/(?:.*\/)?useSaveProject(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'hooks/useSaveProject.ts') },
     { find: /^\.\.?\/(?:.*\/)?useExecutorSidecar(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'hooks/useExecutorSidecar.ts') },
     { find: /^\.\.?\/(?:.*\/)?useGraphExecutor(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'hooks/useGraphExecutor.ts') },

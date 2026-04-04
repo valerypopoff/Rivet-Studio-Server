@@ -1,3 +1,7 @@
+// Override for rivet/packages/app/src/hooks/useContextMenu.ts
+// Keeps hosted clipboard recovery in tracked wrapper code so prod image builds
+// do not depend on local edits inside the ignored rivet/ tree.
+
 import { useFloating, autoUpdate, shift, useMergeRefs } from '@floating-ui/react';
 import { useRef, useState, useCallback, useEffect } from 'react';
 
@@ -14,6 +18,13 @@ export const useContextMenu = () => {
   const contextMenuRef = useRef<HTMLDivElement>(null);
   const [showContextMenu, setShowContextMenu] = useState(false);
   const [contextMenuData, setContextMenuData] = useState<ContextMenuData>({ x: -3000, y: 0, data: null });
+  const blurContextMenuFocus = useCallback(() => {
+    const activeElement = document.activeElement;
+
+    if (activeElement instanceof HTMLElement && contextMenuRef.current?.contains(activeElement)) {
+      activeElement.blur();
+    }
+  }, []);
 
   const handleContextMenu = useCallback(
     (event: Pick<React.MouseEvent<HTMLDivElement>, 'clientX' | 'clientY' | 'target'>) => {
@@ -39,12 +50,14 @@ export const useContextMenu = () => {
   useEffect(() => {
     const handleWindowClick = (event: MouseEvent) => {
       if (contextMenuRef.current && !contextMenuRef.current.contains(event.target as Node)) {
+        blurContextMenuFocus();
         setShowContextMenu(false);
       }
     };
 
     const handleEscapePress = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
+        blurContextMenuFocus();
         setShowContextMenu(false);
       }
     };
@@ -55,7 +68,13 @@ export const useContextMenu = () => {
       window.removeEventListener('click', handleWindowClick);
       window.removeEventListener('keydown', handleEscapePress);
     };
-  }, [contextMenuRef]);
+  }, [blurContextMenuFocus, contextMenuRef]);
+
+  useEffect(() => {
+    if (!showContextMenu) {
+      blurContextMenuFocus();
+    }
+  }, [blurContextMenuFocus, showContextMenu]);
 
   refs.setReference = useMergeRefs([refs.setReference, contextMenuRef]) as any;
 
