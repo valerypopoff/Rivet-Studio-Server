@@ -65,11 +65,11 @@ That lets the hosted shell behave like a single app even though the editor lives
 
 Node copy/paste shortcuts do not cross the editor bridge.
 
-- `Ctrl+C`, `Ctrl+V`, and `Ctrl+D` are handled entirely inside the iframe by the upstream editor-side hotkey logic.
+- `Ctrl+C`, `Ctrl+V`, and `Ctrl+D` stay inside the iframe, but hosted builds replace the upstream hotkey hook with a tracked wrapper override so copy/paste reads the latest Jotai state immediately instead of waiting for a React re-render.
 - The dashboard does not relay those shortcuts to the iframe. That approach was intentionally avoided because iframe-focused keyboard events are not reliable at the parent-page level.
 - In hosted mode, shortcut reliability depends on editor focus, not dashboard focus. The hosted wrapper therefore explicitly focuses the iframe after `project-opened` and reclaims iframe focus on capture-phase pointer interactions inside `.node-canvas`.
-- Once the iframe owns top-level focus again, the upstream node-canvas focus logic continues the handoff inside the iframe document so node-local hotkeys target the canvas rather than a stale sidebar button.
-- The editor also clears focus from temporary editor-local inputs such as context-menu search when those surfaces close, so keyboard node actions are not accidentally blocked by a hidden or stale focused input.
+- On those canvas interactions, the hosted editor bridge also focuses the canvas element itself unless the click is on a real form control, and blurs stale editor-local text inputs before keyboard node actions run.
+- The hosted wrapper also replaces the upstream context-menu hook so closing a context menu clears any focused search input instead of leaving a hidden text field intercepting shortcuts.
 - The hosted wrapper keeps the iframe and canvas focusable for keyboard reliability but suppresses their visible browser focus outline, so the editor does not show a white perimeter when focused.
 - Save is still special: it crosses the bridge when initiated outside the iframe, but copy/paste/duplicate stay editor-local and iframe-focused save is handled directly inside the editor context.
 
@@ -82,9 +82,10 @@ Node copy/paste shortcuts do not cross the editor bridge.
 - `wrapper/web/dashboard/useEditorCommandQueue.ts` - pre-ready command buffering
 - `wrapper/web/dashboard/useOpenWorkflowProject.ts` - open/replace-current behavior inside the editor
 - `wrapper/web/io/HostedIOProvider.ts` - API-backed project loading/saving plus replay-project loading
+- `wrapper/web/overrides/hooks/useCopyNodesHotkeys.ts` - hosted clipboard hotkey override that reads the latest node state synchronously
+- `wrapper/web/overrides/hooks/useContextMenu.ts` - hosted context-menu override that clears stale focused menu inputs
 - `wrapper/web/overrides/hooks/useSaveProject.ts` - hosted save hook override that dispatches `rivet-project-saved`
 - `wrapper/web/overrides/hooks/useWindowsHotkeysFix.tsx` - hosted Windows hotkey override that suppresses duplicate save fallback
+- `wrapper/web/hosted-editor.css` - hosted global CSS that suppresses visible canvas focus outlines
 - `wrapper/web/vite-aliases.ts` - Vite alias wiring that redirects hosted builds to tracked wrapper overrides
-- `rivet/packages/app/src/hooks/useCopyNodesHotkeys.ts` - editor-local node copy/paste/duplicate hotkeys
-- `rivet/packages/app/src/components/NodeCanvas.tsx` - hosted canvas focus handoff for keyboard node actions
-- `rivet/packages/app/src/hooks/useContextMenu.ts` - editor context-menu close behavior that clears stale focused search inputs
+- `rivet/packages/app/src/components/NodeCanvas.tsx` - upstream canvas component that still renders the editor surface and calls the hosted overrides

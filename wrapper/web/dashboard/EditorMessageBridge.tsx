@@ -28,17 +28,17 @@ const isSaveShortcutEvent = (event: KeyboardEvent) =>
   (event.code === 'KeyS' || event.key.toLowerCase() === 's');
 
 const EDITOR_CANVAS_SELECTOR = '.node-canvas';
-const EDITABLE_SURFACE_SELECTOR = 'input, textarea, select, [contenteditable="true"], [contenteditable=""], [role="textbox"]';
+const CANVAS_FOCUS_PRESERVE_SELECTOR = 'input, textarea, select, button, [contenteditable="true"], [contenteditable=""], [role="textbox"]';
 
-const focusIframeElement = (iframe: HTMLIFrameElement | null) => {
-  if (!iframe) {
+const focusElement = (element: HTMLElement | HTMLIFrameElement | null) => {
+  if (!element) {
     return;
   }
 
   try {
-    iframe.focus({ preventScroll: true });
+    element.focus({ preventScroll: true });
   } catch {
-    iframe.focus();
+    element.focus();
   }
 };
 
@@ -49,11 +49,39 @@ const focusHostedEditorFrame = () => {
     return;
   }
 
-  focusIframeElement(frameElement);
+  focusElement(frameElement);
 };
 
-const shouldIgnoreCanvasPointerTarget = (target: Element) =>
-  target.closest(EDITABLE_SURFACE_SELECTOR) !== null || (target instanceof HTMLElement && target.isContentEditable);
+const isEditableElement = (element: Element | null | undefined): element is HTMLElement => {
+  if (!(element instanceof HTMLElement)) {
+    return false;
+  }
+
+  if (element.isContentEditable) {
+    return true;
+  }
+
+  return ['input', 'textarea', 'select'].includes(element.tagName.toLowerCase());
+};
+
+const shouldPreserveCanvasFocusTarget = (target: Element) =>
+  target.closest(CANVAS_FOCUS_PRESERVE_SELECTOR) !== null || (target instanceof HTMLElement && target.isContentEditable);
+
+const focusHostedEditorCanvas = (target: Element) => {
+  const canvasElement = target.closest(EDITOR_CANVAS_SELECTOR);
+
+  if (!(canvasElement instanceof HTMLElement) || shouldPreserveCanvasFocusTarget(target)) {
+    return;
+  }
+
+  const activeElement = document.activeElement;
+  if (isEditableElement(activeElement)) {
+    activeElement.blur();
+  }
+
+  canvasElement.tabIndex = -1;
+  focusElement(canvasElement);
+};
 
 function getRecordingStartGraphId(recorder: ExecutionRecorder): string | undefined {
   for (const event of recorder.events) {
@@ -138,15 +166,12 @@ export const EditorMessageBridge: FC = () => {
         return;
       }
 
-      if (shouldIgnoreCanvasPointerTarget(event.target)) {
-        return;
-      }
-
       if (!event.target.closest(EDITOR_CANVAS_SELECTOR)) {
         return;
       }
 
       focusHostedEditorFrame();
+      focusHostedEditorCanvas(event.target);
     };
 
     document.addEventListener('pointerdown', handler, true);

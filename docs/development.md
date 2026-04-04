@@ -111,7 +111,7 @@ For host-based API execution, that means the runtime must support `node:sqlite` 
 ## Source of truth
 
 - authored source lives under `wrapper/`, `ops/`, `scripts/`, and `docs/`
-- hosted editor patches that must survive production image builds should live under `wrapper/web/overrides/`
+- hosted editor patches that must survive production image builds should live under `wrapper/web/overrides/`, `wrapper/web/dashboard/`, or other tracked wrapper files rather than local edits under `rivet/`
 - `rivet/` is upstream source that can be replaced or refreshed
 - generated build output should not be treated as authored source
 
@@ -125,7 +125,7 @@ For wrapper/API changes:
 For wrapper/web changes:
 
 1. `npm --prefix wrapper/web run build`
-2. if the change affects editor focus, keyboard shortcuts, or iframe interaction, prefer a real browser smoke test in Docker dev instead of relying only on HMR
+2. if the change affects editor focus, keyboard shortcuts, or iframe interaction, run `PLAYWRIGHT_HEADLESS=1`, `PLAYWRIGHT_SLOW_MO=0`, then `node scripts/playwright-observe.mjs test`
 3. if the change lives under `wrapper/web/overrides/` or affects hosted editor save/hotkey behavior, also verify with `npm run prod:local-build`; `npm run prod` may pull already-published images instead of using your local workspace changes
 
 For workflow-library mutations that change on-disk project state:
@@ -202,6 +202,12 @@ For hosted editor keyboard-node behavior:
 8. open and close an editor context menu or search UI, then confirm `Ctrl+C` and `Ctrl+V` still work after returning to the canvas
 9. confirm `Ctrl+S` works while focus is inside the workflow iframe, including on Windows browsers
 10. confirm the browser can still type normally inside real text inputs and that copy/paste/save shortcuts do not hijack active editor form fields
+
+For hosted editor production-image regressions:
+
+1. remember that `npm run prod` prefers pulled images, while `npm run prod:local-build` uses your current workspace
+2. if dev works but prod does not, diff the behavior against clean upstream `rivet` and move any hosted-only patch into tracked wrapper code before trusting the local result
+3. for clipboard regressions specifically, check the tracked hosted overrides for `useCopyNodesHotkeys`, `useContextMenu`, and the canvas focus handoff in `EditorMessageBridge.tsx`
 
 For published-project save status behavior:
 
