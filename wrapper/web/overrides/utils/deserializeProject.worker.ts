@@ -7,15 +7,33 @@ self.addEventListener('message', (event) => {
 async function handleMessage(event: MessageEvent) {
   const { id, type, data } = event.data;
 
-  if (type !== 'deserializeProject') {
-    return;
-  }
-
   try {
     const { deserializeProject } = await import('@ironclad/rivet-core');
-    const [project] = deserializeProject(data);
-    self.postMessage({ id, type: 'deserializeProject:result', result: project });
+    const payload = typeof data === 'object' && data != null && 'serializedProject' in data
+      ? data as { serializedProject: unknown; path?: string }
+      : { serializedProject: data, path: undefined };
+
+    if (type === 'deserializeProject') {
+      const [project] = deserializeProject(payload.serializedProject, payload.path);
+      self.postMessage({ id, type: 'deserializeProject:result', result: project });
+      return;
+    }
+
+    if (type === 'deserializeHostedProjectPayload') {
+      const [project, attachedData] = deserializeProject(payload.serializedProject, payload.path);
+      self.postMessage({
+        id,
+        type: 'deserializeHostedProjectPayload:result',
+        result: {
+          project,
+          serializedTrivetData: attachedData.trivet ?? null,
+        },
+      });
+    }
   } catch (error) {
-    self.postMessage({ id, type: 'deserializeProject:result', error });
+    const responseType = type === 'deserializeHostedProjectPayload'
+      ? 'deserializeHostedProjectPayload:result'
+      : 'deserializeProject:result';
+    self.postMessage({ id, type: responseType, error });
   }
 }

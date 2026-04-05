@@ -80,6 +80,33 @@ type RevisionRow = {
   created_at: Date | string;
 };
 
+type CurrentDraftRevisionRow = {
+  workflow_id: string;
+  name: string;
+  file_name: string;
+  relative_path: string;
+  folder_relative_path: string;
+  updated_at: Date | string;
+  current_draft_revision_id: string;
+  published_revision_id: string | null;
+  endpoint_name: string;
+  published_endpoint_name: string;
+  last_published_at: Date | string | null;
+  revision_id: string;
+  revision_workflow_id: string;
+  project_blob_key: string;
+  dataset_blob_key: string | null;
+  revision_created_at: Date | string;
+};
+
+type FolderMoveRow = {
+  relative_path: string;
+  name: string;
+  parent_relative_path: string;
+  updated_at: Date | string;
+  moved_relative_paths: string[] | null;
+};
+
 type RecordingRow = {
   recording_id: string;
   workflow_id: string;
@@ -181,7 +208,7 @@ type ImportManagedWorkflowRecordingOptions = {
   replayDatasetContents?: string | null;
 };
 
-const SCHEMA_SQL = `
+const MANAGED_WORKFLOW_SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS workflow_folders (
   relative_path TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -223,6 +250,141 @@ CREATE TABLE IF NOT EXISTS workflow_endpoints (
 CREATE INDEX IF NOT EXISTS workflow_endpoints_workflow_id_idx ON workflow_endpoints(workflow_id);
 CREATE INDEX IF NOT EXISTS workflows_folder_relative_path_idx ON workflows(folder_relative_path);
 CREATE INDEX IF NOT EXISTS workflow_revisions_workflow_id_idx ON workflow_revisions(workflow_id);
+CREATE INDEX IF NOT EXISTS workflow_folders_relative_path_prefix_idx ON workflow_folders(relative_path text_pattern_ops);
+CREATE INDEX IF NOT EXISTS workflow_folders_parent_relative_path_idx ON workflow_folders(parent_relative_path);
+CREATE INDEX IF NOT EXISTS workflow_folders_parent_relative_path_prefix_idx ON workflow_folders(parent_relative_path text_pattern_ops);
+CREATE INDEX IF NOT EXISTS workflows_relative_path_prefix_idx ON workflows(relative_path text_pattern_ops);
+CREATE INDEX IF NOT EXISTS workflows_folder_relative_path_prefix_idx ON workflows(folder_relative_path text_pattern_ops);
+
+DROP FUNCTION IF EXISTS move_managed_workflow_folder(TEXT, TEXT, TEXT, TEXT);
+
+CREATE FUNCTION move_managed_workflow_folder(
+  source_relative_path TEXT,
+  temporary_prefix TEXT,
+  target_relative_path TEXT,
+  folder_name TEXT
+) RETURNS TABLE (
+  relative_path TEXT,
+  name TEXT,
+  parent_relative_path TEXT,
+  updated_at TIMESTAMPTZ,
+  moved_relative_paths TEXT[]
+) LANGUAGE plpgsql AS $$
+DECLARE
+  target_parent_relative_path TEXT := CASE
+    WHEN position('/' in target_relative_path) = 0 THEN ''
+    ELSE regexp_replace(target_relative_path, '/[^/]+$', '')
+  END;
+  source_prefix_pattern TEXT := replace(replace(replace(source_relative_path, '\', '\\'), '%', '\%'), '_', '\_') || '/%';
+  temporary_prefix_pattern TEXT := replace(replace(replace(temporary_prefix, '\', '\\'), '%', '\%'), '_', '\_') || '/%';
+  moved_paths TEXT[] := ARRAY[]::TEXT[];
+BEGIN
+  PERFORM 1
+  FROM workflow_folders AS folder
+  WHERE folder.relative_path = source_relative_path
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Folder not found' USING ERRCODE = 'P0002';
+  END IF;
+
+  PERFORM 1
+  FROM workflow_folders AS folder
+  WHERE folder.relative_path = source_relative_path OR folder.relative_path LIKE source_prefix_pattern ESCAPE '\'
+  FOR UPDATE;
+
+  IF target_parent_relative_path <> '' THEN
+    PERFORM 1
+    FROM workflow_folders AS folder
+    WHERE folder.relative_path = target_parent_relative_path
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
+      RAISE EXCEPTION 'Folder not found' USING ERRCODE = 'P0002';
+    END IF;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM workflow_folders AS folder
+    WHERE folder.relative_path = target_relative_path
+  ) THEN
+    RAISE EXCEPTION 'Folder already exists: %', folder_name USING ERRCODE = '23505';
+  END IF;
+
+  WITH locked_workflows AS (
+    SELECT workflow.relative_path
+    FROM workflows AS workflow
+    WHERE workflow.relative_path = source_relative_path OR workflow.relative_path LIKE source_prefix_pattern ESCAPE '\'
+    ORDER BY workflow.relative_path ASC
+    FOR UPDATE
+  )
+  SELECT COALESCE(array_agg(locked_workflows.relative_path ORDER BY locked_workflows.relative_path ASC), ARRAY[]::TEXT[])
+  INTO moved_paths
+  FROM locked_workflows;
+
+  UPDATE workflow_folders AS folder
+  SET relative_path = CASE
+        WHEN folder.relative_path = source_relative_path THEN temporary_prefix
+        ELSE temporary_prefix || substring(folder.relative_path from char_length(source_relative_path) + 1)
+      END,
+      parent_relative_path = CASE
+        WHEN folder.parent_relative_path = source_relative_path THEN temporary_prefix
+        WHEN folder.parent_relative_path LIKE source_prefix_pattern ESCAPE '\' THEN temporary_prefix || substring(folder.parent_relative_path from char_length(source_relative_path) + 1)
+        ELSE folder.parent_relative_path
+      END,
+      updated_at = NOW()
+  WHERE folder.relative_path = source_relative_path OR folder.relative_path LIKE source_prefix_pattern ESCAPE '\';
+
+  UPDATE workflows AS workflow
+  SET relative_path = CASE
+        WHEN workflow.relative_path = source_relative_path THEN temporary_prefix
+        ELSE temporary_prefix || substring(workflow.relative_path from char_length(source_relative_path) + 1)
+      END,
+      folder_relative_path = CASE
+        WHEN workflow.folder_relative_path = source_relative_path THEN temporary_prefix
+        WHEN workflow.folder_relative_path LIKE source_prefix_pattern ESCAPE '\' THEN temporary_prefix || substring(workflow.folder_relative_path from char_length(source_relative_path) + 1)
+        ELSE workflow.folder_relative_path
+      END,
+      updated_at = NOW()
+  WHERE workflow.relative_path = source_relative_path OR workflow.relative_path LIKE source_prefix_pattern ESCAPE '\';
+
+  UPDATE workflow_folders AS folder
+  SET relative_path = CASE
+        WHEN folder.relative_path = temporary_prefix THEN target_relative_path
+        ELSE target_relative_path || substring(folder.relative_path from char_length(temporary_prefix) + 1)
+      END,
+      name = CASE
+        WHEN folder.relative_path = temporary_prefix THEN folder_name
+        ELSE folder.name
+      END,
+      parent_relative_path = CASE
+        WHEN folder.parent_relative_path = temporary_prefix THEN target_relative_path
+        WHEN folder.parent_relative_path LIKE temporary_prefix_pattern ESCAPE '\' THEN target_relative_path || substring(folder.parent_relative_path from char_length(temporary_prefix) + 1)
+        ELSE folder.parent_relative_path
+      END,
+      updated_at = NOW()
+  WHERE folder.relative_path = temporary_prefix OR folder.relative_path LIKE temporary_prefix_pattern ESCAPE '\';
+
+  UPDATE workflows AS workflow
+  SET relative_path = CASE
+        WHEN workflow.relative_path = temporary_prefix THEN target_relative_path
+        ELSE target_relative_path || substring(workflow.relative_path from char_length(temporary_prefix) + 1)
+      END,
+      folder_relative_path = CASE
+        WHEN workflow.folder_relative_path = temporary_prefix THEN target_relative_path
+        WHEN workflow.folder_relative_path LIKE temporary_prefix_pattern ESCAPE '\' THEN target_relative_path || substring(workflow.folder_relative_path from char_length(temporary_prefix) + 1)
+        ELSE workflow.folder_relative_path
+      END,
+      updated_at = NOW()
+  WHERE workflow.relative_path = temporary_prefix OR workflow.relative_path LIKE temporary_prefix_pattern ESCAPE '\';
+
+  RETURN QUERY
+    SELECT workflow_folders.relative_path, workflow_folders.name, workflow_folders.parent_relative_path, workflow_folders.updated_at, moved_paths
+    FROM workflow_folders
+    WHERE workflow_folders.relative_path = target_relative_path;
+END;
+$$;
 
 CREATE TABLE IF NOT EXISTS workflow_recordings (
   recording_id TEXT PRIMARY KEY,
@@ -257,6 +419,13 @@ function toIsoString(value: string | Date | null | undefined): string | null {
   }
 
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+
+function isUniqueViolation(error: unknown): boolean {
+  return typeof error === 'object' &&
+    error != null &&
+    'code' in error &&
+    String((error as { code?: unknown }).code ?? '') === '23505';
 }
 
 function getWorkflowStatus(row: WorkflowRow): WorkflowProjectStatus {
@@ -298,15 +467,46 @@ function mapFolderRowToFolderItem(row: FolderRow): WorkflowFolderItem {
   };
 }
 
+function splitCurrentDraftRevisionRow(row: CurrentDraftRevisionRow): { workflow: WorkflowRow; revision: RevisionRow } {
+  return {
+    workflow: {
+      workflow_id: row.workflow_id,
+      name: row.name,
+      file_name: row.file_name,
+      relative_path: row.relative_path,
+      folder_relative_path: row.folder_relative_path,
+      updated_at: row.updated_at,
+      current_draft_revision_id: row.current_draft_revision_id,
+      published_revision_id: row.published_revision_id,
+      endpoint_name: row.endpoint_name,
+      published_endpoint_name: row.published_endpoint_name,
+      last_published_at: row.last_published_at,
+    },
+    revision: {
+      revision_id: row.revision_id,
+      workflow_id: row.revision_workflow_id,
+      project_blob_key: row.project_blob_key,
+      dataset_blob_key: row.dataset_blob_key,
+      created_at: row.revision_created_at,
+    },
+  };
+}
+
 function getPoolConfig(config: ManagedWorkflowStorageConfig) {
+  const sharedConfig = {
+    connectionString: config.databaseUrl,
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 30_000,
+    idleTimeoutMillis: 30_000,
+    max: 10,
+  };
+
   if (config.databaseSslMode === 'disable') {
-    return {
-      connectionString: config.databaseUrl,
-    };
+    return sharedConfig;
   }
 
   return {
-    connectionString: config.databaseUrl,
+    ...sharedConfig,
     ssl: {
       rejectUnauthorized: config.databaseSslMode === 'verify-full',
     },
@@ -382,7 +582,7 @@ export class ManagedWorkflowBackend {
     if (!this.#schemaReadyPromise) {
       this.#schemaReadyPromise = (async () => {
         await this.#blobStore.initialize?.();
-        await withManagedDbRetry('managed schema initialization', () => this.#pool.query(SCHEMA_SQL));
+        await withManagedDbRetry('managed schema initialization', () => this.#pool.query(MANAGED_WORKFLOW_SCHEMA_SQL));
       })();
     }
 
@@ -508,6 +708,40 @@ export class ManagedWorkflowBackend {
       `,
       [revisionId],
     );
+  }
+
+  async #getCurrentDraftWorkflowRevision(
+    client: PoolClient | Pool,
+    relativePath: string,
+  ): Promise<{ workflow: WorkflowRow; revision: RevisionRow } | null> {
+    const row = await queryOne<CurrentDraftRevisionRow>(
+      client,
+      `
+        SELECT
+          w.workflow_id,
+          w.name,
+          w.file_name,
+          w.relative_path,
+          w.folder_relative_path,
+          w.updated_at,
+          w.current_draft_revision_id,
+          w.published_revision_id,
+          w.endpoint_name,
+          w.published_endpoint_name,
+          w.last_published_at,
+          r.revision_id,
+          r.workflow_id AS revision_workflow_id,
+          r.project_blob_key,
+          r.dataset_blob_key,
+          r.created_at AS revision_created_at
+        FROM workflows w
+        JOIN workflow_revisions r ON r.revision_id = w.current_draft_revision_id
+        WHERE w.relative_path = $1
+      `,
+      [relativePath],
+    );
+
+    return row ? splitCurrentDraftRevisionRow(row) : null;
   }
 
   async #getEndpointOwner(client: PoolClient | Pool, lookupName: string): Promise<{ workflow_id: string } | null> {
@@ -751,20 +985,15 @@ export class ManagedWorkflowBackend {
   async loadHostedProject(projectPath: string): Promise<LoadHostedProjectResult> {
     await this.initialize();
     const relativePath = parseManagedWorkflowProjectVirtualPath(projectPath);
-    const workflow = await this.#getWorkflowByRelativePath(this.#pool, relativePath);
-    if (!workflow) {
-      throw createHttpError(404, 'Project not found');
-    }
-
-    const revision = await this.#getRevision(this.#pool, workflow.current_draft_revision_id);
-    if (!revision) {
+    const loaded = await this.#getCurrentDraftWorkflowRevision(this.#pool, relativePath);
+    if (!loaded) {
       throw createHttpError(404, 'Project revision not found');
     }
 
-    const contents = await this.#readRevisionContents(revision);
+    const contents = await this.#readRevisionContents(loaded.revision);
     return {
       ...contents,
-      revisionId: revision.revision_id,
+      revisionId: loaded.revision.revision_id,
     };
   }
 
@@ -976,17 +1205,12 @@ export class ManagedWorkflowBackend {
   async readHostedText(filePath: string): Promise<string> {
     if (isManagedWorkflowDatasetVirtualPath(filePath)) {
       const projectRelativePath = getProjectRelativePathFromDatasetVirtualPath(filePath);
-      const workflow = await this.#getWorkflowByRelativePath(this.#pool, projectRelativePath);
-      if (!workflow) {
+      const loaded = await this.#getCurrentDraftWorkflowRevision(this.#pool, projectRelativePath);
+      if (!loaded?.revision.dataset_blob_key) {
         throw createHttpError(404, 'Dataset not found');
       }
 
-      const revision = await this.#getRevision(this.#pool, workflow.current_draft_revision_id);
-      if (!revision?.dataset_blob_key) {
-        throw createHttpError(404, 'Dataset not found');
-      }
-
-      return this.#blobStore.getText(revision.dataset_blob_key);
+      return this.#blobStore.getText(loaded.revision.dataset_blob_key);
     }
 
     const loadedProject = await this.loadHostedProject(filePath);
@@ -997,18 +1221,12 @@ export class ManagedWorkflowBackend {
     try {
       if (isManagedWorkflowDatasetVirtualPath(filePath)) {
         const projectRelativePath = getProjectRelativePathFromDatasetVirtualPath(filePath);
-        const workflow = await this.#getWorkflowByRelativePath(this.#pool, projectRelativePath);
-        if (!workflow) {
-          return false;
-        }
-
-        const revision = await this.#getRevision(this.#pool, workflow.current_draft_revision_id);
-        return Boolean(revision?.dataset_blob_key);
+        const loaded = await this.#getCurrentDraftWorkflowRevision(this.#pool, projectRelativePath);
+        return Boolean(loaded?.revision.dataset_blob_key);
       }
 
       const relativePath = parseManagedWorkflowProjectVirtualPath(filePath);
-      const workflow = await this.#getWorkflowByRelativePath(this.#pool, relativePath);
-      return Boolean(workflow);
+      return Boolean(await this.#getCurrentDraftWorkflowRevision(this.#pool, relativePath));
     } catch {
       return false;
     }
@@ -1016,17 +1234,12 @@ export class ManagedWorkflowBackend {
 
   async resolveManagedRelativeProjectText(relativeFrom: string, projectFilePath: string): Promise<string> {
     const resolvedRelativePath = resolveManagedWorkflowRelativeReference(relativeFrom, projectFilePath);
-    const workflow = await this.#getWorkflowByRelativePath(this.#pool, resolvedRelativePath);
-    if (!workflow) {
-      throw createHttpError(404, 'Project not found');
-    }
-
-    const revision = await this.#getRevision(this.#pool, workflow.current_draft_revision_id);
-    if (!revision) {
+    const loaded = await this.#getCurrentDraftWorkflowRevision(this.#pool, resolvedRelativePath);
+    if (!loaded) {
       throw createHttpError(404, 'Project revision not found');
     }
 
-    return this.#blobStore.getText(revision.project_blob_key);
+    return this.#blobStore.getText(loaded.revision.project_blob_key);
   }
 
   async createWorkflowFolderItem(name: unknown, parentRelativePath: unknown) {
@@ -1115,122 +1328,51 @@ export class ManagedWorkflowBackend {
   }
 
   async #moveFolderRelativePath(sourceRelativePath: string, targetRelativePath: string): Promise<{ folder: WorkflowFolderItem; movedProjectPaths: WorkflowProjectPathMove[] }> {
-    return this.#withTransaction(async (client) => {
-      await this.#assertFolderExists(client, sourceRelativePath);
-      await this.#assertFolderExists(client, path.posix.dirname(targetRelativePath) === '.' ? '' : path.posix.dirname(targetRelativePath));
+    try {
+      return await this.#withTransaction(async (client) => {
+        const temporaryPrefix = `.__move__-${randomUUID()}`;
+        const folderName = path.posix.basename(targetRelativePath);
+        const folderRow = await queryOne<FolderMoveRow>(
+          client,
+          `
+            SELECT relative_path, name, parent_relative_path, updated_at, moved_relative_paths
+            FROM move_managed_workflow_folder($1, $2, $3, $4)
+          `,
+          [
+            sourceRelativePath,
+            temporaryPrefix,
+            targetRelativePath,
+            folderName,
+          ],
+        );
 
-      if (await queryOne(client, 'SELECT relative_path FROM workflow_folders WHERE relative_path = $1', [targetRelativePath])) {
+        if (!folderRow) {
+          throw createHttpError(500, 'Moved folder could not be loaded');
+        }
+
+        const movedProjectPaths = (folderRow.moved_relative_paths ?? []).map((relativePath) => ({
+          fromAbsolutePath: getManagedWorkflowProjectVirtualPath(relativePath),
+          toAbsolutePath: getManagedWorkflowProjectVirtualPath(
+            `${targetRelativePath}${relativePath.slice(sourceRelativePath.length)}`,
+          ),
+        }));
+
+        return {
+          folder: mapFolderRowToFolderItem(folderRow),
+          movedProjectPaths,
+        };
+      });
+    } catch (error) {
+      if (typeof error === 'object' && error != null && 'code' in error && String((error as { code?: unknown }).code ?? '') === 'P0002') {
+        throw createHttpError(404, 'Folder not found');
+      }
+
+      if (isUniqueViolation(error)) {
         throw conflict(`Folder already exists: ${path.posix.basename(targetRelativePath)}`);
       }
 
-      const workflowRows = await queryRows<WorkflowRow>(
-        client,
-        `
-          SELECT workflow_id, name, file_name, relative_path, folder_relative_path, updated_at,
-                 current_draft_revision_id, published_revision_id, endpoint_name, published_endpoint_name, last_published_at
-          FROM workflows
-          WHERE relative_path = $1 OR relative_path LIKE $2
-          ORDER BY relative_path ASC
-        `,
-        [sourceRelativePath, `${sourceRelativePath}/%`],
-      );
-
-      const movedProjectPaths = workflowRows.map((workflow) => ({
-        fromAbsolutePath: getManagedWorkflowProjectVirtualPath(workflow.relative_path),
-        toAbsolutePath: getManagedWorkflowProjectVirtualPath(
-          `${targetRelativePath}${workflow.relative_path.slice(sourceRelativePath.length)}`,
-        ),
-      }));
-
-      const temporaryPrefix = `.__move__-${randomUUID()}`;
-
-      await client.query(
-        `
-          UPDATE workflow_folders
-          SET relative_path = CASE
-                WHEN relative_path = $1 THEN $2
-                ELSE $2 || substring(relative_path from char_length($1) + 1)
-              END,
-              parent_relative_path = CASE
-                WHEN parent_relative_path = $1 THEN $2
-                WHEN parent_relative_path LIKE $3 THEN $2 || substring(parent_relative_path from char_length($1) + 1)
-                ELSE parent_relative_path
-              END,
-              updated_at = NOW()
-          WHERE relative_path = $1 OR relative_path LIKE $3
-        `,
-        [sourceRelativePath, temporaryPrefix, `${sourceRelativePath}/%`],
-      );
-      await client.query(
-        `
-          UPDATE workflows
-          SET relative_path = CASE
-                WHEN relative_path = $1 THEN $2
-                ELSE $2 || substring(relative_path from char_length($1) + 1)
-              END,
-              folder_relative_path = CASE
-                WHEN folder_relative_path = $1 THEN $2
-                WHEN folder_relative_path LIKE $3 THEN $2 || substring(folder_relative_path from char_length($1) + 1)
-                ELSE folder_relative_path
-              END,
-              updated_at = NOW()
-          WHERE relative_path = $1 OR relative_path LIKE $3
-        `,
-        [sourceRelativePath, temporaryPrefix, `${sourceRelativePath}/%`],
-      );
-      await client.query(
-        `
-          UPDATE workflow_folders
-          SET relative_path = CASE
-                WHEN relative_path = $1 THEN $2
-                ELSE $2 || substring(relative_path from char_length($1) + 1)
-              END,
-              name = CASE
-                WHEN relative_path = $1 THEN $4
-                ELSE name
-              END,
-              parent_relative_path = CASE
-                WHEN parent_relative_path = $1 THEN $2
-                WHEN parent_relative_path LIKE $3 THEN $2 || substring(parent_relative_path from char_length($1) + 1)
-                ELSE parent_relative_path
-              END,
-              updated_at = NOW()
-          WHERE relative_path = $1 OR relative_path LIKE $3
-        `,
-        [temporaryPrefix, targetRelativePath, `${temporaryPrefix}/%`, path.posix.basename(targetRelativePath)],
-      );
-      await client.query(
-        `
-          UPDATE workflows
-          SET relative_path = CASE
-                WHEN relative_path = $1 THEN $2
-                ELSE $2 || substring(relative_path from char_length($1) + 1)
-              END,
-              folder_relative_path = CASE
-                WHEN folder_relative_path = $1 THEN $2
-                WHEN folder_relative_path LIKE $3 THEN $2 || substring(folder_relative_path from char_length($1) + 1)
-                ELSE folder_relative_path
-              END,
-              updated_at = NOW()
-          WHERE relative_path = $1 OR relative_path LIKE $3
-        `,
-        [temporaryPrefix, targetRelativePath, `${temporaryPrefix}/%`],
-      );
-
-      const folderRow = await queryOne<FolderRow>(
-        client,
-        'SELECT relative_path, name, parent_relative_path, updated_at FROM workflow_folders WHERE relative_path = $1',
-        [targetRelativePath],
-      );
-      if (!folderRow) {
-        throw createHttpError(500, 'Moved folder could not be loaded');
-      }
-
-      return {
-        folder: mapFolderRowToFolderItem(folderRow),
-        movedProjectPaths,
-      };
-    });
+      throw error;
+    }
   }
 
   async deleteWorkflowFolderItem(relativePath: unknown): Promise<void> {

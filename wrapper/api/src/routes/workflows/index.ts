@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { validateBody } from '../../middleware/validate.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { badRequest } from '../../utils/httpError.js';
+import { createResponseTimingMiddleware } from '../../utils/responseTiming.js';
 import {
   PROJECT_EXTENSION,
 } from './fs-helpers.js';
@@ -30,6 +31,7 @@ import {
 import { createWorkflowDownloadContentDisposition } from './workflow-download.js';
 
 export const workflowsRouter = Router();
+const timing = createResponseTimingMiddleware();
 
 workflowsRouter.use((req, res, next) => {
   if (req.method === 'GET') {
@@ -101,7 +103,7 @@ const recordingsRunsQuerySchema = z.object({
   status: z.enum(['all', 'failed']).optional().default('all'),
 });
 
-workflowsRouter.get('/tree', asyncHandler(async (_req, res) => {
+workflowsRouter.get('/tree', timing, asyncHandler(async (_req, res) => {
   res.json(await getWorkflowTree());
 }));
 
@@ -165,7 +167,7 @@ workflowsRouter.post('/folders', validateBody(createFolderSchema), asyncHandler(
   res.status(201).json({ folder });
 }));
 
-workflowsRouter.patch('/folders', validateBody(renameFolderSchema), asyncHandler(async (req, res) => {
+workflowsRouter.patch('/folders', timing, validateBody(renameFolderSchema), asyncHandler(async (req, res) => {
   const { relativePath, newName } = req.body as z.infer<typeof renameFolderSchema>;
   res.json(await renameWorkflowFolderItemWithBackend(relativePath, newName));
 }));

@@ -91,6 +91,190 @@ const remapExpandedFolderIds = (
   return changed ? nextExpandedFolders : expandedFolders;
 };
 
+const rewriteWorkflowPathPrefix = (value: string, fromPath: string, toPath: string): string => {
+  const normalizedValue = normalizeWorkflowPath(value);
+  const normalizedFromPath = normalizeWorkflowPath(fromPath);
+  const normalizedToPath = normalizeWorkflowPath(toPath);
+
+  if (normalizedValue === normalizedFromPath) {
+    return normalizedToPath;
+  }
+
+  if (normalizedValue.startsWith(`${normalizedFromPath}/`)) {
+    return `${normalizedToPath}${normalizedValue.slice(normalizedFromPath.length)}`;
+  }
+
+  return value;
+};
+
+const rewriteProjectForFolderMove = (
+  project: WorkflowProjectItem,
+  sourceFolder: WorkflowFolderItem,
+  destinationFolder: WorkflowFolderItem,
+): WorkflowProjectItem => ({
+  ...project,
+  relativePath: rewriteWorkflowPathPrefix(project.relativePath, sourceFolder.relativePath, destinationFolder.relativePath),
+  absolutePath: rewriteWorkflowPathPrefix(project.absolutePath, sourceFolder.absolutePath, destinationFolder.absolutePath),
+});
+
+const rewriteFolderTreeForFolderMove = (
+  folder: WorkflowFolderItem,
+  sourceFolder: WorkflowFolderItem,
+  destinationFolder: WorkflowFolderItem,
+): WorkflowFolderItem => {
+  const nextFolders = folder.folders.map((childFolder) =>
+    rewriteFolderTreeForFolderMove(childFolder, sourceFolder, destinationFolder));
+  const nextProjects = folder.projects.map((project) =>
+    rewriteProjectForFolderMove(project, sourceFolder, destinationFolder));
+  const normalizedFolderPath = normalizeWorkflowPath(folder.relativePath);
+  const normalizedSourcePath = normalizeWorkflowPath(sourceFolder.relativePath);
+  const isMovedFolder = normalizedFolderPath === normalizedSourcePath ||
+    normalizedFolderPath.startsWith(`${normalizedSourcePath}/`);
+
+  if (!isMovedFolder) {
+    return {
+      ...folder,
+      folders: nextFolders,
+      projects: nextProjects,
+    };
+  }
+
+  const isMovedRoot = normalizedFolderPath === normalizedSourcePath;
+
+  return {
+    ...folder,
+    id: rewriteWorkflowPathPrefix(folder.id, sourceFolder.relativePath, destinationFolder.relativePath),
+    name: isMovedRoot ? destinationFolder.name : folder.name,
+    relativePath: rewriteWorkflowPathPrefix(folder.relativePath, sourceFolder.relativePath, destinationFolder.relativePath),
+    absolutePath: rewriteWorkflowPathPrefix(folder.absolutePath, sourceFolder.absolutePath, destinationFolder.absolutePath),
+    updatedAt: isMovedRoot ? destinationFolder.updatedAt : folder.updatedAt,
+    folders: nextFolders,
+    projects: nextProjects,
+  };
+};
+
+const detachFolderFromTree = (
+  folders: WorkflowFolderItem[],
+  sourceRelativePath: string,
+): {
+  folders: WorkflowFolderItem[];
+  removedFolder: WorkflowFolderItem | null;
+} => {
+  const normalizedSourcePath = normalizeWorkflowPath(sourceRelativePath);
+  let removedFolder: WorkflowFolderItem | null = null;
+  let changed = false;
+
+  const nextFolders: WorkflowFolderItem[] = [];
+
+  for (const folder of folders) {
+    if (normalizeWorkflowPath(folder.relativePath) === normalizedSourcePath) {
+      removedFolder = folder;
+      changed = true;
+      continue;
+    }
+
+    const detachedChildren = detachFolderFromTree(folder.folders, sourceRelativePath);
+    if (detachedChildren.removedFolder) {
+      removedFolder = detachedChildren.removedFolder;
+      changed = true;
+      nextFolders.push({
+        ...folder,
+        folders: detachedChildren.folders,
+      });
+      continue;
+    }
+
+    nextFolders.push(folder);
+  }
+
+  return {
+    folders: changed ? nextFolders : folders,
+    removedFolder,
+  };
+};
+
+const insertFolderIntoTree = (
+  folders: WorkflowFolderItem[],
+  parentRelativePath: string,
+  folderToInsert: WorkflowFolderItem,
+): {
+  folders: WorkflowFolderItem[];
+  inserted: boolean;
+} => {
+  const normalizedParentPath = normalizeWorkflowPath(parentRelativePath);
+
+  if (!normalizedParentPath) {
+    return {
+      folders: [...folders, folderToInsert],
+      inserted: true,
+    };
+  }
+
+  let inserted = false;
+  const nextFolders = folders.map((folder) => {
+    if (normalizeWorkflowPath(folder.relativePath) === normalizedParentPath) {
+      inserted = true;
+      return {
+        ...folder,
+        folders: [...folder.folders, folderToInsert],
+      };
+    }
+
+    const insertedChildren = insertFolderIntoTree(folder.folders, parentRelativePath, folderToInsert);
+    if (!insertedChildren.inserted) {
+      return folder;
+    }
+
+    inserted = true;
+    return {
+      ...folder,
+      folders: insertedChildren.folders,
+    };
+  });
+
+  return {
+    folders: inserted ? nextFolders : folders,
+    inserted,
+  };
+};
+
+const applyFolderMoveToTree = (
+  folders: WorkflowFolderItem[],
+  rootProjects: WorkflowProjectItem[],
+  sourceFolder: WorkflowFolderItem,
+  destinationFolder: WorkflowFolderItem,
+): {
+  folders: WorkflowFolderItem[];
+  rootProjects: WorkflowProjectItem[];
+} => {
+  const rewrittenInPlace = {
+    folders: folders.map((folder) => rewriteFolderTreeForFolderMove(folder, sourceFolder, destinationFolder)),
+    rootProjects: rootProjects.map((project) => rewriteProjectForFolderMove(project, sourceFolder, destinationFolder)),
+  };
+  const sourceParentRelativePath = getParentRelativePath(sourceFolder.relativePath);
+  const destinationParentRelativePath = getParentRelativePath(destinationFolder.relativePath);
+
+  if (normalizeWorkflowPath(sourceParentRelativePath) === normalizeWorkflowPath(destinationParentRelativePath)) {
+    return rewrittenInPlace;
+  }
+
+  const detached = detachFolderFromTree(folders, sourceFolder.relativePath);
+  if (!detached.removedFolder) {
+    return rewrittenInPlace;
+  }
+
+  const movedFolder = rewriteFolderTreeForFolderMove(detached.removedFolder, sourceFolder, destinationFolder);
+  const inserted = insertFolderIntoTree(detached.folders, destinationParentRelativePath, movedFolder);
+  if (!inserted.inserted) {
+    return rewrittenInPlace;
+  }
+
+  return {
+    folders: inserted.folders,
+    rootProjects,
+  };
+};
+
 async function pickWorkflowProjectFile(): Promise<File | null> {
   if ('showOpenFilePicker' in window) {
     try {
@@ -207,13 +391,22 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   const refreshRequestIdRef = useRef(0);
   const projectSaveRefreshTimeoutRef = useRef<number | null>(null);
 
-  const refresh = useCallback(async (showLoading = true) => {
+  const refresh = useCallback(async (
+    showLoading = true,
+    options?: {
+      preserveVisibleTreeOnError?: boolean;
+      onError?: (message: string) => void;
+    },
+  ) => {
     const requestId = ++refreshRequestIdRef.current;
+    const preserveVisibleTreeOnError = options?.preserveVisibleTreeOnError ?? false;
 
     if (showLoading) {
       setLoading(true);
     }
-    setError(null);
+    if (!preserveVisibleTreeOnError) {
+      setError(null);
+    }
 
     try {
       const tree = await fetchWorkflowTree();
@@ -250,7 +443,11 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
         return;
       }
 
-      setError(err.message || 'Failed to load workflow folders');
+      const message = err.message || 'Failed to load workflow folders';
+      if (!preserveVisibleTreeOnError) {
+        setError(message);
+      }
+      options?.onError?.(message);
     } finally {
       if (requestId === refreshRequestIdRef.current) {
         setLoading(false);
@@ -269,8 +466,22 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
 
     projectSaveRefreshTimeoutRef.current = window.setTimeout(() => {
       projectSaveRefreshTimeoutRef.current = null;
-      void refresh(false);
+      void refresh(false, {
+        preserveVisibleTreeOnError: true,
+        onError: (message) => {
+          toast.error(message);
+        },
+      });
     }, PROJECT_SAVE_REFRESH_DELAY_MS);
+  }, [refresh]);
+
+  const reconcileWorkflowTreeInBackground = useCallback((message: string) => {
+    void refresh(false, {
+      preserveVisibleTreeOnError: true,
+      onError: (errorMessage) => {
+        toast.error(errorMessage || message);
+      },
+    });
   }, [refresh]);
 
   useEffect(() => () => {
@@ -447,6 +658,9 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     }
 
     try {
+      const sourceFolder = draggedItem.itemType === 'folder'
+        ? flattenedFolders.find((folder) => folder.relativePath === draggedItem.relativePath) ?? null
+        : null;
       const result = await moveWorkflowItem(
         draggedItem.itemType,
         draggedItem.relativePath,
@@ -466,13 +680,23 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
         } else {
           setExpandedFolders((prev) => ({ ...prev, [movedFolder.id]: true }));
         }
+
+        if (sourceFolder && draggedItem.itemType === 'folder') {
+          const nextTree = applyFolderMoveToTree(folders, rootProjects, sourceFolder, movedFolder);
+          setFolders(nextTree.folders);
+          setRootProjects(nextTree.rootProjects);
+        }
       }
 
       if (result.movedProjectPaths.length > 0) {
-        onWorkflowPathsMoved(result.movedProjectPaths);
+        handleWorkflowProjectPathsMoved(result.movedProjectPaths);
       }
 
-      await refresh(false);
+      if (draggedItem.itemType === 'folder' && result.folder && sourceFolder) {
+        reconcileWorkflowTreeInBackground('Workflow moved, but failed to refresh the tree');
+      } else {
+        await refresh(false);
+      }
     } catch (err: any) {
       toast.error(err.message || 'Failed to move workflow item');
     } finally {
@@ -547,11 +771,14 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
 
     try {
       const result = await renameWorkflowFolder(folder.relativePath, newName);
+      const nextTree = applyFolderMoveToTree(folders, rootProjects, folder, result.folder);
+      setFolders(nextTree.folders);
+      setRootProjects(nextTree.rootProjects);
       setExpandedFolders((prev) => remapExpandedFolderIds(prev, folder.relativePath, result.folder.relativePath));
       if (result.movedProjectPaths.length > 0) {
-        onWorkflowPathsMoved(result.movedProjectPaths);
+        handleWorkflowProjectPathsMoved(result.movedProjectPaths);
       }
-      await refresh(false);
+      reconcileWorkflowTreeInBackground('Folder renamed, but failed to refresh the tree');
     } catch (err: any) {
       toast.error(err.message || 'Failed to rename folder');
     }

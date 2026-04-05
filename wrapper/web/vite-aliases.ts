@@ -25,6 +25,7 @@ export function createModuleOverrideAliases(overrideDir: string) {
     { find: /^\.\.?\/(?:.*\/)?useCheckForUpdate(\.js|\.ts|\.tsx)?$/, replacement: resolve(overrideDir, 'hooks/useCheckForUpdate.tsx') },
     { find: /^\.\.?\/(?:.*\/)?useContextMenu(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'hooks/useContextMenu.ts') },
     { find: /^\.\.?\/(?:.*\/)?useCopyNodesHotkeys(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'hooks/useCopyNodesHotkeys.ts') },
+    { find: /^\.\.?\/(?:.*\/)?useLoadProject(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'hooks/useLoadProject.ts') },
     { find: /^\.\.?\/(?:.*\/)?useMenuCommands(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'hooks/useMenuCommands.ts') },
     { find: /^\.\.?\/(?:.*\/)?useSaveProject(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'hooks/useSaveProject.ts') },
     { find: /^\.\.?\/(?:.*\/)?useExecutorSidecar(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'hooks/useExecutorSidecar.ts') },

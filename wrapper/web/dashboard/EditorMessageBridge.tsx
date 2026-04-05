@@ -1,8 +1,6 @@
 import { type FC, useEffect, useRef } from 'react';
 import { useOpenWorkflowProject } from './useOpenWorkflowProject';
 import { ExecutionRecorder, getError } from '@ironclad/rivet-core';
-import { useLoadProject } from '../../../rivet/packages/app/src/hooks/useLoadProject';
-import { useSaveProject } from '../../../rivet/packages/app/src/hooks/useSaveProject';
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import {
   loadedProjectState,
@@ -20,6 +18,10 @@ import {
 } from '../../shared/editor-bridge';
 import { getWorkflowRecordingVirtualProjectPath } from '../../shared/workflow-recording-types';
 import { fetchWorkflowRecordingArtifactText } from './workflowApi';
+import { clearOpenedProjectSession, remapOpenedProjectSessionPaths } from '../io/openedProjectSessionCache';
+import { clearHostedProjectRevisionPath, remapHostedProjectRevisionPaths } from '../io/HostedIOProvider';
+import { useLoadProject } from '../overrides/hooks/useLoadProject';
+import { useSaveProject } from '../overrides/hooks/useSaveProject';
 
 const isSaveShortcutEvent = (event: KeyboardEvent) =>
   (event.ctrlKey || event.metaKey) &&
@@ -199,6 +201,7 @@ export const EditorMessageBridge: FC = () => {
         case 'delete-workflow-project': {
           const deletedPath = event.data.path;
           const deletedProjectId = openedProjectIds.find((projectId) => openedProjects[projectId]?.fsPath === deletedPath);
+          clearHostedProjectRevisionPath(deletedPath);
 
           if (!deletedProjectId) {
             if (loadedProject.path === deletedPath) {
@@ -212,6 +215,7 @@ export const EditorMessageBridge: FC = () => {
           const remainingProjects = Object.fromEntries(
             Object.entries(openedProjects).filter(([projectId]) => projectId !== deletedProjectId),
           ) as Record<string, OpenedProjectInfo>;
+          clearOpenedProjectSession(deletedProjectId);
 
           setProjects({
             openedProjects: remainingProjects,
@@ -244,6 +248,8 @@ export const EditorMessageBridge: FC = () => {
           }
 
           const moveMap = new Map(moves.map((move) => [move.fromAbsolutePath, move.toAbsolutePath]));
+          remapOpenedProjectSessionPaths(moves);
+          remapHostedProjectRevisionPaths(moves);
           const openedProjectsRecord = openedProjects as Record<string, OpenedProjectInfo>;
           const nextOpenedProjects = Object.fromEntries(
             Object.entries(openedProjectsRecord).map(([projectId, projectInfo]) => [

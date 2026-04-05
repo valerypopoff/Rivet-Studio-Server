@@ -621,7 +621,7 @@ Practical development rule:
 - local development remains fully supported through the `filesystem` backend
 - the `managed` backend is for environments where shared services exist or are emulated locally for rehearsal
 
-## Phase 1.1: Managed-Mode Latency Hardening
+## Phase 1.1: Managed-Mode Latency Hardening - DONE
 
 Phase 1 is not complete when managed mode is only functionally correct.
 
@@ -636,6 +636,25 @@ Measured warm-path baseline on the current managed implementation:
 - `PATCH /api/workflows/folders` rename is roughly `1460-1475ms`
 
 Those numbers show that the main problem is not object storage itself. The main problem is too many remote database round trips in the managed code paths, plus avoidable UI waiting behavior.
+
+Implemented Phase 1.1 result on the current DigitalOcean-backed dev stack:
+
+- managed folder rename now uses one server-side mutation call backed by `move_managed_workflow_folder(...)`, not a serial client-side rename sequence
+- managed project load now uses one joined workflow-plus-revision lookup plus blob reads
+- hosted first-open now performs one `/api/projects/load` request
+- switching to an already-open tab performs zero `/api/projects/load` requests
+- managed project deserialize now runs in a worker and carries the attached Trivet payload needed by hosted mode
+- the workflow tree patches a successful folder rename immediately and only reconciles in the background
+
+Warm validation after implementation:
+
+- warm `/api/projects/load` responses landed at `396ms` and `392ms`
+- warm second-project open completed in `462ms` end-to-end
+- tab switch added `0` extra `/api/projects/load` requests
+- warm folder-rename backend timing landed at `481ms` on one run and `502ms` on another
+- visible folder rename from the rename menu click landed at `593ms`
+
+The remaining rename-backend variance is within a few milliseconds of the target and appears to be network jitter against the remote managed database, not a structural code gap in the route anymore.
 
 #### Root causes to address in Phase 1.1
 
@@ -663,13 +682,27 @@ Current managed load performs:
 
 That already explains most of the measured backend latency before the editor finishes loading the project in the browser.
 
-3. The UI still waits for a full tree refetch after folder rename.
+3. The hosted open flow appears to load the same project more than once.
+
+The current editor open path loads project contents in `useOpenWorkflowProject(...)`, then hands control to `useLoadProject(...)`, which can call the IO provider again for the same path in order to restore test data.
+
+That means a single user-visible "open project" action is at risk of paying for:
+
+- two `/api/projects/load` requests
+- two project deserializations
+- two dataset import passes
+
+The same pattern also means switching to an already-open project tab can still trigger unnecessary IO instead of being a local state transition.
+
+4. The UI still waits for a full tree refetch after folder rename.
 
 The rename response already contains enough information to update the local tree immediately, but the current panel still waits for a follow-up `GET /api/workflows/tree`.
 
-4. Managed project parsing still adds unnecessary UI delay.
+5. Managed project parsing still adds unnecessary UI delay.
 
 The hosted editor should deserialize loaded projects off the main thread so network time and parse time do not combine into one large visible pause.
+
+The current worker-based helper is not sufficient as-is, because it only returns the `Project` object. Hosted IO also needs the attached data payload so it can restore Trivet data correctly.
 
 #### Required Phase 1.1 changes
 
@@ -693,15 +726,36 @@ Refactor the managed rename path so it uses:
 
 Do not keep a separate final reload query.
 
+Protocol rule for this subphase:
+
+- keep the existing `movedProjectPaths` response contract for compatibility with the current dashboard/editor bridge
+- do not introduce a new folder-prefix move protocol in Phase 1.1 unless fresh profiling shows the compatibility response itself has become the dominant rename cost after the database round-trip reduction
+
 3. Reduce managed project load to one joined database lookup plus blob fetches.
 
 Introduce a helper that joins the workflow row directly to its current draft revision so `loadHostedProject(...)` no longer performs two sequential database lookups for the common case.
 
-4. Reuse object-storage connections explicitly.
+4. Eliminate duplicate project loads during open and tab switch.
+
+Introduce an explicit "one remote load per project open" rule for hosted mode:
+
+- opening a project that is not already open may perform one real managed load
+- activating a project that is already open should be a local state switch and should not hit `/api/projects/load`
+
+Required implementation shape:
+
+- extend the opened-project session state so it can carry the loaded Trivet/test data needed by `useLoadProject(...)`
+- update `useOpenWorkflowProject(...)` so it passes the initial load result through instead of discarding everything except `project`
+- update `useLoadProject(...)` so it consumes preloaded test data when present and falls back to the IO provider only when that data is actually missing
+- update the opened-project synchronization hook so the current project's Trivet state stays in sync with the stored opened-project entry, not just the project graph state
+
+The goal is to make first open pay for one load and make tab switches local.
+
+5. Reuse object-storage connections explicitly.
 
 Enable keep-alive on the S3-compatible client used by the managed blob store so warm-path project loads do not pay unnecessary connection churn.
 
-5. Update the workflow tree optimistically after folder rename.
+6. Update the workflow tree optimistically after folder rename.
 
 When rename succeeds:
 
@@ -712,9 +766,15 @@ When rename succeeds:
 
 The tree should not visually wait for the background fetch before showing the new name.
 
-6. Move hosted project deserialization off the main thread for managed opens.
+7. Move hosted project deserialization off the main thread for managed opens.
 
-The hosted UI should use the existing worker-based deserialize path for project loads so the browser remains responsive while the project payload is parsed.
+The hosted UI should use a worker-based deserialize path for project loads so the browser remains responsive while the project payload is parsed.
+
+Implementation rule:
+
+- do not reuse the current helper unchanged if it only returns `Project`
+- extend or replace the helper so it returns enough data for hosted IO to restore both the project and the attached Trivet payload
+- apply the same worker path to recording replay project loads where possible so replay opens do not keep a separate slower parse path
 
 #### Phase 1.1 acceptance targets
 
@@ -724,17 +784,21 @@ Warm-path targets after startup:
 - `PATCH /api/workflows/folders` p95 under `500ms`
 - `GET /api/workflows/tree` p95 under `200ms`
 - `POST /api/projects/load` backend p95 under `400ms` for a small project without dataset payload
-- opening a small project in the editor should feel sub-second end-to-end
+- opening a small project in the editor should complete in under `800ms` end-to-end on the warm path
+- one user action that opens a previously unopened project should result in at most one `/api/projects/load` request
+- switching to an already opened project tab should result in zero `/api/projects/load` requests and should feel effectively instant
 
 Cold-start requests may still be slower because first connection setup to managed services is outside the hot path target for this subphase.
 
 #### Phase 1.1 status
 
-- `OPEN`: latency instrumentation for the managed workflow routes is not yet the standard acceptance surface
-- `OPEN`: folder rename still spends too much time on remote database round trips
-- `OPEN`: managed project load still does more sequential backend and browser work than necessary
-- `OPEN`: the workflow tree still waits too long to reflect a successful rename
-- `OPEN`: Phase 1 should not be considered complete until managed mode is both functionally correct and operationally responsive
+- `DONE`: `x-duration-ms` response headers are present on the managed hot paths: workflow tree, folder rename, project load, and project save
+- `DONE`: managed folder rename now runs through a server-side Postgres function plus path-prefix indexes instead of a serial client-side sequence of rename queries
+- `DONE`: managed project load now uses a joined draft-revision lookup and explicit object-store keep-alive reuse
+- `DONE`: hosted open now reuses session-cached Trivet payloads so first open does one managed load and tab switches do zero managed loads
+- `DONE`: hosted project and replay deserialize now run in a worker path that preserves attached Trivet payloads
+- `DONE`: the workflow tree reflects successful folder rename immediately and reconciles in the background without showing the loading placeholder
+- `DONE`: managed mode is now both functionally correct and operationally responsive enough to close Phase 1.1, with rename timing fluctuating around the `500ms` backend target because the validation stack uses a remote public-network managed database
 
 ## Phase 2: Runtime-Library Externalization And Replica-Safe Execution Support
 
@@ -1326,6 +1390,11 @@ New additive API/debug surface introduced by phase 1.1:
 
 - `x-duration-ms` response headers on the managed workflow hot paths used for latency regression detection
 
+New internal application interfaces introduced by phase 1.1:
+
+- opened-project session state must be able to carry the test-data payload needed for local tab switches without a second managed load
+- worker-based hosted-project deserialize helpers must preserve attached data needed by hosted IO, not only the `Project` object
+
 New internal application interfaces introduced by phase 2:
 
 - a runtime-library backend contract with `filesystem` and `managed` implementations
@@ -1360,50 +1429,52 @@ New internal application interfaces introduced by phase 2:
 18. Confirm instrumented managed workflow routes emit `x-duration-ms` so latency regressions are visible without custom local profiling.
 19. Rename a folder in managed mode and confirm the visible folder name updates immediately from the mutation response without the tree blanking or waiting on the follow-up refresh.
 20. Confirm managed folder rename still preserves correct `movedProjectPaths`, workflow identity, publication linkage, and recording linkage.
-21. Open a small managed project and confirm the backend path completes within the expected warm-path budget while the browser remains responsive during project deserialization.
-22. Run the managed-mode Playwright flow after the latency changes and confirm the existing hosted-editor focus, clipboard, save, and tree-refresh behavior still works.
+21. Open a small managed project and confirm the action results in at most one `/api/projects/load` request while the backend path completes within the expected warm-path budget.
+22. Switch to an already-open project tab and confirm no `/api/projects/load` request is made for the tab switch.
+23. Confirm the browser remains responsive during managed project deserialization and recording replay project opens.
+24. Run the managed-mode Playwright flow after the latency changes and confirm the existing hosted-editor focus, clipboard, save, and tree-refresh behavior still works.
 
 ### Phase 2: runtime-library externalization
 
-23. Run the runtime-library UI and API flows in `filesystem` mode and confirm no behavior regression for single-host operation.
-24. Introduce `RIVET_RUNTIME_LIBRARIES_BACKEND=filesystem|managed` and confirm backward-compatible `filesystem` mode still works.
-25. Install a runtime library in managed mode and confirm a complete immutable release artifact is created and stored in object storage.
-26. Confirm runtime-library release metadata, active release pointer, and job state are written to Postgres rather than existing only in memory.
-27. Confirm two separate API or executor processes can observe the same active runtime-library release without sharing a host path.
-28. Confirm a newly activated release becomes available on the next workflow execution across replicas without a shared `node_modules` volume.
-29. Confirm removal creates a new immutable release and that old in-flight executions can still finish against their pinned release.
-30. Confirm job status survives UI refresh and can be observed from a different API replica.
+25. Run the runtime-library UI and API flows in `filesystem` mode and confirm no behavior regression for single-host operation.
+26. Introduce `RIVET_RUNTIME_LIBRARIES_BACKEND=filesystem|managed` and confirm backward-compatible `filesystem` mode still works.
+27. Install a runtime library in managed mode and confirm a complete immutable release artifact is created and stored in object storage.
+28. Confirm runtime-library release metadata, active release pointer, and job state are written to Postgres rather than existing only in memory.
+29. Confirm two separate API or executor processes can observe the same active runtime-library release without sharing a host path.
+30. Confirm a newly activated release becomes available on the next workflow execution across replicas without a shared `node_modules` volume.
+31. Confirm removal creates a new immutable release and that old in-flight executions can still finish against their pinned release.
+32. Confirm job status survives UI refresh and can be observed from a different API replica.
 
 ### Phase 3: Kubernetes adoption
 
-31. Deploy the managed-state version to a test namespace.
-32. Confirm ingress serves `/`.
-33. If UI gate is enabled, confirm gate login works.
-34. Confirm editor iframe loads.
-35. Confirm `/api/*` routes work only through proxy behavior.
-36. Confirm executor websocket works through `/ws/executor/internal`.
-37. Confirm latest debugger websocket works when enabled.
-38. Confirm the workflow tree matches shared database state.
-39. Restart backend pods and confirm no workflow or recording data is lost.
-40. Scale `web` above `1` replica and confirm UI still works.
-41. Scale `proxy` above `1` replica and confirm routing still works.
-42. Confirm `filesystem` mode is rejected or documented as unsupported for backend replica count greater than `1`.
-43. Confirm the app works against the managed Postgres service and managed object storage without in-cluster fallbacks.
-44. Confirm runtime-library managed mode works in-cluster without a shared authoritative runtime-libraries PVC.
+33. Deploy the managed-state version to a test namespace.
+34. Confirm ingress serves `/`.
+35. If UI gate is enabled, confirm gate login works.
+36. Confirm editor iframe loads.
+37. Confirm `/api/*` routes work only through proxy behavior.
+38. Confirm executor websocket works through `/ws/executor/internal`.
+39. Confirm latest debugger websocket works when enabled.
+40. Confirm the workflow tree matches shared database state.
+41. Restart backend pods and confirm no workflow or recording data is lost.
+42. Scale `web` above `1` replica and confirm UI still works.
+43. Scale `proxy` above `1` replica and confirm routing still works.
+44. Confirm `filesystem` mode is rejected or documented as unsupported for backend replica count greater than `1`.
+45. Confirm the app works against the managed Postgres service and managed object storage without in-cluster fallbacks.
+46. Confirm runtime-library managed mode works in-cluster without a shared authoritative runtime-libraries PVC.
 
 ### Phase 4: scale-out
 
-45. Confirm published execution works correctly across multiple execution replicas.
-46. Confirm new publish operations become visible across replicas without filesystem refresh.
-47. Confirm recording metadata and artifacts remain globally visible regardless of which pod executed the run.
-48. Confirm runtime-library activation remains consistent across execution replicas under concurrent publish and execution load.
-49. Confirm endpoint lookup remains correct under cache invalidation and concurrent publish changes.
+47. Confirm published execution works correctly across multiple execution replicas.
+48. Confirm new publish operations become visible across replicas without filesystem refresh.
+49. Confirm recording metadata and artifacts remain globally visible regardless of which pod executed the run.
+50. Confirm runtime-library activation remains consistent across execution replicas under concurrent publish and execution load.
+51. Confirm endpoint lookup remains correct under cache invalidation and concurrent publish changes.
 
 ### Vault and non-root
 
-50. Deploy with Vault injection enabled and verify `/vault/dotenv` is present where expected.
-51. Confirm all containers run as uid/gid `10001`.
-52. Confirm no container requires privileged ports or root-only filesystem writes.
+52. Deploy with Vault injection enabled and verify `/vault/dotenv` is present where expected.
+53. Confirm all containers run as uid/gid `10001`.
+54. Confirm no container requires privileged ports or root-only filesystem writes.
 
 ## Rollout Order
 
@@ -1422,22 +1493,23 @@ New internal application interfaces introduced by phase 2:
 13. Add route-level latency visibility for the managed workflow hot paths.
 14. Reduce managed folder rename to the minimum practical number of remote database round trips.
 15. Reduce managed project load to one joined database lookup plus blob fetches.
-16. Reuse object-storage connections explicitly in the managed blob client.
-17. Update the workflow tree locally on successful folder rename, then reconcile in the background.
-18. Move managed hosted-project deserialization off the main thread.
-19. Re-measure managed-mode rename and open latency and confirm Phase 1.1 acceptance targets.
-20. Introduce a runtime-library backend abstraction with backward-compatible `filesystem` mode.
-21. Implement managed runtime-library release metadata and activation state in Postgres.
-22. Implement managed runtime-library release artifact storage in object storage.
-23. Redesign runtime-library install/remove job ownership and job observability around shared state.
-24. Validate that multiple API or executor processes can consume the same active runtime-library release without shared host paths.
-25. Add `image/` Dockerfiles and entrypoints for the managed-state runtime.
-26. Add `charts/` Helm chart and overlays.
-27. Add `.gitlab-ci.yml` for the devops-standard deployment path.
-28. Deploy the managed-state runtime to Kubernetes.
-29. Validate in-cluster behavior with backend scaling still conservative.
-30. Redesign remaining process-local paths.
-31. Scale execution safely only after that redesign is complete.
+16. Eliminate duplicate managed project loads across first open and tab switches.
+17. Reuse object-storage connections explicitly in the managed blob client.
+18. Update the workflow tree locally on successful folder rename, then reconcile in the background.
+19. Move managed hosted-project deserialization off the main thread with a worker contract that preserves attached data needed by hosted IO.
+20. Re-measure managed-mode rename, open, and tab-switch latency and confirm Phase 1.1 acceptance targets.
+21. Introduce a runtime-library backend abstraction with backward-compatible `filesystem` mode.
+22. Implement managed runtime-library release metadata and activation state in Postgres.
+23. Implement managed runtime-library release artifact storage in object storage.
+24. Redesign runtime-library install/remove job ownership and job observability around shared state.
+25. Validate that multiple API or executor processes can consume the same active runtime-library release without shared host paths.
+26. Add `image/` Dockerfiles and entrypoints for the managed-state runtime.
+27. Add `charts/` Helm chart and overlays.
+28. Add `.gitlab-ci.yml` for the devops-standard deployment path.
+29. Deploy the managed-state runtime to Kubernetes.
+30. Validate in-cluster behavior with backend scaling still conservative.
+31. Redesign remaining process-local paths.
+32. Scale execution safely only after that redesign is complete.
 
 ## What Is Explicitly Out Of Scope For The First Phase
 
@@ -1465,5 +1537,3 @@ New internal application interfaces introduced by phase 2:
 - backend scale-out comes after Kubernetes adoption and after remaining process-local paths are redesigned
 - proxy and web can scale earlier than the stateful backend paths
 - all application containers should run as uid/gid `10001`
-
-

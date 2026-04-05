@@ -8,6 +8,8 @@ import {
   type S3ClientConfig,
 } from '@aws-sdk/client-s3';
 import { randomUUID } from 'node:crypto';
+import { Agent as HttpsAgent } from 'node:https';
+import { NodeHttpHandler } from '@smithy/node-http-handler';
 
 import type { ManagedWorkflowStorageConfig } from '../storage-config.js';
 
@@ -42,11 +44,19 @@ export class S3ManagedWorkflowBlobStore implements ManagedWorkflowBlobStore {
   readonly #client;
   readonly #bucket;
   readonly #prefix;
+  static readonly #httpsAgent = new HttpsAgent({
+    keepAlive: true,
+    maxSockets: 64,
+    keepAliveMsecs: 30_000,
+  });
 
   constructor(config: ManagedWorkflowStorageConfig) {
     const clientConfig: S3ClientConfig = {
       region: config.objectStorageRegion,
       forcePathStyle: config.objectStorageForcePathStyle,
+      requestHandler: new NodeHttpHandler({
+        httpsAgent: S3ManagedWorkflowBlobStore.#httpsAgent,
+      }),
       credentials: {
         accessKeyId: config.objectStorageAccessKeyId,
         secretAccessKey: config.objectStorageSecretAccessKey,
