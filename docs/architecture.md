@@ -74,7 +74,7 @@ In local direct-process mode, the services run separately without nginx.
 | `RIVET_WORKSPACE_ROOT` | Allowed workspace root for general hosted file operations | repo root | `/workspace` |
 | `RIVET_WORKFLOWS_ROOT` | Live workflow tree, `.published/`, and `.recordings/` | `<repo>/workflows` | `/workflows` |
 | `RIVET_APP_DATA_ROOT` | App-level state such as plugins, logs, and `recordings.sqlite` | `<repo>/.data/rivet-app` | `/data/rivet-app` |
-| `RIVET_RUNTIME_LIBRARIES_ROOT` | Managed runtime-library storage | `<repo>/.data/runtime-libraries` | `/data/runtime-libraries` |
+| `RIVET_RUNTIME_LIBRARIES_ROOT` | Runtime-library local cache, manifest, and job workspace | `<repo>/.data/runtime-libraries` | `/data/runtime-libraries` |
 
 In Docker-based modes:
 
@@ -82,6 +82,17 @@ In Docker-based modes:
 - `RIVET_WORKFLOWS_HOST_PATH` backs `/workflows`, so it stores live projects, published snapshots, and recording bundles.
 - `RIVET_RUNTIME_LIBS_HOST_PATH` backs `/data/runtime-libraries`.
 - the app-data directory is a separate volume and holds `recordings.sqlite`, plugin files, and app logs.
+
+Storage mode decides which of those paths are authoritative:
+
+- `RIVET_STORAGE_MODE=filesystem`
+  - workflows are authoritative under `RIVET_WORKFLOWS_ROOT`
+  - runtime libraries are authoritative under `RIVET_RUNTIME_LIBRARIES_ROOT`
+- `RIVET_STORAGE_MODE=managed`
+  - workflow metadata lives in Postgres and workflow blobs live in object storage
+  - runtime-library release metadata, activation state, and job state live in Postgres
+  - runtime-library release artifacts live in object storage under the fixed `runtime-libraries/` prefix
+  - `RIVET_RUNTIME_LIBRARIES_ROOT` remains a local extracted cache/workspace on each process, not the shared source of truth
 
 ## Important environment variables
 
@@ -93,6 +104,14 @@ In Docker-based modes:
 - `RIVET_REQUIRE_WORKFLOW_KEY` enables `Authorization: Bearer <RIVET_KEY>` checks on the public workflow routes.
 - `RIVET_REQUIRE_UI_GATE_KEY` enables the browser-side nginx gate.
 - `RIVET_UI_TOKEN_FREE_HOSTS` lists hosts that bypass the UI gate and public workflow bearer auth.
+
+### Storage and runtime libraries
+
+- `RIVET_STORAGE_MODE` switches both workflows and runtime libraries together between `filesystem` and `managed`.
+- `RIVET_DATABASE_MODE`, `RIVET_DATABASE_CONNECTION_STRING`, and `RIVET_DATABASE_SSL_MODE` define the shared managed Postgres connection used by workflow storage and managed runtime libraries.
+- `RIVET_STORAGE_URL` is the recommended object-storage config entrypoint; alternatively use the explicit tuple of `RIVET_STORAGE_BUCKET`, `RIVET_STORAGE_REGION`, `RIVET_STORAGE_ENDPOINT`, `RIVET_STORAGE_ACCESS_KEY_ID`, `RIVET_STORAGE_ACCESS_KEY`, and `RIVET_STORAGE_FORCE_PATH_STYLE`.
+- `RIVET_ARTIFACTS_HOST_PATH` is the primary public filesystem-mode host root. The per-path host envs remain launcher-level compatibility overrides rather than the preferred contract.
+- `RIVET_RUNTIME_LIBRARIES_SYNC_POLL_INTERVAL_MS` tunes managed runtime-library background reconciliation for API and executor processes.
 
 ### Safety and compatibility
 

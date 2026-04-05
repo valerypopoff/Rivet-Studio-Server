@@ -6,6 +6,8 @@
   "scripts": {
     "setup": "node scripts/ensure-dev-deps.mjs",
     "setup:rivet": "node scripts/bootstrap-rivet.mjs",
+    "runtime-libraries:managed:audit": "node scripts/run-with-env.mjs \"npm --prefix wrapper/api run runtime-libraries:managed:audit\"",
+    "runtime-libraries:managed:prune": "node scripts/run-with-env.mjs \"npm --prefix wrapper/api run runtime-libraries:managed:prune --\"",
     "workflow-storage:migrate": "node scripts/run-with-env.mjs \"npm --prefix wrapper/api run workflow-storage:migrate\"",
     "workflow-storage:verify": "node scripts/run-with-env.mjs \"npm --prefix wrapper/api run workflow-storage:verify\"",
     "workflow-storage:dangerously-nuke-managed-state": "node scripts/run-with-env.mjs \"npm --prefix wrapper/api run workflow-storage:dangerously-nuke-managed-state --\"",

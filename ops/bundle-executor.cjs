@@ -184,6 +184,12 @@ const sendHostedTrace = (client, level, args) => {
         `      // Dynamic runtime-library resolution: reads the current/ directory
       // on each code-node invocation so hot-installed packages are available
       // without restarting the executor process.
+      const prepareManagedRuntimeLibraries = (globalThis as typeof globalThis & {
+        __RIVET_PREPARE_RUNTIME_LIBRARIES__?: () => Promise<void>;
+      }).__RIVET_PREPARE_RUNTIME_LIBRARIES__;
+      if (typeof prepareManagedRuntimeLibraries === 'function') {
+        await prepareManagedRuntimeLibraries();
+      }
       //
       // We must create __defaultRequire BEFORE declaring 'const require' to
       // avoid a temporal-dead-zone error — 'const' hoists the binding and any

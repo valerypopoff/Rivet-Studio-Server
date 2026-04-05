@@ -8,6 +8,7 @@ export type { RuntimeLibraryEntry };
 export interface RuntimeLibraryManifest {
   packages: Record<string, RuntimeLibraryEntry>;
   updatedAt: string;
+  activeReleaseId?: string;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -76,6 +77,9 @@ export function normalizeManifest(value: unknown): RuntimeLibraryManifest {
   return {
     packages,
     updatedAt: typeof value.updatedAt === 'string' ? value.updatedAt : defaults.updatedAt,
+    ...(typeof value.activeReleaseId === 'string' && value.activeReleaseId.trim()
+      ? { activeReleaseId: value.activeReleaseId.trim() }
+      : {}),
   };
 }
 
@@ -89,9 +93,13 @@ export function readManifest(): RuntimeLibraryManifest {
 }
 
 export function writeManifest(manifest: RuntimeLibraryManifest): void {
-  manifest.updatedAt = new Date().toISOString();
-  const tmp = manifestPath() + '.tmp';
-  fs.writeFileSync(tmp, JSON.stringify(manifest, null, 2), 'utf8');
+  ensureDirectories();
+  const nextManifest: RuntimeLibraryManifest = {
+    ...manifest,
+    updatedAt: new Date().toISOString(),
+  };
+  const tmp = `${manifestPath()}.${process.pid}.${Date.now().toString(36)}.${Math.random().toString(16).slice(2)}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(nextManifest, null, 2), 'utf8');
   fs.renameSync(tmp, manifestPath());
 }
 

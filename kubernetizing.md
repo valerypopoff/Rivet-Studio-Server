@@ -16,6 +16,11 @@ Inside `Phase 1`, add a required `Phase 1.1` hardening pass:
 - make managed mode fast enough for normal editor use before moving on to runtime-library externalization or Kubernetes
 - treat managed-mode latency as part of state externalization quality, not as optional polish
 
+Inside `Phase 2`, add a required `Phase 2.1` visibility pass:
+
+- make runtime-library convergence visible across live replicas before relying on scaled endpoint execution
+- treat replica-readiness visibility as part of runtime-library externalization quality, not as optional UI polish
+
 The reason for this order is simple:
 
 - the current `workflows/` folder model is the biggest obstacle to shared truth across replicas
@@ -28,7 +33,7 @@ The long-term goal remains the same: the app must eventually survive huge demand
 Compatibility rule:
 
 - the app should support both `filesystem` and `managed` workflow-and-recording storage backends during the transition
-- the app should support both `filesystem` and `managed` runtime-library backends during the transition
+- the app should support both `filesystem` and `managed` runtime-library behavior during the transition, but storage mode selection should stay unified
 - `filesystem` exists for backward compatibility, local development, migration, and rollback
 - `filesystem` is allowed only when backend runs as a single replica with no backend autoscaling
 - `managed` is the required backend for Kubernetes-first shared truth and future scale
@@ -234,26 +239,32 @@ The managed backend requires both database and object-storage configuration.
 Use app-specific env names:
 
 - `RIVET_DATABASE_MODE=local-docker|managed`
-- `RIVET_DATABASE_URL`
+- `RIVET_DATABASE_CONNECTION_STRING`
 - `RIVET_DATABASE_SSL_MODE=disable|require|verify-full`
-- `RIVET_OBJECT_STORAGE_BUCKET`
-- `RIVET_OBJECT_STORAGE_REGION`
-- `RIVET_OBJECT_STORAGE_ENDPOINT`
-- `RIVET_OBJECT_STORAGE_ACCESS_KEY_ID`
-- `RIVET_OBJECT_STORAGE_SECRET_ACCESS_KEY`
-- `RIVET_OBJECT_STORAGE_PREFIX`
-- `RIVET_OBJECT_STORAGE_FORCE_PATH_STYLE`
+- recommended object-storage URL form:
+  - `RIVET_STORAGE_URL`
+  - `RIVET_STORAGE_ACCESS_KEY_ID`
+  - `RIVET_STORAGE_ACCESS_KEY`
+- optional explicit S3 tuple form:
+  - `RIVET_STORAGE_BUCKET`
+  - `RIVET_STORAGE_REGION`
+  - `RIVET_STORAGE_ENDPOINT`
+  - `RIVET_STORAGE_ACCESS_KEY_ID`
+  - `RIVET_STORAGE_ACCESS_KEY`
+  - `RIVET_STORAGE_PREFIX`
+  - `RIVET_STORAGE_FORCE_PATH_STYLE`
 
 Guidance:
 
 - `RIVET_DATABASE_MODE=local-docker` is allowed for development, migration rehearsal, and non-production validation
 - `RIVET_DATABASE_MODE=managed` is the target mode for Kubernetes production deployments
-- `RIVET_DATABASE_URL` is the runtime connection contract to the managed Postgres service
+- `RIVET_DATABASE_CONNECTION_STRING` is the runtime connection contract to the managed Postgres service
 - `RIVET_DATABASE_SSL_MODE=disable` is the normal default for local Docker Postgres
 - `RIVET_DATABASE_SSL_MODE=require` or stronger is the expected target for managed Postgres such as AWS RDS
-- `RIVET_OBJECT_STORAGE_ENDPOINT` is optional for AWS S3 and required for many S3-compatible vendors such as MinIO
-- `RIVET_OBJECT_STORAGE_FORCE_PATH_STYLE=true` is often needed for MinIO and some S3-compatible systems
+- `RIVET_STORAGE_ENDPOINT` is optional for AWS S3 and required for many S3-compatible vendors such as MinIO
+- `RIVET_STORAGE_FORCE_PATH_STYLE=true` is often needed for MinIO and some S3-compatible systems
 - the official app contract should stay `RIVET_`-prefixed even if the implementation internally uses an AWS-compatible SDK
+- retired aliases such as `RIVET_WORKFLOWS_STORAGE_*`, `RIVET_OBJECT_STORAGE_*`, and `RIVET_STORAGE_BACKEND` should fail fast instead of continuing to work silently
 
 Example local `.env` for filesystem mode:
 
@@ -267,15 +278,13 @@ Example local `.env` for managed mode:
 ```dotenv
 RIVET_STORAGE_MODE=managed
 RIVET_DATABASE_MODE=local-docker
-RIVET_DATABASE_URL=postgres://user:password@localhost:5432/rivet
+RIVET_DATABASE_CONNECTION_STRING=postgres://user:password@localhost:5432/rivet
 RIVET_DATABASE_SSL_MODE=disable
-RIVET_OBJECT_STORAGE_BUCKET=rivet-workflows
-RIVET_OBJECT_STORAGE_REGION=eu-central-1
-RIVET_OBJECT_STORAGE_ENDPOINT=http://127.0.0.1:9000
-RIVET_OBJECT_STORAGE_ACCESS_KEY_ID=minioadmin
-RIVET_OBJECT_STORAGE_SECRET_ACCESS_KEY=minioadmin
-RIVET_OBJECT_STORAGE_PREFIX=workflows/
-RIVET_OBJECT_STORAGE_FORCE_PATH_STYLE=true
+RIVET_STORAGE_URL=http://127.0.0.1:9000/rivet-workflows
+RIVET_STORAGE_ACCESS_KEY_ID=minioadmin
+RIVET_STORAGE_ACCESS_KEY=minioadmin
+RIVET_STORAGE_PREFIX=workflows/
+RIVET_STORAGE_FORCE_PATH_STYLE=true
 ```
 
 Example production-style `.env` or secret wiring for managed mode:
@@ -283,15 +292,15 @@ Example production-style `.env` or secret wiring for managed mode:
 ```dotenv
 RIVET_STORAGE_MODE=managed
 RIVET_DATABASE_MODE=managed
-RIVET_DATABASE_URL=postgres://user:password@my-rds-host:5432/rivet
+RIVET_DATABASE_CONNECTION_STRING=postgres://user:password@my-rds-host:5432/rivet
 RIVET_DATABASE_SSL_MODE=require
-RIVET_OBJECT_STORAGE_BUCKET=rivet-workflows
-RIVET_OBJECT_STORAGE_REGION=eu-central-1
+RIVET_STORAGE_BUCKET=rivet-workflows
+RIVET_STORAGE_REGION=eu-central-1
 # Endpoint can be omitted for AWS S3
-RIVET_OBJECT_STORAGE_ACCESS_KEY_ID=...
-RIVET_OBJECT_STORAGE_SECRET_ACCESS_KEY=...
-RIVET_OBJECT_STORAGE_PREFIX=workflows/
-RIVET_OBJECT_STORAGE_FORCE_PATH_STYLE=false
+RIVET_STORAGE_ACCESS_KEY_ID=...
+RIVET_STORAGE_ACCESS_KEY=...
+RIVET_STORAGE_PREFIX=workflows/
+RIVET_STORAGE_FORCE_PATH_STYLE=false
 ```
 
 Status now:
@@ -300,6 +309,7 @@ Status now:
 - `DONE`: `ops/docker-compose.yml` and `ops/docker-compose.dev.yml` now pass the managed-backend envs into the `api` container
 - `DONE`: `scripts/dev-docker.mjs` and `scripts/prod-docker.mjs` now auto-enable the `workflow-managed` compose profile when `RIVET_STORAGE_MODE=managed` and `RIVET_DATABASE_MODE=local-docker`
 - `DONE`: local managed rehearsal services now exist in compose as `workflow-postgres`, `workflow-minio`, and `workflow-minio-init`
+- `DONE`: the runtime and launcher config readers now fail fast when retired workflow/object-storage alias env names are still present
 
 ### Shared state model
 
@@ -800,7 +810,7 @@ Cold-start requests may still be slower because first connection setup to manage
 - `DONE`: the workflow tree reflects successful folder rename immediately and reconciles in the background without showing the loading placeholder
 - `DONE`: managed mode is now both functionally correct and operationally responsive enough to close Phase 1.1, with rename timing fluctuating around the `500ms` backend target because the validation stack uses a remote public-network managed database
 
-## Phase 2: Runtime-Library Externalization And Replica-Safe Execution Support
+## Phase 2: Runtime-Library Externalization And Replica-Safe Execution Support - DONE
 
 After phase 1, externalize runtime-library distribution before Kubernetes.
 
@@ -815,6 +825,23 @@ The current `RIVET_RUNTIME_LIBS_HOST_PATH` model is acceptable only for single-h
 - move built runtime-library release artifacts into object storage
 - replace process-local install/remove job ownership and SSE assumptions with shared-state job coordination
 - keep `require()` behavior stable for hosted `Code` nodes while making runtime-library propagation replica-safe
+
+Current implementation status:
+
+- `DONE`: the runtime-library API now goes through an explicit backend seam instead of one hard-wired in-memory filesystem path
+- `DONE`: runtime libraries now follow `RIVET_STORAGE_MODE=filesystem|managed`, with `filesystem` preserved as the backward-compatible default
+- `DONE`: managed mode now stores runtime-library release metadata, activation state, and job state in Postgres
+- `DONE`: managed mode now stores immutable runtime-library release artifacts in object storage under the fixed `runtime-libraries/` prefix
+- `DONE`: managed mode now uses shared-state job ownership and database-backed job logs, so refreshes and different API replicas can observe the same install/remove job
+- `DONE`: managed runtime-library jobs now heartbeat and stale claimed jobs are failed automatically, so a crashed worker no longer leaves the system permanently stuck behind one active-job lock
+- `DONE`: the API execution path now refreshes the local `current/` cache from managed state before hosted `Code` node execution resolves `require()`
+- `DONE`: executor startup and code-node execution now reconcile managed releases independently through the bootstrap layer instead of depending on a shared authoritative runtime-library root mount
+- `DONE`: API and executor execution now bypass the background sync throttle when checking for a newly activated release, so the next execution sees the latest active runtime-library state instead of waiting for the poll interval
+- `DONE`: a real managed install job has now been exercised successfully against the managed Postgres plus object-storage backend, including artifact upload, release activation, API cache reconciliation, and executor cache reconciliation
+- `DONE`: a real managed remove job has now been exercised successfully against the same backend, including activation of the empty release and cache cleanup in both the API and executor local roots
+- `DONE`: the Phase 2 cleanup pass has now split the large managed backend, proxy-bootstrap sync, and runtime-library modal into smaller modules without changing behavior
+- `DONE`: the public env/config contract is now canonicalized around `RIVET_STORAGE_*`, `RIVET_DATABASE_*`, `RIVET_ARTIFACTS_HOST_PATH`, and `RIVET_RUNTIME_LIBRARIES_SYNC_POLL_INTERVAL_MS`; retired aliases now fail fast
+- `DONE`: managed runtime-library audit/prune tooling now exists as `npm run runtime-libraries:managed:audit` and `npm run runtime-libraries:managed:prune`
 
 ### Current runtime-library constraint
 
@@ -851,9 +878,9 @@ Recommended object-storage artifacts:
 
 ### Runtime-library backend contract
 
-Phase 2 should introduce an explicit runtime-library backend selection:
+Phase 2 should keep one shared storage-mode switch for both workflows and runtime libraries:
 
-- `RIVET_RUNTIME_LIBRARIES_BACKEND=filesystem|managed`
+- `RIVET_STORAGE_MODE=filesystem|managed`
 
 Meaning:
 
@@ -867,9 +894,9 @@ Meaning:
 
 Compatibility rule:
 
-- if `RIVET_RUNTIME_LIBRARIES_BACKEND=filesystem`, backend replica count must stay `1`
-- if `RIVET_RUNTIME_LIBRARIES_BACKEND=filesystem`, backend HPA must stay disabled
-- if backend execution is expected to scale safely, `RIVET_RUNTIME_LIBRARIES_BACKEND=managed` is required
+- if `RIVET_STORAGE_MODE=filesystem`, backend replica count must stay `1`
+- if `RIVET_STORAGE_MODE=filesystem`, backend HPA must stay disabled
+- if backend execution is expected to scale safely, `RIVET_STORAGE_MODE=managed` is required
 
 Existing compatibility envs remain valid for `filesystem` mode:
 
@@ -877,15 +904,19 @@ Existing compatibility envs remain valid for `filesystem` mode:
 - `RIVET_RUNTIME_LIBRARIES_ROOT`
 - `RIVET_RUNTIME_LIBS_HOST_PATH`
 
+Public contract rule:
+
+- prefer `RIVET_ARTIFACTS_HOST_PATH` as the user-facing filesystem root
+- treat `RIVET_RUNTIME_LIBRARIES_ROOT` and per-path host overrides as internal/advanced compatibility knobs, not the primary contract
+
 Managed runtime-library mode should reuse the existing external infrastructure shape:
 
 - managed Postgres
 - managed S3-compatible object storage
 
-Recommended managed-mode env additions:
+Managed runtime-library artifacts use the fixed object-storage prefix:
 
-- `RIVET_RUNTIME_LIBRARIES_BACKEND=managed`
-- `RIVET_RUNTIME_LIBRARIES_OBJECT_STORAGE_PREFIX=runtime-libraries/`
+- `runtime-libraries/`
 
 Design rule:
 
@@ -950,6 +981,360 @@ After phase 2:
 - pods may keep local runtime-library caches, but those caches are derived from shared state
 
 This makes Kubernetes adoption in phase 3 much cleaner.
+
+## Phase 2.1: Runtime-Library Replica Readiness Visibility
+
+Phase 2 is not complete when managed runtime-library propagation is only technically correct.
+
+If the product expects a newly installed library to be usable for workflow execution through scaled endpoint traffic, the UI must also show whether the live runtime replicas have actually reconciled to the active runtime-library release.
+
+Chosen product behavior for this subphase:
+
+- show replica readiness in the existing `Runtime libraries` modal
+- split readiness by tier:
+  - `Endpoint execution`
+  - `Editor execution`
+- use app-observed healthy replicas as the denominator
+- track only the currently active runtime-library release
+- show aggregate counts by default with expandable per-replica details for debugging
+
+Important current architecture rule:
+
+- published and latest workflow endpoint execution currently run in the `api` process tier
+- hosted editor/runtime execution currently uses the `executor` process tier
+- therefore Phase 2.1 must report separate readiness for:
+  - `endpoint` tier, currently backed by `api` replicas
+  - `editor` tier, currently backed by `executor` replicas
+
+### Why Phase 2.1 is required
+
+Managed runtime-library releases now propagate safely through Postgres plus object storage, but the UI still cannot answer the key operational question:
+
+- how many live replicas are actually ready to execute workflows with the current active runtime-library release?
+
+Without that visibility:
+
+- the user cannot tell whether a newly installed library is available everywhere
+- partial convergence across replicas is invisible
+- debugging scaled runtime-library failures becomes guesswork
+- the UI implies a binary installed/not-installed state even though the real runtime is replica-based
+
+### Phase 2.1 goals
+
+- show live readiness counts for the current active runtime-library release
+- make the denominator explicit and trustworthy
+- distinguish endpoint-serving replicas from editor/runtime replicas
+- make partial convergence and replica sync failures observable in the UI
+- keep the first version Kubernetes-agnostic by relying on app-observed replica heartbeats instead of cluster API reads
+
+Current implementation status:
+
+- `OPEN`: the managed runtime-library UI shows active release and job state, but it does not show which live replicas have reconciled to that release
+- `OPEN`: endpoint execution replicas do not currently report a background readiness heartbeat for the active runtime-library release
+- `OPEN`: executor replicas reconcile managed releases, but their readiness state is not surfaced through the runtime-libraries API
+- `OPEN`: the runtime-libraries modal does not yet expose convergence counts or per-replica detail
+- `OPEN`: the current modal only performs periodic background refresh while a job is active, so replica readiness would go stale unless Phase 2.1 adds open-modal polling even when no install/remove job is running
+- `OPEN`: the current managed `GET /api/runtime-libraries` route is observational in practice, and Phase 2.1 must keep it that way instead of letting UI polling become an accidental sync trigger
+- `OPEN`: managed runtime-library convergence already exists as a process-level sync path in the proxy bootstrap for both API and executor processes, so Phase 2.1 must attach reporting to that existing lifecycle instead of introducing a second background convergence poller in the API tier
+
+### Product surface
+
+The first version should add a new `Replica readiness` section to the existing `Runtime libraries` modal.
+
+Default view:
+
+- `Endpoint execution replicas: X / Y ready`
+- `Editor execution replicas: A / B ready`
+
+Behavior rules:
+
+- if all live replicas in a tier are ready, show success tone
+- if some live replicas are still starting or syncing, show warning tone
+- if any live replica is in an error state, show warning/error tone and make the details useful by default when expanded
+- if a tier has no live replicas, show a neutral message instead of an error
+
+Helper text:
+
+- `Counts are based on replicas that reported within the last 30 seconds.`
+
+Per-tier details should be collapsed by default and expandable on demand.
+
+Each expanded replica row should show:
+
+- display name
+- current sync state
+- last heartbeat age
+- currently synced release id, when not ready for the active release
+- last error message, when present
+
+When an install/remove job is still running:
+
+- keep showing readiness for the current active release
+- add a note that counts reflect the currently active release and update after the new release is activated
+
+UI rule:
+
+- replica-readiness rendering must not depend on `activeJob` being present
+- the readiness section should remain visible and update while the modal is open, even when no job is currently running
+
+### Readiness model
+
+A replica counts as `ready` for the active release only when:
+
+- it is live by heartbeat
+- it reported against the current active release id
+- its local synced release id matches the active release id
+- its sync state is `ready`
+
+Do not store `stale` as a persisted state.
+
+`stale` should be computed server-side when:
+
+- `last_heartbeat_at` is older than the heartbeat TTL
+
+Recommended heartbeat TTL:
+
+- `max(syncPollIntervalMs * 3, 30_000ms)`
+
+Empty-release rule:
+
+- if the active release is empty and a replica has reconciled to that empty state, it still counts as `ready`
+- readiness is about release convergence, not about whether any packages are currently installed
+
+### Reporting safety rules
+
+Replica-readiness reporting is an observability feature, not part of execution correctness.
+
+Rules:
+
+- a replica-status write failure must never block runtime-library reconciliation
+- a replica-status write failure must never block endpoint execution or editor execution
+- `GET /api/runtime-libraries` must remain a read-only reporting path and must not itself trigger local release reconciliation
+- graceful row deletion on shutdown is best-effort only; heartbeat TTL remains the correctness backstop
+- each process should run at most one readiness timer/poller for its own replica-status reporting
+
+### Replica status table
+
+Add a new Postgres table:
+
+- `runtime_library_replica_status`
+
+Recommended columns:
+
+- `replica_id`
+- `tier`
+- `process_role`
+- `display_name`
+- `hostname`
+- `pod_name`
+- `target_release_id`
+- `synced_release_id`
+- `sync_state`
+- `last_error`
+- `last_sync_started_at`
+- `last_sync_completed_at`
+- `last_heartbeat_at`
+- `created_at`
+- `updated_at`
+
+Design rules:
+
+- one row represents one live process instance
+- `tier` is product-facing:
+  - `endpoint`
+  - `editor`
+- `process_role` is implementation-facing:
+  - `api`
+  - `executor`
+- `replica_id` is a process-lifetime id, not a Kubernetes Deployment id
+
+Process-role identification rule:
+
+- because the process-level managed runtime-library sync runs in both API and executor containers, replica reporting needs an explicit process-role signal
+- Phase 2.1 should add a small runtime env/config input such as `RIVET_RUNTIME_PROCESS_ROLE=api|executor`
+- do not infer the role from argv or entrypoint filenames if an explicit env can be provided
+
+### API-tier reporting requirements
+
+Phase 2.1 must add readiness reporting for the managed API tier.
+
+This is required because endpoint execution currently runs in the API process.
+
+Current code already has two relevant managed sync paths in the API container:
+
+- startup/runtime-library initialization in the API process
+- the process-level proxy-bootstrap managed sync imported through `NODE_OPTIONS`
+- the backend just-in-time `prepareForExecution()` path used before endpoint execution
+
+Plan rule:
+
+- do not introduce a second API-specific background convergence loop inside the managed backend just for readiness reporting
+- instead, attach replica-status reporting to the existing process-level managed sync lifecycle that already runs in the API container
+- keep `prepareForExecution()` forcing a just-in-time sync as a correctness backstop, and allow it to refresh replica status if it performs a sync outside the background path
+
+Implementation rule:
+
+- the process-level managed sync path should return a structured sync result that includes target release id, synced release id, sync state, timing, and error information
+- both the process-level background sync path and the just-in-time `prepareForExecution()` path should use that same sync result to update replica status
+- API startup reconciliation should remain the owner of initial managed runtime-library bootstrap for the process, rather than making modal polling the trigger
+- `getState()` should aggregate persisted replica status only; it should not call into the sync path for readiness reporting beyond whatever one-time startup initialization the process already performs independently of the route
+
+Lifecycle rule:
+
+- the reporting hook must reuse the existing process-level managed sync timer rather than adding a second convergence timer for the same process
+- `dispose()` must stop reporting and best-effort delete the process row
+
+API reporting semantics:
+
+- tier: `endpoint`
+- process role: `api`
+- display name: `HOSTNAME` when available, otherwise hostname/process-derived fallback
+
+### Executor-tier reporting requirements
+
+Executor managed sync already has a poll loop.
+
+Extend it so executor replicas also write readiness status rows.
+
+Executor reporting semantics:
+
+- tier: `editor`
+- process role: `executor`
+- display name: `HOSTNAME` when available, otherwise hostname/process-derived fallback
+
+Executor should:
+
+- report `starting` at boot before first successful sync
+- report `syncing` while reconciling to a new active release
+- report `ready` after successful local reconciliation
+- report `error` with the last sync error if reconciliation fails
+- best-effort remove its own row on shutdown
+
+Execution-safety rule:
+
+- executor sync/reporting should treat replica-status writes as best-effort side effects
+- if reporting the status row fails but local release reconciliation succeeds, executor execution must still proceed
+- if the table does not exist yet, executor should log the reporting issue once and retry later without failing boot
+- executor reporting should piggyback on the existing executor sync poller; do not add a second executor-only readiness timer
+
+Schema-ownership rule:
+
+- API backend owns the schema migration
+- executor reporting should tolerate the table not existing yet and retry later instead of crashing boot
+
+### Server-side aggregation contract
+
+`GET /api/runtime-libraries` should gain a new additive field:
+
+- `replicaReadiness`
+
+The payload should include:
+
+- `activeReleaseId`
+- `heartbeatTtlMs`
+- per-tier summaries for:
+  - `endpoint`
+  - `editor`
+
+Each tier summary should expose:
+
+- `liveReplicaCount`
+- `readyReplicaCount`
+- `staleReplicaCount`
+- `replicas`
+
+Each per-replica entry should expose:
+
+- `replicaId`
+- `tier`
+- `processRole`
+- `displayName`
+- `hostname`
+- `podName`
+- `targetReleaseId`
+- `syncedReleaseId`
+- `syncState`
+- `isReadyForActiveRelease`
+- `lastHeartbeatAt`
+- `lastSyncStartedAt`
+- `lastSyncCompletedAt`
+- `lastError`
+
+Rules:
+
+- `filesystem` mode returns `replicaReadiness: null`
+- `managed` mode returns the readiness structure even when counts are zero
+- stale replicas are excluded from the denominator and counted separately
+- `replicas` should contain only live replicas for the tier; stale rows contribute to `staleReplicaCount` but are not mixed into the live detail list
+- the readiness route is a reporting surface only; it must not become the mechanism that initializes or advances convergence on otherwise idle replicas
+
+Aggregation rule:
+
+- readiness is always computed against the currently active release from `runtime_library_activation`
+- a replica that is still on the previous release remains live but not ready until it reports the new release
+- sorting within a tier should prefer the most actionable rows first:
+  - `error`
+  - `syncing`
+  - `starting`
+  - `ready`
+
+### Cleanup and retention
+
+Replica-status rows should not accumulate forever.
+
+Add a lightweight cleanup path that removes rows older than a retention window.
+
+Recommended defaults:
+
+- heartbeat TTL for liveness: `30s`
+- stale-row cleanup threshold: `24h`
+- cleanup cadence: every `15m`
+
+### UI refresh strategy
+
+Phase 2.1 should not rely on job SSE to keep readiness current.
+
+Required behavior:
+
+- while the modal is open in `managed` mode, poll `GET /api/runtime-libraries` on a fixed interval even when there is no active job
+- keep job SSE only for high-frequency job-log and job-status updates
+- avoid overlapping refresh loops that race each other; modal polling should become the single periodic refresh path, and SSE should update only the active job state
+- modal polling must not be responsible for bootstrapping runtime-library sync on a replica; startup/process-level sync owns that lifecycle
+
+Recommended default:
+
+- modal readiness/state poll every `5s`
+
+### Phase 2.1 acceptance targets
+
+- the runtime-libraries modal shows endpoint-tier and editor-tier readiness counts in managed mode
+- endpoint-tier counts reflect live API replicas
+- editor-tier counts reflect live executor replicas
+- the denominator excludes stale replicas instead of inflating the count forever
+- a newly activated runtime-library release becomes visible as partial convergence until all live replicas report ready
+- the modal exposes expandable per-replica details for debugging partial convergence or sync failures
+- idle API replicas reconcile in the background so the endpoint-tier readiness count does not stay stale until traffic happens to hit each replica
+- modal polling keeps readiness counts updating even when there is no active runtime-library job
+- UI polling the runtime-libraries route does not itself make an idle API replica become ready; only the background/JIT sync paths may do that
+- reporting-path failures degrade visibility only; they do not block real workflow execution
+- Phase 2.1 does not add a second background convergence poller for API or executor processes; it reuses the existing managed sync lifecycle and layers reporting on top
+
+### Phase 2.1 test scenarios
+
+1. with one API replica and one executor replica in managed mode, the modal reports:
+   - endpoint `1 / 1 ready`
+   - editor `1 / 1 ready`
+2. after activating a new runtime-library release, the modal shows a partial readiness state until both tiers finish reconciling
+3. with multiple API replicas, the endpoint-tier denominator matches the number of live heartbeating API replicas, not the number of rows ever written historically
+4. with one executor sync failure, the editor tier shows partial readiness and exposes the error in expanded details
+5. if a replica stops heartbeating, it becomes stale, is excluded from the live denominator, and is counted separately
+6. in `filesystem` mode, the modal does not show replica-readiness counts
+7. existing runtime-library job logs, cancellation, and terminal result rendering still work while readiness polling is enabled
+8. opening the runtime-libraries modal with no active job still updates readiness counts over time as replicas converge
+9. polling `GET /api/runtime-libraries` against a managed API replica does not, by itself, trigger local cache reconciliation or artificially advance readiness
+10. if replica-status writes fail while release sync succeeds, endpoint/editor execution still works and the failure is limited to readiness visibility
+11. endpoint-tier reporting reuses the existing API process sync lifecycle instead of creating a second convergence timer
+12. executor-tier reporting reuses the existing executor sync poller instead of creating a parallel readiness timer
 
 ## Phase 3: Kubernetes Adoption
 
@@ -1304,7 +1689,7 @@ These overlays must contain:
 - ingress host and class
 - Vault injector config
 - storage backend selection
-- runtime-library backend selection
+- shared storage-mode selection for workflows and runtime libraries
 - Postgres connection config references
 - object storage config references
 - remaining PVC sizes and storage classes
@@ -1365,7 +1750,7 @@ New operational interfaces introduced by the roadmap:
 
 - `RIVET_STORAGE_MODE` selects the active workflow-and-recording storage backend
 - `RIVET_DATABASE_MODE` selects whether the managed backend talks to local Docker Postgres or managed Postgres
-- `RIVET_RUNTIME_LIBRARIES_BACKEND` selects the active runtime-library backend
+- `RIVET_STORAGE_MODE` selects the active storage mode for both workflows and runtime libraries
 - Postgres becomes the source of truth for workflow metadata and recordings index
 - Postgres becomes the source of truth for runtime-library release metadata, activation state, and job coordination
 - object storage becomes the source of truth for workflow, recording, and runtime-library artifacts
@@ -1397,10 +1782,25 @@ New internal application interfaces introduced by phase 1.1:
 
 New internal application interfaces introduced by phase 2:
 
-- a runtime-library backend contract with `filesystem` and `managed` implementations
+- a runtime-library implementation that follows the shared `filesystem` or `managed` storage mode contract
 - replica-safe runtime-library release activation and reconciliation
 - shared-state job ownership and job-log persistence for runtime-library install/remove operations
 - local runtime-library release cache management derived from shared release artifacts rather than host-path truth
+
+New additive API/debug surface introduced by phase 2.1:
+
+- `GET /api/runtime-libraries` should expose per-tier replica readiness for the active runtime-library release in managed mode
+- that readiness surface should be observational only and must not itself trigger replica reconciliation
+
+New operational config surface introduced by phase 2.1:
+
+- an explicit process-role signal such as `RIVET_RUNTIME_PROCESS_ROLE=api|executor` so process-level managed sync can report readiness into the correct tier
+
+New internal application interfaces introduced by phase 2.1:
+
+- process-level replica-status reporting attached to the existing managed runtime-library sync lifecycle in API and executor processes
+- an explicit process-role config surface so readiness reporting can distinguish `api` from `executor`
+- server-side aggregation of live versus stale replica readiness by tier
 
 ## Test Cases And Scenarios
 
@@ -1436,45 +1836,58 @@ New internal application interfaces introduced by phase 2:
 
 ### Phase 2: runtime-library externalization
 
-25. Run the runtime-library UI and API flows in `filesystem` mode and confirm no behavior regression for single-host operation.
-26. Introduce `RIVET_RUNTIME_LIBRARIES_BACKEND=filesystem|managed` and confirm backward-compatible `filesystem` mode still works.
-27. Install a runtime library in managed mode and confirm a complete immutable release artifact is created and stored in object storage.
-28. Confirm runtime-library release metadata, active release pointer, and job state are written to Postgres rather than existing only in memory.
-29. Confirm two separate API or executor processes can observe the same active runtime-library release without sharing a host path.
-30. Confirm a newly activated release becomes available on the next workflow execution across replicas without a shared `node_modules` volume.
-31. Confirm removal creates a new immutable release and that old in-flight executions can still finish against their pinned release.
-32. Confirm job status survives UI refresh and can be observed from a different API replica.
+25. `DONE`: Run the runtime-library UI and API flows in `filesystem` mode and confirm no behavior regression for single-host operation.
+26. `DONE`: Keep runtime-library behavior aligned to `RIVET_STORAGE_MODE=filesystem|managed` and confirm backward-compatible `filesystem` mode still works.
+27. `DONE`: Install a runtime library in managed mode and confirm a complete immutable release artifact is created and stored in object storage.
+28. `DONE`: Confirm runtime-library release metadata, active release pointer, and job state are written to Postgres rather than existing only in memory.
+29. `DONE`: Confirm two separate API or executor processes can observe the same active runtime-library release without sharing a host path.
+30. `DONE`: Confirm a newly activated release becomes available on the next workflow execution across replicas without a shared `node_modules` volume.
+31. `DONE`: Confirm removal creates a new immutable release and that old in-flight executions can still finish against their pinned release.
+32. `DONE`: Confirm job status survives UI refresh and can be observed from a different API replica.
+
+### Phase 2.1: runtime-library replica readiness visibility
+
+33. confirm the runtime-libraries modal shows separate readiness counts for:
+   - endpoint execution replicas
+   - editor execution replicas
+34. confirm endpoint-tier readiness is derived from live API replicas, not from executor replicas
+35. confirm editor-tier readiness is derived from live executor replicas
+36. confirm stale replicas are excluded from the live denominator and counted separately
+37. confirm a newly activated runtime-library release shows partial convergence until all live replicas report ready
+38. confirm a replica sync failure appears in expanded per-replica details with an error state
+39. confirm `filesystem` mode returns no replica-readiness surface in the modal
+40. confirm the runtime-libraries modal still renders active-job logs, cancellation, and terminal status correctly while readiness polling is enabled
 
 ### Phase 3: Kubernetes adoption
 
-33. Deploy the managed-state version to a test namespace.
-34. Confirm ingress serves `/`.
-35. If UI gate is enabled, confirm gate login works.
-36. Confirm editor iframe loads.
-37. Confirm `/api/*` routes work only through proxy behavior.
-38. Confirm executor websocket works through `/ws/executor/internal`.
-39. Confirm latest debugger websocket works when enabled.
-40. Confirm the workflow tree matches shared database state.
-41. Restart backend pods and confirm no workflow or recording data is lost.
-42. Scale `web` above `1` replica and confirm UI still works.
-43. Scale `proxy` above `1` replica and confirm routing still works.
-44. Confirm `filesystem` mode is rejected or documented as unsupported for backend replica count greater than `1`.
-45. Confirm the app works against the managed Postgres service and managed object storage without in-cluster fallbacks.
-46. Confirm runtime-library managed mode works in-cluster without a shared authoritative runtime-libraries PVC.
+41. Deploy the managed-state version to a test namespace.
+42. Confirm ingress serves `/`.
+43. If UI gate is enabled, confirm gate login works.
+44. Confirm editor iframe loads.
+45. Confirm `/api/*` routes work only through proxy behavior.
+46. Confirm executor websocket works through `/ws/executor/internal`.
+47. Confirm latest debugger websocket works when enabled.
+48. Confirm the workflow tree matches shared database state.
+49. Restart backend pods and confirm no workflow or recording data is lost.
+50. Scale `web` above `1` replica and confirm UI still works.
+51. Scale `proxy` above `1` replica and confirm routing still works.
+52. Confirm `filesystem` mode is rejected or documented as unsupported for backend replica count greater than `1`.
+53. Confirm the app works against the managed Postgres service and managed object storage without in-cluster fallbacks.
+54. Confirm runtime-library managed mode works in-cluster without a shared authoritative runtime-libraries PVC.
 
 ### Phase 4: scale-out
 
-47. Confirm published execution works correctly across multiple execution replicas.
-48. Confirm new publish operations become visible across replicas without filesystem refresh.
-49. Confirm recording metadata and artifacts remain globally visible regardless of which pod executed the run.
-50. Confirm runtime-library activation remains consistent across execution replicas under concurrent publish and execution load.
-51. Confirm endpoint lookup remains correct under cache invalidation and concurrent publish changes.
+55. Confirm published execution works correctly across multiple execution replicas.
+56. Confirm new publish operations become visible across replicas without filesystem refresh.
+57. Confirm recording metadata and artifacts remain globally visible regardless of which pod executed the run.
+58. Confirm runtime-library activation remains consistent across execution replicas under concurrent publish and execution load.
+59. Confirm endpoint lookup remains correct under cache invalidation and concurrent publish changes.
 
 ### Vault and non-root
 
-52. Deploy with Vault injection enabled and verify `/vault/dotenv` is present where expected.
-53. Confirm all containers run as uid/gid `10001`.
-54. Confirm no container requires privileged ports or root-only filesystem writes.
+60. Deploy with Vault injection enabled and verify `/vault/dotenv` is present where expected.
+61. Confirm all containers run as uid/gid `10001`.
+62. Confirm no container requires privileged ports or root-only filesystem writes.
 
 ## Rollout Order
 
@@ -1503,13 +1916,19 @@ New internal application interfaces introduced by phase 2:
 23. Implement managed runtime-library release artifact storage in object storage.
 24. Redesign runtime-library install/remove job ownership and job observability around shared state.
 25. Validate that multiple API or executor processes can consume the same active runtime-library release without shared host paths.
-26. Add `image/` Dockerfiles and entrypoints for the managed-state runtime.
-27. Add `charts/` Helm chart and overlays.
-28. Add `.gitlab-ci.yml` for the devops-standard deployment path.
-29. Deploy the managed-state runtime to Kubernetes.
-30. Validate in-cluster behavior with backend scaling still conservative.
-31. Redesign remaining process-local paths.
-32. Scale execution safely only after that redesign is complete.
+26. Refactor managed runtime-library sync paths so they return structured sync outcomes that can be reused by process-level reporting and just-in-time execution checks.
+27. Add an explicit process-role config surface for managed runtime-library reporting and attach endpoint-tier reporting to the existing API process sync lifecycle.
+28. Add editor-tier reporting to the existing executor managed sync poller, keeping reporting failures non-blocking for execution.
+29. Add read-only `GET /api/runtime-libraries` readiness aggregation for active-release convergence across live replicas.
+30. Add runtime-libraries modal readiness counts and expandable per-replica details, with modal polling that works even when no job is active.
+31. Validate replica-readiness visibility against partial convergence, stale replicas, sync-failure cases, and the guarantee that UI polling does not itself trigger sync.
+32. Add `image/` Dockerfiles and entrypoints for the managed-state runtime.
+33. Add `charts/` Helm chart and overlays.
+34. Add `.gitlab-ci.yml` for the devops-standard deployment path.
+35. Deploy the managed-state runtime to Kubernetes.
+36. Validate in-cluster behavior with backend scaling still conservative.
+37. Redesign remaining process-local paths.
+38. Scale execution safely only after that redesign is complete.
 
 ## What Is Explicitly Out Of Scope For The First Phase
 
@@ -1537,3 +1956,11 @@ New internal application interfaces introduced by phase 2:
 - backend scale-out comes after Kubernetes adoption and after remaining process-local paths are redesigned
 - proxy and web can scale earlier than the stateful backend paths
 - all application containers should run as uid/gid `10001`
+- runtime-library replica-readiness visibility is part of Phase 2 quality, not optional polish
+- endpoint-execution readiness currently maps to the `api` process tier because published/latest endpoint execution still runs there today
+- editor-execution readiness currently maps to the `executor` process tier
+- replica-readiness denominator should use app-observed healthy replicas, not Kubernetes desired replica count
+- the first replica-readiness UI surface belongs in the existing runtime-libraries modal
+- replica readiness should track only the currently active runtime-library release in the first version
+- the existing process-level managed runtime-library sync in API and executor containers should remain the convergence mechanism, and Phase 2.1 should layer reporting onto it rather than create duplicate convergence timers
+- `GET /api/runtime-libraries` must remain a read-only visibility surface rather than a hidden sync trigger

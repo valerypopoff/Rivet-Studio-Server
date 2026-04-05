@@ -6,12 +6,20 @@ const blobStore = await import('../routes/workflows/managed/blob-store.js');
 
 const managedEnvKeys = [
   'RIVET_STORAGE_MODE',
-  'RIVET_STORAGE_BACKEND',
-  'RIVET_WORKFLOWS_STORAGE_BACKEND',
   'RIVET_DATABASE_MODE',
-  'RIVET_DATABASE_URL',
   'RIVET_DATABASE_CONNECTION_STRING',
   'RIVET_DATABASE_SSL_MODE',
+  'RIVET_STORAGE_URL',
+  'RIVET_STORAGE_BUCKET',
+  'RIVET_STORAGE_REGION',
+  'RIVET_STORAGE_ENDPOINT',
+  'RIVET_STORAGE_ACCESS_KEY_ID',
+  'RIVET_STORAGE_ACCESS_KEY',
+  'RIVET_STORAGE_PREFIX',
+  'RIVET_STORAGE_FORCE_PATH_STYLE',
+  'RIVET_STORAGE_BACKEND',
+  'RIVET_WORKFLOWS_STORAGE_BACKEND',
+  'RIVET_DATABASE_URL',
   'RIVET_OBJECT_STORAGE_BUCKET',
   'RIVET_OBJECT_STORAGE_REGION',
   'RIVET_OBJECT_STORAGE_ENDPOINT',
@@ -19,15 +27,6 @@ const managedEnvKeys = [
   'RIVET_OBJECT_STORAGE_SECRET_ACCESS_KEY',
   'RIVET_OBJECT_STORAGE_PREFIX',
   'RIVET_OBJECT_STORAGE_FORCE_PATH_STYLE',
-  'RIVET_STORAGE_URL',
-  'RIVET_STORAGE_BUCKET',
-  'RIVET_STORAGE_REGION',
-  'RIVET_STORAGE_ENDPOINT',
-  'RIVET_STORAGE_ACCESS_KEY_ID',
-  'RIVET_STORAGE_SECRET_ACCESS_KEY',
-  'RIVET_STORAGE_ACCESS_KEY',
-  'RIVET_STORAGE_PREFIX',
-  'RIVET_STORAGE_FORCE_PATH_STYLE',
   'RIVET_WORKFLOWS_DATABASE_MODE',
   'RIVET_WORKFLOWS_DATABASE_URL',
   'RIVET_WORKFLOWS_DATABASE_CONNECTION_STRING',
@@ -113,25 +112,7 @@ test('storage backend selection prefers the generic storage-mode env name', asyn
   });
 });
 
-test('storage backend selection still accepts the generic storage-backend env name', async () => {
-  await withManagedEnv({
-    RIVET_STORAGE_BACKEND: 'managed',
-  }, () => {
-    assert.equal(storageConfig.getWorkflowStorageBackendMode(), 'managed');
-    assert.equal(storageConfig.isManagedWorkflowStorageEnabled(), true);
-  });
-});
-
-test('storage backend selection still accepts the legacy workflow-prefixed env name', async () => {
-  await withManagedEnv({
-    RIVET_WORKFLOWS_STORAGE_BACKEND: 'managed',
-  }, () => {
-    assert.equal(storageConfig.getWorkflowStorageBackendMode(), 'managed');
-    assert.equal(storageConfig.isManagedWorkflowStorageEnabled(), true);
-  });
-});
-
-test('managed storage config accepts path-style alias storage URLs for local Docker rehearsal', async () => {
+test('managed storage config accepts path-style storage URLs for local Docker rehearsal', async () => {
   await withManagedEnv({
     RIVET_DATABASE_MODE: 'local-docker',
     RIVET_DATABASE_CONNECTION_STRING: 'postgres://rivet:rivet@workflow-postgres:5432/rivet?sslmode=require',
@@ -155,7 +136,18 @@ test('managed storage config accepts path-style alias storage URLs for local Doc
   });
 });
 
-test('managed storage config still accepts legacy workflow-prefixed env names', async () => {
+test('managed storage config rejects retired alias env names', async () => {
+  await withManagedEnv({
+    RIVET_WORKFLOWS_STORAGE_BACKEND: 'managed',
+  }, () => {
+    assert.throws(
+      () => storageConfig.getWorkflowStorageBackendMode(),
+      /Retired environment variable/,
+    );
+  });
+});
+
+test('managed storage config rejects retired legacy workflow-prefixed env names', async () => {
   await withManagedEnv({
     RIVET_WORKFLOWS_DATABASE_MODE: 'managed',
     RIVET_WORKFLOWS_DATABASE_CONNECTION_STRING: 'postgresql://legacy-user:legacy-pass@example-db:25060/defaultdb',
@@ -163,16 +155,10 @@ test('managed storage config still accepts legacy workflow-prefixed env names', 
     RIVET_WORKFLOWS_STORAGE_ACCESS_KEY_ID: 'legacy-access-key-id',
     RIVET_WORKFLOWS_STORAGE_ACCESS_KEY: 'legacy-secret-access-key',
   }, () => {
-    const config = storageConfig.getManagedWorkflowStorageConfig();
-
-    assert.equal(config.databaseMode, 'managed');
-    assert.equal(config.databaseUrl, 'postgresql://legacy-user:legacy-pass@example-db:25060/defaultdb');
-    assert.equal(config.databaseSslMode, 'require');
-    assert.equal(config.objectStorageBucket, 'legacy-bucket');
-    assert.equal(config.objectStorageRegion, 'lon1');
-    assert.equal(config.objectStorageEndpoint, 'https://lon1.digitaloceanspaces.com');
-    assert.equal(config.objectStorageAccessKeyId, 'legacy-access-key-id');
-    assert.equal(config.objectStorageSecretAccessKey, 'legacy-secret-access-key');
+    assert.throws(
+      () => storageConfig.getManagedWorkflowStorageConfig(),
+      /Retired environment variable/,
+    );
   });
 });
 

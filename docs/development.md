@@ -30,6 +30,8 @@ See also: [Mistakes and Misconceptions](./mistakes-and-misconceptions.md)
 | `npm run prod` | Starts the production-style Docker stack | Smoke-test deployment behavior |
 | `npm run prod:prebuilt` | Pulls prebuilt images and starts without building | Fast deploy verification |
 | `npm run prod:local-build` | Forces a local production image build | Test custom image changes |
+| `npm run runtime-libraries:managed:audit` | Audits managed runtime-library release/job/object state and writes a JSON snapshot | Inspect live managed runtime-library state safely |
+| `npm run runtime-libraries:managed:prune` | Builds a dry-run prune plan for managed runtime-library state | Review cleanup impact before applying it |
 | `npm run ui:observe:install` | Installs Playwright Chromium for observable frontend runs | First-time browser setup |
 | `npm run ui:observe` | Runs the headed slow-motion Playwright flow against the current hosted app | Watch the browser click through a real scenario |
 | `npm run ui:observe:debug` | Runs the same flow with Playwright Inspector enabled | Step through or pause browser actions |
@@ -52,6 +54,12 @@ Current behavior:
   - `RIVET_RUNTIME_LIBS_HOST_PATH=<artifactsRoot>/runtime-libraries`
 - if `RIVET_WORKFLOWS_HOST_PATH` or `RIVET_RUNTIME_LIBS_HOST_PATH` is present, the launcher resolves it to an absolute host path before invoking Docker Compose
 - explicit `RIVET_WORKFLOWS_HOST_PATH` and `RIVET_RUNTIME_LIBS_HOST_PATH` values override the derived paths from `RIVET_ARTIFACTS_HOST_PATH`
+
+Operational note:
+
+- `RIVET_ARTIFACTS_HOST_PATH` is the primary public filesystem-mode contract
+- `RIVET_WORKFLOWS_HOST_PATH` and `RIVET_RUNTIME_LIBS_HOST_PATH` remain compatibility overrides for the launcher
+- `RIVET_STORAGE_MODE=managed` switches both workflows and runtime libraries to managed Postgres plus object storage; in that mode `RIVET_RUNTIME_LIBRARIES_ROOT` remains only a local cache/workspace
 
 ## Observable Playwright flow
 
@@ -104,6 +112,7 @@ Current behavior:
 - the `web` service runs the Vite dev server inside the container with live bind mounts
 - the `api` and `executor` services rebuild from Dockerfiles, so Node/runtime changes are picked up without a separate manual build step
 - the launcher waits for healthy services; `RIVET_DOCKER_WAIT_TIMEOUT` controls the wait window
+- in `RIVET_STORAGE_MODE=managed`, both workflow state and runtime-library releases come from managed services, while `/data/runtime-libraries` remains only an extracted local cache/workspace inside each container
 
 ## Recording-storage notes
 

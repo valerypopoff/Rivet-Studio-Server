@@ -20,8 +20,6 @@ const ENV_ALLOWLIST = new Set([
   'OPENAI_ORG_ID',
   'OPENAI_ENDPOINT',
   'RIVET_STORAGE_MODE',
-  'RIVET_STORAGE_BACKEND',
-  'RIVET_WORKFLOWS_STORAGE_BACKEND',
   ...(process.env.RIVET_ENV_ALLOWLIST?.split(',').map((v) => v.trim()) ?? []),
 ]);
 

@@ -118,10 +118,7 @@ async function apiSaveProject(options: {
 async function getWorkflowStorageBackend(): Promise<'filesystem' | 'managed'> {
   if (!workflowStorageBackendPromise) {
     workflowStorageBackendPromise = (async () => {
-      const value =
-        (await getEnvVar('RIVET_STORAGE_MODE'))?.trim().toLowerCase() ||
-        (await getEnvVar('RIVET_STORAGE_BACKEND'))?.trim().toLowerCase() ||
-        (await getEnvVar('RIVET_WORKFLOWS_STORAGE_BACKEND'))?.trim().toLowerCase();
+      const value = (await getEnvVar('RIVET_STORAGE_MODE'))?.trim().toLowerCase();
       return value === 'managed' ? 'managed' : 'filesystem';
     })().catch((error) => {
       workflowStorageBackendPromise = null;

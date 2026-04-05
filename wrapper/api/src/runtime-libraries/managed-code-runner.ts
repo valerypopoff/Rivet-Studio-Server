@@ -3,6 +3,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 
 import { currentNodeModulesPath } from './manifest.js';
+import { prepareRuntimeLibrariesForExecution } from './backend.js';
 
 interface CodeRunnerOptions {
   includeFetch: boolean;
@@ -39,6 +40,8 @@ export class ManagedCodeRunner {
     graphInputs?: Record<string, DataValue>,
     contextValues?: Record<string, DataValue>,
   ): Promise<Outputs> {
+    await prepareRuntimeLibrariesForExecution();
+
     const argNames: string[] = ['inputs'];
     const args: unknown[] = [inputs];
 

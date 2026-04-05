@@ -1,4 +1,5 @@
 import { EnvHttpProxyAgent, setGlobalDispatcher } from 'undici';
+import { setupManagedRuntimeLibrariesSync } from './runtime-libraries-sync.mjs';
 
 const proxyEnvKeys = [
   'HTTP_PROXY',
@@ -12,3 +13,7 @@ const proxyEnvKeys = [
 if (proxyEnvKeys.some((key) => Boolean(process.env[key]?.trim()))) {
   setGlobalDispatcher(new EnvHttpProxyAgent());
 }
+
+setupManagedRuntimeLibrariesSync().catch((error) => {
+  console.error('[runtime-libraries] Failed to initialize managed runtime-library sync:', error);
+});

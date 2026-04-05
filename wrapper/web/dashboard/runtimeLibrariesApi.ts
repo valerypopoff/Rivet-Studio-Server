@@ -1,33 +1,32 @@
 import { RIVET_API_BASE_URL } from '../../shared/hosted-env';
-import type { RuntimeLibraryEntry, JobStatus } from '../../shared/runtime-library-types';
+import type {
+  JobStatus,
+  RuntimeLibrariesState,
+  RuntimeLibraryEntry,
+  RuntimeLibraryLogSource,
+  RuntimeLibraryJobState,
+} from '../../shared/runtime-library-types';
 
-export type { RuntimeLibraryEntry, JobStatus };
+export type {
+  RuntimeLibrariesState,
+  RuntimeLibraryEntry,
+  RuntimeLibraryJobState,
+  JobStatus,
+  RuntimeLibraryLogSource,
+} from '../../shared/runtime-library-types';
 
 const API = `${RIVET_API_BASE_URL}/runtime-libraries`;
 
-export interface RuntimeLibrariesState {
-  packages: Record<string, RuntimeLibraryEntry>;
-  hasActiveLibraries: boolean;
-  updatedAt: string;
-  activeJob: JobState | null;
-}
-
-export interface JobState {
-  id: string;
-  type: 'install' | 'remove';
-  status: JobStatus;
-  packages: Array<{ name: string; version: string }>;
-  logs: string[];
-  error?: string;
-  createdAt: string;
-  finishedAt?: string;
-}
+export type JobState = RuntimeLibraryJobState;
 
 export interface SSEEvent {
   type: 'log' | 'status' | 'done';
   message?: string;
   status?: JobStatus;
   error?: string;
+  createdAt?: string;
+  source?: RuntimeLibraryLogSource;
+  cancelRequestedAt?: string | null;
 }
 
 async function jsonResponse<T>(response: Response): Promise<T> {
@@ -65,6 +64,13 @@ export async function removePackages(packages: string[]): Promise<JobState> {
 
 export async function fetchJob(jobId: string): Promise<JobState> {
   const response = await fetch(`${API}/jobs/${jobId}`);
+  return jsonResponse<JobState>(response);
+}
+
+export async function cancelJob(jobId: string): Promise<JobState> {
+  const response = await fetch(`${API}/jobs/${jobId}/cancel`, {
+    method: 'POST',
+  });
   return jsonResponse<JobState>(response);
 }
 

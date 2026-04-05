@@ -10,6 +10,9 @@ wrapper/**/node_modules/
 wrapper/api/dist/
 wrapper/web/dist/
 artifacts/playwright/
+artifacts/runtime-library-cleanup/
+artifacts/*.png
+tmp-*.png
 
 # Local runtime data
 .data/

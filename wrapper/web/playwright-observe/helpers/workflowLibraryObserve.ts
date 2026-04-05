@@ -12,11 +12,7 @@ export type WorkflowProjectItem = {
 };
 
 function getStorageModeFromEnv(): 'filesystem' | 'managed' {
-  const value =
-    process.env.RIVET_STORAGE_MODE ??
-    process.env.RIVET_STORAGE_BACKEND ??
-    process.env.RIVET_WORKFLOWS_STORAGE_BACKEND ??
-    'filesystem';
+  const value = process.env.RIVET_STORAGE_MODE ?? 'filesystem';
 
   return value.trim().toLowerCase() === 'managed' ? 'managed' : 'filesystem';
 }
