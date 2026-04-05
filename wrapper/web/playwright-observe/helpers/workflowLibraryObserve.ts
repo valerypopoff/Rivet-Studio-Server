@@ -1,4 +1,4 @@
-import { expect, type Page } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 
 export type WorkflowFolderItem = {
   relativePath: string;
@@ -10,6 +10,23 @@ export type WorkflowProjectItem = {
   absolutePath: string;
   name: string;
 };
+
+function getStorageModeFromEnv(): 'filesystem' | 'managed' {
+  const value =
+    process.env.RIVET_STORAGE_MODE ??
+    process.env.RIVET_STORAGE_BACKEND ??
+    process.env.RIVET_WORKFLOWS_STORAGE_BACKEND ??
+    'filesystem';
+
+  return value.trim().toLowerCase() === 'managed' ? 'managed' : 'filesystem';
+}
+
+export function requireManagedMutationOptIn(): void {
+  test.skip(
+    getStorageModeFromEnv() === 'managed' && process.env.PLAYWRIGHT_ALLOW_MANAGED_MUTATIONS !== '1',
+    'Mutating workflow Playwright specs are blocked against managed storage unless PLAYWRIGHT_ALLOW_MANAGED_MUTATIONS=1 is set.',
+  );
+}
 
 export async function apiJson<T>(page: Page, input: string, init?: RequestInit): Promise<T> {
   return page.evaluate(async ({ input, init }) => {

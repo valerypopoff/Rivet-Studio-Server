@@ -6,11 +6,13 @@ import {
   deleteWorkflowFolder,
   deleteWorkflowProject,
   ensureFolderExpanded,
+  requireManagedMutationOptIn,
 } from './helpers/workflowLibraryObserve';
 
 test.describe('Hosted open-project cache after rename', () => {
   test('switching back to a renamed inactive open project does not reload it', async ({ page }) => {
     test.slow();
+    requireManagedMutationOptIn();
 
     const unique = `codex-open-cache-${Date.now()}`;
     const initialFolderName = `${unique}-folder`;
