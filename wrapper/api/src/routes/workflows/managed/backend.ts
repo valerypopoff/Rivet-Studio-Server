@@ -99,6 +99,11 @@ type CurrentDraftRevisionRow = {
   revision_created_at: Date | string;
 };
 
+type ManagedRevisionContents = {
+  contents: string;
+  datasetsContents: string | null;
+};
+
 type FolderMoveRow = {
   relative_path: string;
   name: string;
@@ -426,6 +431,32 @@ function isUniqueViolation(error: unknown): boolean {
     error != null &&
     'code' in error &&
     String((error as { code?: unknown }).code ?? '') === '23505';
+}
+
+function haveMatchingManagedRevisionContents(left: ManagedRevisionContents, right: ManagedRevisionContents): boolean {
+  return left.contents === right.contents && left.datasetsContents === right.datasetsContents;
+}
+
+export function resolveManagedHostedProjectSaveTarget(options: {
+  nextContents: ManagedRevisionContents;
+  currentDraftContents: ManagedRevisionContents;
+  publishedContents: ManagedRevisionContents | null;
+  draftEndpointName: string;
+  publishedEndpointName: string;
+}): 'current-draft' | 'published-revision' | 'create-revision' {
+  const matchesPublishedRevision = options.publishedContents != null &&
+    normalizeWorkflowEndpointLookupName(options.draftEndpointName) === normalizeWorkflowEndpointLookupName(options.publishedEndpointName) &&
+    haveMatchingManagedRevisionContents(options.nextContents, options.publishedContents);
+
+  if (matchesPublishedRevision) {
+    return 'published-revision';
+  }
+
+  if (haveMatchingManagedRevisionContents(options.nextContents, options.currentDraftContents)) {
+    return 'current-draft';
+  }
+
+  return 'create-revision';
 }
 
 function getWorkflowStatus(row: WorkflowRow): WorkflowProjectStatus {
@@ -1029,6 +1060,73 @@ export class ManagedWorkflowBackend {
             throw createHttpError(400, 'Could not save project');
           }
           contents = rewritten;
+        }
+
+        const currentDraftRevision = await this.#getRevision(client, workflow.current_draft_revision_id);
+        if (!currentDraftRevision) {
+          throw createHttpError(500, 'Current workflow revision could not be loaded');
+        }
+
+        const currentDraftContents = await this.#readRevisionContents(currentDraftRevision);
+        let publishedContents: ManagedRevisionContents | null = null;
+
+        if (workflow.published_revision_id) {
+          if (workflow.published_revision_id === currentDraftRevision.revision_id) {
+            publishedContents = currentDraftContents;
+          } else {
+            const publishedRevision = await this.#getRevision(client, workflow.published_revision_id);
+            if (!publishedRevision) {
+              throw createHttpError(500, 'Published workflow revision could not be loaded');
+            }
+
+            publishedContents = await this.#readRevisionContents(publishedRevision);
+          }
+        }
+
+        const saveTarget = resolveManagedHostedProjectSaveTarget({
+          nextContents: {
+            contents,
+            datasetsContents: options.datasetsContents,
+          },
+          currentDraftContents,
+          publishedContents,
+          draftEndpointName: workflow.endpoint_name,
+          publishedEndpointName: workflow.published_endpoint_name,
+        });
+
+        if (saveTarget === 'current-draft') {
+          return {
+            path: getManagedWorkflowProjectVirtualPath(workflow.relative_path),
+            revisionId: currentDraftRevision.revision_id,
+            project: mapWorkflowRowToProjectItem(workflow),
+            created,
+          };
+        }
+
+        if (saveTarget === 'published-revision') {
+          const publishedRevisionId = workflow.published_revision_id ?? currentDraftRevision.revision_id;
+          if (workflow.current_draft_revision_id !== publishedRevisionId) {
+            await client.query(
+              `
+                UPDATE workflows
+                SET current_draft_revision_id = $2
+                WHERE workflow_id = $1
+              `,
+              [workflow.workflow_id, publishedRevisionId],
+            );
+
+            workflow = await this.#getWorkflowByRelativePath(client, relativePath, { forUpdate: true });
+            if (!workflow) {
+              throw createHttpError(500, 'Saved workflow could not be loaded');
+            }
+          }
+
+          return {
+            path: getManagedWorkflowProjectVirtualPath(workflow.relative_path),
+            revisionId: publishedRevisionId,
+            project: mapWorkflowRowToProjectItem(workflow),
+            created,
+          };
         }
       } else {
         const existingIdOwner = await this.#getWorkflowById(client, workflowId);

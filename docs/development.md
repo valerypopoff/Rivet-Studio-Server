@@ -236,7 +236,8 @@ For published-project save status behavior:
 2. validate through `http://localhost:8080` by default, or your configured `RIVET_PORT`
 3. publish a workflow project
 4. save it with no actual changes and confirm the sidebar stays `Published` without a brief `Unpublished changes` flicker
-5. then make a real saved change, save again, and confirm the sidebar updates to `Unpublished changes`
+5. if you are in `managed` mode, also confirm the saved revision id does not change on that no-op save
+6. then make a real saved change, save again, and confirm the sidebar updates to `Unpublished changes`
 
 For routing/auth/deployment changes:
 

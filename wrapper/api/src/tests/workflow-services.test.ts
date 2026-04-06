@@ -19,6 +19,7 @@ const workflowPublication = await import('../routes/workflows/publication.js');
 const workflowRecordings = await import('../routes/workflows/recordings.js');
 const workflowExecution = await import('../routes/workflows/execution.js');
 const workflowRoutes = await import('../routes/workflows/index.js');
+const workflowStorageBackend = await import('../routes/workflows/storage-backend.js');
 const rivetNode = await import('@ironclad/rivet-node');
 
 async function resetWorkflowsRoot() {
@@ -1039,6 +1040,33 @@ test('publish enforces case-insensitive endpoint uniqueness', async () => {
     }),
     /Endpoint name is already used/,
   );
+});
+
+test('filesystem save keeps published status on a no-op save and marks real changes as unpublished_changes', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'FilesystemSaveStatus');
+
+  await workflowMutations.publishWorkflowProjectItem(created.relativePath, {
+    endpointName: 'filesystem-save-status-endpoint',
+  });
+
+  const loaded = await workflowStorageBackend.loadHostedProject(created.absolutePath);
+  await workflowStorageBackend.saveHostedProject({
+    projectPath: created.absolutePath,
+    contents: loaded.contents,
+    datasetsContents: loaded.datasetsContents,
+  });
+
+  const afterNoOpSave = await workflowQuery.getWorkflowProject(workflowsRoot, created.absolutePath);
+  assert.equal(afterNoOpSave.settings.status, 'published');
+
+  await workflowStorageBackend.saveHostedProject({
+    projectPath: created.absolutePath,
+    contents: `${loaded.contents}\n# changed\n`,
+    datasetsContents: loaded.datasetsContents,
+  });
+
+  const afterRealSave = await workflowQuery.getWorkflowProject(workflowsRoot, created.absolutePath);
+  assert.equal(afterRealSave.settings.status, 'unpublished_changes');
 });
 
 test('published and latest workflow resolution split after unpublished changes', async () => {

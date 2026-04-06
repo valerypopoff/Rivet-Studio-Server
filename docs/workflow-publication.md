@@ -75,15 +75,22 @@ If the project has already been published before, the current implementation reu
 ## Save flow after publish
 
 1. User saves the project in the editor.
-2. The editor writes the updated project file and dataset sidecar.
-3. The editor emits `project-saved`.
-4. The dashboard refreshes `/api/workflows/tree`.
-5. The sidebar updates from the API's derived status.
+2. The save path compares the saved project state with the currently saved draft state and, when relevant, the published state.
+3. The save path persists the updated project state, or reuses the existing saved revision/state when the save is a no-op.
+4. The editor emits `project-saved`.
+5. The dashboard refreshes `/api/workflows/tree`.
+6. The sidebar updates from the API's derived status.
 
 That means:
 
 - saving a published project with real saved changes transitions to `unpublished_changes` once the refresh returns
 - saving a published project with no actual saved changes stays `published` and does not briefly flicker to `unpublished_changes`
+
+Current backend-specific behavior:
+
+- in `filesystem` mode, status is derived from the fresh publication state hash after the save completes
+- in `managed` mode, a no-op save does not create a new draft revision
+- in `managed` mode, if the saved contents match the published revision exactly, the save path reuses that published revision instead of creating a distinct draft revision that would incorrectly appear as `unpublished_changes`
 
 ## Unpublish flow
 
