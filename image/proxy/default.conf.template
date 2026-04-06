@@ -52,6 +52,7 @@ server {
 
     set $web_upstream http://${RIVET_WEB_UPSTREAM_HOST}:${RIVET_WEB_UPSTREAM_PORT};
     set $api_upstream http://${RIVET_API_UPSTREAM_HOST}:${RIVET_API_UPSTREAM_PORT};
+    set $execution_upstream http://${RIVET_EXECUTION_UPSTREAM_HOST}:${RIVET_EXECUTION_UPSTREAM_PORT};
     set $api_ui_auth_upstream http://${RIVET_API_UPSTREAM_HOST}:${RIVET_API_UPSTREAM_PORT}/ui-auth;
     set $api_latest_debugger_upstream http://${RIVET_API_UPSTREAM_HOST}:${RIVET_API_UPSTREAM_PORT}/ws/latest-debugger;
     set $executor_internal_upstream http://${RIVET_EXECUTOR_UPSTREAM_HOST}:${RIVET_EXECUTOR_UPSTREAM_PORT}/internal;
@@ -114,7 +115,7 @@ server {
     }
 
     location ${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH}/ {
-        proxy_pass $api_upstream;
+        proxy_pass $execution_upstream;
         proxy_http_version 1.1;
         proxy_set_header X-Rivet-Proxy-Auth ${RIVET_PROXY_AUTH_TOKEN};
         proxy_set_header X-Rivet-Token-Free-Host $rivet_ui_host_is_token_free;

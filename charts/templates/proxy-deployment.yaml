@@ -59,6 +59,10 @@ spec:
               value: {{ include "rivet.apiServiceName" . | quote }}
             - name: RIVET_API_UPSTREAM_PORT
               value: {{ .Values.service.api.port | quote }}
+            - name: RIVET_EXECUTION_UPSTREAM_HOST
+              value: {{ include "rivet.executionServiceName" . | quote }}
+            - name: RIVET_EXECUTION_UPSTREAM_PORT
+              value: {{ .Values.service.execution.port | quote }}
             - name: RIVET_EXECUTOR_UPSTREAM_HOST
               value: {{ include "rivet.executorServiceName" . | quote }}
             - name: RIVET_EXECUTOR_UPSTREAM_PORT

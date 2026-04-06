@@ -57,14 +57,15 @@ Supported development topology:
 
 ## Current Checkpoint
 
-Phases `1`, `1.1`, `2`, and `2.1` are now complete.
+Phases `1`, `1.1`, `2`, `2.1`, `2.2`, and `3` are now complete.
 
 That means:
 
 - workflows, recordings, and runtime-library releases can now use shared Postgres plus object storage as the authoritative backend
 - managed runtime-library convergence is now visible across API and executor tiers
-- the next live roadmap step is `Phase 2.2`: managed endpoint hot-path hardening on top of the managed-state architecture
-- Kubernetes adoption remains the next step after that hardening pass closes
+- managed published/latest endpoint execution now uses local derived caches on the warm path instead of repeated remote shared-state reads
+- the managed-state runtime now has Kubernetes images, Helm charts, CI validation, and a conservative first-rollout shape
+- the next live roadmap step is `Phase 4`: split and scale the published execution path without scaling the whole control plane
 
 ## End-State Mental Model
 
@@ -101,8 +102,8 @@ These parts already map well to the future plan:
 These parts still block safe backend autoscaling:
 
 - latest debugger state is process-local
-- public workflow execution currently happens inside the API process tier
-- managed endpoint execution still pays shared-state lookup and revision materialization costs on the request path
+- public workflow execution still happens inside the same API service tier as control-plane traffic
+- managed warm-path execution is now fast enough, but it is not yet isolated into a dedicated execution plane
 - plugin install/load semantics and any remaining process-local caches still need replica-safe review
 - `filesystem` mode remains single-backend-replica only by design
 
@@ -1544,7 +1545,7 @@ If profiling still shows meaningful extra overhead on trivial no-code endpoint r
 17. rerun the existing endpoint execution tests in `filesystem` mode and confirm there is no regression
 18. confirm endpoint execution debug headers remain additive-only and are enabled only when the dedicated debug flag is on
 
-## Phase 3: Kubernetes Adoption
+## Phase 3: Kubernetes Adoption - DONE
 
 After phases 1, 2, 2.1, and 2.2, move the managed architecture onto Kubernetes.
 
@@ -1701,53 +1702,188 @@ Remaining non-blockers outside repo-tracked assets:
 - live external Postgres/object-storage connectivity validation
 - final ingress-class / DNS / secret-name environment wiring
 
-## Phase 4: Execution Scale-Out
+## Phase 4: Execution Scale-Out - DONE
 
 Phase 4 is where the app becomes truly high-scale.
 
 ### Phase 4 goals
 
-- support many execution replicas safely
+- scale published execution first without scaling the whole control plane
 - isolate user-facing management traffic from public execution traffic
 - keep published execution fast, stateless, and horizontally scalable
+- preserve the Phase 2.2 managed execution model rather than inventing a second execution architecture prematurely
+
+### Phase 4 entry criteria
+
+Phase 4 should start only after all of these are true:
+
+- Phase 3 is complete and the managed-state runtime is working in Kubernetes in the conservative shape
+- warm managed published execution already meets the Phase 2.2 acceptance targets
+- managed runtime-library convergence and replica readiness are already visible and trustworthy
+- publish/save/unpublish invalidation is already correct across live replicas
+
+### First phase-4 target
+
+The first scale-out target should be published execution only.
+
+Do not block published execution scale-out on latest-workflow scale-out.
+
+Initial rule:
+
+- `${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH}` moves to the execution plane
+- `${RIVET_LATEST_WORKFLOWS_BASE_PATH}` stays on the control plane initially
+- latest-workflow execution should move later only if it is still needed at scale after latest-specific process-local concerns are removed
+
+Reason:
+
+- published execution is the high-volume public path
+- latest execution is more tightly coupled to draft-state semantics and latest-debugger behavior
+- Phase 4 should reduce risk by splitting the highest-value traffic first
 
 ### Recommended architectural split
 
-Split the backend logically into:
+Split the backend by traffic type, not by rewriting the execution stack:
 
 - `control plane`
   - dashboard/editor APIs
   - workflow management
   - publication
-  - recordings UI
-  - admin/runtime-library/plugin management
+  - recordings UI and admin queries
+  - runtime-library install/remove/admin flows
+  - plugin install/load flows
+  - shell/config endpoints
+  - latest debugger websocket
+  - latest-workflow execution initially
+  - executor service for editor/runtime websocket use
 - `execution plane`
   - published workflow execution
-  - optional latest-workflow execution if still supported
+  - internal published-only execution route for trusted intra-stack callers
+  - recording writes for published runs
+  - managed runtime-library consumption for code-node execution
+  - no workflow mutation or admin routes
 
-This split is strongly recommended if the target is thousands of requests per second.
+Implementation rule:
+
+- the first version should prefer reusing the existing API code and image with an execution-only route profile over building a second independent execution service implementation
+- the execution plane should reuse the Phase 2.2 managed execution service, caches, and invalidation rules rather than inventing a new endpoint lookup/materialization path
+
+### Recommended phase-4 workload shape
+
+- `proxy` Deployment
+- `web` Deployment
+- `control-plane` backend Deployment or StatefulSet containing:
+  - `api`
+  - `executor`
+- `execution` Deployment containing:
+  - `api` in execution-only mode
+
+Control-plane scaling rule:
+
+- the control plane may remain conservative even after the execution plane scales
+- Phase 4 is successful when published execution can scale independently without first making the whole backend tier horizontally safe
+
+### Routing contract after the split
+
+Proxy routing should become explicit:
+
+- `/api/*` -> control-plane `api`
+- `POST /__rivet_auth` -> control-plane `api`
+- `/ws/latest-debugger` -> control-plane `api`
+- `/ws/executor/internal` and `/ws/executor` -> control-plane `executor`
+- `${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH}` -> execution-plane `api`
+- `${RIVET_LATEST_WORKFLOWS_BASE_PATH}` -> control-plane `api` initially
+- `/internal/workflows/:endpointName` -> execution-plane `api` for cluster-internal published-only callers
+
+Auth rule:
+
+- keep the existing trusted-proxy boundary and public workflow auth model
+- Phase 4 should not introduce a second auth model for the execution plane
+- `RIVET_KEY` remains required on both the control plane and the execution plane because proxy-to-service trust still depends on it
 
 ### Execution behavior at scale
 
 Execution replicas should:
 
-- resolve endpoint -> published revision via Postgres or cached lookup
-- fetch revision blobs from object storage
+- run only in `managed` mode
+- resolve endpoint -> published revision through Postgres plus the Phase 2.2 derived caches
+- fetch immutable revision blobs from object storage
+- reuse the existing `EndpointPointerCache`, `RevisionMaterializationCache`, singleflight, and transactional invalidation model
 - execute without relying on pod-local workflow folders
 - write recording metadata to Postgres
 - write recording artifacts to object storage
+- be disposable, with only derived local caches
+
+Execution replicas should not own:
+
+- workflow mutation routes
+- plugin install/load flows
+- runtime-library install/remove/admin routes
+- shell/config endpoints
+
+Storage rule for the execution plane:
+
+- do not add an authoritative `workflows` PVC
+- do not add an authoritative runtime-libraries PVC
+- do not carry the control-plane app-data PVC into the execution plane unless a proven execution-only code path still needs persistent local storage
+- runtime-library local cache/workspace may remain `emptyDir` or a per-pod cache PVC if profiling later justifies it
 
 Pods should be disposable.
 
 No local workflow folder should matter.
 
-### Coordination and caching
+### Runtime-library and readiness interaction
+
+Phase 4 should reuse the managed runtime-library system from Phase 2.
+
+Rules:
+
+- execution replicas consume the active managed runtime-library release just like the current API process does today
+- the control plane remains the owner of runtime-library install/remove/admin flows
+- once published execution moves to the execution plane, the runtime-libraries modal's `Endpoint execution` readiness tier should map to execution-plane replicas, not control-plane `api` replicas
+- Phase 4 should not block on redesigning managed runtime-library storage again
+
+### Coordination and caching at scale
 
 At higher scale, extend the cache and coordination model introduced by Phase 2.2:
 
 - endpoint-to-revision cache sizing and topology appropriate for a larger execution tier
-- stronger invalidation or pub/sub on publish changes if Postgres `LISTEN/NOTIFY` is no longer sufficient by itself
-- background job coordination for retention, cleanup, or artifact compaction
+- stronger invalidation or pub/sub on publish changes only if real execution-plane scale proves Postgres `LISTEN/NOTIFY` is no longer sufficient by itself
+- background job coordination for retention, cleanup, or artifact compaction only if those become measured bottlenecks
+
+First-phase rules:
+
+- reuse transactional Postgres `LISTEN/NOTIFY` invalidation across both control-plane and execution-plane replicas
+- keep generation-bound singleflight, pointer-cache bypass-on-listener-loss, and immutable revision-materialization caching unchanged in the first execution-plane rollout
+- keep cache as derived acceleration only; Postgres and object storage remain authoritative
+- do not introduce Redis, Kafka, or a second invalidation system just because Phase 4 exists on the roadmap
+
+### Recording rule at scale
+
+The first Phase 4 split should keep the existing shared-truth recording model:
+
+- execution replicas write recording metadata directly to Postgres
+- execution replicas write recording artifacts directly to object storage
+
+Do not block the first execution-plane split on an asynchronous recording pipeline.
+If recording write cost later becomes a measured bottleneck, address it as a follow-up optimization without reintroducing pod-local truth.
+
+### What Phase 4 should not do first
+
+- do not try to scale the whole control plane and the published execution path as one undifferentiated backend tier
+- do not move latest-workflow execution to the execution plane before the latest-specific debugger and draft-state concerns are redesigned
+- do not put plugin/runtime-library mutation/admin routes on the execution plane
+- do not introduce a new shared workflow volume
+- do not replace the Phase 2.2 invalidation/caching model with a new distributed-cache design before measurement justifies it
+
+### Phase 4 acceptance targets
+
+- published execution is served by the execution plane, not the conservative control plane
+- control-plane replica count may remain `1` while published execution scales above `1` replica
+- publish, unpublish, rename, and move operations issued through the control plane become visible across execution replicas through the shared invalidation model without filesystem refresh
+- published execution continues to write globally visible recordings regardless of which execution pod handled the run
+- runtime-library readiness for `Endpoint execution` maps to execution-plane replicas after the split
+- no workflow-mutation, plugin, shell, config, or runtime-library admin route is exposed on the execution plane
+- warm published execution latency does not regress materially from the Phase 2.2 baseline after the plane split
 
 Use cache only as acceleration.
 
@@ -1771,7 +1907,7 @@ Once workflow, recording, and runtime-library state are on the managed backend:
 
 ## DevOps Standard Alignment
 
-The devops-standard repository shape still applies in phase 3:
+The devops-standard repository shape still applies from phase 3 onward:
 
 - `image/`
 - `charts/`
@@ -1978,12 +2114,12 @@ Keep:
 - `/workflows`
 - `/workflows-latest`
 
-for phases 1, 2, and 3 unless runtime frontend config is added later.
+for phases 1, 2, 3, and the first Phase 4 split unless runtime frontend config is added later.
 
 Operational rule:
 
-- the phase-3 chart should reject route-prefix overrides that diverge from those defaults, because the current `web` image still consumes them at build time rather than at runtime
-- the phase-3 proxy should keep a configured dynamic DNS resolver for in-cluster service names instead of resolving backend upstreams only once at nginx startup
+- the phase-3 and first-phase-4 charting should reject route-prefix overrides that diverge from those defaults, because the current `web` image still consumes them at build time rather than at runtime
+- the phase-3 and first-phase-4 proxy should keep a configured dynamic DNS resolver for in-cluster service names instead of resolving backend upstreams only once at nginx startup
 
 ### Ports
 
@@ -2095,6 +2231,13 @@ New internal application interfaces introduced by phase 2.2:
 - a same-process post-commit pointer-cache invalidation step for the API process that performed the managed mutation
 - in-flight singleflight dedupe for identical managed endpoint/reference cold loads so one revision miss does not fan out into repeated object-storage fetches
 
+New operational interfaces introduced by phase 4:
+
+- a control-plane versus execution-plane service split behind the same proxy
+- an execution-only API route profile so published execution can scale without exposing workflow mutation or admin routes
+- proxy route splitting so published execution traffic reaches the execution plane while `/api/*`, `/__rivet_auth`, websocket routes, and latest execution remain on the control plane initially
+- runtime-library `Endpoint execution` readiness semantics that map to execution-plane replicas once published execution moves there
+
 ## Test Cases And Scenarios
 
 ### Phase 1: state externalization
@@ -2190,17 +2333,24 @@ New internal application interfaces introduced by phase 2.2:
 
 ### Phase 4: scale-out
 
-72. Confirm published execution works correctly across multiple execution replicas.
-73. Confirm new publish operations become visible across replicas without filesystem refresh.
-74. Confirm recording metadata and artifacts remain globally visible regardless of which pod executed the run.
-75. Confirm runtime-library activation remains consistent across execution replicas under concurrent publish and execution load.
-76. Confirm endpoint lookup remains correct under cache invalidation and concurrent publish changes.
+72. Add an execution-plane service and keep the control plane conservative.
+73. Confirm proxy routing sends `/api/*`, `POST /__rivet_auth`, `/ws/latest-debugger`, and `/ws/executor*` to the control plane while `${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH}` routes to the execution plane.
+74. Confirm `/internal/workflows/:endpointName` resolves through the execution plane for trusted cluster-internal published-only callers.
+75. Scale the execution plane above `1` replica and confirm published execution works correctly across multiple execution replicas.
+76. Publish a new revision through the control plane and confirm execution replicas begin serving the new published revision without filesystem refresh.
+77. Unpublish, rename, or move a published workflow through the control plane and confirm execution-plane caches invalidate correctly without serving orphaned published pointers.
+78. Confirm recording metadata and artifacts remain globally visible regardless of which execution pod handled the run.
+79. Confirm runtime-library activation remains consistent across execution replicas under concurrent publish and execution load.
+80. Confirm the runtime-libraries modal's `Endpoint execution` readiness tier maps to execution-plane replicas rather than control-plane `api` replicas after the split.
+81. Restart the control-plane API pod and confirm published execution continues through the execution plane while control-plane-only routes recycle normally.
+82. Confirm the execution plane does not expose workflow mutation, plugin, shell, config, or runtime-library admin routes.
+83. Confirm latest-workflow execution can remain on the control plane without blocking published execution scale-out.
 
 ### Vault and non-root
 
-77. Deploy with Vault injection enabled and verify `/vault/dotenv` is present where expected.
-78. Confirm all containers run as uid/gid `10001`.
-79. Confirm no container requires privileged ports or root-only filesystem writes.
+84. Deploy with Vault injection enabled and verify `/vault/dotenv` is present where expected.
+85. Confirm all containers run as uid/gid `10001`.
+86. Confirm no container requires privileged ports or root-only filesystem writes.
 
 ## Rollout Order
 
@@ -2251,10 +2401,15 @@ New internal application interfaces introduced by phase 2.2:
 45. Add `image/` Dockerfiles and entrypoints for the managed-state runtime.
 46. Add `charts/` Helm chart and overlays.
 47. Add `.gitlab-ci.yml` for the devops-standard deployment path.
-48. Deploy the managed-state runtime to Kubernetes.
-49. Validate in-cluster behavior with backend scaling still conservative.
-50. Redesign remaining process-local paths.
-51. Scale execution safely only after that redesign is complete.
+48. `DONE`: Deploy the managed-state runtime to Kubernetes.
+49. `DONE`: Validate in-cluster behavior with backend scaling still conservative.
+50. Add an execution-only API route profile so the existing managed execution code can run without exposing workflow mutation or admin routes.
+51. Add a separate execution Deployment and Service in the chart, keeping the control plane conservative.
+52. Route published execution and internal published-only execution to the execution plane while keeping latest execution on the control plane initially.
+53. Repoint runtime-library `Endpoint execution` readiness so it tracks execution-plane replicas after the split.
+54. Validate published execution, cache invalidation, recording writes, and runtime-library convergence across multiple execution replicas.
+55. Add HPA and horizontal scale-out only to the execution plane.
+56. Redesign remaining latest-specific or control-plane-local paths before moving latest execution or broader backend traffic into the execution plane.
 
 ## What Is Explicitly Out Of Scope For The First Phase
 
@@ -2284,7 +2439,8 @@ New internal application interfaces introduced by phase 2.2:
 - all application containers should run as uid/gid `10001`
 - runtime-library replica-readiness visibility is part of Phase 2 quality, not optional polish
 - managed endpoint hot-path hardening is part of Phase 2 quality, not optional Phase 4 polish
-- endpoint-execution readiness currently maps to the `api` process tier because published/latest endpoint execution still runs there today
+- before the Phase 4 split, endpoint-execution readiness maps to the `api` process tier because published/latest endpoint execution still runs there today
+- after published execution moves to the execution plane, endpoint-execution readiness should map to execution-plane replicas instead of control-plane `api` replicas
 - editor-execution readiness currently maps to the `executor` process tier
 - replica-readiness denominator should use app-observed healthy replicas, not Kubernetes desired replica count
 - the first replica-readiness UI surface belongs in the existing runtime-libraries modal
@@ -2297,5 +2453,8 @@ New internal application interfaces introduced by phase 2.2:
 - the first managed endpoint cache should be positive-only; do not cache `404` / not-found endpoint lookups in the initial version
 - the first managed endpoint cache should invalidate at workflow granularity when endpoint-serving state changes; narrower per-route repointing is a later optimization only if needed
 - published execution is the highest-priority managed endpoint hot path, but latest execution should also become warm-path local after cache population
+- the first Phase 4 scale-out target is published execution only; latest execution may remain on the control plane initially
+- Phase 4 should reuse the Phase 2.2 cache and invalidation model in the execution plane before introducing stronger distributed coordination
+- the control plane may remain conservative while the execution plane scales independently
 - the warm latency target is defined first for a trivial managed workflow with no `Code` nodes, no project references, and no datasets
 - runtime-library sync is not expected to dominate that trivial-workflow hot path because `ManagedCodeRunner.runCode(...)` is only reached when a `Code` node executes

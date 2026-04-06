@@ -60,6 +60,8 @@ spec:
               value: {{ .Values.vault.dotenvFileName | quote }}
             - name: PORT
               value: {{ .Values.service.api.targetPort | quote }}
+            - name: RIVET_API_PROFILE
+              value: control
             - name: RIVET_STORAGE_MODE
               value: {{ .Values.workflowStorage.backend | quote }}
             - name: RIVET_DATABASE_MODE
@@ -76,6 +78,10 @@ spec:
               value: /data/runtime-libraries
             - name: RIVET_RUNTIME_PROCESS_ROLE
               value: api
+            - name: RIVET_RUNTIME_LIBRARIES_REPLICA_TIER
+              value: none
+            - name: RIVET_RUNTIME_LIBRARIES_JOB_WORKER_ENABLED
+              value: "true"
             - name: RIVET_STORAGE_BUCKET
               value: {{ .Values.objectStorage.bucket | quote }}
             - name: RIVET_STORAGE_REGION
@@ -187,6 +193,8 @@ spec:
               value: /data/runtime-libraries
             - name: RIVET_RUNTIME_PROCESS_ROLE
               value: executor
+            - name: RIVET_RUNTIME_LIBRARIES_REPLICA_TIER
+              value: editor
             - name: RIVET_STORAGE_BUCKET
               value: {{ .Values.objectStorage.bucket | quote }}
             - name: RIVET_STORAGE_REGION

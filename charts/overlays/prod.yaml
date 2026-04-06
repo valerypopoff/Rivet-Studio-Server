@@ -59,6 +59,7 @@ replicaCount:
   proxy: 2
   web: 2
   backend: 1
+  execution: 2
 
 autoscaling:
   proxy:
@@ -73,3 +74,8 @@ autoscaling:
     targetCPUUtilizationPercentage: 75
   backend:
     enabled: false
+  execution:
+    enabled: true
+    minReplicas: 2
+    maxReplicas: 10
+    targetCPUUtilizationPercentage: 75

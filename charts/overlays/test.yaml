@@ -52,6 +52,7 @@ replicaCount:
   proxy: 1
   web: 1
   backend: 1
+  execution: 1
 
 autoscaling:
   proxy:
@@ -59,4 +60,6 @@ autoscaling:
   web:
     enabled: false
   backend:
+    enabled: false
+  execution:
     enabled: false

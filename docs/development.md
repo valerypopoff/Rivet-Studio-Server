@@ -65,6 +65,10 @@ Operational note:
   - `RIVET_RUNTIME_LIBRARIES_SYNC_POLL_INTERVAL_MS`
   - `RIVET_RUNTIME_LIBRARIES_REPLICA_STATUS_RETENTION_MS`
   - `RIVET_RUNTIME_LIBRARIES_REPLICA_STATUS_CLEANUP_INTERVAL_MS`
+- split-topology launches can also override:
+  - `RIVET_API_PROFILE=combined|control|execution`
+  - `RIVET_RUNTIME_LIBRARIES_REPLICA_TIER=endpoint|editor|none`
+  - `RIVET_RUNTIME_LIBRARIES_JOB_WORKER_ENABLED=true|false`
 
 ## Observable Playwright flow
 
@@ -119,7 +123,7 @@ Current behavior:
 - the launcher waits for healthy services; `RIVET_DOCKER_WAIT_TIMEOUT` controls the wait window
 - in `RIVET_STORAGE_MODE=managed`, both workflow state and runtime-library releases come from managed services, while `/data/runtime-libraries` remains only an extracted local cache/workspace inside each container
 - in `RIVET_STORAGE_MODE=managed`, published/latest endpoint execution also keeps API-local warm caches for endpoint pointers and immutable revision contents; the first hit after startup or after a workflow mutation can still be slower, but repeated hits for the same unchanged trivial workflow should settle onto the warm local path
-- the post-Phase-2.2 cleanup did not change that behavior; it extracted the managed execution invalidation/service code, replaced brittle source assertions with behavioral tests, added a measurement tool, and hardened listener startup/shutdown plus same-process self-notify handling without changing the public execution contract
+- a later cleanup pass did not change that behavior; it extracted the managed execution invalidation/service code, replaced brittle source assertions with behavioral tests, added a measurement tool, and hardened listener startup/shutdown plus same-process self-notify handling without changing the public execution contract
 - if `RIVET_DATABASE_MODE=managed`, runtime-library replica-status rows also live in the shared Postgres database, so stale rows from older containers can survive a Docker recreate until retention cleanup runs or you clear them explicitly
 - when the Runtime Libraries modal shows stale rows that are only historical dev noise, use the `Clear stale replicas` action or call `POST /api/runtime-libraries/replicas/cleanup`
 - set `RIVET_WORKFLOW_EXECUTION_DEBUG_HEADERS=true` when you want additive managed execution timing headers for local diagnosis of endpoint resolve/materialize/execute stages
@@ -252,14 +256,18 @@ For routing/auth/deployment changes:
 1. `npm run dev`
 2. validate the browser flow through `http://localhost:8080` by default, or your configured `RIVET_PORT`
 
-For the Phase 3 Helm chart and images:
+For the current Helm chart and images:
 
 1. keep `replicaCount.backend=1`
 2. keep `autoscaling.backend.enabled=false`
-3. keep `RIVET_PUBLISHED_WORKFLOWS_BASE_PATH=/workflows` and `RIVET_LATEST_WORKFLOWS_BASE_PATH=/workflows-latest`
-4. set `env.RIVET_PROXY_RESOLVER` for in-cluster nginx DNS resolution
-5. provide `RIVET_KEY` through `auth.keySecretName` or Vault, even if the optional UI gate and public workflow bearer checks are disabled
-6. if Vault is enabled, make sure the injected `/vault/dotenv` carries the required managed Postgres/object-storage env vars before relying on it instead of Kubernetes secret refs
+3. keep `workflowStorage.backend=managed` and `runtimeLibraries.backend=managed`
+4. keep `RIVET_PUBLISHED_WORKFLOWS_BASE_PATH=/workflows` and `RIVET_LATEST_WORKFLOWS_BASE_PATH=/workflows-latest`
+5. set `env.RIVET_PROXY_RESOLVER` for in-cluster nginx DNS resolution
+6. provide `RIVET_KEY` through `auth.keySecretName` or Vault, even if the optional UI gate and public workflow bearer checks are disabled
+7. keep the control-plane API on `RIVET_API_PROFILE=control` and the execution Deployment on `RIVET_API_PROFILE=execution`
+8. keep control-plane runtime-library reporting at `RIVET_RUNTIME_LIBRARIES_REPLICA_TIER=none`
+9. keep execution-plane runtime-library reporting at `RIVET_RUNTIME_LIBRARIES_REPLICA_TIER=endpoint` with `RIVET_RUNTIME_LIBRARIES_JOB_WORKER_ENABLED=false`
+10. if Vault is enabled, make sure the injected `/vault/dotenv` carries the required managed Postgres/object-storage env vars before relying on it instead of Kubernetes secret refs
 
 For managed endpoint latency and cache behavior:
 
@@ -277,3 +285,11 @@ For managed endpoint measurement with the dedicated script:
 4. expect one output line per request with HTTP status, client duration, `x-duration-ms`, `x-workflow-resolve-ms`, `x-workflow-materialize-ms`, `x-workflow-execute-ms`, and `x-workflow-cache`
 5. if debug headers are disabled, expect those per-stage fields to print as `n/a` rather than failing
 6. use the transition from `x-workflow-cache=miss` to `x-workflow-cache=hit` to verify cold-first-hit then warm-hit behavior
+
+For the current execution-plane split specifically:
+
+1. keep the control plane conservative and scale the execution Deployment instead of the backend StatefulSet
+2. confirm `${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH}` reaches the execution-plane API while `${RIVET_LATEST_WORKFLOWS_BASE_PATH}` still reaches the control-plane API
+3. confirm `/api/*` and `POST /__rivet_auth` still reach the control-plane API
+4. confirm `/internal/workflows/:endpointName` is not exposed through nginx and is only reachable inside the cluster
+5. confirm runtime-library `Endpoint execution` readiness reflects execution-plane API replicas, not control-plane API replicas

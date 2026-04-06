@@ -48,8 +48,16 @@ app.kubernetes.io/component: {{ .component }}
 {{- printf "%s-executor" (include "rivet.fullname" .) -}}
 {{- end -}}
 
+{{- define "rivet.executionServiceName" -}}
+{{- printf "%s-execution" (include "rivet.fullname" .) -}}
+{{- end -}}
+
 {{- define "rivet.backendName" -}}
 {{- printf "%s-backend" (include "rivet.fullname" .) -}}
+{{- end -}}
+
+{{- define "rivet.executionName" -}}
+{{- printf "%s-execution" (include "rivet.fullname" .) -}}
 {{- end -}}
 
 {{- define "rivet.backendHeadlessServiceName" -}}

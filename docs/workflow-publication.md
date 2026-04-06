@@ -2,6 +2,12 @@
 
 Workflows can be published as HTTP endpoints. This document describes the current publication, execution, and recording model.
 
+In the current runtime split:
+
+- published execution runs on the execution-plane API
+- latest execution stays on the control-plane API
+- internal published-only execution also runs on the execution plane
+
 ## Concepts
 
 - **Project file** (`*.rivet-project`): the live, editable workflow file
@@ -233,9 +239,11 @@ Two public endpoint families exist:
 - **Published** (`${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH:-/workflows}/:endpointName`)
   - serves the frozen published snapshot
   - stable across live edits
+  - is routed to the execution-plane API
 - **Latest** (`${RIVET_LATEST_WORKFLOWS_BASE_PATH:-/workflows-latest}/:endpointName`)
   - serves the live project file for the same published workflow
   - reflects unpublished changes immediately
+  - stays on the control-plane API
 
 Both routes:
 
@@ -255,7 +263,7 @@ There is also an internal published-only route:
 
 - `POST /internal/workflows/:endpointName`
 
-That route is mounted directly on the API service, is not exposed through nginx, and intentionally skips public bearer auth for trusted intra-stack callers.
+That route is mounted on the execution-plane API service, is not exposed through nginx, and intentionally skips public bearer auth for trusted intra-stack callers.
 
 ## HTTP execution contract
 
@@ -276,7 +284,7 @@ Current request/response behavior for all execution routes:
 
 ## Managed hot path
 
-In `managed` mode, shared services remain authoritative, but steady-state endpoint execution is intentionally local on each API replica:
+In `managed` mode, shared services remain authoritative, but steady-state endpoint execution is intentionally local on each API replica that serves workflow execution:
 
 - the endpoint-pointer cache stores `runKind + normalizedEndpointName -> workflow id + relative path + revision id`
 - the revision-materialization cache stores immutable raw project and dataset contents by `revisionId`
@@ -286,7 +294,13 @@ In `managed` mode, shared services remain authoritative, but steady-state endpoi
 
 That means a managed endpoint can have a slower first hit after pod start or after an invalidating workflow mutation, while repeated hits for the same trivial workflow settle onto the warm local path.
 
-The post-Phase-2.2 cleanup did not change those cache semantics. It was structural only:
+That cache/invalidation model is reused unchanged across both API planes:
+
+- execution-plane API replicas serve the published route
+- control-plane API replicas still serve the latest route
+- both planes stay correct through the same managed invalidation and immutable-revision cache rules
+
+The later cleanup pass did not change those cache semantics. It was structural only:
 
 - execution invalidation and execution loading were extracted out of the large managed backend file into focused internal modules
 - behavioral race/degradation tests replaced brittle source-regex assertions

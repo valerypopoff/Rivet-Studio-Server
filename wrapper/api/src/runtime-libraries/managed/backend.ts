@@ -93,7 +93,11 @@ export class ManagedRuntimeLibrariesBackend implements RuntimeLibrariesBackend {
       await this.#blobStore.initialize?.();
       await this.#pool.query(MANAGED_RUNTIME_LIBRARIES_SCHEMA_SQL);
       await this.#syncForLocalUse(true);
-      this.#startWorkerLoop();
+      if (this.#config.jobWorkerEnabled) {
+        this.#startWorkerLoop();
+      } else {
+        console.log('[runtime-libraries] Managed job worker disabled for this process; running in sync-only mode.');
+      }
     })();
 
     try {

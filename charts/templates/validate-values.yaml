@@ -2,16 +2,20 @@
 {{- fail "workflowStorage.backend and runtimeLibraries.backend must stay unified in phase 3" -}}
 {{- end -}}
 
+{{- if or (ne .Values.workflowStorage.backend "managed") (ne .Values.runtimeLibraries.backend "managed") -}}
+{{- fail "The phase 4 chart shape requires workflowStorage.backend=managed and runtimeLibraries.backend=managed" -}}
+{{- end -}}
+
 {{- if hasKey .Values.vault "roleIdSecretName" -}}
 {{- fail "vault.roleIdSecretName is retired; use vault.role with the Vault Injector dotenv contract" -}}
 {{- end -}}
 
 {{- if ne (index .Values.env "RIVET_PUBLISHED_WORKFLOWS_BASE_PATH") "/workflows" -}}
-{{- fail "Phase 3 keeps RIVET_PUBLISHED_WORKFLOWS_BASE_PATH fixed at /workflows because the web image is still build-time configured" -}}
+{{- fail "Phase 3 and the first Phase 4 split keep RIVET_PUBLISHED_WORKFLOWS_BASE_PATH fixed at /workflows because the web image is still build-time configured" -}}
 {{- end -}}
 
 {{- if ne (index .Values.env "RIVET_LATEST_WORKFLOWS_BASE_PATH") "/workflows-latest" -}}
-{{- fail "Phase 3 keeps RIVET_LATEST_WORKFLOWS_BASE_PATH fixed at /workflows-latest because the web image is still build-time configured" -}}
+{{- fail "Phase 3 and the first Phase 4 split keep RIVET_LATEST_WORKFLOWS_BASE_PATH fixed at /workflows-latest because the web image is still build-time configured" -}}
 {{- end -}}
 
 {{- if ne .Values.runtimeLibraries.objectStoragePrefix "runtime-libraries/" -}}
@@ -19,7 +23,7 @@
 {{- end -}}
 
 {{- if empty (index .Values.env "RIVET_PROXY_RESOLVER") -}}
-{{- fail "env.RIVET_PROXY_RESOLVER is required in phase 3 so nginx can resolve in-cluster service names dynamically" -}}
+{{- fail "env.RIVET_PROXY_RESOLVER is required so nginx can resolve in-cluster service names dynamically" -}}
 {{- end -}}
 
 {{- if .Values.ingress.enabled -}}

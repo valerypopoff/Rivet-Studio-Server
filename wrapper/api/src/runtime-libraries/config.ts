@@ -6,14 +6,17 @@ import { badRequest } from '../utils/httpError.js';
 import type {
   RuntimeLibrariesBackendMode,
   RuntimeLibraryProcessRole,
+  RuntimeLibraryReplicaTier,
 } from '../../../shared/runtime-library-types.js';
 
 export type ManagedRuntimeLibrariesConfig = Omit<ManagedWorkflowStorageConfig, 'objectStoragePrefix'> & {
   objectStoragePrefix: string;
   syncPollIntervalMs: number;
   runtimeProcessRole: RuntimeLibraryProcessRole;
+  runtimeReplicaTier: RuntimeLibraryReplicaTier | 'none';
   replicaStatusRetentionMs: number;
   replicaStatusCleanupIntervalMs: number;
+  jobWorkerEnabled: boolean;
 };
 
 export const MANAGED_RUNTIME_LIBRARIES_OBJECT_STORAGE_PREFIX = 'runtime-libraries/';
@@ -23,6 +26,8 @@ const RUNTIME_LIBRARIES_SYNC_POLL_INTERVAL_ENV_NAME = 'RIVET_RUNTIME_LIBRARIES_S
 const RUNTIME_LIBRARIES_REPLICA_STATUS_RETENTION_ENV_NAME = 'RIVET_RUNTIME_LIBRARIES_REPLICA_STATUS_RETENTION_MS';
 const RUNTIME_LIBRARIES_REPLICA_STATUS_CLEANUP_INTERVAL_ENV_NAME = 'RIVET_RUNTIME_LIBRARIES_REPLICA_STATUS_CLEANUP_INTERVAL_MS';
 const RUNTIME_PROCESS_ROLE_ENV_NAME = 'RIVET_RUNTIME_PROCESS_ROLE';
+const RUNTIME_REPLICA_TIER_ENV_NAME = 'RIVET_RUNTIME_LIBRARIES_REPLICA_TIER';
+const RUNTIME_LIBRARIES_JOB_WORKER_ENABLED_ENV_NAME = 'RIVET_RUNTIME_LIBRARIES_JOB_WORKER_ENABLED';
 const RETIRED_ENV_REPLACEMENTS = {
   RIVET_STORAGE_BACKEND: STORAGE_MODE_ENV_NAME,
   RIVET_WORKFLOWS_STORAGE_BACKEND: STORAGE_MODE_ENV_NAME,
@@ -64,6 +69,23 @@ function normalizePositiveInt(value: string | undefined, fallback: number): numb
   return parsed;
 }
 
+function normalizeBoolean(value: string | undefined, fallback: boolean): boolean {
+  if (!value) {
+    return fallback;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  if (normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on') {
+    return true;
+  }
+
+  if (normalized === '0' || normalized === 'false' || normalized === 'no' || normalized === 'off') {
+    return false;
+  }
+
+  return fallback;
+}
+
 function inferRuntimeProcessRole(): RuntimeLibraryProcessRole {
   const rawExplicitRole = readEnv(RUNTIME_PROCESS_ROLE_ENV_NAME);
   const explicitRole = rawExplicitRole?.toLowerCase();
@@ -84,6 +106,23 @@ function inferRuntimeProcessRole(): RuntimeLibraryProcessRole {
   }
 
   return 'api';
+}
+
+function inferRuntimeReplicaTier(runtimeProcessRole: RuntimeLibraryProcessRole): RuntimeLibraryReplicaTier | 'none' {
+  const rawExplicitTier = readEnv(RUNTIME_REPLICA_TIER_ENV_NAME);
+  const explicitTier = rawExplicitTier?.toLowerCase();
+  if (explicitTier === 'endpoint' || explicitTier === 'editor' || explicitTier === 'none') {
+    return explicitTier;
+  }
+
+  if (rawExplicitTier) {
+    throw badRequest(
+      `Invalid configuration value "${rawExplicitTier}" for ${RUNTIME_REPLICA_TIER_ENV_NAME}. ` +
+      'Expected "endpoint", "editor", or "none".',
+    );
+  }
+
+  return runtimeProcessRole === 'executor' ? 'editor' : 'endpoint';
 }
 
 function getDefaultReplicaStatusRetentionMs(databaseMode: ManagedRuntimeLibrariesConfig['databaseMode']): number {
@@ -133,6 +172,7 @@ export function getManagedRuntimeLibrariesConfig(): ManagedRuntimeLibrariesConfi
     readEnv(RUNTIME_LIBRARIES_REPLICA_STATUS_RETENTION_ENV_NAME),
     getDefaultReplicaStatusRetentionMs(workflowConfig.databaseMode),
   );
+  const runtimeProcessRole = inferRuntimeProcessRole();
 
   return {
     ...workflowConfig,
@@ -141,11 +181,16 @@ export function getManagedRuntimeLibrariesConfig(): ManagedRuntimeLibrariesConfi
       readEnv(RUNTIME_LIBRARIES_SYNC_POLL_INTERVAL_ENV_NAME),
       5_000,
     ),
-    runtimeProcessRole: inferRuntimeProcessRole(),
+    runtimeProcessRole,
+    runtimeReplicaTier: inferRuntimeReplicaTier(runtimeProcessRole),
     replicaStatusRetentionMs,
     replicaStatusCleanupIntervalMs: normalizePositiveInt(
       readEnv(RUNTIME_LIBRARIES_REPLICA_STATUS_CLEANUP_INTERVAL_ENV_NAME),
       getDefaultReplicaStatusCleanupIntervalMs(workflowConfig.databaseMode),
+    ),
+    jobWorkerEnabled: normalizeBoolean(
+      readEnv(RUNTIME_LIBRARIES_JOB_WORKER_ENABLED_ENV_NAME),
+      true,
     ),
   };
 }

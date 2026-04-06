@@ -70,6 +70,17 @@ validate:helm:
         echo "expected shared-key validation to fail" >&2
         exit 1
       fi
+    - |
+      if helm template "$HELM_RELEASE_NAME" charts -f charts/overlays/test.yaml \
+        --set-string images.proxy.repository="$HELM_VALIDATE_IMAGE_BASE/proxy" \
+        --set-string images.web.repository="$HELM_VALIDATE_IMAGE_BASE/web" \
+        --set-string images.api.repository="$HELM_VALIDATE_IMAGE_BASE/api" \
+        --set-string images.executor.repository="$HELM_VALIDATE_IMAGE_BASE/executor" \
+        --set-string workflowStorage.backend=filesystem \
+        --set-string runtimeLibraries.backend=filesystem >/tmp/filesystem.out 2>/tmp/filesystem.err; then
+        echo "expected phase-4 managed-backend validation to fail" >&2
+        exit 1
+      fi
 
 build:images:
   stage: build

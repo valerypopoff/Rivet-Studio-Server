@@ -50,10 +50,28 @@ Canonical managed config:
   - `RIVET_RUNTIME_LIBRARIES_REPLICA_STATUS_CLEANUP_INTERVAL_MS`
 - explicit process role for readiness reporting:
   - `RIVET_RUNTIME_PROCESS_ROLE=api|executor`
+- explicit split-topology readiness tier override:
+  - `RIVET_RUNTIME_LIBRARIES_REPLICA_TIER=endpoint|editor|none`
+- explicit per-process job-worker ownership override:
+  - `RIVET_RUNTIME_LIBRARIES_JOB_WORKER_ENABLED=true|false`
 
 The official API and executor images set `RIVET_RUNTIME_PROCESS_ROLE` automatically.
 Custom launches should set it explicitly when `RIVET_STORAGE_MODE=managed` so replica-readiness
 reporting lands in the correct tier.
+
+The current chart split uses the runtime-library topology envs like this:
+
+- control-plane `api`
+  - `RIVET_RUNTIME_PROCESS_ROLE=api`
+  - `RIVET_RUNTIME_LIBRARIES_REPLICA_TIER=none`
+  - `RIVET_RUNTIME_LIBRARIES_JOB_WORKER_ENABLED=true`
+- execution-plane `api`
+  - `RIVET_RUNTIME_PROCESS_ROLE=api`
+  - `RIVET_RUNTIME_LIBRARIES_REPLICA_TIER=endpoint`
+  - `RIVET_RUNTIME_LIBRARIES_JOB_WORKER_ENABLED=false`
+- `executor`
+  - `RIVET_RUNTIME_PROCESS_ROLE=executor`
+  - `RIVET_RUNTIME_LIBRARIES_REPLICA_TIER=editor`
 
 Default replica-status retention policy:
 
@@ -105,11 +123,13 @@ The runtime-library API lives under `/api/runtime-libraries`:
 Only one install/remove job can run at a time.
 
 In `managed` mode that exclusivity is enforced in Postgres, not only in process memory.
+In the current split, install/remove job ownership stays on the control-plane API while execution-plane API replicas run in sync-only mode.
 
 Managed `replicaReadiness` is observational only:
 
-- `endpoint` readiness reflects API-process replicas
+- `endpoint` readiness reflects execution-plane API replicas
 - `editor` readiness reflects executor-process replicas
+- control-plane API replicas are excluded from endpoint readiness by reporting `tier=none`
 - only replicas that have heartbeated recently are counted in the live denominator
 - stale rows are excluded from the live denominator and reported separately
 - polling `GET /api/runtime-libraries` does not trigger convergence by itself
@@ -184,6 +204,11 @@ Both execution paths resolve managed libraries from `current/node_modules`:
 That means newly activated libraries take effect on the next workflow execution without restarting the API container.
 In `managed` mode the executor bootstrap now reconciles the same active release into its own local `current/` cache before code-node `require()` resolution, so it no longer depends on a shared authoritative runtime-library mount.
 API processes do the same before endpoint-side execution, so both endpoint execution and editor execution converge to the same active managed release.
+
+In the current split, that means:
+
+- execution-plane API replicas consume the active release for published execution
+- control-plane API replicas can still reconcile managed releases for any local execution they retain, but they do not count toward `Endpoint execution` readiness
 
 If no managed runtime-library set is active, code execution falls back to the dependencies baked into the running image / normal Node resolution.
 

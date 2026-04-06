@@ -94,6 +94,8 @@ const RUNTIME_LIBRARIES_SYNC_POLL_INTERVAL_ENV_NAME = 'RIVET_RUNTIME_LIBRARIES_S
 const RUNTIME_LIBRARIES_REPLICA_STATUS_RETENTION_ENV_NAME = 'RIVET_RUNTIME_LIBRARIES_REPLICA_STATUS_RETENTION_MS';
 const RUNTIME_LIBRARIES_REPLICA_STATUS_CLEANUP_INTERVAL_ENV_NAME = 'RIVET_RUNTIME_LIBRARIES_REPLICA_STATUS_CLEANUP_INTERVAL_MS';
 const RUNTIME_PROCESS_ROLE_ENV_NAME = 'RIVET_RUNTIME_PROCESS_ROLE';
+const RUNTIME_REPLICA_TIER_ENV_NAME = 'RIVET_RUNTIME_LIBRARIES_REPLICA_TIER';
+const RUNTIME_LIBRARIES_JOB_WORKER_ENABLED_ENV_NAME = 'RIVET_RUNTIME_LIBRARIES_JOB_WORKER_ENABLED';
 
 export const MANAGED_RUNTIME_LIBRARIES_OBJECT_STORAGE_PREFIX = 'runtime-libraries/';
 
@@ -164,6 +166,23 @@ function inferRuntimeProcessRole() {
   return 'api';
 }
 
+function inferRuntimeReplicaTier(runtimeProcessRole) {
+  const rawExplicitTier = readEnv(RUNTIME_REPLICA_TIER_ENV_NAME);
+  const explicitTier = rawExplicitTier?.toLowerCase();
+  if (explicitTier === 'endpoint' || explicitTier === 'editor' || explicitTier === 'none') {
+    return explicitTier;
+  }
+
+  if (rawExplicitTier) {
+    throw new Error(
+      `Invalid configuration value "${rawExplicitTier}" for ${RUNTIME_REPLICA_TIER_ENV_NAME}. ` +
+      'Expected "endpoint", "editor", or "none".',
+    );
+  }
+
+  return runtimeProcessRole === 'executor' ? 'editor' : 'endpoint';
+}
+
 function getDefaultReplicaStatusRetentionMs(databaseMode) {
   return databaseMode === 'local-docker'
     ? 24 * 60 * 60 * 1_000
@@ -231,6 +250,7 @@ export function getManagedRuntimeLibrariesConfig() {
     readEnv(RUNTIME_LIBRARIES_REPLICA_STATUS_RETENTION_ENV_NAME),
     getDefaultReplicaStatusRetentionMs(databaseMode),
   );
+  const runtimeProcessRole = inferRuntimeProcessRole();
 
   return {
     databaseMode,
@@ -247,11 +267,16 @@ export function getManagedRuntimeLibrariesConfig() {
     ),
     objectStoragePrefix: MANAGED_RUNTIME_LIBRARIES_OBJECT_STORAGE_PREFIX,
     syncPollIntervalMs: normalizePositiveInt(readEnv(RUNTIME_LIBRARIES_SYNC_POLL_INTERVAL_ENV_NAME), 5_000),
-    runtimeProcessRole: inferRuntimeProcessRole(),
+    runtimeProcessRole,
+    runtimeReplicaTier: inferRuntimeReplicaTier(runtimeProcessRole),
     replicaStatusRetentionMs,
     replicaStatusCleanupIntervalMs: normalizePositiveInt(
       readEnv(RUNTIME_LIBRARIES_REPLICA_STATUS_CLEANUP_INTERVAL_ENV_NAME),
       getDefaultReplicaStatusCleanupIntervalMs(databaseMode),
+    ),
+    jobWorkerEnabled: normalizeBoolean(
+      readEnv(RUNTIME_LIBRARIES_JOB_WORKER_ENABLED_ENV_NAME),
+      true,
     ),
   };
 }

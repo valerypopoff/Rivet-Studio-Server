@@ -49,6 +49,8 @@ const managedEnvKeys = [
   'RIVET_RUNTIME_LIBRARIES_REPLICA_STATUS_RETENTION_MS',
   'RIVET_RUNTIME_LIBRARIES_REPLICA_STATUS_CLEANUP_INTERVAL_MS',
   'RIVET_RUNTIME_PROCESS_ROLE',
+  'RIVET_RUNTIME_LIBRARIES_REPLICA_TIER',
+  'RIVET_RUNTIME_LIBRARIES_JOB_WORKER_ENABLED',
 ] as const;
 
 async function withManagedEnv(
@@ -161,6 +163,29 @@ test('runtime-library config rejects invalid explicit process roles', async () =
       () => bootstrapConfig.getManagedRuntimeLibrariesConfig(),
       /RIVET_RUNTIME_PROCESS_ROLE/,
     );
+  });
+});
+
+test('API and bootstrap runtime-library config keep explicit replica-tier and job-worker flags in parity', async () => {
+  await withManagedEnv({
+    RIVET_STORAGE_MODE: 'managed',
+    RIVET_DATABASE_MODE: 'managed',
+    RIVET_DATABASE_CONNECTION_STRING: 'postgresql://db-user:db-pass@example-db:25060/defaultdb',
+    RIVET_STORAGE_URL: 'https://test-bucket-111.sfo3.digitaloceanspaces.com',
+    RIVET_STORAGE_ACCESS_KEY_ID: 'spaces-access-key-id',
+    RIVET_STORAGE_ACCESS_KEY: 'spaces-secret-access-key',
+    RIVET_RUNTIME_PROCESS_ROLE: 'api',
+    RIVET_RUNTIME_LIBRARIES_REPLICA_TIER: 'none',
+    RIVET_RUNTIME_LIBRARIES_JOB_WORKER_ENABLED: 'false',
+  }, () => {
+    const apiConfig = runtimeLibrariesConfig.getManagedRuntimeLibrariesConfig();
+    const bootstrapManagedConfig = bootstrapConfig.getManagedRuntimeLibrariesConfig() as typeof apiConfig;
+
+    assert.equal(apiConfig.runtimeReplicaTier, 'none');
+    assert.equal(apiConfig.jobWorkerEnabled, false);
+    assert.equal(bootstrapManagedConfig.runtimeReplicaTier, 'none');
+    assert.equal(bootstrapManagedConfig.jobWorkerEnabled, false);
+    assert.deepEqual(bootstrapManagedConfig, apiConfig);
   });
 });
 

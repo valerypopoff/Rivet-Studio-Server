@@ -16,14 +16,28 @@
 Browser
   |- /                       -> dashboard shell
   |- /?editor               -> hosted Rivet editor inside an iframe
-  |- /api/*                 -> wrapper API
-  |- /ws/latest-debugger    -> API-hosted latest-workflow debugger websocket
+  |- /api/*                 -> control-plane API
+  |- /workflows/*           -> execution-plane API
+  |- /workflows-latest/*    -> control-plane API
+  |- /ws/latest-debugger    -> control-plane latest-workflow debugger websocket
   |- /ws/executor/internal  -> executor websocket used by the hosted editor
   `- /ws/executor           -> executor websocket kept for upstream-compatible clients
 ```
 
 In Docker dev and production, nginx fronts the stack and injects the trusted proxy header the API expects.
 In local direct-process mode, the services run separately without nginx.
+
+The current runtime keeps the control plane conservative while published execution scales separately:
+
+- control plane
+  - dashboard/editor APIs
+  - workflow mutation and publication
+  - runtime-library admin flows
+  - plugin admin flows
+  - latest execution and latest debugger
+- execution plane
+  - published endpoint execution only
+  - internal published-only execution for trusted in-cluster callers
 
 ## Hosted UI model
 
@@ -48,17 +62,17 @@ In local direct-process mode, the services run separately without nginx.
 ## API surface overview
 
 - `/api/workflows/*` manages workflow folders/projects, project creation/duplication/uploading/downloading, publication, movement/rename, and the recordings browser APIs.
-- `/api/runtime-libraries/*` manages runtime-library state, replica readiness, stale-replica cleanup, install/remove jobs, and live log streaming over SSE.
+- `/api/runtime-libraries/*` manages runtime-library state, replica readiness, stale-replica cleanup, install/remove jobs, and live log streaming over SSE from the control plane.
 - `/api/native/*` exposes the hosted editor's filesystem API, constrained to allowed roots and supported base dirs.
 - `/api/projects/*` exposes lightweight project discovery for the hosted IO provider.
 - `/api/plugins/*` downloads, extracts, and loads NPM plugins for upstream plugin flows.
 - `/api/shell/exec` runs allowlisted shell commands (`git` and `pnpm` by default, extendable via env).
 - `/api/config`, `/api/path/*`, and `/api/config/env/:name` expose hosted-mode configuration, app-data paths, and allowlisted env vars.
-- `POST ${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH}/:endpointName` executes the frozen published snapshot.
-- `POST ${RIVET_LATEST_WORKFLOWS_BASE_PATH}/:endpointName` executes the latest live project file for a published workflow.
-- `POST /internal/workflows/:endpointName` is an internal published-only execution route mounted on the API service and not exposed through nginx.
-- In `managed` mode, those execution routes use API-local derived caches for warm endpoint execution; Postgres plus object storage remain authoritative, and cache invalidation is driven by same-process post-commit clearing plus Postgres `LISTEN/NOTIFY`.
-- The Phase 2.2 cleanup kept that behavior intact but extracted the managed execution subsystem into focused internal modules so the large managed backend remains orchestration-oriented instead of owning the whole execution state machine inline. The later hardening pass also made the writer replica ignore self-originated `NOTIFY` payloads and tightened listener startup/disposal behavior without changing route contracts or cache semantics.
+- `POST ${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH}/:endpointName` executes the frozen published snapshot through the execution-plane API.
+- `POST ${RIVET_LATEST_WORKFLOWS_BASE_PATH}/:endpointName` executes the latest live project file for a published workflow through the control-plane API.
+- `POST /internal/workflows/:endpointName` is an internal published-only execution route mounted on the execution-plane API service and not exposed through nginx.
+- In `managed` mode, those execution routes use API-local derived caches for warm endpoint execution; Postgres plus object storage remain authoritative, and cache invalidation is driven by same-process post-commit clearing plus Postgres `LISTEN/NOTIFY` across both control-plane and execution-plane API replicas.
+- A later cleanup pass kept that behavior intact but extracted the managed execution subsystem into focused internal modules so the large managed backend remains orchestration-oriented instead of owning the whole execution state machine inline. The later hardening pass also made the writer replica ignore self-originated `NOTIFY` payloads and tightened listener startup/disposal behavior without changing route contracts or cache semantics.
 
 ## Core wrapper seams
 
@@ -99,6 +113,8 @@ Storage mode decides which of those paths are authoritative:
   - runtime-library release metadata, activation state, and job state live in Postgres
   - runtime-library release artifacts live in object storage under the fixed `runtime-libraries/` prefix
   - `RIVET_RUNTIME_LIBRARIES_ROOT` remains a local extracted cache/workspace on each process, not the shared source of truth
+  - execution-plane `RIVET_APP_DATA_ROOT` may remain ephemeral because the current published execution path does not use it as authoritative state
+  - package-plugin registration is not currently part of the API-hosted published execution contract, so the execution plane does not assume persistent plugin state
 
 ## Important environment variables
 
@@ -121,7 +137,8 @@ Storage mode decides which of those paths are authoritative:
 - `RIVET_WORKFLOW_EXECUTION_DEBUG_HEADERS` enables additive managed execution timing headers for endpoint resolve/materialize/execute stages.
 - `RIVET_RUNTIME_LIBRARIES_SYNC_POLL_INTERVAL_MS` tunes managed runtime-library background reconciliation for API and executor processes.
 - `RIVET_RUNTIME_LIBRARIES_REPLICA_STATUS_RETENTION_MS` and `RIVET_RUNTIME_LIBRARIES_REPLICA_STATUS_CLEANUP_INTERVAL_MS` tune how long stale managed replica-status rows are kept and how often background cleanup runs.
-- `RIVET_RUNTIME_PROCESS_ROLE=api|executor` tells managed runtime-library readiness reporting which product tier the current process belongs to.
+- `RIVET_RUNTIME_PROCESS_ROLE=api|executor` tells managed runtime-library readiness reporting which process role the current runtime represents.
+- `RIVET_RUNTIME_LIBRARIES_REPLICA_TIER=endpoint|editor|none` lets the split topology report execution-plane API replicas as `endpoint`, executor replicas as `editor`, and control-plane API replicas as `none`.
 
 Development-only execution measurement is available through:
 

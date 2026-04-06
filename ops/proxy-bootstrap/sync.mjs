@@ -59,10 +59,6 @@ function prefixedBlobKey(prefix, key) {
   return `${prefix}${normalizeBlobKey(key)}`;
 }
 
-function getReplicaTier(processRole) {
-  return processRole === 'executor' ? 'editor' : 'endpoint';
-}
-
 function getPgErrorCode(error) {
   return typeof error === 'object' && error != null && 'code' in error ? String(error.code ?? '') : '';
 }
@@ -79,11 +75,22 @@ async function queryActiveRelease(pool) {
 }
 
 function createReplicaStatusReporter(pool, config) {
+  if (config.runtimeReplicaTier === 'none') {
+    const noop = async () => {};
+    return {
+      reportStarting: noop,
+      reportSyncing: noop,
+      reportReady: noop,
+      reportError: noop,
+      dispose: noop,
+    };
+  }
+
   const hostname = os.hostname();
   const podName = process.env.HOSTNAME?.trim() || null;
   const displayName = podName || `${config.runtimeProcessRole}-${hostname}-${process.pid}`;
   const replicaId = `${config.runtimeProcessRole}-${hostname}-${process.pid}-${randomUUID()}`;
-  const tier = getReplicaTier(config.runtimeProcessRole);
+  const tier = config.runtimeReplicaTier;
 
   let schemaMissingLogged = false;
   let lastCleanupAt = 0;

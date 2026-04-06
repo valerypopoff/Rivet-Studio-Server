@@ -1,6 +1,18 @@
 # Access And Routing
 
-This document describes the current external route families, the nginx gate, and the trust boundary between `proxy`, `api`, and `executor`.
+This document describes the current external route families, the nginx gate, and the trust boundary between `proxy`, the control-plane API, the execution-plane API, and `executor`.
+
+The current runtime split keeps:
+
+- `control plane`
+  - `/api/*`
+  - `/ui-auth`
+  - latest-workflow execution
+  - latest debugger websocket
+  - runtime-library and plugin admin flows
+- `execution plane`
+  - published workflow execution
+  - internal published-only execution for trusted in-cluster callers
 
 ## Proxy-exposed routes
 
@@ -10,11 +22,11 @@ The Docker dev and production stacks expose these route families through nginx:
 |---|---|---|
 | `/` | `web` | Wrapper dashboard shell |
 | `/?editor` | `web` | Hosted Rivet editor iframe |
-| `POST /__rivet_auth` | `api` (`/ui-auth`) | UI gate form exchange |
-| `/api/*` | `api` | Wrapper API surface |
-| `${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH:-/workflows}/:endpointName` | `api` | Execute frozen published workflow snapshot |
-| `${RIVET_LATEST_WORKFLOWS_BASE_PATH:-/workflows-latest}/:endpointName` | `api` | Execute latest live file for a published workflow |
-| `/ws/latest-debugger` | `api` | Latest-workflow remote debugger websocket |
+| `POST /__rivet_auth` | control-plane `api` (`/ui-auth`) | UI gate form exchange |
+| `/api/*` | control-plane `api` | Wrapper API surface |
+| `${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH:-/workflows}/:endpointName` | execution-plane `api` | Execute frozen published workflow snapshot |
+| `${RIVET_LATEST_WORKFLOWS_BASE_PATH:-/workflows-latest}/:endpointName` | control-plane `api` | Execute latest live file for a published workflow |
+| `/ws/latest-debugger` | control-plane `api` | Latest-workflow remote debugger websocket |
 | `/ws/executor/internal` | `executor` | Hosted editor execution websocket |
 | `/ws/executor` | `executor` | Upstream-compatible executor websocket path |
 
@@ -127,7 +139,7 @@ If the gate is enabled but `RIVET_KEY` is empty, nginx/API do not fall back to o
 The intended access path is:
 
 ```text
-browser -> nginx -> api / executor
+browser -> nginx -> control-plane api / execution-plane api / executor
 ```
 
 The API independently enforces that boundary:
@@ -191,11 +203,25 @@ Workflow execution auth is separate from the UI gate:
 - if the flag is enabled but `RIVET_KEY` is empty, public execution fails with `500`
 - hosts listed in `RIVET_UI_TOKEN_FREE_HOSTS` bypass public workflow bearer auth because nginx forwards `X-Rivet-Token-Free-Host: 1`
 
-The internal API-only route:
+The internal published-only route:
 
 - `POST /internal/workflows/:endpointName`
 
-is mounted directly on the API service, is not exposed through nginx, and intentionally skips bearer auth for trusted intra-stack callers.
+is mounted on the execution-plane API service, is not exposed through nginx, and intentionally skips bearer auth for trusted intra-stack callers.
+
+## Execution-plane storage note
+
+The current runtime split does not make `RIVET_APP_DATA_ROOT` authoritative for published execution:
+
+- workflow truth remains Postgres plus object storage
+- `Code` node package resolution comes from the managed runtime-library cache under `RIVET_RUNTIME_LIBRARIES_ROOT`
+- execution-plane `app-data` may remain ephemeral in the current supported topology
+
+Important limitation:
+
+- API-hosted published/latest execution does not currently register package plugins from local app-data
+- package-plugin install/load remains a control-plane and editor/executor concern
+- the execution-plane `app-data` contract is therefore intentionally minimal today; plugin-backed published endpoint execution is not something the current split newly enables
 
 ## Latest debugger model
 
