@@ -116,6 +116,24 @@ Storage mode decides which of those paths are authoritative:
   - execution-plane `RIVET_APP_DATA_ROOT` may remain ephemeral because the current published execution path does not use it as authoritative state
   - package-plugin registration is not currently part of the API-hosted published execution contract, so the execution plane does not assume persistent plugin state
 
+## Supported compatibility matrix
+
+Outside Kubernetes, the app still supports two non-cluster compatibility shapes:
+
+| Shape | Status | Notes |
+|---|---|---|
+| `filesystem + combined` | Supported | Primary backward-compatible single-host mode |
+| `filesystem + control` | Supported | Useful for control-plane/admin validation without managed services |
+| `filesystem + execution` | Unsupported | Execution-only API requires managed storage |
+| `managed + local-docker + combined` | Supported | Existing Docker rehearsal path backed by local Postgres and MinIO |
+| `managed + local-docker + control/execution` | Supported through repo-local split validation plus local dependency rehearsal | Use this to keep split-era contracts honest without treating Docker combined mode as proof of the real split topology |
+
+Interpretation rules:
+
+- `local-docker` means `RIVET_STORAGE_MODE=managed` with `RIVET_DATABASE_MODE=local-docker`
+- in that shape, workflows and runtime libraries are still authoritative in Postgres plus object storage; the difference is only that those services are local Docker dependencies instead of managed external services
+- filesystem mode remains single-host by design and is not a multi-replica scaling target
+
 ## Important environment variables
 
 ### Routing and auth
@@ -139,6 +157,7 @@ Storage mode decides which of those paths are authoritative:
 - `RIVET_RUNTIME_LIBRARIES_REPLICA_STATUS_RETENTION_MS` and `RIVET_RUNTIME_LIBRARIES_REPLICA_STATUS_CLEANUP_INTERVAL_MS` tune how long stale managed replica-status rows are kept and how often background cleanup runs.
 - `RIVET_RUNTIME_PROCESS_ROLE=api|executor` tells managed runtime-library readiness reporting which process role the current runtime represents.
 - `RIVET_RUNTIME_LIBRARIES_REPLICA_TIER=endpoint|editor|none` lets the split topology report execution-plane API replicas as `endpoint`, executor replicas as `editor`, and control-plane API replicas as `none`.
+- `RIVET_ENV_FILE` is a launcher-level override that lets repo tooling load an explicit env file instead of `.env` / `.env.dev`; it exists for repeatable compatibility verification and custom local rehearsals
 
 Development-only execution measurement is available through:
 

@@ -145,6 +145,16 @@ test('API and bootstrap runtime-library config stay in parity for explicit S3 tu
   });
 });
 
+test('API and bootstrap runtime-library config stay aligned when storage mode is filesystem', async () => {
+  await withManagedEnv({
+    RIVET_STORAGE_MODE: 'filesystem',
+  }, () => {
+    assert.equal(runtimeLibrariesConfig.getRuntimeLibrariesBackendMode(), 'filesystem');
+    assert.equal(runtimeLibrariesConfig.isManagedRuntimeLibrariesEnabled(), false);
+    assert.equal(bootstrapConfig.isManagedRuntimeLibrariesEnabled(), false);
+  });
+});
+
 test('runtime-library config rejects invalid explicit process roles', async () => {
   await withManagedEnv({
     RIVET_STORAGE_MODE: 'managed',

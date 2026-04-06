@@ -30,6 +30,10 @@ See also: [Mistakes and Misconceptions](./mistakes-and-misconceptions.md)
 | `npm run prod` | Starts the production-style Docker stack | Smoke-test deployment behavior |
 | `npm run prod:prebuilt` | Pulls prebuilt images and starts without building | Fast deploy verification |
 | `npm run prod:local-build` | Forces a local production image build | Test custom image changes |
+| `npm run verify:filesystem` | Runs the repo-local compatibility baseline for single-host filesystem mode | Check that filesystem mode still has build/test and launcher-contract coverage |
+| `npm run verify:filesystem:docker` | Verifies the filesystem Docker launcher shape with a disposable env/fixture root | Check that Docker launcher config still supports filesystem mode without managed services |
+| `npm run verify:local-docker` | Verifies managed-storage local-Docker launcher shape with a disposable env/fixture root | Check that `managed + local-docker` still enables the expected Postgres/MinIO rehearsal path |
+| `npm run verify:local-docker:split` | Runs split-topology repo-local checks plus local-Docker launcher validation | Check that split-era control/execution contracts still fit the local-Docker managed rehearsal model |
 | `npm --prefix wrapper/api run workflow-execution:measure -- --base-url http://localhost:8081 --endpoint hello-world --kind published --runs 5 --warmups 1` | Calls one published/latest workflow endpoint repeatedly and prints timing headers | Measure managed cold-hit vs warm-hit behavior safely |
 | `npm run runtime-libraries:managed:audit` | Audits managed runtime-library release/job/object state and writes a JSON snapshot | Inspect live managed runtime-library state safely |
 | `npm run runtime-libraries:managed:prune` | Builds a dry-run prune plan for managed runtime-library state | Review cleanup impact before applying it |
@@ -46,6 +50,7 @@ Current behavior:
 
 - they look for `.env` first, then `.env.dev`
 - if `.env` exists, `.env.dev` is ignored
+- if `RIVET_ENV_FILE` is set, the launchers and compatibility verification scripts use that explicit env file instead of `.env` / `.env.dev`
 - missing values get defaults for:
   - `RIVET_WORKSPACE_ROOT`
   - `RIVET_APP_DATA_ROOT`
@@ -69,6 +74,25 @@ Operational note:
   - `RIVET_API_PROFILE=combined|control|execution`
   - `RIVET_RUNTIME_LIBRARIES_REPLICA_TIER=endpoint|editor|none`
   - `RIVET_RUNTIME_LIBRARIES_JOB_WORKER_ENABLED=true|false`
+
+## Compatibility matrix
+
+The non-cluster compatibility modes that should keep working are:
+
+| Storage/runtime shape | Support status | What it is for | What must be true |
+|---|---|---|---|
+| `filesystem + combined` | Supported | Primary backward-compatible single-host operation | Local workflow tree and runtime-library root remain authoritative |
+| `filesystem + control` | Supported | Secondary control-plane-only debugging and admin validation | Control-plane/admin/latest routes still boot without managed services |
+| `filesystem + execution` | Unsupported by design | None | `RIVET_API_PROFILE=execution` must fail fast unless storage mode is `managed` |
+| `managed + local-docker + combined` | Supported | Existing Postgres/MinIO rehearsal path through Docker dev or production-style Docker | Docker launchers must auto-enable `workflow-managed` |
+| `managed + local-docker + control/execution` | Supported through repo-local split validation and local dependency rehearsal | Split-era compatibility checks without Kubernetes | Split route/profile contracts must stay valid while storage still uses local Docker Postgres/MinIO |
+
+Compatibility rules:
+
+- `filesystem` compatibility is single-host only
+- `local-docker` means `RIVET_STORAGE_MODE=managed` with `RIVET_DATABASE_MODE=local-docker`
+- Docker combined-mode rehearsal is necessary but not sufficient to prove the real split runtime shape
+- the repo-local split verification command proves the control-plane versus execution-plane contract; live Kubernetes validation is still required for real in-cluster routing and scaling behavior
 
 ## Observable Playwright flow
 
@@ -323,3 +347,28 @@ Current follow-up expectations:
 - if a change touches migration, cutover, or recording durability, run the managed Docker rehearsal instead of trusting repo-local proof alone
 - if a change touches runtime-library readiness UI, prefer adding direct UI coverage and still validate the modal against the managed stack because backend aggregation tests do not fully prove the rendered browser state
 - if a change touches the control-plane versus execution-plane boundary, finish with live Kubernetes validation in an isolated namespace
+
+## Compatibility verification commands
+
+Use the current compatibility commands intentionally:
+
+- `npm run verify:filesystem`
+  - runs the repo-local baseline for filesystem compatibility:
+    - `wrapper/api` build
+    - `wrapper/api` tests
+    - filesystem launcher/profile contract assertions
+- `npm run verify:filesystem:docker`
+  - creates a disposable filesystem fixture root and explicit env file
+  - verifies the Docker launchers can render `config` for filesystem mode without managed-service activation
+- `npm run verify:local-docker`
+  - creates a disposable managed rehearsal env file
+  - verifies `managed + local-docker` activates the `workflow-managed` launcher profile
+  - verifies the Docker launchers can render `config` for that rehearsal shape
+- `npm run verify:local-docker:split`
+  - reruns the split-topology repo-local assertions for API profiles, proxy/chart contracts, runtime-library tier ownership, and storage config
+  - then verifies the local-Docker launcher contract for the managed rehearsal path
+
+These commands do not replace full browser-level or live-cluster validation:
+
+- use the managed Docker rehearsal for migration/import, hosted editor parity, runtime-library install/remove/readiness checks, and endpoint measurement
+- use Kubernetes for real split-topology routing, restart, and scaling proof

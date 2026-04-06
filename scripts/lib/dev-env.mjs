@@ -3,7 +3,10 @@ import path from 'node:path';
 import { parseEnvFile } from './env.mjs';
 
 export function loadDevEnv(rootDir) {
-  const envCandidates = ['.env', '.env.dev'].map((name) => path.join(rootDir, name));
+  const explicitEnvFile = String(process.env.RIVET_ENV_FILE ?? '').trim();
+  const envCandidates = explicitEnvFile
+    ? [path.isAbsolute(explicitEnvFile) ? explicitEnvFile : path.resolve(rootDir, explicitEnvFile)]
+    : ['.env', '.env.dev'].map((name) => path.join(rootDir, name));
   const envPath = envCandidates.find((candidate) => fs.existsSync(candidate)) ?? envCandidates[0];
   const hasEnvFile = fs.existsSync(envPath);
   const fileEnv = parseEnvFile(envPath);

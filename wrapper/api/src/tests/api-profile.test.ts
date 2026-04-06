@@ -140,6 +140,15 @@ test('execution profile startup preconditions require managed storage mode', asy
   });
 });
 
+test('combined and control profiles keep filesystem mode as a supported startup contract', async () => {
+  await withApiEnv({
+    RIVET_STORAGE_MODE: 'filesystem',
+  }, () => {
+    assert.doesNotThrow(() => assertApiRuntimeProfileStartupPreconditions('combined'));
+    assert.doesNotThrow(() => assertApiRuntimeProfileStartupPreconditions('control'));
+  });
+});
+
 test('control profile exposes control-plane routes and does not expose published execution routes', async () => {
   await withApiEnv({}, async () => {
     const server = await startServer('control');
