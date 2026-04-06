@@ -10,6 +10,20 @@ variables:
   DOCKER_BUILDKIT: "1"
   HELM_RELEASE_NAME: rivet
 
+validate:api:
+  stage: validate
+  image: node:20-alpine
+  before_script:
+    - apk add --no-cache git
+    - |
+      if [ ! -d rivet ] || [ -z "$(ls -A rivet 2>/dev/null)" ]; then
+        npm run setup:rivet
+      fi
+    - npm --prefix wrapper/api ci
+  script:
+    - npm --prefix wrapper/api run build
+    - npm --prefix wrapper/api test
+
 validate:helm:
   stage: validate
   image: alpine/helm:3.17.2

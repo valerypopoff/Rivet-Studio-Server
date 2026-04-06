@@ -155,6 +155,15 @@ For wrapper/API changes:
 1. `npm --prefix wrapper/api test`
 2. `npm --prefix wrapper/api run build`
 
+Current repo-local baseline:
+
+- CI also runs the same `wrapper/api` build and test steps directly before image packaging.
+- CI also lint-renders the Helm chart with real image repository overrides and verifies the key negative cases:
+  - placeholder image repositories are rejected
+  - published-route-prefix overrides are rejected
+  - the managed-only chart shape is enforced
+- managed migration verification now has direct regression coverage for its comparison logic, but real import/cutover confidence still requires the managed Docker rehearsal described below.
+
 For wrapper/web changes:
 
 1. `npm --prefix wrapper/web run build`
@@ -293,3 +302,24 @@ For the current execution-plane split specifically:
 3. confirm `/api/*` and `POST /__rivet_auth` still reach the control-plane API
 4. confirm `/internal/workflows/:endpointName` is not exposed through nginx and is only reachable inside the cluster
 5. confirm runtime-library `Endpoint execution` readiness reflects execution-plane API replicas, not control-plane API replicas
+
+## Validation boundaries
+
+Use the three validation layers intentionally:
+
+- repo-local:
+  - proves API correctness, cache/invalidation behavior, config parsing, proxy/chart static contracts, and most workflow/runtime-library backend logic
+  - this is where `npm --prefix wrapper/api run build`, `npm --prefix wrapper/api test`, and Helm lint/template checks belong
+- managed Docker rehearsal:
+  - proves managed-state behavior against disposable Postgres plus object storage
+  - use this for workflow-storage migration rehearsal, `workflow-storage:verify`, managed endpoint measurement, hosted browser flows, and runtime-library install/remove/readiness checks
+  - the current Docker stacks still run the API in the `combined` profile, so they do not prove the real control-plane versus execution-plane split by themselves
+- live Kubernetes validation:
+  - proves the real split topology, ingress/proxy behavior, control-plane versus execution-plane routing, restart boundaries, and execution scaling
+  - do not treat chart render success or Docker rehearsal as a substitute for this layer when the question is about real in-cluster behavior
+
+Current follow-up expectations:
+
+- if a change touches migration, cutover, or recording durability, run the managed Docker rehearsal instead of trusting repo-local proof alone
+- if a change touches runtime-library readiness UI, prefer adding direct UI coverage and still validate the modal against the managed stack because backend aggregation tests do not fully prove the rendered browser state
+- if a change touches the control-plane versus execution-plane boundary, finish with live Kubernetes validation in an isolated namespace

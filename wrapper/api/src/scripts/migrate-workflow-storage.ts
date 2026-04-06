@@ -18,6 +18,15 @@ import {
 } from '../routes/workflows/recordings.js';
 import { getManagedWorkflowStorageConfig } from '../routes/workflows/storage-config.js';
 import { ManagedWorkflowBackend } from '../routes/workflows/managed/backend.js';
+import {
+  collectFolderPaths,
+  deriveSourceWorkflowStatus,
+  flattenProjects,
+  flattenProjectsFromRecordingSummary,
+  type SourceWorkflowSnapshot,
+  type VerificationSummary,
+  verifyMigrationState,
+} from './migrate-workflow-storage-lib.js';
 
 type SourceWorkflow = {
   workflowId: string;
@@ -32,15 +41,6 @@ type SourceWorkflow = {
   lastPublishedAt: string | null;
   publishedContents: string | null;
   publishedDatasetsContents: string | null;
-};
-
-type VerificationSummary = {
-  sourceProjectCount: number;
-  targetProjectCount: number;
-  sourceFolderCount: number;
-  targetFolderCount: number;
-  sourceRecordingWorkflowCount: number;
-  targetRecordingWorkflowCount: number;
 };
 
 function loadNearestEnvFile(startDir: string): void {
@@ -118,32 +118,6 @@ async function collectSourceWorkflows(root: string): Promise<SourceWorkflow[]> {
 
   workflows.sort((left, right) => left.relativePath.localeCompare(right.relativePath));
   return workflows;
-}
-
-function flattenProjectsFromRecordingSummary(workflows: WorkflowRecordingWorkflowSummary[]) {
-  return workflows
-    .map((workflow) => ({
-      relativePath: workflow.project.relativePath,
-      totalRuns: workflow.totalRuns,
-      failedRuns: workflow.failedRuns,
-      suspiciousRuns: workflow.suspiciousRuns,
-      latestRunAt: workflow.latestRunAt ?? null,
-    }))
-    .sort((left, right) => left.relativePath.localeCompare(right.relativePath));
-}
-
-function compareProjectState(sourceProject: {
-  relativePath: string;
-  endpointName: string;
-  lastPublishedAt: string | null;
-  status: string;
-}, targetProject: {
-  relativePath: string;
-  endpointName: string;
-  lastPublishedAt: string | null;
-  status: string;
-}): boolean {
-  return JSON.stringify(sourceProject) === JSON.stringify(targetProject);
 }
 
 async function importSourceWorkflows(root: string, backend: ManagedWorkflowBackend): Promise<Map<string, WorkflowProjectItem>> {
@@ -226,44 +200,6 @@ async function importSourceRecordings(root: string, backend: ManagedWorkflowBack
   }
 }
 
-function deriveSourceWorkflowStatus(workflow: SourceWorkflow): 'unpublished' | 'published' | 'unpublished_changes' {
-  if (!workflow.publishedEndpointName) {
-    return 'unpublished';
-  }
-
-  return workflow.publishedContents === workflow.contents &&
-    workflow.publishedDatasetsContents === workflow.datasetsContents &&
-    workflow.publishedEndpointName.toLowerCase() === workflow.endpointName.toLowerCase()
-    ? 'published'
-    : 'unpublished_changes';
-}
-
-function flattenProjects(projects: WorkflowProjectItem[], folders: WorkflowFolderItem[]): WorkflowProjectItem[] {
-  const flattenedProjects = [...projects];
-  const visit = (items: WorkflowFolderItem[]) => {
-    for (const folder of items) {
-      flattenedProjects.push(...folder.projects);
-      visit(folder.folders);
-    }
-  };
-
-  visit(folders);
-  return flattenedProjects;
-}
-
-function collectFolderPaths(folders: WorkflowFolderItem[]): string[] {
-  const paths: string[] = [];
-  const visit = (items: WorkflowFolderItem[]) => {
-    for (const folder of items) {
-      paths.push(folder.relativePath);
-      visit(folder.folders);
-    }
-  };
-
-  visit(folders);
-  return paths.sort((left, right) => left.localeCompare(right));
-}
-
 async function verifyMigration(root: string, backend: ManagedWorkflowBackend): Promise<VerificationSummary> {
   const [sourceFolders, sourceWorkflows, sourceRecordingWorkflows, targetTree, targetRecordingWorkflows] = await Promise.all([
     listWorkflowFolders(root),
@@ -279,7 +215,7 @@ async function verifyMigration(root: string, backend: ManagedWorkflowBackend): P
     relativePath: workflow.relativePath,
     endpointName: workflow.endpointName,
     lastPublishedAt: workflow.lastPublishedAt,
-    status: deriveSourceWorkflowStatus(workflow),
+    status: deriveSourceWorkflowStatus(workflow satisfies SourceWorkflowSnapshot),
   })).sort((left, right) => left.relativePath.localeCompare(right.relativePath));
   const targetProjectState = flattenProjects(targetTree.projects, targetTree.folders)
     .map((project) => ({
@@ -300,50 +236,14 @@ async function verifyMigration(root: string, backend: ManagedWorkflowBackend): P
   const sourceRecordingState = flattenProjectsFromRecordingSummary(sourceRecordingWorkflows.workflows);
   const targetRecordingState = flattenProjectsFromRecordingSummary(targetRecordingWorkflows.workflows);
 
-  const targetProjectStateByRelativePath = new Map(targetProjectState.map((project) => [project.relativePath, project]));
-  for (const sourceProject of sourceProjectState) {
-    const targetProject = targetProjectStateByRelativePath.get(sourceProject.relativePath);
-    if (!targetProject) {
-      throw new Error(`Managed workflow is missing: ${sourceProject.relativePath}`);
-    }
-
-    if (!compareProjectState(sourceProject, targetProject)) {
-      throw new Error(`Managed workflow mismatch for ${sourceProject.relativePath}`);
-    }
-  }
-
-  const targetRecordingStateByRelativePath = new Map(targetRecordingState.map((workflow) => [workflow.relativePath, workflow]));
-  for (const sourceRecording of sourceRecordingState) {
-    const targetRecording = targetRecordingStateByRelativePath.get(sourceRecording.relativePath);
-    if (!targetRecording) {
-      throw new Error(`Managed recording summary is missing: ${sourceRecording.relativePath}`);
-    }
-
-    if (targetRecording.totalRuns < sourceRecording.totalRuns) {
-      throw new Error(`Managed recording count regressed for ${sourceRecording.relativePath}`);
-    }
-
-    if (targetRecording.failedRuns < sourceRecording.failedRuns) {
-      throw new Error(`Managed failed recording count regressed for ${sourceRecording.relativePath}`);
-    }
-
-    if (targetRecording.suspiciousRuns < sourceRecording.suspiciousRuns) {
-      throw new Error(`Managed suspicious recording count regressed for ${sourceRecording.relativePath}`);
-    }
-
-    if (sourceRecording.latestRunAt && (!targetRecording.latestRunAt || targetRecording.latestRunAt < sourceRecording.latestRunAt)) {
-      throw new Error(`Managed latest recording timestamp regressed for ${sourceRecording.relativePath}`);
-    }
-  }
-
-  return {
-    sourceProjectCount: sourceProjectState.length,
-    targetProjectCount: targetProjectState.length,
-    sourceFolderCount: sourceFolderPaths.length,
-    targetFolderCount: targetFolderPaths.length,
-    sourceRecordingWorkflowCount: sourceRecordingState.length,
-    targetRecordingWorkflowCount: targetRecordingState.length,
-  };
+  return verifyMigrationState({
+    sourceFolderPaths,
+    targetFolderPaths,
+    sourceProjectState,
+    targetProjectState,
+    sourceRecordingState,
+    targetRecordingState,
+  });
 }
 
 async function main() {

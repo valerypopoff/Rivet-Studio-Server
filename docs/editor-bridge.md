@@ -19,7 +19,7 @@ All message types live in `wrapper/shared/editor-bridge.ts`. Both sides import f
 | `open-recording` | `recordingId`, `replaceCurrent` | User opens a stored workflow run from the recordings browser |
 | `save-project` | (none) | User saves from the dashboard surface or presses the save shortcut outside the iframe |
 | `delete-workflow-project` | `path` | User deletes a workflow project from the dashboard |
-| `workflow-paths-moved` | `moves[]` | A project or folder rename/move changed one or more absolute project paths |
+| `workflow-paths-moved` | `moves[]` | A project or folder rename/move changed one or more workflow project references |
 
 ### Editor-to-dashboard events
 
@@ -37,18 +37,19 @@ All message types live in `wrapper/shared/editor-bridge.ts`. Both sides import f
 1. The dashboard renders the iframe. The editor emits `editor-ready` once mounted.
 2. Commands sent before `editor-ready` are buffered by `useEditorCommandQueue` and flushed once the editor is ready.
 3. Both sides validate message shape and origin before acting.
-4. `open-project` uses an absolute server path from the workflow tree and opens it through `HostedIOProvider`.
-5. `open-recording` first fetches the serialized recorder payload for the selected `recordingId`, extracts the preferred start graph, and asks the editor to open the virtual path `recording://<recordingId>/replay.rivet-project`.
-6. When that virtual path loads, `HostedIOProvider` fetches the replay project and optional replay dataset from the API and imports the dataset snapshot into browser replay state.
-7. Replay projects are read-only. A plain save from a replay project throws and the user must use Save As to create a normal project file.
-8. `delete-workflow-project` removes the matching open tab inside the editor. If that tab was active, the bridge selects a fallback open project when possible.
-9. `workflow-paths-moved` rewrites already-open project paths after rename/move so open tabs, loaded-project state, and later saves keep pointing at the new location.
-10. Project duplication does not use the editor bridge. The dashboard calls `POST /api/workflows/projects/duplicate` directly, refreshes the workflow tree, and intentionally leaves selection and open tabs unchanged.
-11. Project uploading also does not use the editor bridge. The dashboard opens a browser file picker, posts the selected file to `POST /api/workflows/projects/upload`, refreshes the workflow tree, and leaves selection and open tabs unchanged.
-12. Project downloading also does not use the editor bridge. The dashboard calls `POST /api/workflows/projects/download` directly and only downloads saved server-side project files.
-13. On `project-saved`, the dashboard refreshes the workflow tree from the API and trusts the server-derived publication status. It does not locally force a `published -> unpublished_changes` status flip first, and the server now keeps published projects in `published` when the save was a true no-op.
-14. On `project-opened`, both sides of the hosted bridge explicitly move focus to the editor iframe so keyboard shortcuts target the editor instead of the workflow-library row that triggered the open.
-15. If the iframe reloads, `onLoad` resets `editorReady` to `false`, re-enabling the command buffer until `editor-ready` is sent again.
+4. `open-project` uses the project reference supplied by the workflow tree and opens it through `HostedIOProvider`.
+5. In `filesystem` mode that reference is a real server filesystem path. In `managed` mode it is a virtual managed path under `/managed/workflows/...`, even though the shared bridge type still uses the legacy field name `path`.
+6. `open-recording` first fetches the serialized recorder payload for the selected `recordingId`, extracts the preferred start graph, and asks the editor to open the virtual path `recording://<recordingId>/replay.rivet-project`.
+7. When that virtual path loads, `HostedIOProvider` fetches the replay project and optional replay dataset from the API and imports the dataset snapshot into browser replay state.
+8. Replay projects are read-only. A plain save from a replay project throws and the user must use Save As to create a normal project file.
+9. `delete-workflow-project` removes the matching open tab inside the editor. If that tab was active, the bridge selects a fallback open project when possible.
+10. `workflow-paths-moved` rewrites already-open project references after rename/move so open tabs, loaded-project state, and later saves keep pointing at the new location. In `managed` mode those `fromAbsolutePath` and `toAbsolutePath` fields contain managed virtual project paths rather than host filesystem paths.
+11. Project duplication does not use the editor bridge. The dashboard calls `POST /api/workflows/projects/duplicate` directly, refreshes the workflow tree, and intentionally leaves selection and open tabs unchanged.
+12. Project uploading also does not use the editor bridge. The dashboard opens a browser file picker, posts the selected file to `POST /api/workflows/projects/upload`, refreshes the workflow tree, and leaves selection and open tabs unchanged.
+13. Project downloading also does not use the editor bridge. The dashboard calls `POST /api/workflows/projects/download` directly and only downloads saved server-side project files.
+14. On `project-saved`, the dashboard refreshes the workflow tree from the API and trusts the server-derived publication status. It does not locally force a `published -> unpublished_changes` status flip first, and the server now keeps published projects in `published` when the save was a true no-op.
+15. On `project-opened`, both sides of the hosted bridge explicitly move focus to the editor iframe so keyboard shortcuts target the editor instead of the workflow-library row that triggered the open.
+16. If the iframe reloads, `onLoad` resets `editorReady` to `false`, re-enabling the command buffer until `editor-ready` is sent again.
 
 ## Save behavior
 
