@@ -1,0 +1,157 @@
+imagePullSecrets: []
+
+images:
+  proxy:
+    repository: example.invalid/rivet/proxy
+    tag: latest
+    pullPolicy: IfNotPresent
+  web:
+    repository: example.invalid/rivet/web
+    tag: latest
+    pullPolicy: IfNotPresent
+  api:
+    repository: example.invalid/rivet/api
+    tag: latest
+    pullPolicy: IfNotPresent
+  executor:
+    repository: example.invalid/rivet/executor
+    tag: latest
+    pullPolicy: IfNotPresent
+
+replicaCount:
+  proxy: 1
+  web: 1
+  backend: 1
+
+autoscaling:
+  proxy:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 80
+  web:
+    enabled: false
+    minReplicas: 2
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 80
+  backend:
+    enabled: false
+    minReplicas: 1
+    maxReplicas: 2
+    targetCPUUtilizationPercentage: 80
+
+service:
+  proxy:
+    port: 80
+    targetPort: 8080
+  web:
+    port: 3000
+    targetPort: 3000
+  api:
+    port: 80
+    targetPort: 8080
+  executor:
+    port: 21889
+    targetPort: 21889
+
+ingress:
+  enabled: false
+  className: ""
+  host: ""
+  externalDNSHostname: ""
+  annotations: {}
+  tlsSecretName: ""
+  pathType: Prefix
+
+vault:
+  enabled: false
+  annotations: {}
+  role: ""
+  authPath: ""
+  secretPath: ""
+  tlsSkipVerify: false
+  caSecretName: ""
+  caCertPath: /vault/tls/ca.crt
+  dotenvFileName: dotenv
+  dotenvTemplate: ""
+
+workflowStorage:
+  backend: managed
+
+runtimeLibraries:
+  backend: managed
+  objectStoragePrefix: runtime-libraries/
+  cache:
+    enabled: false
+    size: 10Gi
+    storageClassName: ""
+    existingClaimName: ""
+
+filesystem:
+  workflows:
+    existingClaimName: ""
+  runtimeLibraries:
+    existingClaimName: ""
+
+postgres:
+  mode: managed
+  host: ""
+  port: 5432
+  database: ""
+  username: ""
+  passwordSecretName: ""
+  passwordSecretKey: password
+  sslMode: require
+  connectionStringSecretName: ""
+  connectionStringSecretKey: connectionString
+
+objectStorage:
+  endpoint: ""
+  bucket: ""
+  region: us-east-1
+  prefix: workflows/
+  accessKeySecretName: ""
+  accessKeySecretKey: accessKeyId
+  secretKeySecretName: ""
+  secretKeySecretKey: secretAccessKey
+  forcePathStyle: false
+
+storage:
+  appData:
+    enabled: true
+    size: 10Gi
+    storageClassName: ""
+    existingClaimName: ""
+
+tmpVolume:
+  enabled: true
+  name: var-tmp
+  path: /var/tmp
+  sizeLimit: 2Gi
+
+auth:
+  keySecretName: ""
+  keySecretKey: RIVET_KEY
+
+env:
+  RIVET_PUBLISHED_WORKFLOWS_BASE_PATH: /workflows
+  RIVET_LATEST_WORKFLOWS_BASE_PATH: /workflows-latest
+  RIVET_PROXY_RESOLVER: kube-dns.kube-system.svc.cluster.local
+  RIVET_ENABLE_LATEST_REMOTE_DEBUGGER: "false"
+  RIVET_REQUIRE_WORKFLOW_KEY: "true"
+  RIVET_REQUIRE_UI_GATE_KEY: "true"
+  RIVET_UI_TOKEN_FREE_HOSTS: ""
+  RIVET_COMMAND_TIMEOUT: "30000"
+  RIVET_MAX_OUTPUT: "10485760"
+  RIVET_RECORDINGS_ENABLED: "true"
+
+podAnnotations:
+  proxy: {}
+  web: {}
+  backend: {}
+
+resources:
+  proxy: {}
+  web: {}
+  api: {}
+  executor: {}

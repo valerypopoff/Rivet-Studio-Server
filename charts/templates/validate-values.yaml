@@ -1,0 +1,92 @@
+{{- if ne .Values.workflowStorage.backend .Values.runtimeLibraries.backend -}}
+{{- fail "workflowStorage.backend and runtimeLibraries.backend must stay unified in phase 3" -}}
+{{- end -}}
+
+{{- if hasKey .Values.vault "roleIdSecretName" -}}
+{{- fail "vault.roleIdSecretName is retired; use vault.role with the Vault Injector dotenv contract" -}}
+{{- end -}}
+
+{{- if ne (index .Values.env "RIVET_PUBLISHED_WORKFLOWS_BASE_PATH") "/workflows" -}}
+{{- fail "Phase 3 keeps RIVET_PUBLISHED_WORKFLOWS_BASE_PATH fixed at /workflows because the web image is still build-time configured" -}}
+{{- end -}}
+
+{{- if ne (index .Values.env "RIVET_LATEST_WORKFLOWS_BASE_PATH") "/workflows-latest" -}}
+{{- fail "Phase 3 keeps RIVET_LATEST_WORKFLOWS_BASE_PATH fixed at /workflows-latest because the web image is still build-time configured" -}}
+{{- end -}}
+
+{{- if ne .Values.runtimeLibraries.objectStoragePrefix "runtime-libraries/" -}}
+{{- fail "runtimeLibraries.objectStoragePrefix must remain runtime-libraries/ in phase 3 because the current managed runtime-library backend uses a fixed object-storage prefix" -}}
+{{- end -}}
+
+{{- if empty (index .Values.env "RIVET_PROXY_RESOLVER") -}}
+{{- fail "env.RIVET_PROXY_RESOLVER is required in phase 3 so nginx can resolve in-cluster service names dynamically" -}}
+{{- end -}}
+
+{{- if .Values.ingress.enabled -}}
+  {{- if empty .Values.ingress.host -}}
+    {{- fail "ingress.host is required when ingress.enabled=true" -}}
+  {{- end -}}
+{{- end -}}
+
+{{- if ne (int .Values.replicaCount.backend) 1 -}}
+{{- fail "Phase 3 keeps replicaCount.backend=1 until the remaining process-local backend paths are redesigned for safe multi-replica rollout" -}}
+{{- end -}}
+
+{{- if .Values.autoscaling.backend.enabled -}}
+{{- fail "Phase 3 keeps autoscaling.backend.enabled=false until the remaining process-local backend paths are redesigned for safe multi-replica rollout" -}}
+{{- end -}}
+
+{{- if and (eq .Values.workflowStorage.backend "filesystem") (ne (int .Values.replicaCount.backend) 1) -}}
+{{- fail "filesystem backend is only supported with replicaCount.backend=1" -}}
+{{- end -}}
+
+{{- if and (eq .Values.workflowStorage.backend "filesystem") .Values.autoscaling.backend.enabled -}}
+{{- fail "filesystem backend is only supported with autoscaling.backend.enabled=false" -}}
+{{- end -}}
+
+{{- if and (eq .Values.workflowStorage.backend "filesystem") (empty .Values.filesystem.workflows.existingClaimName) -}}
+{{- fail "filesystem workflow storage requires filesystem.workflows.existingClaimName" -}}
+{{- end -}}
+
+{{- if and (eq .Values.runtimeLibraries.backend "filesystem") (empty .Values.filesystem.runtimeLibraries.existingClaimName) -}}
+{{- fail "filesystem runtime libraries require filesystem.runtimeLibraries.existingClaimName" -}}
+{{- end -}}
+
+{{- if and (eq .Values.workflowStorage.backend "managed") (empty .Values.objectStorage.bucket) -}}
+{{- fail "managed storage requires objectStorage.bucket" -}}
+{{- end -}}
+
+{{- if and (eq .Values.workflowStorage.backend "managed") (not .Values.vault.enabled) (or (empty .Values.objectStorage.accessKeySecretName) (empty .Values.objectStorage.secretKeySecretName)) -}}
+{{- fail "managed storage requires objectStorage.accessKeySecretName and objectStorage.secretKeySecretName unless Vault provides RIVET_STORAGE_ACCESS_KEY_ID and RIVET_STORAGE_ACCESS_KEY" -}}
+{{- end -}}
+
+{{- if or (empty .Values.images.proxy.repository) (empty .Values.images.web.repository) (empty .Values.images.api.repository) (empty .Values.images.executor.repository) -}}
+{{- fail "all image repositories must be set before install" -}}
+{{- end -}}
+
+{{- if or (contains "example.invalid/" .Values.images.proxy.repository) (contains "example.invalid/" .Values.images.web.repository) (contains "example.invalid/" .Values.images.api.repository) (contains "example.invalid/" .Values.images.executor.repository) -}}
+{{- fail "replace the example.invalid image repositories with real image repositories before install" -}}
+{{- end -}}
+
+{{- if and (eq .Values.workflowStorage.backend "managed") (empty .Values.postgres.connectionStringSecretName) (or (empty .Values.postgres.host) (empty .Values.postgres.database) (empty .Values.postgres.username) (and (empty .Values.postgres.passwordSecretName) (not .Values.vault.enabled))) -}}
+{{- fail "managed storage requires either postgres.connectionStringSecretName, a postgres host/database/username tuple plus passwordSecretName, or Vault-provided database envs" -}}
+{{- end -}}
+
+{{- if and (not .Values.vault.enabled) (empty .Values.auth.keySecretName) -}}
+{{- fail "auth.keySecretName is required when Vault is disabled because proxy-to-api trust and optional public-route/UI auth all depend on RIVET_KEY" -}}
+{{- end -}}
+
+{{- if .Values.vault.enabled -}}
+  {{- if empty .Values.vault.role -}}
+    {{- fail "vault.role is required when vault.enabled=true" -}}
+  {{- end -}}
+  {{- if empty .Values.vault.secretPath -}}
+    {{- fail "vault.secretPath is required when vault.enabled=true" -}}
+  {{- end -}}
+  {{- if empty .Values.vault.dotenvTemplate -}}
+    {{- fail "vault.dotenvTemplate is required when vault.enabled=true so /vault/dotenv is rendered as a sourceable env file" -}}
+  {{- end -}}
+  {{- if not (contains .Values.vault.secretPath .Values.vault.dotenvTemplate) -}}
+    {{- fail "vault.dotenvTemplate must reference vault.secretPath so the injected dotenv file stays aligned with the configured Vault secret path" -}}
+  {{- end -}}
+{{- end -}}

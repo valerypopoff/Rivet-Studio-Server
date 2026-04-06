@@ -1657,6 +1657,50 @@ Database note:
 - Postgres remains a single logical external service with one writable primary
 - database HA/failover is handled by the managed Postgres platform, not by app-level HPA
 
+### Phase 3 readiness report
+
+Current status:
+
+- Phase 3 repo-tracked assets are in a deployment-ready state for the planned conservative first rollout
+- the chart, images, CI validation, and docs now agree on the same operational contract
+- no unresolved `P0` or `P1` gap remains in the repo-tracked Phase 3 assets from the static + emulation audit pass
+
+Validated in-repo:
+
+- positive Helm lint/render for `charts/overlays/test.yaml` and `charts/overlays/prod.yaml` with real image repository overrides
+- negative Helm validation for:
+  - placeholder image repositories
+  - route-prefix overrides
+  - missing `RIVET_PROXY_RESOLVER`
+  - backend replica scaling or backend HPA enablement
+  - storage-backend mismatch
+  - missing filesystem PVCs in filesystem mode
+  - runtime-library prefix drift
+  - missing shared-key source when Vault is disabled
+  - missing Vault role / secretPath / dotenv alignment
+  - retired `vault.roleIdSecretName`
+- local image builds for `proxy`, `web`, `api`, and `executor`
+- runtime-emulation checks for:
+  - nginx envsubst plus syntax validation in the `proxy` image
+  - API dotenv loading and database-connection helper behavior
+  - executor and API entrypoint exported env defaults and proxy-bootstrap `NODE_OPTIONS`
+
+Important enforced phase-3 rules now captured in code:
+
+- backend stays single-replica for the first Kubernetes rollout
+- backend HPA stays disabled for phase 3
+- `RIVET_KEY` remains required for proxy-to-API trust even if optional workflow/UI auth checks are disabled
+- Vault-backed `/vault/dotenv` is a first-class secret-delivery path for managed Postgres and object storage
+- route prefixes remain fixed at `/workflows` and `/workflows-latest`
+- managed runtime-library object storage remains fixed at `runtime-libraries/`
+
+Remaining non-blockers outside repo-tracked assets:
+
+- real cluster rollout validation
+- real Vault injector validation
+- live external Postgres/object-storage connectivity validation
+- final ingress-class / DNS / secret-name environment wiring
+
 ## Phase 4: Execution Scale-Out
 
 Phase 4 is where the app becomes truly high-scale.
@@ -1804,9 +1848,14 @@ vault:
   tlsSkipVerify: false
   caSecretName:
   caCertPath: /vault/tls/ca.crt
-  roleIdSecretName: vault-role-id
+  role: rivet
   dotenvFileName: dotenv
-  dotenvTemplate: ""
+  dotenvTemplate: |
+    {{- with secret "secret/data/path" -}}
+    {{- range $key, $value := .Data.data }}
+    {{ $key }}={{ $value | toJSON }}
+    {{- end }}
+    {{- end }}
 
 workflowStorage:
   backend: managed
@@ -1855,7 +1904,7 @@ env:
   RIVET_REQUIRE_WORKFLOW_KEY: "true"
   RIVET_REQUIRE_UI_GATE_KEY: "true"
   RIVET_UI_TOKEN_FREE_HOSTS: ""
-  RIVET_PROXY_RESOLVER: ""
+  RIVET_PROXY_RESOLVER: kube-dns.kube-system.svc.cluster.local
   RIVET_COMMAND_TIMEOUT: "30000"
   RIVET_MAX_OUTPUT: "10485760"
   RIVET_RECORDINGS_ENABLED: "true"
@@ -1877,13 +1926,18 @@ Rules:
 - `runtimeLibraries.backend=filesystem` is allowed only for backward-compatible single-host or single-backend-replica deployments
 - `runtimeLibraries.backend=managed` is required before safe backend autoscaling
 - `runtimeLibraries.backend=managed` assumes Postgres plus object storage as the runtime-library-state architecture
+- `runtimeLibraries.objectStoragePrefix` should stay `runtime-libraries/` in phase 3 because the current managed runtime-library backend still uses that fixed prefix internally
 - `postgres.mode=managed` is the target production and Kubernetes setting
 - `postgres.mode=local-docker` is allowed only for local development or non-production rehearsal
 - do not add `workflows` as the authoritative runtime PVC in the managed architecture
 - do not add a shared authoritative runtime-libraries PVC in the managed architecture
 - the chart should configure connections to external managed `Postgres` and external managed object storage, not deploy them
+- `replicaCount.backend` stays `1` for the initial phase-3 rollout, even in managed mode, until the remaining process-local backend paths are redesigned for safe multi-replica rollout
 - `autoscaling.backend.enabled` stays `false` until remaining process-local blockers are removed
 - `proxy` and `web` can scale earlier than backend
+- when Vault is disabled, the chart should require `auth.keySecretName` because `RIVET_KEY` is still needed for proxy-to-API trust even if `RIVET_REQUIRE_WORKFLOW_KEY=false` and `RIVET_REQUIRE_UI_GATE_KEY=false`
+- when Vault is enabled, the chart may rely on `/vault/dotenv` for managed Postgres and object-storage secrets instead of Kubernetes secret refs, but the dotenv payload must actually provide the required runtime env vars
+- the chart should reject the retired `vault.roleIdSecretName` field so stale overlay values do not silently drift past review
 
 ## Environment Overlays
 
@@ -1896,10 +1950,17 @@ These overlays must contain:
 
 - ingress host and class
 - Vault injector config
+- Vault role when the injector is enabled
+- Vault dotenv template that renders a shell-sourceable `/vault/dotenv`
+- Vault dotenv template must stay aligned to `vault.secretPath` so the injector does not render the wrong secret into `/vault/dotenv`
+- Vault TLS annotation inputs when the injector must trust a custom CA:
+  - `vault.caSecretName`
+  - `vault.caCertPath`
 - storage backend selection
 - shared storage-mode selection for workflows and runtime libraries
 - Postgres connection config references
 - object storage config references
+- shared-key source for `RIVET_KEY`, either through `auth.keySecretName` or through Vault-rendered dotenv env
 - remaining PVC sizes and storage classes
 - replica counts if overridden
 - autoscaling values if overridden
@@ -1919,6 +1980,11 @@ Keep:
 
 for phases 1, 2, and 3 unless runtime frontend config is added later.
 
+Operational rule:
+
+- the phase-3 chart should reject route-prefix overrides that diverge from those defaults, because the current `web` image still consumes them at build time rather than at runtime
+- the phase-3 proxy should keep a configured dynamic DNS resolver for in-cluster service names instead of resolving backend upstreams only once at nginx startup
+
 ### Ports
 
 Keep:
@@ -1936,6 +2002,10 @@ Ingress should:
 - terminate TLS
 - support websocket upgrades and long timeouts
 - allow body size at least `100m`
+
+Workload health rule:
+
+- `proxy`, `web`, `api`, and `executor` should all have basic readiness/liveness checks so the first in-cluster rollout fails fast on broken image or env wiring rather than black-holing traffic
 
 ### Database topology
 

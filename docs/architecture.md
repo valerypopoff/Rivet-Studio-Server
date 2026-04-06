@@ -106,7 +106,8 @@ Storage mode decides which of those paths are authoritative:
 
 - `RIVET_PUBLISHED_WORKFLOWS_BASE_PATH` and `RIVET_LATEST_WORKFLOWS_BASE_PATH` change the public execution route prefixes.
 - `RIVET_ENABLE_LATEST_REMOTE_DEBUGGER` enables the API-hosted `/ws/latest-debugger` websocket for latest-workflow runs only.
-- `RIVET_KEY` is the shared secret used for public workflow bearer auth, proxy-auth token derivation, and the optional UI gate.
+- `RIVET_KEY` is the shared secret used for proxy-auth token derivation, public workflow bearer auth, and the optional UI gate.
+- In any nginx/proxy-fronted deployment such as Docker or Kubernetes, `RIVET_KEY` must always be present on both `proxy` and `api` even if `RIVET_REQUIRE_WORKFLOW_KEY=false` and `RIVET_REQUIRE_UI_GATE_KEY=false`, because `/api/*`, `/ui-auth`, and `/ws/latest-debugger` still rely on the trusted proxy header derived from that key.
 - `RIVET_REQUIRE_WORKFLOW_KEY` enables `Authorization: Bearer <RIVET_KEY>` checks on the public workflow routes.
 - `RIVET_REQUIRE_UI_GATE_KEY` enables the browser-side nginx gate.
 - `RIVET_UI_TOKEN_FREE_HOSTS` lists hosts that bypass the UI gate and public workflow bearer auth.

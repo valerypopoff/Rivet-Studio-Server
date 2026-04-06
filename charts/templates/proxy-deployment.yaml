@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "rivet.proxyServiceName" . }}
+  labels:
+    {{- include "rivet.labels" . | nindent 4 }}
+    app.kubernetes.io/component: proxy
+spec:
+  replicas: {{ .Values.replicaCount.proxy }}
+  selector:
+    matchLabels:
+      {{- include "rivet.componentLabels" (dict "root" . "component" "proxy") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "rivet.componentLabels" (dict "root" . "component" "proxy") | nindent 8 }}
+      annotations:
+        {{- with .Values.podAnnotations.proxy }}
+{{ toYaml . | nindent 8 }}
+        {{- end }}
+        {{- include "rivet.vaultAnnotations" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+{{ toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        fsGroup: 10001
+      containers:
+        - name: proxy
+          image: {{ include "rivet.image" (dict "root" . "image" .Values.images.proxy) }}
+          imagePullPolicy: {{ .Values.images.proxy.pullPolicy }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            allowPrivilegeEscalation: false
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.proxy.targetPort }}
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          env:
+            - name: RIVET_VAULT_DOTENV_FILE_NAME
+              value: {{ .Values.vault.dotenvFileName | quote }}
+            - name: RIVET_WEB_UPSTREAM_HOST
+              value: {{ include "rivet.webServiceName" . | quote }}
+            - name: RIVET_WEB_UPSTREAM_PORT
+              value: {{ .Values.service.web.port | quote }}
+            - name: RIVET_API_UPSTREAM_HOST
+              value: {{ include "rivet.apiServiceName" . | quote }}
+            - name: RIVET_API_UPSTREAM_PORT
+              value: {{ .Values.service.api.port | quote }}
+            - name: RIVET_EXECUTOR_UPSTREAM_HOST
+              value: {{ include "rivet.executorServiceName" . | quote }}
+            - name: RIVET_EXECUTOR_UPSTREAM_PORT
+              value: {{ .Values.service.executor.port | quote }}
+            {{- if .Values.auth.keySecretName }}
+            - name: RIVET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.auth.keySecretName }}
+                  key: {{ .Values.auth.keySecretKey }}
+            {{- end }}
+            {{- range $key, $value := .Values.env }}
+            - name: {{ $key }}
+              value: {{ tpl (printf "%v" $value) $ | quote }}
+            {{- end }}
+          volumeMounts:
+            {{- if .Values.tmpVolume.enabled }}
+            - name: {{ .Values.tmpVolume.name }}
+              mountPath: {{ .Values.tmpVolume.path }}
+            {{- end }}
+          resources:
+{{ toYaml .Values.resources.proxy | nindent 12 }}
+      volumes:
+        {{- if .Values.tmpVolume.enabled }}
+        - name: {{ .Values.tmpVolume.name }}
+          emptyDir:
+            sizeLimit: {{ .Values.tmpVolume.sizeLimit }}
+        {{- end }}

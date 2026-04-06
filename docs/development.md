@@ -252,6 +252,15 @@ For routing/auth/deployment changes:
 1. `npm run dev`
 2. validate the browser flow through `http://localhost:8080` by default, or your configured `RIVET_PORT`
 
+For the Phase 3 Helm chart and images:
+
+1. keep `replicaCount.backend=1`
+2. keep `autoscaling.backend.enabled=false`
+3. keep `RIVET_PUBLISHED_WORKFLOWS_BASE_PATH=/workflows` and `RIVET_LATEST_WORKFLOWS_BASE_PATH=/workflows-latest`
+4. set `env.RIVET_PROXY_RESOLVER` for in-cluster nginx DNS resolution
+5. provide `RIVET_KEY` through `auth.keySecretName` or Vault, even if the optional UI gate and public workflow bearer checks are disabled
+6. if Vault is enabled, make sure the injected `/vault/dotenv` carries the required managed Postgres/object-storage env vars before relying on it instead of Kubernetes secret refs
+
 For managed endpoint latency and cache behavior:
 
 1. run in `RIVET_STORAGE_MODE=managed`

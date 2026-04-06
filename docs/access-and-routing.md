@@ -139,6 +139,13 @@ The API independently enforces that boundary:
 nginx injects `X-Rivet-Proxy-Auth`, derived from `RIVET_KEY`, for those requests.
 Direct access to the API container for `/api/*`, `/ui-auth`, or `/ws/latest-debugger` bypasses that header and is rejected.
 
+Operationally, that means `RIVET_KEY` is still mandatory anywhere nginx fronts the API, even if:
+
+- `RIVET_REQUIRE_WORKFLOW_KEY=false`
+- `RIVET_REQUIRE_UI_GATE_KEY=false`
+
+Those two flags disable optional browser/public-workflow checks. They do not disable the proxy-to-API trust channel.
+
 The public workflow execution routes are mounted outside `/api`, so they do not use the `requireAuth` middleware. They still rely on nginx to mediate access and, for token-free hosts, inject the token-free-host hint.
 
 ## Workflow execution contract
@@ -200,7 +207,10 @@ Latest-workflow remote debugging is opt-in and separate from the executor websoc
 - the browser-facing websocket path is `/ws/latest-debugger`
 - when disabled, websocket upgrades on `/ws/latest-debugger` are rejected with `404`
 
-Endpoint recording persistence is unaffected by debugger state. Latest-workflow runs still write normal recording bundles when recordings are enabled.
+Endpoint recording persistence is unaffected by debugger state. Latest-workflow runs still persist normal recording history when recordings are enabled:
+
+- in `filesystem` mode, as recording bundles plus SQLite index rows
+- in `managed` mode, as Postgres metadata plus recording/replay blobs in object storage
 
 ## Local dev note
 
