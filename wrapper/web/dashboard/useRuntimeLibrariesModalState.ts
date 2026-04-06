@@ -8,6 +8,7 @@ import {
 
 import {
   cancelJob,
+  clearStaleReplicaStatuses,
   fetchJob,
   fetchRuntimeLibraries,
   installPackages,
@@ -35,6 +36,7 @@ export function useRuntimeLibrariesModalState(isOpen: boolean) {
   } | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [cancellingJob, setCancellingJob] = useState(false);
+  const [clearingStaleReplicas, setClearingStaleReplicas] = useState(false);
 
   const logPanelRef = useRef<HTMLDivElement>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -221,6 +223,7 @@ export function useRuntimeLibrariesModalState(isOpen: boolean) {
       setJobResult(null);
       setShowInstallForm(false);
       setCancellingJob(false);
+      setClearingStaleReplicas(false);
       trackedJobIdRef.current = null;
       retainedJobRef.current = null;
       wasOpenRef.current = false;
@@ -238,7 +241,7 @@ export function useRuntimeLibrariesModalState(isOpen: boolean) {
   }, [logEntries]);
 
   useEffect(() => {
-    if (!isOpen || !isJobActive) {
+    if (!isOpen) {
       return;
     }
 
@@ -246,18 +249,18 @@ export function useRuntimeLibrariesModalState(isOpen: boolean) {
       setNowMs(Date.now());
     }, 1_000);
     return () => clearInterval(tick);
-  }, [isJobActive, isOpen]);
+  }, [isOpen]);
 
   useEffect(() => {
-    if (!isOpen || !isJobActive) {
+    if (!isOpen) {
       return;
     }
 
     const interval = setInterval(() => {
       void refreshActiveStateSilently(activeJob?.id);
-    }, 10_000);
+    }, 5_000);
     return () => clearInterval(interval);
-  }, [activeJob?.id, isJobActive, isOpen, refreshActiveStateSilently]);
+  }, [activeJob?.id, isOpen, refreshActiveStateSilently]);
 
   const handleInstall = useCallback(async () => {
     if (!addName.trim()) {
@@ -310,6 +313,23 @@ export function useRuntimeLibrariesModalState(isOpen: boolean) {
     }
   }, [applyJobState, cancellingJob, displayedJob, isJobActive, refresh]);
 
+  const handleClearStaleReplicas = useCallback(async () => {
+    if (clearingStaleReplicas) {
+      return;
+    }
+
+    try {
+      setClearingStaleReplicas(true);
+      setError(null);
+      await clearStaleReplicaStatuses();
+      await refreshActiveStateSilently(activeJob?.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setClearingStaleReplicas(false);
+    }
+  }, [activeJob?.id, clearingStaleReplicas, refreshActiveStateSilently]);
+
   const handleKeyDown = useCallback((e: ReactKeyboardEvent<HTMLInputElement>) => {
     if (e.key === 'Enter' && !isJobActive && addName.trim()) {
       e.preventDefault();
@@ -332,10 +352,12 @@ export function useRuntimeLibrariesModalState(isOpen: boolean) {
     logEntries,
     jobResult,
     cancellingJob,
+    clearingStaleReplicas,
     isJobActive,
     isStalled,
     nowMs,
     packages,
+    replicaReadiness: state?.replicaReadiness ?? null,
     logPanelRef,
     setAddName,
     setAddVersion,
@@ -343,6 +365,7 @@ export function useRuntimeLibrariesModalState(isOpen: boolean) {
     handleInstall,
     handleRemove,
     handleCancel,
+    handleClearStaleReplicas,
     handleKeyDown,
   };
 }

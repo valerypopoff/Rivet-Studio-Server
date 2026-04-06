@@ -2,12 +2,16 @@ import type { Pool, PoolClient, QueryResultRow } from 'pg';
 
 import type {
   JobStatus,
-  RuntimeLibrariesState,
   RuntimeLibraryEntry,
   RuntimeLibraryJobLogEntry,
   RuntimeLibraryJobState,
   RuntimeLibraryLogSource,
+  RuntimeLibraryProcessRole,
   RuntimeLibraryPackageSpec,
+  RuntimeLibraryReplicaReadinessState,
+  RuntimeLibraryReplicaStatus,
+  RuntimeLibraryReplicaSyncState,
+  RuntimeLibraryReplicaTier,
 } from '../../../../shared/runtime-library-types.js';
 import type { ManagedRuntimeLibrariesConfig } from '../config.js';
 
@@ -48,6 +52,24 @@ export type RuntimeLibraryJobLogRow = {
   message: string;
   source: RuntimeLibraryLogSource | null;
   created_at: Date | string;
+};
+
+export type RuntimeLibraryReplicaStatusRow = {
+  replica_id: string;
+  tier: RuntimeLibraryReplicaTier;
+  process_role: RuntimeLibraryProcessRole;
+  display_name: string;
+  hostname: string;
+  pod_name: string | null;
+  target_release_id: string | null;
+  synced_release_id: string | null;
+  sync_state: RuntimeLibraryReplicaSyncState;
+  last_error: string | null;
+  last_sync_started_at: Date | string | null;
+  last_sync_completed_at: Date | string | null;
+  last_heartbeat_at: Date | string;
+  created_at: Date | string;
+  updated_at: Date | string;
 };
 
 export const MANAGED_RUNTIME_LIBRARIES_SCHEMA_SQL = `
@@ -103,6 +125,30 @@ CREATE TABLE IF NOT EXISTS runtime_library_job_logs (
 CREATE INDEX IF NOT EXISTS runtime_library_job_logs_job_id_seq_idx
   ON runtime_library_job_logs(job_id, seq);
 
+CREATE TABLE IF NOT EXISTS runtime_library_replica_status (
+  replica_id TEXT PRIMARY KEY,
+  tier TEXT NOT NULL CHECK (tier IN ('endpoint', 'editor')),
+  process_role TEXT NOT NULL CHECK (process_role IN ('api', 'executor')),
+  display_name TEXT NOT NULL,
+  hostname TEXT NOT NULL,
+  pod_name TEXT NULL,
+  target_release_id TEXT NULL,
+  synced_release_id TEXT NULL,
+  sync_state TEXT NOT NULL CHECK (sync_state IN ('starting', 'syncing', 'ready', 'error')),
+  last_error TEXT NULL,
+  last_sync_started_at TIMESTAMPTZ NULL,
+  last_sync_completed_at TIMESTAMPTZ NULL,
+  last_heartbeat_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS runtime_library_replica_status_tier_heartbeat_idx
+  ON runtime_library_replica_status(tier, last_heartbeat_at DESC);
+
+CREATE INDEX IF NOT EXISTS runtime_library_replica_status_updated_at_idx
+  ON runtime_library_replica_status(updated_at DESC);
+
 ALTER TABLE runtime_library_jobs
   ADD COLUMN IF NOT EXISTS progress_at TIMESTAMPTZ NOT NULL DEFAULT NOW();
 
@@ -118,6 +164,8 @@ export const JOB_HEARTBEAT_INTERVAL_MS = 5_000;
 export const STALE_JOB_TIMEOUT_MS = 10 * 60_000;
 export const CANCEL_POLL_INTERVAL_MS = 1_000;
 export const PROCESS_TERMINATE_GRACE_MS = 5_000;
+export const RUNTIME_LIBRARY_REPLICA_STATUS_CLEANUP_INTERVAL_MS = 15 * 60_000;
+export const RUNTIME_LIBRARY_REPLICA_STATUS_RETENTION_MS = 24 * 60 * 60 * 1_000;
 
 export class JobCancelledError extends Error {
   constructor(message = 'Cancelled by user') {
@@ -132,6 +180,10 @@ export function toIsoString(value: string | Date | null | undefined): string | n
   }
 
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+}
+
+export function getRuntimeLibraryReplicaHeartbeatTtlMs(syncPollIntervalMs: number): number {
+  return Math.max(syncPollIntervalMs * 3, 30_000);
 }
 
 export function normalizePackageMap(value: unknown): Record<string, RuntimeLibraryEntry> {
@@ -263,26 +315,4 @@ export function isUniqueViolation(error: unknown): boolean {
 
 export async function wait(delayMs: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, delayMs));
-}
-
-export async function getManagedRuntimeLibrariesState(
-  pool: Pool,
-  getActiveRelease: (pool: Pool) => Promise<RuntimeLibraryActivationRow | null>,
-  getActiveJob: (pool: Pool) => Promise<RuntimeLibraryJobState | null>,
-): Promise<RuntimeLibrariesState> {
-  const [activeRelease, activeJob] = await Promise.all([
-    getActiveRelease(pool),
-    getActiveJob(pool),
-  ]);
-
-  const packages = activeRelease ? normalizePackageMap(activeRelease.packages_json) : {};
-
-  return {
-    backend: 'managed',
-    packages,
-    hasActiveLibraries: Object.keys(packages).length > 0,
-    updatedAt: toIsoString(activeRelease?.updated_at ?? activeRelease?.created_at) ?? new Date().toISOString(),
-    activeJob,
-    activeReleaseId: activeRelease?.release_id ?? null,
-  };
 }

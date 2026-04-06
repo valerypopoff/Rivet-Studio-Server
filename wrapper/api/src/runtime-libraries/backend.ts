@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 
 import type {
   RuntimeLibrariesState,
+  RuntimeLibraryReplicaCleanupResult,
   RuntimeLibraryJobState,
   RuntimeLibraryPackageSpec,
 } from '../../../shared/runtime-library-types.js';
@@ -17,6 +18,7 @@ export interface RuntimeLibrariesBackend {
   enqueueRemove(packageNames: string[]): Promise<RuntimeLibraryJobState>;
   getJob(jobId: string): Promise<RuntimeLibraryJobState | null>;
   cancelJob(jobId: string): Promise<RuntimeLibraryJobState | null>;
+  clearStaleReplicaStatuses(): Promise<RuntimeLibraryReplicaCleanupResult>;
   streamJob(req: Request, res: Response): Promise<void> | void;
   dispose?(): Promise<void>;
 }

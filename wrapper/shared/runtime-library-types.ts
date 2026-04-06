@@ -14,6 +14,9 @@ export type RuntimeLibraryLogSource = 'stdout' | 'stderr' | 'system';
 
 export type RuntimeLibrariesBackendMode = 'filesystem' | 'managed';
 export type RuntimeLibraryJobType = 'install' | 'remove';
+export type RuntimeLibraryReplicaTier = 'endpoint' | 'editor';
+export type RuntimeLibraryProcessRole = 'api' | 'executor';
+export type RuntimeLibraryReplicaSyncState = 'starting' | 'syncing' | 'ready' | 'error';
 
 export interface RuntimeLibraryJobLogEntry {
   message: string;
@@ -37,6 +40,44 @@ export interface RuntimeLibraryJobState {
   cancelRequestedAt?: string | null;
 }
 
+export interface RuntimeLibraryReplicaStatus {
+  replicaId: string;
+  tier: RuntimeLibraryReplicaTier;
+  processRole: RuntimeLibraryProcessRole;
+  displayName: string;
+  hostname: string;
+  podName?: string;
+  targetReleaseId: string | null;
+  syncedReleaseId: string | null;
+  syncState: RuntimeLibraryReplicaSyncState;
+  isReadyForActiveRelease: boolean;
+  lastHeartbeatAt: string;
+  lastSyncStartedAt?: string;
+  lastSyncCompletedAt?: string;
+  lastError?: string;
+}
+
+export interface RuntimeLibraryReplicaTierState {
+  tier: RuntimeLibraryReplicaTier;
+  liveReplicaCount: number;
+  readyReplicaCount: number;
+  staleReplicaCount: number;
+  replicas: RuntimeLibraryReplicaStatus[];
+}
+
+export interface RuntimeLibraryReplicaReadinessState {
+  activeReleaseId: string | null;
+  heartbeatTtlMs: number;
+  endpoint: RuntimeLibraryReplicaTierState;
+  editor: RuntimeLibraryReplicaTierState;
+}
+
+export interface RuntimeLibraryReplicaCleanupResult {
+  deletedReplicaCount: number;
+  deletedReplicaIds: string[];
+  staleBefore: string;
+}
+
 export interface RuntimeLibrariesState {
   backend: RuntimeLibrariesBackendMode;
   packages: Record<string, RuntimeLibraryEntry>;
@@ -44,4 +85,5 @@ export interface RuntimeLibrariesState {
   updatedAt: string;
   activeJob: RuntimeLibraryJobState | null;
   activeReleaseId?: string | null;
+  replicaReadiness?: RuntimeLibraryReplicaReadinessState | null;
 }

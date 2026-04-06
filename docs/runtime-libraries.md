@@ -45,6 +45,24 @@ Canonical managed config:
   - `RIVET_STORAGE_FORCE_PATH_STYLE`
 - optional runtime-library sync tuning:
   - `RIVET_RUNTIME_LIBRARIES_SYNC_POLL_INTERVAL_MS`
+- optional replica-status retention tuning:
+  - `RIVET_RUNTIME_LIBRARIES_REPLICA_STATUS_RETENTION_MS`
+  - `RIVET_RUNTIME_LIBRARIES_REPLICA_STATUS_CLEANUP_INTERVAL_MS`
+- explicit process role for readiness reporting:
+  - `RIVET_RUNTIME_PROCESS_ROLE=api|executor`
+
+The official API and executor images set `RIVET_RUNTIME_PROCESS_ROLE` automatically.
+Custom launches should set it explicitly when `RIVET_STORAGE_MODE=managed` so replica-readiness
+reporting lands in the correct tier.
+
+Default replica-status retention policy:
+
+- `RIVET_DATABASE_MODE=local-docker`
+  - retain stale replica rows for `24h`
+  - run background stale-row cleanup every `15m`
+- `RIVET_DATABASE_MODE=managed`
+  - retain stale replica rows for `15m`
+  - run background stale-row cleanup every `5m`
 
 Retired aliases such as `RIVET_WORKFLOWS_STORAGE_*`, `RIVET_OBJECT_STORAGE_*`,
 `RIVET_STORAGE_BACKEND`, and `RIVET_RUNTIME_LIBS_SYNC_POLL_INTERVAL_MS` now fail fast.
@@ -76,8 +94,10 @@ of truth is:
 The runtime-library API lives under `/api/runtime-libraries`:
 
 - `GET /` returns the current manifest, `hasActiveLibraries`, `updatedAt`, and any active job
+- in `managed` mode, `GET /` also returns `replicaReadiness` for the current active release
 - `POST /install` starts an install job
 - `POST /remove` starts a removal job
+- `POST /replicas/cleanup` immediately deletes rows that are already stale by heartbeat TTL
 - `GET /jobs/:jobId` returns the current/most-recent job state
 - `POST /jobs/:jobId/cancel` requests cancellation of a queued or running job
 - `GET /jobs/:jobId/stream` streams job logs and status changes over SSE
@@ -85,6 +105,38 @@ The runtime-library API lives under `/api/runtime-libraries`:
 Only one install/remove job can run at a time.
 
 In `managed` mode that exclusivity is enforced in Postgres, not only in process memory.
+
+Managed `replicaReadiness` is observational only:
+
+- `endpoint` readiness reflects API-process replicas
+- `editor` readiness reflects executor-process replicas
+- only replicas that have heartbeated recently are counted in the live denominator
+- stale rows are excluded from the live denominator and reported separately
+- polling `GET /api/runtime-libraries` does not trigger convergence by itself
+
+The cleanup route is also observational only:
+
+- it deletes only rows that are already stale
+- it does not affect the active release, local caches, or reconciliation
+- it is useful when managed Postgres still contains stale rows from previous containers, pods, or crashed processes and you want the modal to stop showing historical noise immediately
+
+## Replica-status retention and cleanup
+
+Replica-status rows exist to explain recent convergence and recent failures. They are not part of execution correctness.
+
+Current behavior:
+
+- rows become `stale` when their heartbeat is older than the current heartbeat TTL
+- stale rows are excluded from the live denominator immediately
+- background cleanup later removes old stale rows using the retention policy above
+- `POST /api/runtime-libraries/replicas/cleanup` can remove the currently stale rows immediately without waiting for the retention window
+
+Typical sources of stale rows:
+
+- a Docker container restart against a persistent managed Postgres database
+- a Kubernetes rollout that replaced old pods with new ones
+- a pod crash, node loss, or network partition that prevented clean shutdown
+- a replica that stopped reporting because it could not reach Postgres
 
 ## Job lifecycle
 
@@ -146,6 +198,7 @@ Current persistence rules:
 - in `managed` mode, startup reconciles the local `current/` cache from the active managed release before execution uses it
 - in `managed` mode, job logs and status survive refreshes and API restarts because they are stored in Postgres
 - in `managed` mode, executor processes run the same reconciliation logic through the bootstrap layer before code execution
+- in `managed` mode, replica-status rows also live in Postgres, so stale rows can survive process restarts until background cleanup or explicit stale-row cleanup removes them
 
 ## Managed cleanup tooling
 
@@ -189,6 +242,12 @@ The current wrapper UI exposes a simple single-package workflow:
 - remove installed packages one at a time
 - cancel a queued or running job from the modal
 - show the live job log inline in the modal
+- in `managed` mode, show `Replica readiness` for:
+  - `Endpoint execution replicas`
+  - `Editor execution replicas`
+- while the modal is open in `managed` mode, poll `/api/runtime-libraries` every 5 seconds even when no job is active
+- keep replica details collapsed by default, with expandable per-replica sync/error detail for debugging partial convergence
+- when stale rows exist, show a `Clear stale replicas` action that calls the cleanup route and refreshes readiness state
 
 The underlying API accepts arrays for install/remove requests, so bulk operations are possible programmatically even though the dashboard currently uses one-at-a-time actions.
 

@@ -91,6 +91,9 @@ const OBJECT_STORAGE_ACCESS_KEY_ENV_NAME = 'RIVET_STORAGE_ACCESS_KEY';
 const OBJECT_STORAGE_FORCE_PATH_STYLE_ENV_NAME = 'RIVET_STORAGE_FORCE_PATH_STYLE';
 const STORAGE_MODE_ENV_NAME = 'RIVET_STORAGE_MODE';
 const RUNTIME_LIBRARIES_SYNC_POLL_INTERVAL_ENV_NAME = 'RIVET_RUNTIME_LIBRARIES_SYNC_POLL_INTERVAL_MS';
+const RUNTIME_LIBRARIES_REPLICA_STATUS_RETENTION_ENV_NAME = 'RIVET_RUNTIME_LIBRARIES_REPLICA_STATUS_RETENTION_MS';
+const RUNTIME_LIBRARIES_REPLICA_STATUS_CLEANUP_INTERVAL_ENV_NAME = 'RIVET_RUNTIME_LIBRARIES_REPLICA_STATUS_CLEANUP_INTERVAL_MS';
+const RUNTIME_PROCESS_ROLE_ENV_NAME = 'RIVET_RUNTIME_PROCESS_ROLE';
 
 export const MANAGED_RUNTIME_LIBRARIES_OBJECT_STORAGE_PREFIX = 'runtime-libraries/';
 
@@ -139,10 +142,78 @@ function assertNoRetiredEnv() {
   );
 }
 
+function inferRuntimeProcessRole() {
+  const rawExplicitRole = readEnv(RUNTIME_PROCESS_ROLE_ENV_NAME);
+  const explicitRole = rawExplicitRole?.toLowerCase();
+  if (explicitRole === 'api' || explicitRole === 'executor') {
+    return explicitRole;
+  }
+
+  if (rawExplicitRole) {
+    throw new Error(
+      `Invalid configuration value "${rawExplicitRole}" for ${RUNTIME_PROCESS_ROLE_ENV_NAME}. ` +
+      'Expected "api" or "executor".',
+    );
+  }
+
+  const argv = process.argv.join(' ').toLowerCase();
+  if (argv.includes('executor-bundle') || argv.includes('app-executor')) {
+    return 'executor';
+  }
+
+  return 'api';
+}
+
+function getDefaultReplicaStatusRetentionMs(databaseMode) {
+  return databaseMode === 'local-docker'
+    ? 24 * 60 * 60 * 1_000
+    : 15 * 60 * 1_000;
+}
+
+function getDefaultReplicaStatusCleanupIntervalMs(databaseMode) {
+  return databaseMode === 'local-docker'
+    ? 15 * 60 * 1_000
+    : 5 * 60 * 1_000;
+}
+
+function getNormalizedArgv() {
+  return process.argv.map((arg) => arg.replace(/\\/g, '/').toLowerCase());
+}
+
+function isApiRuntimeEntryArg(arg) {
+  return arg === 'src/server.ts' ||
+    arg.endsWith('/src/server.ts') ||
+    arg === 'dist/api/src/server.js' ||
+    arg.endsWith('/dist/api/src/server.js');
+}
+
+function isExecutorRuntimeEntryArg(arg) {
+  return arg.includes('executor-bundle') || arg.includes('app-executor');
+}
+
 export function isManagedRuntimeLibrariesEnabled() {
   assertNoRetiredEnv();
   const storageMode = readEnv(STORAGE_MODE_ENV_NAME)?.toLowerCase();
   return storageMode === 'managed';
+}
+
+export function shouldBootstrapManagedRuntimeLibrariesInCurrentProcess() {
+  if (!isManagedRuntimeLibrariesEnabled()) {
+    return false;
+  }
+
+  const argv = getNormalizedArgv();
+  const runtimeProcessRole = inferRuntimeProcessRole();
+
+  if (runtimeProcessRole === 'executor') {
+    return argv.some(isExecutorRuntimeEntryArg);
+  }
+
+  if (argv.includes('watch')) {
+    return false;
+  }
+
+  return argv.some(isApiRuntimeEntryArg);
 }
 
 export function getManagedRuntimeLibrariesConfig() {
@@ -156,6 +227,10 @@ export function getManagedRuntimeLibrariesConfig() {
   const databaseSslMode = readEnv(DATABASE_SSL_MODE_ENV_NAME)?.toLowerCase() || (databaseMode === 'local-docker' ? 'disable' : 'require');
   const storageUrl = readEnv(STORAGE_URL_ENV_NAME);
   const parsedStorageUrl = storageUrl ? parseManagedStorageUrl(storageUrl) : null;
+  const replicaStatusRetentionMs = normalizePositiveInt(
+    readEnv(RUNTIME_LIBRARIES_REPLICA_STATUS_RETENTION_ENV_NAME),
+    getDefaultReplicaStatusRetentionMs(databaseMode),
+  );
 
   return {
     databaseMode,
@@ -172,6 +247,12 @@ export function getManagedRuntimeLibrariesConfig() {
     ),
     objectStoragePrefix: MANAGED_RUNTIME_LIBRARIES_OBJECT_STORAGE_PREFIX,
     syncPollIntervalMs: normalizePositiveInt(readEnv(RUNTIME_LIBRARIES_SYNC_POLL_INTERVAL_ENV_NAME), 5_000),
+    runtimeProcessRole: inferRuntimeProcessRole(),
+    replicaStatusRetentionMs,
+    replicaStatusCleanupIntervalMs: normalizePositiveInt(
+      readEnv(RUNTIME_LIBRARIES_REPLICA_STATUS_CLEANUP_INTERVAL_ENV_NAME),
+      getDefaultReplicaStatusCleanupIntervalMs(databaseMode),
+    ),
   };
 }
 

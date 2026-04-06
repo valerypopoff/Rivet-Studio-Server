@@ -48,7 +48,7 @@ In local direct-process mode, the services run separately without nginx.
 ## API surface overview
 
 - `/api/workflows/*` manages workflow folders/projects, project creation/duplication/uploading/downloading, publication, movement/rename, and the recordings browser APIs.
-- `/api/runtime-libraries/*` manages runtime-library state plus install/remove jobs and live log streaming over SSE.
+- `/api/runtime-libraries/*` manages runtime-library state, replica readiness, stale-replica cleanup, install/remove jobs, and live log streaming over SSE.
 - `/api/native/*` exposes the hosted editor's filesystem API, constrained to allowed roots and supported base dirs.
 - `/api/projects/*` exposes lightweight project discovery for the hosted IO provider.
 - `/api/plugins/*` downloads, extracts, and loads NPM plugins for upstream plugin flows.
@@ -112,6 +112,8 @@ Storage mode decides which of those paths are authoritative:
 - `RIVET_STORAGE_URL` is the recommended object-storage config entrypoint; alternatively use the explicit tuple of `RIVET_STORAGE_BUCKET`, `RIVET_STORAGE_REGION`, `RIVET_STORAGE_ENDPOINT`, `RIVET_STORAGE_ACCESS_KEY_ID`, `RIVET_STORAGE_ACCESS_KEY`, and `RIVET_STORAGE_FORCE_PATH_STYLE`.
 - `RIVET_ARTIFACTS_HOST_PATH` is the primary public filesystem-mode host root. The per-path host envs remain launcher-level compatibility overrides rather than the preferred contract.
 - `RIVET_RUNTIME_LIBRARIES_SYNC_POLL_INTERVAL_MS` tunes managed runtime-library background reconciliation for API and executor processes.
+- `RIVET_RUNTIME_LIBRARIES_REPLICA_STATUS_RETENTION_MS` and `RIVET_RUNTIME_LIBRARIES_REPLICA_STATUS_CLEANUP_INTERVAL_MS` tune how long stale managed replica-status rows are kept and how often background cleanup runs.
+- `RIVET_RUNTIME_PROCESS_ROLE=api|executor` tells managed runtime-library readiness reporting which product tier the current process belongs to.
 
 ### Safety and compatibility
 

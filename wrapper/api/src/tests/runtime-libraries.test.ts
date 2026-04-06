@@ -184,6 +184,7 @@ test('filesystem backend reports no active libraries for an empty active release
 
   assert.equal(state.hasActiveLibraries, false);
   assert.deepEqual(state.packages, {});
+  assert.equal(state.replicaReadiness, null);
 });
 
 test('runtime-library mode follows the shared storage mode env', () => {

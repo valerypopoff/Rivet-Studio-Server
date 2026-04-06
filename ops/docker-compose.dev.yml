@@ -163,6 +163,7 @@ services:
       - RIVET_WORKFLOWS_ROOT=/workflows
       - RIVET_APP_DATA_ROOT=/data/rivet-app
       - RIVET_RUNTIME_LIBRARIES_ROOT=/data/runtime-libraries
+      - RIVET_RUNTIME_PROCESS_ROLE=api
       - RIVET_PUBLISHED_WORKFLOWS_BASE_PATH=${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH:-/workflows}
       - RIVET_LATEST_WORKFLOWS_BASE_PATH=${RIVET_LATEST_WORKFLOWS_BASE_PATH:-/workflows-latest}
       - RIVET_STORAGE_MODE
@@ -252,6 +253,7 @@ services:
       - YARN_CACHE_FOLDER=/root/.cache/yarn
       - HOME=/root
       - RIVET_RUNTIME_LIBRARIES_ROOT=/data/runtime-libraries
+      - RIVET_RUNTIME_PROCESS_ROLE=executor
       - RIVET_STORAGE_MODE
       - RIVET_DATABASE_MODE
       - RIVET_DATABASE_CONNECTION_STRING

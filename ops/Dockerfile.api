@@ -46,6 +46,7 @@ RUN npm run build
 RUN mkdir -p /workspace /workflows /data/rivet-app/plugins /data/rivet-app/logs /data/runtime-libraries
 
 ENV RIVET_RUNTIME_LIBRARIES_ROOT=/data/runtime-libraries
+ENV RIVET_RUNTIME_PROCESS_ROLE=api
 
 EXPOSE 80
 

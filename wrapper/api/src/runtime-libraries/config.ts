@@ -3,17 +3,26 @@ import {
   type ManagedWorkflowStorageConfig,
 } from '../routes/workflows/storage-config.js';
 import { badRequest } from '../utils/httpError.js';
-import type { RuntimeLibrariesBackendMode } from '../../../shared/runtime-library-types.js';
+import type {
+  RuntimeLibrariesBackendMode,
+  RuntimeLibraryProcessRole,
+} from '../../../shared/runtime-library-types.js';
 
 export type ManagedRuntimeLibrariesConfig = Omit<ManagedWorkflowStorageConfig, 'objectStoragePrefix'> & {
   objectStoragePrefix: string;
   syncPollIntervalMs: number;
+  runtimeProcessRole: RuntimeLibraryProcessRole;
+  replicaStatusRetentionMs: number;
+  replicaStatusCleanupIntervalMs: number;
 };
 
 export const MANAGED_RUNTIME_LIBRARIES_OBJECT_STORAGE_PREFIX = 'runtime-libraries/';
 
 const STORAGE_MODE_ENV_NAME = 'RIVET_STORAGE_MODE';
 const RUNTIME_LIBRARIES_SYNC_POLL_INTERVAL_ENV_NAME = 'RIVET_RUNTIME_LIBRARIES_SYNC_POLL_INTERVAL_MS';
+const RUNTIME_LIBRARIES_REPLICA_STATUS_RETENTION_ENV_NAME = 'RIVET_RUNTIME_LIBRARIES_REPLICA_STATUS_RETENTION_MS';
+const RUNTIME_LIBRARIES_REPLICA_STATUS_CLEANUP_INTERVAL_ENV_NAME = 'RIVET_RUNTIME_LIBRARIES_REPLICA_STATUS_CLEANUP_INTERVAL_MS';
+const RUNTIME_PROCESS_ROLE_ENV_NAME = 'RIVET_RUNTIME_PROCESS_ROLE';
 const RETIRED_ENV_REPLACEMENTS = {
   RIVET_STORAGE_BACKEND: STORAGE_MODE_ENV_NAME,
   RIVET_WORKFLOWS_STORAGE_BACKEND: STORAGE_MODE_ENV_NAME,
@@ -55,6 +64,40 @@ function normalizePositiveInt(value: string | undefined, fallback: number): numb
   return parsed;
 }
 
+function inferRuntimeProcessRole(): RuntimeLibraryProcessRole {
+  const rawExplicitRole = readEnv(RUNTIME_PROCESS_ROLE_ENV_NAME);
+  const explicitRole = rawExplicitRole?.toLowerCase();
+  if (explicitRole === 'api' || explicitRole === 'executor') {
+    return explicitRole;
+  }
+
+  if (rawExplicitRole) {
+    throw badRequest(
+      `Invalid configuration value "${rawExplicitRole}" for ${RUNTIME_PROCESS_ROLE_ENV_NAME}. ` +
+      'Expected "api" or "executor".',
+    );
+  }
+
+  const argv = process.argv.join(' ').toLowerCase();
+  if (argv.includes('executor-bundle') || argv.includes('app-executor')) {
+    return 'executor';
+  }
+
+  return 'api';
+}
+
+function getDefaultReplicaStatusRetentionMs(databaseMode: ManagedRuntimeLibrariesConfig['databaseMode']): number {
+  return databaseMode === 'local-docker'
+    ? 24 * 60 * 60 * 1_000
+    : 15 * 60 * 1_000;
+}
+
+function getDefaultReplicaStatusCleanupIntervalMs(databaseMode: ManagedRuntimeLibrariesConfig['databaseMode']): number {
+  return databaseMode === 'local-docker'
+    ? 15 * 60 * 1_000
+    : 5 * 60 * 1_000;
+}
+
 function assertNoRetiredEnv(): void {
   const activeRetired = Object.entries(RETIRED_ENV_REPLACEMENTS)
     .filter(([name]) => Boolean(process.env[name]?.trim()))
@@ -86,6 +129,10 @@ export function isManagedRuntimeLibrariesEnabled(): boolean {
 export function getManagedRuntimeLibrariesConfig(): ManagedRuntimeLibrariesConfig {
   assertNoRetiredEnv();
   const workflowConfig = getManagedWorkflowStorageConfig();
+  const replicaStatusRetentionMs = normalizePositiveInt(
+    readEnv(RUNTIME_LIBRARIES_REPLICA_STATUS_RETENTION_ENV_NAME),
+    getDefaultReplicaStatusRetentionMs(workflowConfig.databaseMode),
+  );
 
   return {
     ...workflowConfig,
@@ -93,6 +140,12 @@ export function getManagedRuntimeLibrariesConfig(): ManagedRuntimeLibrariesConfi
     syncPollIntervalMs: normalizePositiveInt(
       readEnv(RUNTIME_LIBRARIES_SYNC_POLL_INTERVAL_ENV_NAME),
       5_000,
+    ),
+    runtimeProcessRole: inferRuntimeProcessRole(),
+    replicaStatusRetentionMs,
+    replicaStatusCleanupIntervalMs: normalizePositiveInt(
+      readEnv(RUNTIME_LIBRARIES_REPLICA_STATUS_CLEANUP_INTERVAL_ENV_NAME),
+      getDefaultReplicaStatusCleanupIntervalMs(workflowConfig.databaseMode),
     ),
   };
 }

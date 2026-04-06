@@ -8,11 +8,65 @@ const RETRYABLE_CODES = new Set([
   'EHOSTUNREACH',
   'ENETUNREACH',
 ]);
+const SETUP_RETRY_DELAY_MS = 5_000;
 
 let setupPromise = null;
 let pollerStarted = false;
 let pollerHandle = null;
 let controller = null;
+let retryHandle = null;
+
+function clearSetupRetry() {
+  if (retryHandle) {
+    clearTimeout(retryHandle);
+    retryHandle = null;
+  }
+}
+
+function scheduleSetupRetry() {
+  if (retryHandle || !isManagedRuntimeLibrariesEnabled()) {
+    return;
+  }
+
+  retryHandle = setTimeout(() => {
+    retryHandle = null;
+    void setupManagedRuntimeLibrariesSync().catch((error) => {
+      console.error('[runtime-libraries] Retrying managed runtime-library sync setup failed:', error);
+    });
+  }, SETUP_RETRY_DELAY_MS);
+  retryHandle.unref?.();
+}
+
+async function prepareManagedRuntimeLibraries(force = true) {
+  if (!isManagedRuntimeLibrariesEnabled()) {
+    return;
+  }
+
+  try {
+    await setupManagedRuntimeLibrariesSync();
+  } catch (error) {
+    scheduleSetupRetry();
+    throw error;
+  }
+
+  if (!controller) {
+    return;
+  }
+
+  try {
+    await controller.syncCurrentRelease(force);
+  } catch (error) {
+    const code = typeof error === 'object' && error != null && 'code' in error ? String(error.code ?? '') : '';
+    if (RETRYABLE_CODES.has(code)) {
+      await controller.syncCurrentRelease(force);
+      return;
+    }
+
+    throw error;
+  }
+}
+
+globalThis.__RIVET_PREPARE_RUNTIME_LIBRARIES__ = prepareManagedRuntimeLibraries;
 
 async function setupManagedRuntimeLibrariesSync() {
   if (setupPromise) {
@@ -27,20 +81,7 @@ async function setupManagedRuntimeLibrariesSync() {
   setupPromise = (async () => {
     controller = createManagedRuntimeLibrariesSyncController();
     await controller.initialize();
-
-    globalThis.__RIVET_PREPARE_RUNTIME_LIBRARIES__ = async () => {
-      try {
-        await controller.syncCurrentRelease(true);
-      } catch (error) {
-        const code = typeof error === 'object' && error != null && 'code' in error ? String(error.code ?? '') : '';
-        if (RETRYABLE_CODES.has(code)) {
-          await controller.syncCurrentRelease(true);
-          return;
-        }
-
-        throw error;
-      }
-    };
+    clearSetupRetry();
 
     if (!pollerStarted) {
       pollerStarted = true;
@@ -54,6 +95,7 @@ async function setupManagedRuntimeLibrariesSync() {
   })().catch((error) => {
     setupPromise = null;
     controller = null;
+    scheduleSetupRetry();
     throw error;
   });
 
@@ -63,6 +105,7 @@ async function setupManagedRuntimeLibrariesSync() {
 async function disposeManagedRuntimeLibrariesSync() {
   setupPromise = null;
   globalThis.__RIVET_PREPARE_RUNTIME_LIBRARIES__ = async () => {};
+  clearSetupRetry();
 
   if (pollerHandle) {
     clearInterval(pollerHandle);

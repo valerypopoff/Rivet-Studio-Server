@@ -60,6 +60,10 @@ Operational note:
 - `RIVET_ARTIFACTS_HOST_PATH` is the primary public filesystem-mode contract
 - `RIVET_WORKFLOWS_HOST_PATH` and `RIVET_RUNTIME_LIBS_HOST_PATH` remain compatibility overrides for the launcher
 - `RIVET_STORAGE_MODE=managed` switches both workflows and runtime libraries to managed Postgres plus object storage; in that mode `RIVET_RUNTIME_LIBRARIES_ROOT` remains only a local cache/workspace
+- optional managed runtime-library readiness tuning uses:
+  - `RIVET_RUNTIME_LIBRARIES_SYNC_POLL_INTERVAL_MS`
+  - `RIVET_RUNTIME_LIBRARIES_REPLICA_STATUS_RETENTION_MS`
+  - `RIVET_RUNTIME_LIBRARIES_REPLICA_STATUS_CLEANUP_INTERVAL_MS`
 
 ## Observable Playwright flow
 
@@ -113,6 +117,8 @@ Current behavior:
 - the `api` and `executor` services rebuild from Dockerfiles, so Node/runtime changes are picked up without a separate manual build step
 - the launcher waits for healthy services; `RIVET_DOCKER_WAIT_TIMEOUT` controls the wait window
 - in `RIVET_STORAGE_MODE=managed`, both workflow state and runtime-library releases come from managed services, while `/data/runtime-libraries` remains only an extracted local cache/workspace inside each container
+- if `RIVET_DATABASE_MODE=managed`, runtime-library replica-status rows also live in the shared Postgres database, so stale rows from older containers can survive a Docker recreate until retention cleanup runs or you clear them explicitly
+- when the Runtime Libraries modal shows stale rows that are only historical dev noise, use the `Clear stale replicas` action or call `POST /api/runtime-libraries/replicas/cleanup`
 
 ## Recording-storage notes
 

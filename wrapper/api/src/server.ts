@@ -11,6 +11,7 @@ import { configRouter } from './routes/config.js';
 import { uiAuthRouter } from './routes/ui-auth.js';
 import { runtimeLibrariesRouter } from './routes/runtime-libraries.js';
 import { reconcileRuntimeLibraries } from './runtime-libraries/startup.js';
+import { disposeRuntimeLibrariesBackend } from './runtime-libraries/backend.js';
 import { initializeLatestWorkflowRemoteDebugger } from './latestWorkflowRemoteDebugger.js';
 import { LATEST_WORKFLOWS_BASE_PATH, PUBLISHED_WORKFLOWS_BASE_PATH } from './workflowEndpointPaths.js';
 import { requireAuth } from './middleware/auth.js';
@@ -59,19 +60,73 @@ app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
 
 initializeLatestWorkflowRemoteDebugger(server);
 
-server.listen(PORT, () => {
-  console.log(`[rivet-api] Listening on port ${PORT}`);
-  console.log(`[rivet-api] Workspace root: ${process.env.RIVET_WORKSPACE_ROOT ?? '/workspace'}`);
-  console.log(`[rivet-api] App data root: ${process.env.RIVET_APP_DATA_ROOT ?? '/data/rivet-app'}`);
-  console.log(`[rivet-api] Runtime libraries root: ${process.env.RIVET_RUNTIME_LIBRARIES_ROOT ?? '(not set)'}`);
+let shuttingDown = false;
+const SHUTDOWN_GRACE_MS = 5_000;
 
-  // Run startup reconciliation for runtime libraries (non-blocking)
-  reconcileRuntimeLibraries().catch((err) => {
-    console.error('[runtime-libraries] Startup reconciliation failed:', err);
+async function shutdown(signal: string): Promise<void> {
+  if (shuttingDown) {
+    return;
+  }
+
+  shuttingDown = true;
+  console.log(`[rivet-api] Received ${signal}, shutting down...`);
+
+  try {
+    let resolved = false;
+    await Promise.race([
+      new Promise<void>((resolve) => {
+        server.close(() => {
+          resolved = true;
+          resolve();
+        });
+      }),
+      new Promise<void>((resolve) => {
+        const timer = setTimeout(() => {
+          if (!resolved) {
+            console.warn(`[rivet-api] HTTP server did not close within ${SHUTDOWN_GRACE_MS}ms; forcing connection shutdown.`);
+            server.closeAllConnections?.();
+            server.closeIdleConnections?.();
+          }
+          resolve();
+        }, SHUTDOWN_GRACE_MS);
+        timer.unref?.();
+      }),
+    ]);
+  } catch (error) {
+    console.error('[rivet-api] Failed to close HTTP server:', error);
+  }
+
+  await disposeRuntimeLibrariesBackend().catch((error) => {
+    console.error('[runtime-libraries] Failed to dispose backend during shutdown:', error);
   });
 
-  initializeWorkflowStorage()
-    .catch((err) => {
-      console.error('[workflow-storage] Startup reconciliation failed:', err);
-    });
+  process.exitCode = 0;
+}
+
+process.once('SIGINT', () => {
+  void shutdown('SIGINT');
 });
+
+process.once('SIGTERM', () => {
+  void shutdown('SIGTERM');
+});
+
+async function startServer() {
+  try {
+    await reconcileRuntimeLibraries();
+    await initializeWorkflowStorage();
+  } catch (error) {
+    console.error('[rivet-api] Startup reconciliation failed:', error);
+    process.exitCode = 1;
+    return;
+  }
+
+  server.listen(PORT, () => {
+    console.log(`[rivet-api] Listening on port ${PORT}`);
+    console.log(`[rivet-api] Workspace root: ${process.env.RIVET_WORKSPACE_ROOT ?? '/workspace'}`);
+    console.log(`[rivet-api] App data root: ${process.env.RIVET_APP_DATA_ROOT ?? '/data/rivet-app'}`);
+    console.log(`[rivet-api] Runtime libraries root: ${process.env.RIVET_RUNTIME_LIBRARIES_ROOT ?? '(not set)'}`);
+  });
+}
+
+void startServer();

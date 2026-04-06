@@ -1,9 +1,9 @@
-import Button from '@atlaskit/button';
 import ModalDialog, { ModalBody, ModalTransition } from '@atlaskit/modal-dialog';
 import type { FC } from 'react';
 
 import { RuntimeLibrariesJobPanel } from './RuntimeLibrariesJobPanel';
 import { RuntimeLibrariesPackagesPanel } from './RuntimeLibrariesPackagesPanel';
+import { RuntimeLibrariesReplicaReadinessPanel } from './RuntimeLibrariesReplicaReadinessPanel';
 import { useRuntimeLibrariesModalState } from './useRuntimeLibrariesModalState';
 import './RuntimeLibrariesModal.css';
 
@@ -26,10 +26,12 @@ export const RuntimeLibrariesModal: FC<RuntimeLibrariesModalProps> = ({
     logEntries,
     jobResult,
     cancellingJob,
+    clearingStaleReplicas,
     isJobActive,
     isStalled,
     nowMs,
     packages,
+    replicaReadiness,
     logPanelRef,
     setAddName,
     setAddVersion,
@@ -37,6 +39,7 @@ export const RuntimeLibrariesModal: FC<RuntimeLibrariesModalProps> = ({
     handleInstall,
     handleRemove,
     handleCancel,
+    handleClearStaleReplicas,
     handleKeyDown,
   } = useRuntimeLibrariesModalState(isOpen);
 
@@ -93,6 +96,14 @@ export const RuntimeLibrariesModal: FC<RuntimeLibrariesModalProps> = ({
                 />
               ) : null}
 
+              <RuntimeLibrariesReplicaReadinessPanel
+                readiness={replicaReadiness}
+                isJobActive={isJobActive}
+                clearingStaleReplicas={clearingStaleReplicas}
+                nowMs={nowMs}
+                onClearStaleReplicas={() => void handleClearStaleReplicas()}
+              />
+
               <RuntimeLibrariesJobPanel
                 displayedJob={displayedJob}
                 logEntries={logEntries}
@@ -104,17 +115,6 @@ export const RuntimeLibrariesModal: FC<RuntimeLibrariesModalProps> = ({
                 logPanelRef={logPanelRef}
                 onCancel={() => void handleCancel()}
               />
-
-              {!loading && packages.length === 0 && !showInstallForm ? (
-                <Button
-                  appearance="primary"
-                  className="runtime-libraries-add-button button-size-l"
-                  onClick={() => setShowInstallForm(true)}
-                  isDisabled={isJobActive}
-                >
-                  Add library...
-                </Button>
-              ) : null}
             </div>
           </div>
         </ModalBody>

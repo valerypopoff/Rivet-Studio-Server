@@ -3,6 +3,7 @@ import type { Request, Response } from 'express';
 import type {
   JobStatus,
   RuntimeLibrariesState,
+  RuntimeLibraryReplicaCleanupResult,
   RuntimeLibraryJobLogEntry,
   RuntimeLibraryJobState,
   RuntimeLibraryLogSource,
@@ -71,6 +72,7 @@ class FilesystemRuntimeLibrariesBackend implements RuntimeLibrariesBackend {
       updatedAt: manifest.updatedAt,
       activeJob: mapJob(jobRunner.getActiveJob()),
       activeReleaseId: manifest.activeReleaseId ?? null,
+      replicaReadiness: null,
     };
   }
 
@@ -100,6 +102,14 @@ class FilesystemRuntimeLibrariesBackend implements RuntimeLibrariesBackend {
 
   async cancelJob(jobId: string): Promise<RuntimeLibraryJobState | null> {
     return mapJob(jobRunner.cancelJob(jobId));
+  }
+
+  async clearStaleReplicaStatuses(): Promise<RuntimeLibraryReplicaCleanupResult> {
+    return {
+      deletedReplicaCount: 0,
+      deletedReplicaIds: [],
+      staleBefore: new Date().toISOString(),
+    };
   }
 
   streamJob(req: Request, res: Response): void {

@@ -50,6 +50,16 @@ Supported development topology:
 - `filesystem` backend for local development and backward-compatible operation
 - `managed` backend when shared services are available
 
+## Current Checkpoint
+
+Phases `1`, `1.1`, `2`, and `2.1` are now complete.
+
+That means:
+
+- workflows, recordings, and runtime-library releases can now use shared Postgres plus object storage as the authoritative backend
+- managed runtime-library convergence is now visible across API and executor tiers
+- the next live roadmap step is `Phase 3`: Kubernetes adoption on top of the managed-state architecture
+
 ## End-State Mental Model
 
 The future scaled system should not try to keep many pod-local `workflows` folders in sync.
@@ -82,15 +92,12 @@ These parts already map well to the future plan:
 - Docker images already exist conceptually for each service
 - backend config is already env-driven
 
-These parts are not ready for multi-replica scale:
+These parts still block safe backend autoscaling:
 
-- workflow tree, project files, publication snapshots, and recordings are filesystem-backed
-- publication lookup currently scans project files
-- recordings index currently uses local `recordings.sqlite`
-- runtime-library releases currently live under `RIVET_RUNTIME_LIBRARIES_ROOT` as host-local files
 - latest debugger state is process-local
-- runtime-library job runner and SSE stream are process-local
-- public workflow execution currently happens inside the API process
+- public workflow execution currently happens inside the API process tier
+- plugin install/load semantics and any remaining process-local caches still need replica-safe review
+- `filesystem` mode remains single-backend-replica only by design
 
 ## Phase 1: Storage Abstraction And State Externalization - DONE
 
@@ -123,7 +130,7 @@ Current implementation status:
 - `DONE`: local Docker rehearsal for the managed backend now exists with Postgres plus MinIO-backed object storage
 - `DONE`: hosted-editor managed-mode parity has now been exercised successfully against the managed prod-style stack, including the workflow tree, editor open, save path selection, and clipboard/focus behavior
 - `DONE`: conflict handling and end-to-end managed-mode parity have now been validated with stale-save conflict checks, endpoint-name conflict checks, dataset round-tripping, publish/unpublish, published execution, and recordings persistence
-- `OPEN`: managed-mode latency is still too high for folder rename and project open when the backend talks to real remote Postgres plus object storage, so a dedicated optimization pass is required before Phase 2
+- `DONE`: Phase 1.1 latency hardening closed the remaining managed-mode performance gap, including route timing headers, reduced managed rename/load round trips, worker-based deserialize, and optimistic tree patching after rename
 
 ### Storage backend abstraction
 
@@ -982,7 +989,7 @@ After phase 2:
 
 This makes Kubernetes adoption in phase 3 much cleaner.
 
-## Phase 2.1: Runtime-Library Replica Readiness Visibility
+## Phase 2.1: Runtime-Library Replica Readiness Visibility - DONE
 
 Phase 2 is not complete when managed runtime-library propagation is only technically correct.
 
@@ -1029,13 +1036,16 @@ Without that visibility:
 
 Current implementation status:
 
-- `OPEN`: the managed runtime-library UI shows active release and job state, but it does not show which live replicas have reconciled to that release
-- `OPEN`: endpoint execution replicas do not currently report a background readiness heartbeat for the active runtime-library release
-- `OPEN`: executor replicas reconcile managed releases, but their readiness state is not surfaced through the runtime-libraries API
-- `OPEN`: the runtime-libraries modal does not yet expose convergence counts or per-replica detail
-- `OPEN`: the current modal only performs periodic background refresh while a job is active, so replica readiness would go stale unless Phase 2.1 adds open-modal polling even when no install/remove job is running
-- `OPEN`: the current managed `GET /api/runtime-libraries` route is observational in practice, and Phase 2.1 must keep it that way instead of letting UI polling become an accidental sync trigger
-- `OPEN`: managed runtime-library convergence already exists as a process-level sync path in the proxy bootstrap for both API and executor processes, so Phase 2.1 must attach reporting to that existing lifecycle instead of introducing a second background convergence poller in the API tier
+- `DONE`: the managed runtime-library UI now shows `Replica readiness` with separate endpoint-tier and editor-tier counts
+- `DONE`: API-process managed sync now reports endpoint-tier replica readiness through the existing bootstrap sync lifecycle, with just-in-time backend execution reusing that same process-level sync when available
+- `DONE`: executor-process managed sync now reports editor-tier readiness through the existing executor bootstrap poller without adding a second reporting timer
+- `DONE`: `GET /api/runtime-libraries` now exposes additive `replicaReadiness` state in managed mode and returns `null` in filesystem mode
+- `DONE`: the runtime-libraries modal now exposes aggregate counts plus expandable per-replica detail for partial convergence and sync errors
+- `DONE`: the modal now polls runtime-library state while open even when no install/remove job is active, so readiness stays current outside active jobs
+- `DONE`: the modal now exposes a direct `Clear stale replicas` action so historical stale rows can be removed immediately without waiting for retention cleanup
+- `DONE`: the runtime-libraries route remains observational; readiness aggregation reads persisted replica-status rows and does not itself trigger convergence
+- `DONE`: managed runtime-library readiness reporting reuses the existing process-level managed sync lifecycle in API and executor containers instead of adding duplicate convergence pollers
+- `DONE`: stale replica-status retention is now intentionally different by environment: `local-docker` keeps longer history for dev inspection, while `managed` defaults shorten stale-row noise and cleanup cadence
 
 ### Product surface
 
@@ -1076,6 +1086,7 @@ UI rule:
 
 - replica-readiness rendering must not depend on `activeJob` being present
 - the readiness section should remain visible and update while the modal is open, even when no job is currently running
+- when stale rows exist, the modal should expose a `Clear stale replicas` action that deletes only already-stale rows and then refreshes the readiness view
 
 ### Readiness model
 
@@ -1284,11 +1295,14 @@ Replica-status rows should not accumulate forever.
 
 Add a lightweight cleanup path that removes rows older than a retention window.
 
-Recommended defaults:
+Implemented defaults:
 
-- heartbeat TTL for liveness: `30s`
-- stale-row cleanup threshold: `24h`
-- cleanup cadence: every `15m`
+- heartbeat TTL for liveness: `max(syncPollIntervalMs * 3, 30s)`
+- `local-docker` stale-row cleanup threshold: `24h`
+- `local-docker` cleanup cadence: every `15m`
+- `managed` stale-row cleanup threshold: `15m`
+- `managed` cleanup cadence: every `5m`
+- an explicit operator cleanup path now exists at `POST /api/runtime-libraries/replicas/cleanup`, and the runtime-libraries modal can trigger it directly
 
 ### UI refresh strategy
 
@@ -1306,6 +1320,8 @@ Recommended default:
 - modal readiness/state poll every `5s`
 
 ### Phase 2.1 acceptance targets
+
+All of these acceptance targets are now met on the current managed implementation.
 
 - the runtime-libraries modal shows endpoint-tier and editor-tier readiness counts in managed mode
 - endpoint-tier counts reflect live API replicas
@@ -1791,10 +1807,12 @@ New additive API/debug surface introduced by phase 2.1:
 
 - `GET /api/runtime-libraries` should expose per-tier replica readiness for the active runtime-library release in managed mode
 - that readiness surface should be observational only and must not itself trigger replica reconciliation
+- `POST /api/runtime-libraries/replicas/cleanup` should remove rows that are already stale so operators can clear historical readiness noise immediately
 
 New operational config surface introduced by phase 2.1:
 
 - an explicit process-role signal such as `RIVET_RUNTIME_PROCESS_ROLE=api|executor` so process-level managed sync can report readiness into the correct tier
+- `RIVET_RUNTIME_LIBRARIES_REPLICA_STATUS_RETENTION_MS` and `RIVET_RUNTIME_LIBRARIES_REPLICA_STATUS_CLEANUP_INTERVAL_MS` tune how long stale rows are kept and how often background cleanup runs
 
 New internal application interfaces introduced by phase 2.1:
 
@@ -1845,18 +1863,18 @@ New internal application interfaces introduced by phase 2.1:
 31. `DONE`: Confirm removal creates a new immutable release and that old in-flight executions can still finish against their pinned release.
 32. `DONE`: Confirm job status survives UI refresh and can be observed from a different API replica.
 
-### Phase 2.1: runtime-library replica readiness visibility
+### Phase 2.1: runtime-library replica readiness visibility - DONE
 
-33. confirm the runtime-libraries modal shows separate readiness counts for:
+33. `DONE`: confirm the runtime-libraries modal shows separate readiness counts for:
    - endpoint execution replicas
    - editor execution replicas
-34. confirm endpoint-tier readiness is derived from live API replicas, not from executor replicas
-35. confirm editor-tier readiness is derived from live executor replicas
-36. confirm stale replicas are excluded from the live denominator and counted separately
-37. confirm a newly activated runtime-library release shows partial convergence until all live replicas report ready
-38. confirm a replica sync failure appears in expanded per-replica details with an error state
-39. confirm `filesystem` mode returns no replica-readiness surface in the modal
-40. confirm the runtime-libraries modal still renders active-job logs, cancellation, and terminal status correctly while readiness polling is enabled
+34. `DONE`: confirm endpoint-tier readiness is derived from live API replicas, not from executor replicas
+35. `DONE`: confirm editor-tier readiness is derived from live executor replicas
+36. `DONE`: confirm stale replicas are excluded from the live denominator and counted separately
+37. `DONE`: confirm a newly activated runtime-library release shows partial convergence until all live replicas report ready
+38. `DONE`: confirm a replica sync failure appears in expanded per-replica details with an error state
+39. `DONE`: confirm `filesystem` mode returns no replica-readiness surface in the modal
+40. `DONE`: confirm the runtime-libraries modal still renders active-job logs, cancellation, and terminal status correctly while readiness polling is enabled
 
 ### Phase 3: Kubernetes adoption
 
@@ -1903,25 +1921,25 @@ New internal application interfaces introduced by phase 2.1:
 10. `DONE`: Run parity validation between `filesystem` and `managed` modes, including conflict handling and editor save/reload behavior.
 11. `DONE`: Migrate existing workflow and recording state in a test environment.
 12. `DONE`: Verify application behavior against the new shared state while still outside Kubernetes if useful.
-13. Add route-level latency visibility for the managed workflow hot paths.
-14. Reduce managed folder rename to the minimum practical number of remote database round trips.
-15. Reduce managed project load to one joined database lookup plus blob fetches.
-16. Eliminate duplicate managed project loads across first open and tab switches.
-17. Reuse object-storage connections explicitly in the managed blob client.
-18. Update the workflow tree locally on successful folder rename, then reconcile in the background.
-19. Move managed hosted-project deserialization off the main thread with a worker contract that preserves attached data needed by hosted IO.
-20. Re-measure managed-mode rename, open, and tab-switch latency and confirm Phase 1.1 acceptance targets.
-21. Introduce a runtime-library backend abstraction with backward-compatible `filesystem` mode.
-22. Implement managed runtime-library release metadata and activation state in Postgres.
-23. Implement managed runtime-library release artifact storage in object storage.
-24. Redesign runtime-library install/remove job ownership and job observability around shared state.
-25. Validate that multiple API or executor processes can consume the same active runtime-library release without shared host paths.
-26. Refactor managed runtime-library sync paths so they return structured sync outcomes that can be reused by process-level reporting and just-in-time execution checks.
-27. Add an explicit process-role config surface for managed runtime-library reporting and attach endpoint-tier reporting to the existing API process sync lifecycle.
-28. Add editor-tier reporting to the existing executor managed sync poller, keeping reporting failures non-blocking for execution.
-29. Add read-only `GET /api/runtime-libraries` readiness aggregation for active-release convergence across live replicas.
-30. Add runtime-libraries modal readiness counts and expandable per-replica details, with modal polling that works even when no job is active.
-31. Validate replica-readiness visibility against partial convergence, stale replicas, sync-failure cases, and the guarantee that UI polling does not itself trigger sync.
+13. `DONE`: Add route-level latency visibility for the managed workflow hot paths.
+14. `DONE`: Reduce managed folder rename to the minimum practical number of remote database round trips.
+15. `DONE`: Reduce managed project load to one joined database lookup plus blob fetches.
+16. `DONE`: Eliminate duplicate managed project loads across first open and tab switches.
+17. `DONE`: Reuse object-storage connections explicitly in the managed blob client.
+18. `DONE`: Update the workflow tree locally on successful folder rename, then reconcile in the background.
+19. `DONE`: Move managed hosted-project deserialization off the main thread with a worker contract that preserves attached data needed by hosted IO.
+20. `DONE`: Re-measure managed-mode rename, open, and tab-switch latency and confirm Phase 1.1 acceptance targets.
+21. `DONE`: Introduce a runtime-library backend abstraction with backward-compatible `filesystem` mode.
+22. `DONE`: Implement managed runtime-library release metadata and activation state in Postgres.
+23. `DONE`: Implement managed runtime-library release artifact storage in object storage.
+24. `DONE`: Redesign runtime-library install/remove job ownership and job observability around shared state.
+25. `DONE`: Validate that multiple API or executor processes can consume the same active runtime-library release without shared host paths.
+26. `DONE`: Refactor managed runtime-library sync paths so they return structured sync outcomes that can be reused by process-level reporting and just-in-time execution checks.
+27. `DONE`: Add an explicit process-role config surface for managed runtime-library reporting and attach endpoint-tier reporting to the existing API process sync lifecycle.
+28. `DONE`: Add editor-tier reporting to the existing executor managed sync poller, keeping reporting failures non-blocking for execution.
+29. `DONE`: Add read-only `GET /api/runtime-libraries` readiness aggregation for active-release convergence across live replicas.
+30. `DONE`: Add runtime-libraries modal readiness counts and expandable per-replica details, with modal polling that works even when no job is active.
+31. `DONE`: Validate replica-readiness visibility against partial convergence, stale replicas, sync-failure cases, and the guarantee that UI polling does not itself trigger sync.
 32. Add `image/` Dockerfiles and entrypoints for the managed-state runtime.
 33. Add `charts/` Helm chart and overlays.
 34. Add `.gitlab-ci.yml` for the devops-standard deployment path.

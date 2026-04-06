@@ -2,17 +2,25 @@ import { RIVET_API_BASE_URL } from '../../shared/hosted-env';
 import type {
   JobStatus,
   RuntimeLibrariesState,
+  RuntimeLibraryReplicaCleanupResult,
   RuntimeLibraryEntry,
   RuntimeLibraryLogSource,
   RuntimeLibraryJobState,
+  RuntimeLibraryReplicaReadinessState,
+  RuntimeLibraryReplicaStatus,
+  RuntimeLibraryReplicaTierState,
 } from '../../shared/runtime-library-types';
 
 export type {
   RuntimeLibrariesState,
+  RuntimeLibraryReplicaCleanupResult,
   RuntimeLibraryEntry,
   RuntimeLibraryJobState,
   JobStatus,
   RuntimeLibraryLogSource,
+  RuntimeLibraryReplicaReadinessState,
+  RuntimeLibraryReplicaStatus,
+  RuntimeLibraryReplicaTierState,
 } from '../../shared/runtime-library-types';
 
 const API = `${RIVET_API_BASE_URL}/runtime-libraries`;
@@ -60,6 +68,13 @@ export async function removePackages(packages: string[]): Promise<JobState> {
     body: JSON.stringify({ packages }),
   });
   return jsonResponse<JobState>(response);
+}
+
+export async function clearStaleReplicaStatuses(): Promise<RuntimeLibraryReplicaCleanupResult> {
+  const response = await fetch(`${API}/replicas/cleanup`, {
+    method: 'POST',
+  });
+  return jsonResponse<RuntimeLibraryReplicaCleanupResult>(response);
 }
 
 export async function fetchJob(jobId: string): Promise<JobState> {

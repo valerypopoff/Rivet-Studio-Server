@@ -2,9 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 const cleanup = await import('../runtime-libraries/managed/cleanup.js');
+const managedState = await import('../runtime-libraries/managed/state.js');
 const runtimeLibrariesConfig = await import('../runtime-libraries/config.js');
 const bootstrapConfig = await import(new URL('../../../../ops/proxy-bootstrap/config.mjs', import.meta.url).href) as {
   isManagedRuntimeLibrariesEnabled: () => boolean;
+  shouldBootstrapManagedRuntimeLibrariesInCurrentProcess: () => boolean;
   getManagedRuntimeLibrariesConfig: () => Record<string, unknown>;
 };
 
@@ -44,6 +46,9 @@ const managedEnvKeys = [
   'RIVET_WORKFLOWS_STORAGE_FORCE_PATH_STYLE',
   'RIVET_RUNTIME_LIBS_SYNC_POLL_INTERVAL_MS',
   'RIVET_RUNTIME_LIBRARIES_SYNC_POLL_INTERVAL_MS',
+  'RIVET_RUNTIME_LIBRARIES_REPLICA_STATUS_RETENTION_MS',
+  'RIVET_RUNTIME_LIBRARIES_REPLICA_STATUS_CLEANUP_INTERVAL_MS',
+  'RIVET_RUNTIME_PROCESS_ROLE',
 ] as const;
 
 async function withManagedEnv(
@@ -77,6 +82,17 @@ async function withManagedEnv(
   }
 }
 
+async function withArgv(argv: string[], run: () => Promise<void> | void) {
+  const previous = process.argv;
+  process.argv = argv;
+
+  try {
+    await run();
+  } finally {
+    process.argv = previous;
+  }
+}
+
 function isoDaysBefore(now: Date, days: number): string {
   return new Date(now.getTime() - days * 24 * 60 * 60 * 1_000).toISOString();
 }
@@ -94,6 +110,7 @@ test('API and bootstrap runtime-library config stay in parity for storage URL fo
     RIVET_STORAGE_ACCESS_KEY_ID: 'spaces-access-key-id',
     RIVET_STORAGE_ACCESS_KEY: 'spaces-secret-access-key',
     RIVET_RUNTIME_LIBRARIES_SYNC_POLL_INTERVAL_MS: '7000',
+    RIVET_RUNTIME_PROCESS_ROLE: 'api',
   }, () => {
     assert.equal(runtimeLibrariesConfig.getRuntimeLibrariesBackendMode(), 'managed');
     assert.equal(bootstrapConfig.isManagedRuntimeLibrariesEnabled(), true);
@@ -117,11 +134,112 @@ test('API and bootstrap runtime-library config stay in parity for explicit S3 tu
     RIVET_STORAGE_ACCESS_KEY: 'minioadmin',
     RIVET_STORAGE_FORCE_PATH_STYLE: 'true',
     RIVET_RUNTIME_LIBRARIES_SYNC_POLL_INTERVAL_MS: '5000',
+    RIVET_RUNTIME_PROCESS_ROLE: 'executor',
   }, () => {
     assert.deepEqual(
       bootstrapConfig.getManagedRuntimeLibrariesConfig(),
       runtimeLibrariesConfig.getManagedRuntimeLibrariesConfig(),
     );
+  });
+});
+
+test('runtime-library config rejects invalid explicit process roles', async () => {
+  await withManagedEnv({
+    RIVET_STORAGE_MODE: 'managed',
+    RIVET_DATABASE_MODE: 'managed',
+    RIVET_DATABASE_CONNECTION_STRING: 'postgresql://db-user:db-pass@example-db:25060/defaultdb',
+    RIVET_STORAGE_URL: 'https://test-bucket-111.sfo3.digitaloceanspaces.com',
+    RIVET_STORAGE_ACCESS_KEY_ID: 'spaces-access-key-id',
+    RIVET_STORAGE_ACCESS_KEY: 'spaces-secret-access-key',
+    RIVET_RUNTIME_PROCESS_ROLE: 'worker',
+  }, () => {
+    assert.throws(
+      () => runtimeLibrariesConfig.getManagedRuntimeLibrariesConfig(),
+      /RIVET_RUNTIME_PROCESS_ROLE/,
+    );
+    assert.throws(
+      () => bootstrapConfig.getManagedRuntimeLibrariesConfig(),
+      /RIVET_RUNTIME_PROCESS_ROLE/,
+    );
+  });
+});
+
+test('managed runtime-library config keeps long replica-status retention for local-docker and shortens it for managed environments', async () => {
+  await withManagedEnv({
+    RIVET_STORAGE_MODE: 'managed',
+    RIVET_DATABASE_MODE: 'local-docker',
+    RIVET_DATABASE_CONNECTION_STRING: 'postgres://rivet:rivet@workflow-postgres:5432/rivet',
+    RIVET_STORAGE_BUCKET: 'rivet-artifacts',
+    RIVET_STORAGE_REGION: 'us-east-1',
+    RIVET_STORAGE_ENDPOINT: 'http://workflow-minio:9000',
+    RIVET_STORAGE_ACCESS_KEY_ID: 'minioadmin',
+    RIVET_STORAGE_ACCESS_KEY: 'minioadmin',
+    RIVET_RUNTIME_PROCESS_ROLE: 'api',
+  }, () => {
+    const config = runtimeLibrariesConfig.getManagedRuntimeLibrariesConfig();
+    assert.equal(config.replicaStatusRetentionMs, 24 * 60 * 60 * 1_000);
+    assert.equal(config.replicaStatusCleanupIntervalMs, 15 * 60 * 1_000);
+  });
+
+  await withManagedEnv({
+    RIVET_STORAGE_MODE: 'managed',
+    RIVET_DATABASE_MODE: 'managed',
+    RIVET_DATABASE_CONNECTION_STRING: 'postgresql://db-user:db-pass@example-db:25060/defaultdb',
+    RIVET_STORAGE_URL: 'https://test-bucket-111.sfo3.digitaloceanspaces.com',
+    RIVET_STORAGE_ACCESS_KEY_ID: 'spaces-access-key-id',
+    RIVET_STORAGE_ACCESS_KEY: 'spaces-secret-access-key',
+    RIVET_RUNTIME_PROCESS_ROLE: 'api',
+  }, () => {
+    const config = runtimeLibrariesConfig.getManagedRuntimeLibrariesConfig();
+    assert.equal(config.replicaStatusRetentionMs, 15 * 60 * 1_000);
+    assert.equal(config.replicaStatusCleanupIntervalMs, 5 * 60 * 1_000);
+  });
+});
+
+test('bootstrap runtime-library sync skips dev supervisor processes and keeps the real runtime process', async () => {
+  await withManagedEnv({
+    RIVET_STORAGE_MODE: 'managed',
+    RIVET_DATABASE_MODE: 'managed',
+    RIVET_DATABASE_CONNECTION_STRING: 'postgresql://db-user:db-pass@example-db:25060/defaultdb',
+    RIVET_STORAGE_URL: 'https://test-bucket-111.sfo3.digitaloceanspaces.com',
+    RIVET_STORAGE_ACCESS_KEY_ID: 'spaces-access-key-id',
+    RIVET_STORAGE_ACCESS_KEY: 'spaces-secret-access-key',
+    RIVET_RUNTIME_PROCESS_ROLE: 'api',
+  }, async () => {
+    await withArgv(['npm', 'run', 'dev'], () => {
+      assert.equal(bootstrapConfig.shouldBootstrapManagedRuntimeLibrariesInCurrentProcess(), false);
+    });
+
+    await withArgv(['node', '/app/node_modules/.bin/tsx', 'watch', 'src/server.ts'], () => {
+      assert.equal(bootstrapConfig.shouldBootstrapManagedRuntimeLibrariesInCurrentProcess(), false);
+    });
+
+    await withArgv([
+      '/usr/local/bin/node',
+      '--require',
+      '/app/node_modules/tsx/dist/preflight.cjs',
+      '--import',
+      'file:///app/node_modules/tsx/dist/loader.mjs',
+      'src/server.ts',
+    ], () => {
+      assert.equal(bootstrapConfig.shouldBootstrapManagedRuntimeLibrariesInCurrentProcess(), true);
+    });
+  });
+});
+
+test('bootstrap runtime-library sync keeps executor runtime processes', async () => {
+  await withManagedEnv({
+    RIVET_STORAGE_MODE: 'managed',
+    RIVET_DATABASE_MODE: 'managed',
+    RIVET_DATABASE_CONNECTION_STRING: 'postgresql://db-user:db-pass@example-db:25060/defaultdb',
+    RIVET_STORAGE_URL: 'https://test-bucket-111.sfo3.digitaloceanspaces.com',
+    RIVET_STORAGE_ACCESS_KEY_ID: 'spaces-access-key-id',
+    RIVET_STORAGE_ACCESS_KEY: 'spaces-secret-access-key',
+    RIVET_RUNTIME_PROCESS_ROLE: 'executor',
+  }, async () => {
+    await withArgv(['/usr/local/bin/node', 'executor-bundle.cjs', '--port', '21889'], () => {
+      assert.equal(bootstrapConfig.shouldBootstrapManagedRuntimeLibrariesInCurrentProcess(), true);
+    });
   });
 });
 
@@ -398,4 +516,206 @@ test('managed runtime-library prune fails if retained releases still miss artifa
     }),
     /Retained release rows still reference missing artifacts/,
   );
+});
+
+test('managed runtime-library replica readiness excludes stale rows from the live denominator', () => {
+  const now = new Date('2026-04-05T12:00:00.000Z');
+  const readiness = managedState.buildManagedRuntimeLibraryReplicaReadinessState(
+    [
+      {
+        replica_id: 'api-ready',
+        tier: 'endpoint',
+        process_role: 'api',
+        display_name: 'api-ready',
+        hostname: 'api-ready',
+        pod_name: 'api-ready',
+        target_release_id: 'release-1',
+        synced_release_id: 'release-1',
+        sync_state: 'ready',
+        last_error: null,
+        last_sync_started_at: '2026-04-05T11:59:50.000Z',
+        last_sync_completed_at: '2026-04-05T11:59:55.000Z',
+        last_heartbeat_at: '2026-04-05T11:59:58.000Z',
+        created_at: '2026-04-05T11:59:40.000Z',
+        updated_at: '2026-04-05T11:59:58.000Z',
+      },
+      {
+        replica_id: 'api-stale',
+        tier: 'endpoint',
+        process_role: 'api',
+        display_name: 'api-stale',
+        hostname: 'api-stale',
+        pod_name: 'api-stale',
+        target_release_id: 'release-1',
+        synced_release_id: 'release-1',
+        sync_state: 'ready',
+        last_error: null,
+        last_sync_started_at: '2026-04-05T11:58:00.000Z',
+        last_sync_completed_at: '2026-04-05T11:58:05.000Z',
+        last_heartbeat_at: '2026-04-05T11:58:10.000Z',
+        created_at: '2026-04-05T11:58:00.000Z',
+        updated_at: '2026-04-05T11:58:10.000Z',
+      },
+      {
+        replica_id: 'executor-syncing',
+        tier: 'editor',
+        process_role: 'executor',
+        display_name: 'executor-syncing',
+        hostname: 'executor-syncing',
+        pod_name: 'executor-syncing',
+        target_release_id: 'release-1',
+        synced_release_id: 'release-0',
+        sync_state: 'syncing',
+        last_error: null,
+        last_sync_started_at: '2026-04-05T11:59:56.000Z',
+        last_sync_completed_at: null,
+        last_heartbeat_at: '2026-04-05T11:59:59.000Z',
+        created_at: '2026-04-05T11:59:56.000Z',
+        updated_at: '2026-04-05T11:59:59.000Z',
+      },
+      {
+        replica_id: 'executor-error',
+        tier: 'editor',
+        process_role: 'executor',
+        display_name: 'executor-error',
+        hostname: 'executor-error',
+        pod_name: 'executor-error',
+        target_release_id: 'release-1',
+        synced_release_id: 'release-0',
+        sync_state: 'error',
+        last_error: 'checksum mismatch',
+        last_sync_started_at: '2026-04-05T11:59:50.000Z',
+        last_sync_completed_at: null,
+        last_heartbeat_at: '2026-04-05T11:59:57.000Z',
+        created_at: '2026-04-05T11:59:50.000Z',
+        updated_at: '2026-04-05T11:59:57.000Z',
+      },
+    ],
+    'release-1',
+    30_000,
+    now,
+  );
+
+  assert.equal(readiness.endpoint.liveReplicaCount, 1);
+  assert.equal(readiness.endpoint.readyReplicaCount, 1);
+  assert.equal(readiness.endpoint.staleReplicaCount, 1);
+  assert.equal(readiness.editor.liveReplicaCount, 2);
+  assert.equal(readiness.editor.readyReplicaCount, 0);
+  assert.equal(readiness.editor.staleReplicaCount, 0);
+  assert.deepEqual(readiness.editor.replicas.map((replica) => replica.replicaId), ['executor-error', 'executor-syncing']);
+});
+
+test('managed runtime-library replica readiness collapses duplicate rows for the same logical replica identity', () => {
+  const now = new Date('2026-04-05T12:00:00.000Z');
+  const readiness = managedState.buildManagedRuntimeLibraryReplicaReadinessState(
+    [
+      {
+        replica_id: 'api-newest',
+        tier: 'endpoint',
+        process_role: 'api',
+        display_name: 'api-dev-container',
+        hostname: 'api-dev-container',
+        pod_name: 'api-dev-container',
+        target_release_id: 'release-1',
+        synced_release_id: 'release-1',
+        sync_state: 'ready',
+        last_error: null,
+        last_sync_started_at: '2026-04-05T11:59:56.000Z',
+        last_sync_completed_at: '2026-04-05T11:59:58.000Z',
+        last_heartbeat_at: '2026-04-05T11:59:59.000Z',
+        created_at: '2026-04-05T11:59:55.000Z',
+        updated_at: '2026-04-05T11:59:59.000Z',
+      },
+      {
+        replica_id: 'api-older-live',
+        tier: 'endpoint',
+        process_role: 'api',
+        display_name: 'api-dev-container',
+        hostname: 'api-dev-container',
+        pod_name: 'api-dev-container',
+        target_release_id: 'release-1',
+        synced_release_id: 'release-0',
+        sync_state: 'syncing',
+        last_error: null,
+        last_sync_started_at: '2026-04-05T11:59:50.000Z',
+        last_sync_completed_at: null,
+        last_heartbeat_at: '2026-04-05T11:59:57.000Z',
+        created_at: '2026-04-05T11:59:49.000Z',
+        updated_at: '2026-04-05T11:59:57.000Z',
+      },
+      {
+        replica_id: 'api-older-stale',
+        tier: 'endpoint',
+        process_role: 'api',
+        display_name: 'api-dev-container',
+        hostname: 'api-dev-container',
+        pod_name: 'api-dev-container',
+        target_release_id: 'release-0',
+        synced_release_id: 'release-0',
+        sync_state: 'ready',
+        last_error: null,
+        last_sync_started_at: '2026-04-05T11:58:00.000Z',
+        last_sync_completed_at: '2026-04-05T11:58:05.000Z',
+        last_heartbeat_at: '2026-04-05T11:58:10.000Z',
+        created_at: '2026-04-05T11:58:00.000Z',
+        updated_at: '2026-04-05T11:58:10.000Z',
+      },
+      {
+        replica_id: 'executor-1',
+        tier: 'editor',
+        process_role: 'executor',
+        display_name: 'executor-1',
+        hostname: 'executor-1',
+        pod_name: 'executor-1',
+        target_release_id: 'release-1',
+        synced_release_id: 'release-1',
+        sync_state: 'ready',
+        last_error: null,
+        last_sync_started_at: '2026-04-05T11:59:56.000Z',
+        last_sync_completed_at: '2026-04-05T11:59:58.000Z',
+        last_heartbeat_at: '2026-04-05T11:59:59.000Z',
+        created_at: '2026-04-05T11:59:55.000Z',
+        updated_at: '2026-04-05T11:59:59.000Z',
+      },
+    ],
+    'release-1',
+    30_000,
+    now,
+  );
+
+  assert.equal(readiness.endpoint.liveReplicaCount, 1);
+  assert.equal(readiness.endpoint.readyReplicaCount, 1);
+  assert.equal(readiness.endpoint.staleReplicaCount, 0);
+  assert.deepEqual(readiness.endpoint.replicas.map((replica) => replica.replicaId), ['api-newest']);
+  assert.equal(readiness.editor.liveReplicaCount, 1);
+});
+
+test('managed runtime-library replica readiness treats null active release as converged empty state', () => {
+  const readiness = managedState.buildManagedRuntimeLibraryReplicaReadinessState(
+    [
+      {
+        replica_id: 'api-empty',
+        tier: 'endpoint',
+        process_role: 'api',
+        display_name: 'api-empty',
+        hostname: 'api-empty',
+        pod_name: null,
+        target_release_id: null,
+        synced_release_id: null,
+        sync_state: 'ready',
+        last_error: null,
+        last_sync_started_at: '2026-04-05T11:59:50.000Z',
+        last_sync_completed_at: '2026-04-05T11:59:55.000Z',
+        last_heartbeat_at: '2026-04-05T11:59:59.000Z',
+        created_at: '2026-04-05T11:59:50.000Z',
+        updated_at: '2026-04-05T11:59:59.000Z',
+      },
+    ],
+    null,
+    30_000,
+    new Date('2026-04-05T12:00:00.000Z'),
+  );
+
+  assert.equal(readiness.endpoint.readyReplicaCount, 1);
+  assert.equal(readiness.endpoint.replicas[0]?.isReadyForActiveRelease, true);
 });

@@ -8,6 +8,7 @@ import type { Request, Response } from 'express';
 
 import type {
   JobStatus,
+  RuntimeLibraryReplicaCleanupResult,
   RuntimeLibraryJobState,
   RuntimeLibraryLogSource,
   RuntimeLibraryPackageSpec,
@@ -24,7 +25,7 @@ import {
 import { ManagedRuntimeLibrariesLocalCache } from './local-cache.js';
 import {
   ACTIVE_JOB_STATUS_CLAUSE,
-  getManagedRuntimeLibrariesState,
+  getRuntimeLibraryReplicaHeartbeatTtlMs,
   getPoolConfig,
   isUniqueViolation,
   JobCancelledError,
@@ -37,7 +38,12 @@ import {
   STALE_JOB_TIMEOUT_MS,
   type RuntimeLibraryJobRow,
 } from './schema.js';
-import { getManagedActiveJob, getManagedActiveRelease, getManagedJob } from './state.js';
+import {
+  getManagedActiveJob,
+  getManagedActiveRelease,
+  getManagedJob,
+  getManagedRuntimeLibrariesState,
+} from './state.js';
 import { buildCandidatePackages, buildReleaseArtifact } from './release-builder.js';
 import { normalizeJobPackages, normalizePackageMap, wait } from './schema.js';
 
@@ -52,6 +58,23 @@ export class ManagedRuntimeLibrariesBackend implements RuntimeLibrariesBackend {
   #workerStarted = false;
   #stopped = false;
   #runningProcesses = new Map<string, ChildProcess>();
+
+  #getProcessManagedSync() {
+    return (globalThis as {
+      __RIVET_PREPARE_RUNTIME_LIBRARIES__?: (force?: boolean) => Promise<void>;
+    }).__RIVET_PREPARE_RUNTIME_LIBRARIES__;
+  }
+
+  async #syncForLocalUse(force: boolean): Promise<void> {
+    const globalPrepare = this.#getProcessManagedSync();
+
+    if (globalPrepare) {
+      await globalPrepare(force);
+      return;
+    }
+
+    await this.#localCache.sync(force);
+  }
 
   constructor(blobStore?: RuntimeLibrariesBlobStore) {
     this.#blobStore = blobStore ?? new S3RuntimeLibrariesBlobStore(this.#config);
@@ -69,7 +92,7 @@ export class ManagedRuntimeLibrariesBackend implements RuntimeLibrariesBackend {
       fs.mkdirSync(this.#localCache.jobsRoot(), { recursive: true });
       await this.#blobStore.initialize?.();
       await this.#pool.query(MANAGED_RUNTIME_LIBRARIES_SCHEMA_SQL);
-      await this.#localCache.sync(true);
+      await this.#syncForLocalUse(true);
       this.#startWorkerLoop();
     })();
 
@@ -83,7 +106,7 @@ export class ManagedRuntimeLibrariesBackend implements RuntimeLibrariesBackend {
 
   async prepareForExecution(): Promise<void> {
     await this.initialize();
-    await this.#localCache.sync(true);
+    await this.#syncForLocalUse(true);
   }
 
   async dispose(): Promise<void> {
@@ -100,7 +123,7 @@ export class ManagedRuntimeLibrariesBackend implements RuntimeLibrariesBackend {
 
   async getState() {
     await this.initialize();
-    return getManagedRuntimeLibrariesState(this.#pool, getManagedActiveRelease, getManagedActiveJob);
+    return getManagedRuntimeLibrariesState(this.#pool, this.#config.syncPollIntervalMs);
   }
 
   async enqueueInstall(packages: RuntimeLibraryPackageSpec[]): Promise<RuntimeLibraryJobState> {
@@ -169,6 +192,27 @@ export class ManagedRuntimeLibrariesBackend implements RuntimeLibrariesBackend {
     }
 
     return this.getJob(jobId);
+  }
+
+  async clearStaleReplicaStatuses(): Promise<RuntimeLibraryReplicaCleanupResult> {
+    await this.initialize();
+    const heartbeatTtlMs = getRuntimeLibraryReplicaHeartbeatTtlMs(this.#config.syncPollIntervalMs);
+    const staleBefore = new Date(Date.now() - heartbeatTtlMs).toISOString();
+    const rows = await queryRows<{ replica_id: string }>(
+      this.#pool,
+      `
+        DELETE FROM runtime_library_replica_status
+        WHERE last_heartbeat_at < NOW() - ($1 * INTERVAL '1 millisecond')
+        RETURNING replica_id
+      `,
+      [heartbeatTtlMs],
+    );
+
+    return {
+      deletedReplicaCount: rows.length,
+      deletedReplicaIds: rows.map((row) => row.replica_id),
+      staleBefore,
+    };
   }
 
   async streamJob(req: Request, res: Response): Promise<void> {
@@ -311,7 +355,9 @@ export class ManagedRuntimeLibrariesBackend implements RuntimeLibrariesBackend {
     while (!this.#stopped) {
       try {
         await this.#recoverStaleJobs();
-        await this.#localCache.sync(false);
+        if (!this.#getProcessManagedSync()) {
+          await this.#syncForLocalUse(false);
+        }
         const job = await this.#claimNextJob();
         if (!job) {
           await wait(1_000);
@@ -475,7 +521,7 @@ export class ManagedRuntimeLibrariesBackend implements RuntimeLibrariesBackend {
       });
 
       this.#localCache.reset();
-      await this.#localCache.sync(true).catch((error) => {
+      await this.#syncForLocalUse(true).catch((error) => {
         console.error('[runtime-libraries] Managed release activated but local API cache sync failed:', error);
       });
     }).catch(async (error) => {
