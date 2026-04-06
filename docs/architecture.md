@@ -58,10 +58,12 @@ In local direct-process mode, the services run separately without nginx.
 - `POST ${RIVET_LATEST_WORKFLOWS_BASE_PATH}/:endpointName` executes the latest live project file for a published workflow.
 - `POST /internal/workflows/:endpointName` is an internal published-only execution route mounted on the API service and not exposed through nginx.
 - In `managed` mode, those execution routes use API-local derived caches for warm endpoint execution; Postgres plus object storage remain authoritative, and cache invalidation is driven by same-process post-commit clearing plus Postgres `LISTEN/NOTIFY`.
+- The Phase 2.2 cleanup kept that behavior intact but extracted the managed execution subsystem into focused internal modules so the large managed backend remains orchestration-oriented instead of owning the whole execution state machine inline. The later hardening pass also made the writer replica ignore self-originated `NOTIFY` payloads and tightened listener startup/disposal behavior without changing route contracts or cache semantics.
 
 ## Core wrapper seams
 
 - Workflow library management, publication, execution, and recordings live in `wrapper/api/src/routes/workflows/`.
+- Managed warm execution is internally split across `execution-cache.ts`, `execution-invalidation.ts`, and `execution-service.ts`; this is an internal maintainability boundary only, not a separate product/API surface.
 - Recording metadata indexing lives in `wrapper/api/src/routes/workflows/recordings-db.ts`.
 - Runtime-library management lives under `wrapper/api/src/runtime-libraries/`.
 - Dashboard/editor iframe coordination lives in `wrapper/shared/editor-bridge.ts` and `wrapper/web/dashboard/`.
@@ -117,6 +119,11 @@ Storage mode decides which of those paths are authoritative:
 - `RIVET_RUNTIME_LIBRARIES_SYNC_POLL_INTERVAL_MS` tunes managed runtime-library background reconciliation for API and executor processes.
 - `RIVET_RUNTIME_LIBRARIES_REPLICA_STATUS_RETENTION_MS` and `RIVET_RUNTIME_LIBRARIES_REPLICA_STATUS_CLEANUP_INTERVAL_MS` tune how long stale managed replica-status rows are kept and how often background cleanup runs.
 - `RIVET_RUNTIME_PROCESS_ROLE=api|executor` tells managed runtime-library readiness reporting which product tier the current process belongs to.
+
+Development-only execution measurement is available through:
+
+- `npm --prefix wrapper/api run workflow-execution:measure -- --base-url http://localhost:8081 --endpoint hello-world --kind published --runs 5 --warmups 1`
+- this tool is read-only and meant for cold-hit vs warm-hit diagnosis; it does not change server behavior or introduce a new public API surface
 
 ### Safety and compatibility
 

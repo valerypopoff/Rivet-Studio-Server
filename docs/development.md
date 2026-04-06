@@ -30,6 +30,7 @@ See also: [Mistakes and Misconceptions](./mistakes-and-misconceptions.md)
 | `npm run prod` | Starts the production-style Docker stack | Smoke-test deployment behavior |
 | `npm run prod:prebuilt` | Pulls prebuilt images and starts without building | Fast deploy verification |
 | `npm run prod:local-build` | Forces a local production image build | Test custom image changes |
+| `npm --prefix wrapper/api run workflow-execution:measure -- --base-url http://localhost:8081 --endpoint hello-world --kind published --runs 5 --warmups 1` | Calls one published/latest workflow endpoint repeatedly and prints timing headers | Measure managed cold-hit vs warm-hit behavior safely |
 | `npm run runtime-libraries:managed:audit` | Audits managed runtime-library release/job/object state and writes a JSON snapshot | Inspect live managed runtime-library state safely |
 | `npm run runtime-libraries:managed:prune` | Builds a dry-run prune plan for managed runtime-library state | Review cleanup impact before applying it |
 | `npm run ui:observe:install` | Installs Playwright Chromium for observable frontend runs | First-time browser setup |
@@ -118,6 +119,7 @@ Current behavior:
 - the launcher waits for healthy services; `RIVET_DOCKER_WAIT_TIMEOUT` controls the wait window
 - in `RIVET_STORAGE_MODE=managed`, both workflow state and runtime-library releases come from managed services, while `/data/runtime-libraries` remains only an extracted local cache/workspace inside each container
 - in `RIVET_STORAGE_MODE=managed`, published/latest endpoint execution also keeps API-local warm caches for endpoint pointers and immutable revision contents; the first hit after startup or after a workflow mutation can still be slower, but repeated hits for the same unchanged trivial workflow should settle onto the warm local path
+- the post-Phase-2.2 cleanup did not change that behavior; it extracted the managed execution invalidation/service code, replaced brittle source assertions with behavioral tests, added a measurement tool, and hardened listener startup/shutdown plus same-process self-notify handling without changing the public execution contract
 - if `RIVET_DATABASE_MODE=managed`, runtime-library replica-status rows also live in the shared Postgres database, so stale rows from older containers can survive a Docker recreate until retention cleanup runs or you clear them explicitly
 - when the Runtime Libraries modal shows stale rows that are only historical dev noise, use the `Clear stale replicas` action or call `POST /api/runtime-libraries/replicas/cleanup`
 - set `RIVET_WORKFLOW_EXECUTION_DEBUG_HEADERS=true` when you want additive managed execution timing headers for local diagnosis of endpoint resolve/materialize/execute stages
@@ -253,3 +255,12 @@ For managed endpoint latency and cache behavior:
 3. expect the first request after startup or after a publish/save/rename/move to be the cold path
 4. expect the second request for the same unchanged workflow to drop onto the warm local path
 5. if you enabled `RIVET_WORKFLOW_EXECUTION_DEBUG_HEADERS=true`, confirm `x-workflow-cache` moves from `miss` to `hit` and inspect `x-workflow-resolve-ms` / `x-workflow-materialize-ms`
+
+For managed endpoint measurement with the dedicated script:
+
+1. run the app in `RIVET_STORAGE_MODE=managed`
+2. optionally set `RIVET_WORKFLOW_EXECUTION_DEBUG_HEADERS=true` so the route emits stage timings
+3. run `npm --prefix wrapper/api run workflow-execution:measure -- --base-url http://localhost:8081 --endpoint hello-world --kind published --runs 5 --warmups 1`
+4. expect one output line per request with HTTP status, client duration, `x-duration-ms`, `x-workflow-resolve-ms`, `x-workflow-materialize-ms`, `x-workflow-execute-ms`, and `x-workflow-cache`
+5. if debug headers are disabled, expect those per-stage fields to print as `n/a` rather than failing
+6. use the transition from `x-workflow-cache=miss` to `x-workflow-cache=hit` to verify cold-first-hit then warm-hit behavior

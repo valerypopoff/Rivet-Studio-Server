@@ -280,6 +280,15 @@ In `managed` mode, shared services remain authoritative, but steady-state endpoi
 
 That means a managed endpoint can have a slower first hit after pod start or after an invalidating workflow mutation, while repeated hits for the same trivial workflow settle onto the warm local path.
 
+The post-Phase-2.2 cleanup did not change those cache semantics. It was structural only:
+
+- execution invalidation and execution loading were extracted out of the large managed backend file into focused internal modules
+- behavioral race/degradation tests replaced brittle source-regex assertions
+- same-process post-commit invalidation remains authoritative for the writer replica, and the later hardening pass makes that replica ignore its own `NOTIFY` payload when Postgres reflects the same committed change back
+- listener lifecycle is hardened so backend initialization waits for the invalidation listener, failed initialization can be retried cleanly, and disposal cannot accidentally let a late listener startup become healthy afterward
+- no public execution route contract changed
+- negative caching and publish-time prewarm are still intentionally absent in the first version
+
 ## Workflow execution auth
 
 Public execution auth is separate from the browser UI gate:
@@ -432,10 +441,14 @@ When a project is renamed, moved, duplicated, uploaded, downloaded, or deleted, 
 - `wrapper/api/src/routes/workflows/storage-backend.ts` - backend-specific execution resolution and hosted-project dispatch
 - `wrapper/api/src/routes/workflows/managed/backend.ts` - managed endpoint resolution, invalidation, and revision materialization
 - `wrapper/api/src/routes/workflows/managed/execution-cache.ts` - managed endpoint-pointer and immutable revision-payload caches
+- `wrapper/api/src/routes/workflows/managed/execution-invalidation.ts` - managed execution invalidation listener lifecycle, generation bookkeeping, and transactional invalidation helpers
+- `wrapper/api/src/routes/workflows/managed/execution-service.ts` - managed published/latest execution loading, revision materialization, reference loading, and debug info production
+- `wrapper/api/src/routes/workflows/managed/execution-types.ts` - internal managed execution types shared by the cache, invalidation controller, and execution service
 - `wrapper/api/src/routes/workflows/recordings.ts` - recording persistence, listing, migration, and cleanup
 - `wrapper/api/src/routes/workflows/recordings-config.ts` - recording env parsing and defaults
 - `wrapper/api/src/routes/workflows/recordings-db.ts` - SQLite recording index
 - `wrapper/api/src/routes/workflows/workflow-mutations.ts` - duplicate, upload, publish, unpublish, and delete orchestration
 - `wrapper/api/src/routes/workflows/workflow-download.ts` - project-download resolution and attachment filename generation
 - `wrapper/api/src/routes/workflows/fs-helpers.ts` - sidecar paths, move/delete helpers
+- `wrapper/api/src/scripts/measure-workflow-execution.ts` - read-only managed endpoint measurement helper for cold-hit vs warm-hit diagnosis
 - `wrapper/shared/workflow-recording-types.ts` - shared recording types and virtual replay path helpers
