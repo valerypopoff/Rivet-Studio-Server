@@ -128,10 +128,14 @@ Current behavior:
 
 Workflow recordings use two persistence locations:
 
-- compressed replay artifacts under the workflow root: `.recordings/`
-- a SQLite index under `RIVET_APP_DATA_ROOT`: `recordings.sqlite`
+- in `filesystem` mode:
+  - compressed replay artifacts under the workflow root: `.recordings/`
+  - a SQLite index under `RIVET_APP_DATA_ROOT`: `recordings.sqlite`
+- in `managed` mode:
+  - recording metadata rows in Postgres
+  - recording and replay artifacts in managed object storage
 
-For host-based API execution, that means the runtime must support `node:sqlite` (Node 24+). If your host Node version is older, use the Docker dev stack instead of `npm run dev:local`.
+For host-based API execution, filesystem-mode recording persistence still requires `node:sqlite` (Node 24+). If your host Node version is older, use the Docker dev stack instead of `npm run dev:local`.
 
 ## Source of truth
 

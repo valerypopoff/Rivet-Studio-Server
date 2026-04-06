@@ -75,16 +75,16 @@ In local direct-process mode, the services run separately without nginx.
 | Area | Purpose | Local direct-process default | Docker default |
 |---|---|---|---|
 | `RIVET_WORKSPACE_ROOT` | Allowed workspace root for general hosted file operations | repo root | `/workspace` |
-| `RIVET_WORKFLOWS_ROOT` | Live workflow tree, `.published/`, and `.recordings/` | `<repo>/workflows` | `/workflows` |
-| `RIVET_APP_DATA_ROOT` | App-level state such as plugins, logs, and `recordings.sqlite` | `<repo>/.data/rivet-app` | `/data/rivet-app` |
+| `RIVET_WORKFLOWS_ROOT` | Filesystem-mode workflow tree plus filesystem-mode `.published/` and `.recordings/` artifacts | `<repo>/workflows` | `/workflows` |
+| `RIVET_APP_DATA_ROOT` | App-level state such as plugins, logs, and filesystem-mode `recordings.sqlite` | `<repo>/.data/rivet-app` | `/data/rivet-app` |
 | `RIVET_RUNTIME_LIBRARIES_ROOT` | Runtime-library local cache, manifest, and job workspace | `<repo>/.data/runtime-libraries` | `/data/runtime-libraries` |
 
 In Docker-based modes:
 
 - `RIVET_ARTIFACTS_HOST_PATH` can act as a shared host root for filesystem-backed artifacts; the launcher derives `workflows/` and `runtime-libraries/` subfolders from it unless the per-path envs are set explicitly.
-- `RIVET_WORKFLOWS_HOST_PATH` backs `/workflows`, so it stores live projects, published snapshots, and recording bundles.
+- `RIVET_WORKFLOWS_HOST_PATH` backs `/workflows`, so in `filesystem` mode it stores live projects, published snapshots, and recording bundles.
 - `RIVET_RUNTIME_LIBS_HOST_PATH` backs `/data/runtime-libraries`.
-- the app-data directory is a separate volume and holds `recordings.sqlite`, plugin files, and app logs.
+- the app-data directory is a separate volume and in `filesystem` mode holds `recordings.sqlite`, plugin files, and app logs.
 
 Storage mode decides which of those paths are authoritative:
 
@@ -93,6 +93,8 @@ Storage mode decides which of those paths are authoritative:
   - runtime libraries are authoritative under `RIVET_RUNTIME_LIBRARIES_ROOT`
 - `RIVET_STORAGE_MODE=managed`
   - workflow metadata lives in Postgres and workflow blobs live in object storage
+  - workflow recording metadata lives in Postgres `workflow_recordings`
+  - workflow recording artifacts live in object storage
   - API replicas may keep local warm execution caches for endpoint pointers and immutable revision payloads; those caches are derived accelerators, not a new source of truth
   - runtime-library release metadata, activation state, and job state live in Postgres
   - runtime-library release artifacts live in object storage under the fixed `runtime-libraries/` prefix

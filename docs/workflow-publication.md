@@ -8,13 +8,19 @@ Workflows can be published as HTTP endpoints. This document describes the curren
 - **Settings sidecar** (`*.rivet-project.wrapper-settings.json`): stores the endpoint draft plus publication state
 - **Published snapshot** (`.published/<snapshotId>.rivet-project`): frozen copy of the project at publish time
 - **Dataset sidecar** (`*.rivet-data`): optional data associated with a project, published alongside it
-- **Execution recording bundle** (`.recordings/<workflowId>/<recordingId>/`): replayable snapshot of one endpoint execution
-- **Recording index** (`<RIVET_APP_DATA_ROOT>/recordings.sqlite`): SQLite metadata index used for listing, pagination, retention, and artifact lookup
+- **Execution recording artifacts**
+  - in `filesystem` mode: replayable bundles under `.recordings/<workflowId>/<recordingId>/`
+  - in `managed` mode: replayable blobs in managed object storage, keyed from Postgres metadata
+- **Recording metadata index**
+  - in `filesystem` mode: SQLite metadata index under `<RIVET_APP_DATA_ROOT>/recordings.sqlite`
+  - in `managed` mode: metadata rows in Postgres `workflow_recordings`
 
 Projects live under the workflow root configured by `RIVET_WORKFLOWS_ROOT` in the API container and backed by `RIVET_WORKFLOWS_HOST_PATH` on the host in Docker modes.
 
-Published snapshots and recording bundles both live inside that same workflow tree.
-The metadata index is separate: it lives under `RIVET_APP_DATA_ROOT` as `recordings.sqlite`.
+Published snapshots always belong to workflow storage, but recording storage is backend-specific:
+
+- in `filesystem` mode, recording bundles live in that same workflow tree and the metadata index lives under `RIVET_APP_DATA_ROOT` as `recordings.sqlite`
+- in `managed` mode, recording metadata lives in Postgres and recording artifacts live in managed object storage
 
 ## Stored settings model
 
@@ -152,7 +158,7 @@ What duplication does **not** copy:
 - the settings sidecar (`*.wrapper-settings.json`)
 - the dataset sidecar (`*.rivet-data`)
 - published snapshots under `.published/`
-- execution recordings under `.recordings/`
+- execution recording history
 
 That means a duplicated published project starts as a normal unpublished workflow with no endpoint draft, no published endpoint, no snapshot, and no copied recording history.
 
@@ -177,7 +183,7 @@ What upload does **not** copy:
 - the source machine's settings sidecar (`*.wrapper-settings.json`)
 - the source machine's dataset sidecar (`*.rivet-data`)
 - published snapshots under `.published/`
-- execution recordings under `.recordings/`
+- execution recording history
 
 ## Project downloading
 
@@ -327,6 +333,14 @@ Each bundle stores:
       replay.rivet-data.gz     # only when dataset snapshots are enabled and data was present
 ```
 
+That on-disk layout is the `filesystem`-mode representation.
+
+In `managed` mode, the same logical recording artifacts are stored as object blobs referenced by the `workflow_recordings` row:
+
+- `recording_blob_key`
+- `replay_project_blob_key`
+- `replay_dataset_blob_key`
+
 - `recording.rivet-recording.gz` is the serialized `ExecutionRecorder` output
 - `replay.rivet-project.gz` is an immutable replay snapshot of the executed project state
 - `replay.rivet-data.gz` is the dataset snapshot, when present
@@ -334,7 +348,7 @@ Each bundle stores:
 
 Bundles are keyed by the source workflow metadata ID, so recordings stay attached across project renames, moves, and endpoint-name changes. Project deletion removes that recording history as part of workflow cleanup.
 
-Legacy uncompressed bundles are still readable. Startup reconciliation rebuilds the SQLite index from on-disk metadata and normalizes old `version: 1` metadata into the current index shape.
+Legacy uncompressed bundles are still readable in `filesystem` mode. Startup reconciliation rebuilds the SQLite index from on-disk metadata and normalizes old `version: 1` metadata into the current index shape there. In `managed` mode, the source of truth is the Postgres row plus the recording/replay blob keys in object storage.
 
 ## Recording defaults and retention
 
@@ -362,7 +376,12 @@ Operational defaults are intentionally conservative:
 
 ## Recording index and API shape
 
-The browser does not scan `.recordings/` directly. The API uses `recordings.sqlite` to serve:
+The browser does not scan `.recordings/` directly. The API serves recording lists and artifact lookup from the active backend:
+
+- in `filesystem` mode, from `recordings.sqlite` plus `.recordings/`
+- in `managed` mode, from Postgres `workflow_recordings` plus recording/replay blobs in object storage
+
+That backend data serves:
 
 - workflow summaries ordered by most recent run
 - per-workflow run pagination
@@ -396,10 +415,17 @@ Current browser behavior:
 
 Deleting a run removes both:
 
-- the bundle under `.recordings/`
-- the corresponding SQLite row
+- in `filesystem` mode:
+  - the bundle under `.recordings/`
+  - the corresponding SQLite row
+- in `managed` mode:
+  - the recording/replay blobs in object storage
+  - the corresponding Postgres row
 
-If that was the last run for the workflow, the API also removes the workflow-level recordings directory and workflow row from the index.
+If that was the last run for the workflow:
+
+- in `filesystem` mode, the API also removes the workflow-level recordings directory and workflow row from the SQLite-backed index
+- in `managed` mode, the API removes the final `workflow_recordings` row while the workflow itself remains discoverable through normal workflow state
 
 When a run is opened, the hosted editor:
 
@@ -420,19 +446,21 @@ When a project is renamed, moved, duplicated, uploaded, downloaded, or deleted, 
   - creates only a new `.rivet-project` file in the same folder
   - can duplicate either the saved live file or the published snapshot when both exist
   - gives the duplicate a fresh workflow metadata ID and updates its stored title
-  - does not copy `.rivet-data`, `.wrapper-settings.json`, `.published/`, or `.recordings/`
+  - does not copy `.rivet-data`, `.wrapper-settings.json`, `.published/`, or any recording history
 - **Upload**
   - creates only a new `.rivet-project` file in the selected folder
   - gives the uploaded project a fresh workflow metadata ID and updates its stored title to the final saved filename base
-  - does not create `.rivet-data`, `.wrapper-settings.json`, `.published/`, or `.recordings/`
+  - does not create `.rivet-data`, `.wrapper-settings.json`, `.published/`, or any recording history
 - **Download**
   - reads either the saved live project file or the published snapshot
   - never downloads unsaved editor state
-  - never bundles `.rivet-data`, `.wrapper-settings.json`, `.published/`, or `.recordings/`
+  - never bundles `.rivet-data`, `.wrapper-settings.json`, `.published/`, or any recording history
 - **Delete**
   - deletes the project file and sidecars
   - deletes the published snapshot if one exists
-  - deletes recording bundles by workflow ID and by legacy source-path lookup
+  - deletes recording history by workflow ID and by legacy source-path lookup
+  - in `filesystem` mode, that means `.recordings/` bundles plus SQLite index rows
+  - in `managed` mode, that means recording/replay blobs plus Postgres `workflow_recordings` rows
 
 ## Key files
 
