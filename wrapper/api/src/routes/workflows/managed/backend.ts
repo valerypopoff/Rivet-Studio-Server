@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { Pool, type PoolClient, type QueryResultRow } from 'pg';
+import { performance } from 'node:perf_hooks';
+import { Client, Pool, type PoolClient, type QueryResultRow } from 'pg';
 import {
   NodeDatasetProvider,
   deserializeDatasets,
@@ -50,6 +51,12 @@ import {
   createRevisionBlobKey,
   type ManagedWorkflowBlobStore,
 } from './blob-store.js';
+import {
+  ManagedWorkflowExecutionCache,
+  type ManagedEndpointPointerCacheEntry,
+  type ManagedRevisionMaterializationCacheEntry,
+  type ManagedWorkflowRunKind,
+} from './execution-cache.js';
 
 type FolderRow = {
   relative_path: string;
@@ -158,9 +165,37 @@ type LoadHostedProjectResult = {
   revisionId: string;
 };
 
-type ExecutionWorkflowMatch = {
-  workflow: WorkflowRow;
+type ManagedExecutionDebugInfo = {
+  cacheStatus: 'hit' | 'miss' | 'bypass';
+  resolveMs: number;
+  materializeMs: number;
+};
+
+type ManagedExecutionProjectResult = {
+  project: Project;
+  attachedData: AttachedData;
+  datasetProvider: NodeDatasetProvider;
+  projectVirtualPath: string;
+  debug: ManagedExecutionDebugInfo;
+};
+
+type ManagedExecutionPointerLookupResult = {
+  pointer: ManagedEndpointPointerCacheEntry;
   revision: RevisionRow;
+};
+
+type ManagedExecutionInvalidationEvent =
+  | {
+      eventType: 'workflow-changed';
+      workflowId: string;
+    }
+  | {
+      eventType: 'clear-all';
+    };
+
+type ManagedExecutionWorkflowGenerationRecord = {
+  generation: number;
+  updatedAt: number;
 };
 
 type TransactionHooks = {
@@ -523,13 +558,12 @@ function splitCurrentDraftRevisionRow(row: CurrentDraftRevisionRow): { workflow:
   };
 }
 
-function getPoolConfig(config: ManagedWorkflowStorageConfig) {
+function getManagedDbConnectionConfig(config: ManagedWorkflowStorageConfig) {
   const sharedConfig = {
     connectionString: config.databaseUrl,
     keepAlive: true,
     keepAliveInitialDelayMillis: 30_000,
     idleTimeoutMillis: 30_000,
-    max: 10,
   };
 
   if (config.databaseSslMode === 'disable') {
@@ -541,6 +575,13 @@ function getPoolConfig(config: ManagedWorkflowStorageConfig) {
     ssl: {
       rejectUnauthorized: config.databaseSslMode === 'verify-full',
     },
+  };
+}
+
+function getPoolConfig(config: ManagedWorkflowStorageConfig) {
+  return {
+    ...getManagedDbConnectionConfig(config),
+    max: 10,
   };
 }
 
@@ -599,12 +640,34 @@ async function queryOne<T extends QueryResultRow>(client: PoolClient | Pool, sql
   return rows[0] ?? null;
 }
 
+const MANAGED_WORKFLOW_EXECUTION_INVALIDATION_CHANNEL = 'managed_workflow_execution_changed';
+const MANAGED_WORKFLOW_EXECUTION_LISTENER_RECONNECT_DELAY_MS = 1_000;
+const MANAGED_WORKFLOW_EXECUTION_INVALIDATION_RETRY_LIMIT = 2;
+const MANAGED_WORKFLOW_EXECUTION_WORKFLOW_GENERATION_RETENTION_MS = 10 * 60_000;
+const MANAGED_WORKFLOW_EXECUTION_WORKFLOW_GENERATION_PRUNE_INTERVAL = 128;
+
 export class ManagedWorkflowBackend {
   readonly #pool;
+  readonly #databaseConnectionConfig;
   readonly #blobStore;
+  readonly #executionCache = new ManagedWorkflowExecutionCache();
+  readonly #endpointLoadInflight = new Map<string, Promise<ManagedExecutionProjectResult | null>>();
+  readonly #revisionMaterializationInflight = new Map<string, Promise<ManagedRevisionMaterializationCacheEntry>>();
   #schemaReadyPromise: Promise<void> | null = null;
+  #executionInvalidationListener: Client | null = null;
+  #executionInvalidationListenerHealthy = false;
+  #executionInvalidationListenerPromise: Promise<void> | null = null;
+  #executionInvalidationListenerReconnectTimer: NodeJS.Timeout | null = null;
+  #executionPointerAnyGeneration = 0;
+  #executionPointerGlobalGeneration = 0;
+  #executionPointerGlobalUpdatedAt = 0;
+  readonly #executionPointerWorkflowGenerations = new Map<string, ManagedExecutionWorkflowGenerationRecord>();
+  #executionPointerWorkflowGenerationInvalidationCount = 0;
+  readonly #activeWorkflowExecutionLoads = new Map<string, number>();
+  #disposed = false;
 
   constructor(config: ManagedWorkflowStorageConfig, blobStore?: ManagedWorkflowBlobStore) {
+    this.#databaseConnectionConfig = getManagedDbConnectionConfig(config);
     this.#pool = new Pool(getPoolConfig(config));
     this.#blobStore = blobStore ?? new S3ManagedWorkflowBlobStore(config);
   }
@@ -618,9 +681,22 @@ export class ManagedWorkflowBackend {
     }
 
     await this.#schemaReadyPromise;
+    void this.#ensureExecutionInvalidationListener();
   }
 
   async dispose(): Promise<void> {
+    this.#disposed = true;
+    this.#invalidateAllExecutionPointerEntries();
+    this.#executionCache.clearRevisionMaterializations();
+    this.#clearExecutionInvalidationListenerReconnectTimer();
+    this.#executionInvalidationListenerHealthy = false;
+    const listener = this.#executionInvalidationListener;
+    this.#executionInvalidationListener = null;
+    this.#executionInvalidationListenerPromise = null;
+    if (listener) {
+      listener.removeAllListeners();
+      await listener.end().catch(() => {});
+    }
     await this.#pool.end();
   }
 
@@ -638,6 +714,172 @@ export class ManagedWorkflowBackend {
 
   async #connectWithRetry(): Promise<PoolClient> {
     return withManagedDbRetry('database connect', () => this.#pool.connect());
+  }
+
+  async #ensureExecutionInvalidationListener(): Promise<void> {
+    if (this.#disposed || this.#executionInvalidationListenerHealthy) {
+      return;
+    }
+
+    if (this.#executionInvalidationListenerPromise) {
+      await this.#executionInvalidationListenerPromise;
+      return;
+    }
+
+    this.#executionInvalidationListenerPromise = (async () => {
+      const listener = new Client(this.#databaseConnectionConfig);
+
+      try {
+        await withManagedDbRetry('managed execution invalidation listener connect', () => listener.connect());
+        await withManagedDbRetry('managed execution invalidation listener listen', () => listener.query(
+          `LISTEN ${MANAGED_WORKFLOW_EXECUTION_INVALIDATION_CHANNEL}`,
+        ));
+      } catch (error) {
+        listener.removeAllListeners();
+        await listener.end().catch(() => {});
+        this.#executionInvalidationListenerHealthy = false;
+        this.#invalidateAllExecutionPointerEntries();
+        this.#scheduleExecutionInvalidationListenerReconnect();
+        throw error;
+      }
+
+      listener.on('notification', (message) => {
+        if (message.channel !== MANAGED_WORKFLOW_EXECUTION_INVALIDATION_CHANNEL || !message.payload) {
+          return;
+        }
+
+        try {
+          this.#handleExecutionInvalidationNotification(JSON.parse(message.payload) as ManagedExecutionInvalidationEvent);
+        } catch (error) {
+          console.error('[managed-workflows] Failed to process execution invalidation payload:', error);
+        }
+      });
+      listener.on('error', (error) => {
+        console.error('[managed-workflows] Execution invalidation listener error:', error);
+        void this.#handleExecutionInvalidationListenerFailure(listener);
+      });
+      listener.on('end', () => {
+        void this.#handleExecutionInvalidationListenerFailure(listener);
+      });
+
+      this.#executionInvalidationListener = listener;
+      this.#executionInvalidationListenerHealthy = true;
+      this.#clearExecutionInvalidationListenerReconnectTimer();
+    })()
+      .catch((error) => {
+        console.error('[managed-workflows] Execution invalidation listener initialization failed:', error);
+      })
+      .finally(() => {
+        this.#executionInvalidationListenerPromise = null;
+      });
+
+    await this.#executionInvalidationListenerPromise;
+  }
+
+  async #handleExecutionInvalidationListenerFailure(listener: Client): Promise<void> {
+    if (this.#executionInvalidationListener !== listener) {
+      return;
+    }
+
+    this.#executionInvalidationListenerHealthy = false;
+    this.#invalidateAllExecutionPointerEntries();
+    this.#executionInvalidationListener = null;
+    listener.removeAllListeners();
+    await listener.end().catch(() => {});
+    this.#scheduleExecutionInvalidationListenerReconnect();
+  }
+
+  #scheduleExecutionInvalidationListenerReconnect(): void {
+    if (this.#disposed || this.#executionInvalidationListenerReconnectTimer) {
+      return;
+    }
+
+    this.#executionInvalidationListenerReconnectTimer = setTimeout(() => {
+      this.#executionInvalidationListenerReconnectTimer = null;
+      void this.#ensureExecutionInvalidationListener();
+    }, MANAGED_WORKFLOW_EXECUTION_LISTENER_RECONNECT_DELAY_MS);
+    this.#executionInvalidationListenerReconnectTimer.unref?.();
+  }
+
+  #clearExecutionInvalidationListenerReconnectTimer(): void {
+    if (!this.#executionInvalidationListenerReconnectTimer) {
+      return;
+    }
+
+    clearTimeout(this.#executionInvalidationListenerReconnectTimer);
+    this.#executionInvalidationListenerReconnectTimer = null;
+  }
+
+  #handleExecutionInvalidationNotification(event: ManagedExecutionInvalidationEvent): void {
+    if (event.eventType === 'clear-all') {
+      this.#invalidateAllExecutionPointerEntries();
+      return;
+    }
+
+    this.#invalidateWorkflowExecutionPointerEntries(event.workflowId);
+  }
+
+  #invalidateWorkflowExecutionPointerEntries(workflowId: string): void {
+    const now = Date.now();
+    this.#executionPointerAnyGeneration += 1;
+    const current = this.#executionPointerWorkflowGenerations.get(workflowId);
+    this.#executionPointerWorkflowGenerations.set(
+      workflowId,
+      {
+        generation: (current?.generation ?? 0) + 1,
+        updatedAt: now,
+      },
+    );
+    this.#maybePruneWorkflowExecutionPointerGenerations(now);
+    this.#executionCache.invalidateWorkflowEndpointPointers(workflowId);
+  }
+
+  #invalidateAllExecutionPointerEntries(): void {
+    const now = Date.now();
+    this.#executionPointerAnyGeneration += 1;
+    this.#executionPointerGlobalGeneration += 1;
+    this.#executionPointerGlobalUpdatedAt = now;
+    this.#executionPointerWorkflowGenerations.clear();
+    this.#executionPointerWorkflowGenerationInvalidationCount = 0;
+    this.#executionCache.clearEndpointPointers();
+  }
+
+  #getWorkflowExecutionPointerGeneration(workflowId: string): number {
+    return this.#executionPointerWorkflowGenerations.get(workflowId)?.generation ?? 0;
+  }
+
+  #beginWorkflowExecutionLoad(workflowId: string): void {
+    this.#activeWorkflowExecutionLoads.set(workflowId, (this.#activeWorkflowExecutionLoads.get(workflowId) ?? 0) + 1);
+  }
+
+  #endWorkflowExecutionLoad(workflowId: string): void {
+    const current = this.#activeWorkflowExecutionLoads.get(workflowId);
+    if (!current || current <= 1) {
+      this.#activeWorkflowExecutionLoads.delete(workflowId);
+      return;
+    }
+
+    this.#activeWorkflowExecutionLoads.set(workflowId, current - 1);
+  }
+
+  #maybePruneWorkflowExecutionPointerGenerations(now: number): void {
+    this.#executionPointerWorkflowGenerationInvalidationCount += 1;
+    if (this.#executionPointerWorkflowGenerationInvalidationCount % MANAGED_WORKFLOW_EXECUTION_WORKFLOW_GENERATION_PRUNE_INTERVAL !== 0) {
+      return;
+    }
+
+    const cutoff = now - MANAGED_WORKFLOW_EXECUTION_WORKFLOW_GENERATION_RETENTION_MS;
+    for (const [workflowId, record] of this.#executionPointerWorkflowGenerations) {
+      if (this.#activeWorkflowExecutionLoads.has(workflowId)) {
+        continue;
+      }
+
+      if (record.updatedAt >= cutoff) {
+        continue;
+      }
+
+      this.#executionPointerWorkflowGenerations.delete(workflowId);
+    }
   }
 
   async #withTransaction<T>(run: (client: PoolClient, hooks: TransactionHooks) => Promise<T>): Promise<T> {
@@ -830,6 +1072,38 @@ export class ManagedWorkflowBackend {
       contents,
       datasetsContents,
     };
+  }
+
+  async #emitExecutionInvalidationEvent(client: PoolClient, event: ManagedExecutionInvalidationEvent): Promise<void> {
+    await client.query(
+      'SELECT pg_notify($1, $2)',
+      [MANAGED_WORKFLOW_EXECUTION_INVALIDATION_CHANNEL, JSON.stringify(event)],
+    );
+  }
+
+  async #queueWorkflowExecutionPointerInvalidation(
+    client: PoolClient,
+    hooks: TransactionHooks,
+    workflowId: string,
+  ): Promise<void> {
+    await this.#emitExecutionInvalidationEvent(client, {
+      eventType: 'workflow-changed',
+      workflowId,
+    });
+
+    hooks.onCommit(async () => {
+      this.#invalidateWorkflowExecutionPointerEntries(workflowId);
+    });
+  }
+
+  async #queueGlobalExecutionPointerInvalidation(client: PoolClient, hooks: TransactionHooks): Promise<void> {
+    await this.#emitExecutionInvalidationEvent(client, {
+      eventType: 'clear-all',
+    });
+
+    hooks.onCommit(async () => {
+      this.#invalidateAllExecutionPointerEntries();
+    });
   }
 
   async #createRevision(workflowId: string, contents: string, datasetsContents: string | null): Promise<RevisionRow> {
@@ -1119,6 +1393,10 @@ export class ManagedWorkflowBackend {
             if (!workflow) {
               throw createHttpError(500, 'Saved workflow could not be loaded');
             }
+
+            if (workflow.published_endpoint_name) {
+              await this.#queueWorkflowExecutionPointerInvalidation(client, hooks, workflow.workflow_id);
+            }
           }
 
           return {
@@ -1196,6 +1474,10 @@ export class ManagedWorkflowBackend {
 
       if (!workflow) {
         throw createHttpError(500, 'Saved workflow could not be loaded');
+      }
+
+      if (!created && workflow.published_endpoint_name) {
+        await this.#queueWorkflowExecutionPointerInvalidation(client, hooks, workflow.workflow_id);
       }
 
       return {
@@ -1295,6 +1577,10 @@ export class ManagedWorkflowBackend {
         draftEndpointName,
         publishedEndpointName,
       });
+
+      if (publishedEndpointName) {
+        await this.#queueWorkflowExecutionPointerInvalidation(client, hooks, workflow.workflow_id);
+      }
 
       return mapWorkflowRowToProjectItem(workflow);
     });
@@ -1427,7 +1713,7 @@ export class ManagedWorkflowBackend {
 
   async #moveFolderRelativePath(sourceRelativePath: string, targetRelativePath: string): Promise<{ folder: WorkflowFolderItem; movedProjectPaths: WorkflowProjectPathMove[] }> {
     try {
-      return await this.#withTransaction(async (client) => {
+      return await this.#withTransaction(async (client, hooks) => {
         const temporaryPrefix = `.__move__-${randomUUID()}`;
         const folderName = path.posix.basename(targetRelativePath);
         const folderRow = await queryOne<FolderMoveRow>(
@@ -1454,6 +1740,10 @@ export class ManagedWorkflowBackend {
             `${targetRelativePath}${relativePath.slice(sourceRelativePath.length)}`,
           ),
         }));
+
+        if (movedProjectPaths.length > 0) {
+          await this.#queueGlobalExecutionPointerInvalidation(client, hooks);
+        }
 
         return {
           folder: mapFolderRowToFolderItem(folderRow),
@@ -1537,7 +1827,7 @@ export class ManagedWorkflowBackend {
       };
     }
 
-    return this.#withTransaction(async (client) => {
+    return this.#withTransaction(async (client, hooks) => {
       const workflow = await this.#getWorkflowByRelativePath(client, sourceRelativePath, { forUpdate: true });
       if (!workflow) {
         throw createHttpError(404, 'Project not found');
@@ -1568,6 +1858,8 @@ export class ManagedWorkflowBackend {
       if (!movedWorkflow) {
         throw createHttpError(500, 'Moved project could not be loaded');
       }
+
+      await this.#queueWorkflowExecutionPointerInvalidation(client, hooks, workflow.workflow_id);
 
       return {
         project: mapWorkflowRowToProjectItem(movedWorkflow),
@@ -1715,7 +2007,7 @@ export class ManagedWorkflowBackend {
       throw badRequest('Endpoint name is required');
     }
 
-    return this.#withTransaction(async (client) => {
+    return this.#withTransaction(async (client, hooks) => {
       const workflow = await this.#getWorkflowByRelativePath(client, normalizedRelativePath, { forUpdate: true });
       if (!workflow) {
         throw createHttpError(404, 'Project not found');
@@ -1744,6 +2036,8 @@ export class ManagedWorkflowBackend {
         throw createHttpError(500, 'Published workflow could not be loaded');
       }
 
+      await this.#queueWorkflowExecutionPointerInvalidation(client, hooks, workflow.workflow_id);
+
       return mapWorkflowRowToProjectItem(publishedWorkflow);
     });
   }
@@ -1751,7 +2045,7 @@ export class ManagedWorkflowBackend {
   async unpublishWorkflowProjectItem(relativePath: unknown): Promise<WorkflowProjectItem> {
     const normalizedRelativePath = normalizeManagedWorkflowRelativePath(relativePath, { allowProjectFile: true });
 
-    return this.#withTransaction(async (client) => {
+    return this.#withTransaction(async (client, hooks) => {
       const workflow = await this.#getWorkflowByRelativePath(client, normalizedRelativePath, { forUpdate: true });
       if (!workflow) {
         throw createHttpError(404, 'Project not found');
@@ -1777,6 +2071,8 @@ export class ManagedWorkflowBackend {
       if (!unpublishedWorkflow) {
         throw createHttpError(500, 'Unpublished workflow could not be loaded');
       }
+
+      await this.#queueWorkflowExecutionPointerInvalidation(client, hooks, workflow.workflow_id);
 
       return mapWorkflowRowToProjectItem(unpublishedWorkflow);
     });
@@ -1810,6 +2106,7 @@ export class ManagedWorkflowBackend {
       );
 
       await client.query('DELETE FROM workflows WHERE workflow_id = $1', [workflow.workflow_id]);
+      await this.#queueWorkflowExecutionPointerInvalidation(client, hooks, workflow.workflow_id);
       hooks.onCommit(() => this.#deleteBlobKeysBestEffort(
         `workflow deletion (${workflow.workflow_id})`,
         [
@@ -1824,76 +2121,368 @@ export class ManagedWorkflowBackend {
     });
   }
 
-  async resolvePublishedWorkflowByEndpoint(endpointName: string): Promise<ExecutionWorkflowMatch | null> {
-    await this.initialize();
-    const lookupName = normalizeWorkflowEndpointLookupName(endpointName);
-    const workflow = await queryOne<WorkflowRow>(
-      this.#pool,
-      `
-        SELECT w.workflow_id, w.name, w.file_name, w.relative_path, w.folder_relative_path, w.updated_at,
-               w.current_draft_revision_id, w.published_revision_id, w.endpoint_name, w.published_endpoint_name, w.last_published_at
-        FROM workflow_endpoints e
-        JOIN workflows w ON w.workflow_id = e.workflow_id
-        WHERE e.lookup_name = $1 AND e.is_published = TRUE
-      `,
-      [lookupName],
-    );
-    if (!workflow || !workflow.published_revision_id) {
-      return null;
-    }
-
-    const revision = await this.#getRevision(this.#pool, workflow.published_revision_id);
-    if (!revision) {
-      return null;
-    }
-
-    return { workflow, revision };
+  async loadPublishedExecutionProject(endpointName: string): Promise<ManagedExecutionProjectResult | null> {
+    return this.#loadExecutionProjectByEndpoint('published', endpointName);
   }
 
-  async resolveLatestWorkflowByEndpoint(endpointName: string): Promise<ExecutionWorkflowMatch | null> {
+  async loadLatestExecutionProject(endpointName: string): Promise<ManagedExecutionProjectResult | null> {
+    return this.#loadExecutionProjectByEndpoint('latest', endpointName);
+  }
+
+  async #loadExecutionProjectByEndpoint(
+    runKind: ManagedWorkflowRunKind,
+    endpointName: string,
+  ): Promise<ManagedExecutionProjectResult | null> {
     await this.initialize();
     const lookupName = normalizeWorkflowEndpointLookupName(endpointName);
-    const workflow = await queryOne<WorkflowRow>(
+    const endpointCacheKey = `${runKind}:${lookupName}`;
+    const endpointLoadInflightKey = `${endpointCacheKey}:${this.#executionPointerAnyGeneration}`;
+    const existingLoad = this.#endpointLoadInflight.get(endpointLoadInflightKey);
+    if (existingLoad) {
+      return existingLoad;
+    }
+
+    const loadPromise = this.#loadExecutionProjectByEndpointOnce(runKind, lookupName)
+      .finally(() => {
+        this.#endpointLoadInflight.delete(endpointLoadInflightKey);
+      });
+    this.#endpointLoadInflight.set(endpointLoadInflightKey, loadPromise);
+    return loadPromise;
+  }
+
+  async #loadExecutionProjectByEndpointOnce(
+    runKind: ManagedWorkflowRunKind,
+    lookupName: string,
+    options: {
+      forceBypassPointerCache?: boolean;
+      allowPointerFallback?: boolean;
+      remainingInvalidationRetries?: number;
+    } = {},
+  ): Promise<ManagedExecutionProjectResult | null> {
+    const remainingInvalidationRetries = options.remainingInvalidationRetries ?? MANAGED_WORKFLOW_EXECUTION_INVALIDATION_RETRY_LIMIT;
+    const resolveStartedAtWallClock = Date.now();
+    const resolveStartedAt = performance.now();
+    const anyGenerationAtStart = this.#executionPointerAnyGeneration;
+    const globalGenerationAtStart = this.#executionPointerGlobalGeneration;
+    const endpointCacheKey = `${runKind}:${lookupName}`;
+    const canUsePointerCache = this.#executionInvalidationListenerHealthy && !options.forceBypassPointerCache;
+    const cachedPointer = canUsePointerCache
+      ? this.#executionCache.getEndpointPointer(endpointCacheKey)
+      : null;
+    let pointer = cachedPointer;
+    let revision: RevisionRow | null = null;
+    let workflowGenerationAtStart = cachedPointer
+      ? this.#getWorkflowExecutionPointerGeneration(cachedPointer.workflowId)
+      : null;
+    let cacheStatus: ManagedExecutionDebugInfo['cacheStatus'];
+
+    if (cachedPointer) {
+      cacheStatus = 'hit';
+    } else if (this.#executionInvalidationListenerHealthy && !options.forceBypassPointerCache) {
+      cacheStatus = 'miss';
+    } else {
+      cacheStatus = 'bypass';
+    }
+
+    if (!pointer) {
+      const resolved = await this.#resolveExecutionPointerFromDatabase(runKind, lookupName);
+      if (!resolved) {
+        if (this.#executionPointerAnyGeneration !== anyGenerationAtStart && remainingInvalidationRetries > 0) {
+          return this.#loadExecutionProjectByEndpointOnce(runKind, lookupName, {
+            forceBypassPointerCache: true,
+            remainingInvalidationRetries: remainingInvalidationRetries - 1,
+          });
+        }
+
+        return null;
+      }
+
+      pointer = resolved.pointer;
+      revision = resolved.revision;
+      workflowGenerationAtStart = this.#getWorkflowExecutionPointerGeneration(pointer.workflowId);
+
+      const workflowGenerationRecord = this.#executionPointerWorkflowGenerations.get(pointer.workflowId);
+      const sameWorkflowChangedDuringResolve = workflowGenerationRecord != null && workflowGenerationRecord.updatedAt >= resolveStartedAtWallClock;
+      const clearAllChangedDuringResolve =
+        this.#executionPointerGlobalGeneration !== globalGenerationAtStart &&
+        this.#executionPointerGlobalUpdatedAt >= resolveStartedAtWallClock;
+      if (
+        this.#executionPointerAnyGeneration !== anyGenerationAtStart &&
+        (sameWorkflowChangedDuringResolve || clearAllChangedDuringResolve)
+      ) {
+        if (remainingInvalidationRetries > 0) {
+          return this.#loadExecutionProjectByEndpointOnce(runKind, lookupName, {
+            forceBypassPointerCache: true,
+            remainingInvalidationRetries: remainingInvalidationRetries - 1,
+          });
+        }
+
+        throw createHttpError(503, 'Workflow endpoint changed while loading. Retry the request.');
+      }
+
+      if (canUsePointerCache) {
+        this.#executionCache.setEndpointPointer(endpointCacheKey, pointer);
+      }
+    }
+
+    const resolveMs = Math.max(0, Math.round(performance.now() - resolveStartedAt));
+    this.#beginWorkflowExecutionLoad(pointer.workflowId);
+    try {
+      const materializeStartedAt = performance.now();
+
+      let materialization: ManagedRevisionMaterializationCacheEntry;
+      try {
+        materialization = await this.#getOrLoadRevisionMaterialization(pointer.revisionId, revision);
+      } catch (error) {
+        const isMissingRevision = typeof error === 'object' &&
+          error != null &&
+          'status' in error &&
+          Number((error as { status?: unknown }).status) === 404;
+
+        if (cachedPointer && options.allowPointerFallback !== false && isMissingRevision) {
+          this.#invalidateWorkflowExecutionPointerEntries(pointer.workflowId);
+          return this.#loadExecutionProjectByEndpointOnce(runKind, lookupName, {
+            forceBypassPointerCache: true,
+            allowPointerFallback: false,
+            remainingInvalidationRetries,
+          });
+        }
+
+        throw error;
+      }
+
+      if (
+        this.#executionPointerGlobalGeneration !== globalGenerationAtStart ||
+        this.#getWorkflowExecutionPointerGeneration(pointer.workflowId) !== workflowGenerationAtStart
+      ) {
+        if (remainingInvalidationRetries > 0) {
+          return this.#loadExecutionProjectByEndpointOnce(runKind, lookupName, {
+            forceBypassPointerCache: true,
+            remainingInvalidationRetries: remainingInvalidationRetries - 1,
+          });
+        }
+
+        throw createHttpError(503, 'Workflow endpoint changed while loading. Retry the request.');
+      }
+
+      const [project, attachedData] = loadProjectAndAttachedDataFromString(materialization.contents);
+      const datasetProvider = new NodeDatasetProvider(
+        materialization.datasetsContents ? deserializeDatasets(materialization.datasetsContents) : [],
+      );
+
+      if (
+        this.#executionPointerGlobalGeneration !== globalGenerationAtStart ||
+        this.#getWorkflowExecutionPointerGeneration(pointer.workflowId) !== workflowGenerationAtStart
+      ) {
+        if (remainingInvalidationRetries > 0) {
+          return this.#loadExecutionProjectByEndpointOnce(runKind, lookupName, {
+            forceBypassPointerCache: true,
+            remainingInvalidationRetries: remainingInvalidationRetries - 1,
+          });
+        }
+
+        throw createHttpError(503, 'Workflow endpoint changed while loading. Retry the request.');
+      }
+
+      return {
+        project,
+        attachedData,
+        datasetProvider,
+        projectVirtualPath: getManagedWorkflowProjectVirtualPath(pointer.relativePath),
+        debug: {
+          cacheStatus,
+          resolveMs,
+          materializeMs: Math.max(0, Math.round(performance.now() - materializeStartedAt)),
+        },
+      };
+    } finally {
+      this.#endWorkflowExecutionLoad(pointer.workflowId);
+    }
+  }
+
+  async #resolveExecutionPointerFromDatabase(
+    runKind: ManagedWorkflowRunKind,
+    lookupName: string,
+  ): Promise<ManagedExecutionPointerLookupResult | null> {
+    const revisionJoinColumn = runKind === 'published'
+      ? 'w.published_revision_id'
+      : 'w.current_draft_revision_id';
+    const row = await queryOne<CurrentDraftRevisionRow>(
       this.#pool,
       `
-        SELECT w.workflow_id, w.name, w.file_name, w.relative_path, w.folder_relative_path, w.updated_at,
-               w.current_draft_revision_id, w.published_revision_id, w.endpoint_name, w.published_endpoint_name, w.last_published_at
+        SELECT
+          w.workflow_id,
+          w.name,
+          w.file_name,
+          w.relative_path,
+          w.folder_relative_path,
+          w.updated_at,
+          w.current_draft_revision_id,
+          w.published_revision_id,
+          w.endpoint_name,
+          w.published_endpoint_name,
+          w.last_published_at,
+          r.revision_id,
+          r.workflow_id AS revision_workflow_id,
+          r.project_blob_key,
+          r.dataset_blob_key,
+          r.created_at AS revision_created_at
         FROM workflow_endpoints e
         JOIN workflows w ON w.workflow_id = e.workflow_id
+        JOIN workflow_revisions r ON r.revision_id = ${revisionJoinColumn}
         WHERE e.lookup_name = $1 AND e.is_published = TRUE
       `,
       [lookupName],
     );
+    if (!row) {
+      return null;
+    }
+
+    const split = splitCurrentDraftRevisionRow(row);
+    return {
+      pointer: {
+        workflowId: split.workflow.workflow_id,
+        relativePath: split.workflow.relative_path,
+        revisionId: split.revision.revision_id,
+      },
+      revision: split.revision,
+    };
+  }
+
+  async #getOrLoadRevisionMaterialization(
+    revisionId: string,
+    knownRevision: RevisionRow | null,
+  ): Promise<ManagedRevisionMaterializationCacheEntry> {
+    const cached = this.#executionCache.getRevisionMaterialization(revisionId);
+    if (cached) {
+      return cached;
+    }
+
+    const existingLoad = this.#revisionMaterializationInflight.get(revisionId);
+    if (existingLoad) {
+      return existingLoad;
+    }
+
+    const loadPromise = (async () => {
+      const revision = knownRevision ?? await this.#getRevision(this.#pool, revisionId);
+      if (!revision) {
+        throw createHttpError(404, 'Project revision not found');
+      }
+
+      const contents = await this.#readRevisionContents(revision);
+      const materialization = {
+        revisionId,
+        contents: contents.contents,
+        datasetsContents: contents.datasetsContents,
+      } satisfies ManagedRevisionMaterializationCacheEntry;
+      this.#executionCache.setRevisionMaterialization(materialization);
+      return materialization;
+    })()
+      .finally(() => {
+        this.#revisionMaterializationInflight.delete(revisionId);
+      });
+
+    this.#revisionMaterializationInflight.set(revisionId, loadPromise);
+    return loadPromise;
+  }
+
+  async #loadExecutionReferencedProjectByRelativePath(
+    relativePath: string,
+    options: {
+      remainingInvalidationRetries?: number;
+    } = {},
+  ): Promise<Project | null> {
+    return this.#loadExecutionReferencedProject(
+      () => this.#getWorkflowByRelativePath(this.#pool, relativePath),
+      options,
+    );
+  }
+
+  async #loadExecutionReferencedProjectById(
+    workflowId: string,
+    options: {
+      remainingInvalidationRetries?: number;
+    } = {},
+  ): Promise<Project | null> {
+    return this.#loadExecutionReferencedProject(
+      () => this.#getWorkflowById(this.#pool, workflowId),
+      options,
+    );
+  }
+
+  async #loadExecutionReferencedProject(
+    loadWorkflow: () => Promise<WorkflowRow | null>,
+    options: {
+      remainingInvalidationRetries?: number;
+    } = {},
+  ): Promise<Project | null> {
+    const remainingInvalidationRetries = options.remainingInvalidationRetries ?? MANAGED_WORKFLOW_EXECUTION_INVALIDATION_RETRY_LIMIT;
+    const resolveStartedAtWallClock = Date.now();
+    const anyGenerationAtStart = this.#executionPointerAnyGeneration;
+    const globalGenerationAtStart = this.#executionPointerGlobalGeneration;
+    const workflow = await loadWorkflow();
     if (!workflow) {
       return null;
     }
 
-    const revision = await this.#getRevision(this.#pool, workflow.current_draft_revision_id);
-    if (!revision) {
+    const workflowGenerationRecord = this.#executionPointerWorkflowGenerations.get(workflow.workflow_id);
+    const sameWorkflowChangedDuringResolve = workflowGenerationRecord != null && workflowGenerationRecord.updatedAt >= resolveStartedAtWallClock;
+    const clearAllChangedDuringResolve =
+      this.#executionPointerGlobalGeneration !== globalGenerationAtStart &&
+      this.#executionPointerGlobalUpdatedAt >= resolveStartedAtWallClock;
+    if (
+      this.#executionPointerAnyGeneration !== anyGenerationAtStart &&
+      (sameWorkflowChangedDuringResolve || clearAllChangedDuringResolve)
+    ) {
+      if (remainingInvalidationRetries > 0) {
+        return this.#loadExecutionReferencedProject(loadWorkflow, {
+          remainingInvalidationRetries: remainingInvalidationRetries - 1,
+        });
+      }
+
+      throw createHttpError(503, 'Referenced workflow changed while loading. Retry the request.');
+    }
+
+    const revisionId = workflow.published_revision_id ?? workflow.current_draft_revision_id;
+    if (!revisionId) {
       return null;
     }
 
-    return { workflow, revision };
-  }
+    const workflowGenerationAtStart = this.#getWorkflowExecutionPointerGeneration(workflow.workflow_id);
+    this.#beginWorkflowExecutionLoad(workflow.workflow_id);
+    try {
+      const materialization = await this.#getOrLoadRevisionMaterialization(revisionId, null);
+      if (
+        this.#executionPointerGlobalGeneration !== globalGenerationAtStart ||
+        this.#getWorkflowExecutionPointerGeneration(workflow.workflow_id) !== workflowGenerationAtStart
+      ) {
+        if (remainingInvalidationRetries > 0) {
+          return this.#loadExecutionReferencedProject(loadWorkflow, {
+            remainingInvalidationRetries: remainingInvalidationRetries - 1,
+          });
+        }
 
-  async loadExecutionProject(match: ExecutionWorkflowMatch): Promise<{
-    project: Project;
-    attachedData: AttachedData;
-    datasetProvider: NodeDatasetProvider;
-    projectVirtualPath: string;
-  }> {
-    const contents = await this.#readRevisionContents(match.revision);
-    const [project, attachedData] = loadProjectAndAttachedDataFromString(contents.contents);
-    const datasetProvider = new NodeDatasetProvider(
-      contents.datasetsContents ? deserializeDatasets(contents.datasetsContents) : [],
-    );
+        throw createHttpError(503, 'Referenced workflow changed while loading. Retry the request.');
+      }
 
-    return {
-      project,
-      attachedData,
-      datasetProvider,
-      projectVirtualPath: getManagedWorkflowProjectVirtualPath(match.workflow.relative_path),
-    };
+      const project = loadProjectFromString(materialization.contents);
+      if (
+        this.#executionPointerGlobalGeneration !== globalGenerationAtStart ||
+        this.#getWorkflowExecutionPointerGeneration(workflow.workflow_id) !== workflowGenerationAtStart
+      ) {
+        if (remainingInvalidationRetries > 0) {
+          return this.#loadExecutionReferencedProject(loadWorkflow, {
+            remainingInvalidationRetries: remainingInvalidationRetries - 1,
+          });
+        }
+
+        throw createHttpError(503, 'Referenced workflow changed while loading. Retry the request.');
+      }
+
+      return project;
+    } finally {
+      this.#endWorkflowExecutionLoad(workflow.workflow_id);
+    }
   }
 
   createProjectReferenceLoader() {
@@ -1906,27 +2495,22 @@ export class ManagedWorkflowBackend {
         }
 
         for (const hintPath of reference.hintPaths ?? []) {
+          let relativePath: string;
           try {
-            const relativePath = resolveManagedWorkflowRelativeReference(currentProjectPath, hintPath);
-            const workflow = await backend.#getWorkflowByRelativePath(backend.#pool, relativePath);
-            if (workflow) {
-              const revision = await backend.#getRevision(backend.#pool, workflow.published_revision_id ?? workflow.current_draft_revision_id);
-              if (revision) {
-                const contents = await backend.#blobStore.getText(revision.project_blob_key);
-                return loadProjectFromString(contents);
-              }
-            }
+            relativePath = resolveManagedWorkflowRelativeReference(currentProjectPath, hintPath);
           } catch {
+            continue;
+          }
+
+          const project = await backend.#loadExecutionReferencedProjectByRelativePath(relativePath);
+          if (project) {
+            return project;
           }
         }
 
-        const workflowById = await backend.#getWorkflowById(backend.#pool, reference.id);
+        const workflowById = await backend.#loadExecutionReferencedProjectById(reference.id);
         if (workflowById) {
-          const revision = await backend.#getRevision(backend.#pool, workflowById.published_revision_id ?? workflowById.current_draft_revision_id);
-          if (revision) {
-            const contents = await backend.#blobStore.getText(revision.project_blob_key);
-            return loadProjectFromString(contents);
-          }
+          return workflowById;
         }
 
         throw new Error(`Could not load project "${reference.title ?? reference.id} (${reference.id})": all hint paths failed.`);

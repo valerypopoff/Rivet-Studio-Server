@@ -136,6 +136,27 @@ function getWorkflowErrorMessage(error: unknown): string {
   return String(error);
 }
 
+function shouldEmitWorkflowExecutionDebugHeaders(): boolean {
+  return isEnvFlagEnabled(process.env.RIVET_WORKFLOW_EXECUTION_DEBUG_HEADERS, false);
+}
+
+function setWorkflowExecutionDebugHeaders(
+  res: Response,
+  executionProject: Awaited<ReturnType<typeof resolvePublishedExecutionProject>> extends infer T
+    ? Exclude<T, null>
+    : never,
+  executionMs: number,
+): void {
+  if (!shouldEmitWorkflowExecutionDebugHeaders() || !executionProject.debug) {
+    return;
+  }
+
+  res.set('x-workflow-resolve-ms', String(executionProject.debug.resolveMs));
+  res.set('x-workflow-materialize-ms', String(executionProject.debug.materializeMs));
+  res.set('x-workflow-execute-ms', String(Math.max(0, Math.round(executionMs))));
+  res.set('x-workflow-cache', executionProject.debug.cacheStatus);
+}
+
 function requirePublishedWorkflowApiKey(req: Request): void {
   const isWorkflowKeyRequired = isEnvFlagEnabled(process.env.RIVET_REQUIRE_WORKFLOW_KEY, false);
   if (!isWorkflowKeyRequired) {
@@ -198,6 +219,7 @@ async function executeWorkflowEndpoint(
   let responsePayload: unknown;
   let executionError: unknown;
   let executionDurationMs = 0;
+  const executionStartedAt = performance.now();
 
   try {
     const outputs = await processor.run();
@@ -238,9 +260,11 @@ async function executeWorkflowEndpoint(
   }
 
   if (executionError) {
+    setWorkflowExecutionDebugHeaders(res, executionProject, performance.now() - executionStartedAt);
     throw executionError;
   }
 
+  setWorkflowExecutionDebugHeaders(res, executionProject, performance.now() - executionStartedAt);
   sendJsonWithDuration(res, 200, responsePayload, requestStartedAt);
 }
 

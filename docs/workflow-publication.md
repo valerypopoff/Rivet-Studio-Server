@@ -234,8 +234,14 @@ Two public endpoint families exist:
 Both routes:
 
 - are `POST`-only
-- look up projects by scanning workflow settings sidecars for a matching published endpoint name
 - match endpoint names case-insensitively
+
+Endpoint resolution is backend-specific:
+
+- in `filesystem` mode, the API scans workflow settings sidecars for a matching published endpoint name
+- in `managed` mode, the API resolves endpoint ownership and the selected revision from Postgres, with project/dataset blobs stored in object storage
+- in `managed` mode, the first request after startup or after an invalidating mutation can still be a cold shared-state miss, but warm requests reuse API-local derived caches instead of repeating remote Postgres/object-storage reads for the same revision
+- in `managed` mode, API replicas invalidate endpoint-pointer cache entries through same-process post-commit invalidation plus Postgres `LISTEN/NOTIFY`; immutable revision-payload cache entries remain valid by revision id
 
 Fully unpublished projects are not served by either public route family.
 
@@ -254,8 +260,25 @@ Current request/response behavior for all execution routes:
 - if the final `output` port is typed as `any`, the response body is that raw output value
 - otherwise the response body is the full outputs object
 - every response sets `x-duration-ms`
+- when `RIVET_WORKFLOW_EXECUTION_DEBUG_HEADERS=true`, execution responses also emit additive debug headers:
+  - `x-workflow-resolve-ms`
+  - `x-workflow-materialize-ms`
+  - `x-workflow-execute-ms`
+  - `x-workflow-cache` with `hit`, `miss`, or `bypass`
 - successful object responses get `durationMs` injected unless already present
 - failures return JSON with `error.name`/`error.message` plus `durationMs`
+
+## Managed hot path
+
+In `managed` mode, shared services remain authoritative, but steady-state endpoint execution is intentionally local on each API replica:
+
+- the endpoint-pointer cache stores `runKind + normalizedEndpointName -> workflow id + relative path + revision id`
+- the revision-materialization cache stores immutable raw project and dataset contents by `revisionId`
+- the API rebuilds a fresh per-request `Project`, attached data, and `NodeDatasetProvider` from cached raw contents so request isolation is preserved
+- publish, save, unpublish, rename, move, and delete operations invalidate the affected endpoint-pointer entries immediately
+- if the invalidation listener is unhealthy, the API clears and bypasses the pointer cache until listener health is restored; correctness wins over latency in degraded mode
+
+That means a managed endpoint can have a slower first hit after pod start or after an invalidating workflow mutation, while repeated hits for the same trivial workflow settle onto the warm local path.
 
 ## Workflow execution auth
 
@@ -406,6 +429,9 @@ When a project is renamed, moved, duplicated, uploaded, downloaded, or deleted, 
 
 - `wrapper/api/src/routes/workflows/publication.ts` - publication logic, status derivation, endpoint lookup
 - `wrapper/api/src/routes/workflows/execution.ts` - public/latest/internal execution handlers
+- `wrapper/api/src/routes/workflows/storage-backend.ts` - backend-specific execution resolution and hosted-project dispatch
+- `wrapper/api/src/routes/workflows/managed/backend.ts` - managed endpoint resolution, invalidation, and revision materialization
+- `wrapper/api/src/routes/workflows/managed/execution-cache.ts` - managed endpoint-pointer and immutable revision-payload caches
 - `wrapper/api/src/routes/workflows/recordings.ts` - recording persistence, listing, migration, and cleanup
 - `wrapper/api/src/routes/workflows/recordings-config.ts` - recording env parsing and defaults
 - `wrapper/api/src/routes/workflows/recordings-db.ts` - SQLite recording index

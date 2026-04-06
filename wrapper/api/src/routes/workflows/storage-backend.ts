@@ -60,6 +60,11 @@ type ExecutionProjectResult = {
   attachedData: AttachedData;
   datasetProvider: NodeDatasetProvider;
   projectVirtualPath: string;
+  debug?: {
+    cacheStatus: 'hit' | 'miss' | 'bypass';
+    resolveMs: number;
+    materializeMs: number;
+  };
 };
 
 let managedBackendPromise: Promise<ManagedWorkflowBackend> | null = null;
@@ -342,9 +347,7 @@ export async function deleteWorkflowProjectItemWithBackend(relativePath: unknown
 
 export async function resolvePublishedExecutionProject(endpointName: string): Promise<ExecutionProjectResult | null> {
   if (isManagedWorkflowStorageEnabled()) {
-    const backend = await getManagedBackend();
-    const match = await backend.resolvePublishedWorkflowByEndpoint(endpointName);
-    return match ? backend.loadExecutionProject(match) : null;
+    return (await getManagedBackend()).loadPublishedExecutionProject(endpointName);
   }
 
   const root = await ensureWorkflowsRoot();
@@ -365,9 +368,7 @@ export async function resolvePublishedExecutionProject(endpointName: string): Pr
 
 export async function resolveLatestExecutionProject(endpointName: string): Promise<ExecutionProjectResult | null> {
   if (isManagedWorkflowStorageEnabled()) {
-    const backend = await getManagedBackend();
-    const match = await backend.resolveLatestWorkflowByEndpoint(endpointName);
-    return match ? backend.loadExecutionProject(match) : null;
+    return (await getManagedBackend()).loadLatestExecutionProject(endpointName);
   }
 
   const root = await ensureWorkflowsRoot();

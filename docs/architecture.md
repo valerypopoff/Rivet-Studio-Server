@@ -57,6 +57,7 @@ In local direct-process mode, the services run separately without nginx.
 - `POST ${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH}/:endpointName` executes the frozen published snapshot.
 - `POST ${RIVET_LATEST_WORKFLOWS_BASE_PATH}/:endpointName` executes the latest live project file for a published workflow.
 - `POST /internal/workflows/:endpointName` is an internal published-only execution route mounted on the API service and not exposed through nginx.
+- In `managed` mode, those execution routes use API-local derived caches for warm endpoint execution; Postgres plus object storage remain authoritative, and cache invalidation is driven by same-process post-commit clearing plus Postgres `LISTEN/NOTIFY`.
 
 ## Core wrapper seams
 
@@ -90,6 +91,7 @@ Storage mode decides which of those paths are authoritative:
   - runtime libraries are authoritative under `RIVET_RUNTIME_LIBRARIES_ROOT`
 - `RIVET_STORAGE_MODE=managed`
   - workflow metadata lives in Postgres and workflow blobs live in object storage
+  - API replicas may keep local warm execution caches for endpoint pointers and immutable revision payloads; those caches are derived accelerators, not a new source of truth
   - runtime-library release metadata, activation state, and job state live in Postgres
   - runtime-library release artifacts live in object storage under the fixed `runtime-libraries/` prefix
   - `RIVET_RUNTIME_LIBRARIES_ROOT` remains a local extracted cache/workspace on each process, not the shared source of truth
@@ -111,6 +113,7 @@ Storage mode decides which of those paths are authoritative:
 - `RIVET_DATABASE_MODE`, `RIVET_DATABASE_CONNECTION_STRING`, and `RIVET_DATABASE_SSL_MODE` define the shared managed Postgres connection used by workflow storage and managed runtime libraries.
 - `RIVET_STORAGE_URL` is the recommended object-storage config entrypoint; alternatively use the explicit tuple of `RIVET_STORAGE_BUCKET`, `RIVET_STORAGE_REGION`, `RIVET_STORAGE_ENDPOINT`, `RIVET_STORAGE_ACCESS_KEY_ID`, `RIVET_STORAGE_ACCESS_KEY`, and `RIVET_STORAGE_FORCE_PATH_STYLE`.
 - `RIVET_ARTIFACTS_HOST_PATH` is the primary public filesystem-mode host root. The per-path host envs remain launcher-level compatibility overrides rather than the preferred contract.
+- `RIVET_WORKFLOW_EXECUTION_DEBUG_HEADERS` enables additive managed execution timing headers for endpoint resolve/materialize/execute stages.
 - `RIVET_RUNTIME_LIBRARIES_SYNC_POLL_INTERVAL_MS` tunes managed runtime-library background reconciliation for API and executor processes.
 - `RIVET_RUNTIME_LIBRARIES_REPLICA_STATUS_RETENTION_MS` and `RIVET_RUNTIME_LIBRARIES_REPLICA_STATUS_CLEANUP_INTERVAL_MS` tune how long stale managed replica-status rows are kept and how often background cleanup runs.
 - `RIVET_RUNTIME_PROCESS_ROLE=api|executor` tells managed runtime-library readiness reporting which product tier the current process belongs to.

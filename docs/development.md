@@ -117,8 +117,10 @@ Current behavior:
 - the `api` and `executor` services rebuild from Dockerfiles, so Node/runtime changes are picked up without a separate manual build step
 - the launcher waits for healthy services; `RIVET_DOCKER_WAIT_TIMEOUT` controls the wait window
 - in `RIVET_STORAGE_MODE=managed`, both workflow state and runtime-library releases come from managed services, while `/data/runtime-libraries` remains only an extracted local cache/workspace inside each container
+- in `RIVET_STORAGE_MODE=managed`, published/latest endpoint execution also keeps API-local warm caches for endpoint pointers and immutable revision contents; the first hit after startup or after a workflow mutation can still be slower, but repeated hits for the same unchanged trivial workflow should settle onto the warm local path
 - if `RIVET_DATABASE_MODE=managed`, runtime-library replica-status rows also live in the shared Postgres database, so stale rows from older containers can survive a Docker recreate until retention cleanup runs or you clear them explicitly
 - when the Runtime Libraries modal shows stale rows that are only historical dev noise, use the `Clear stale replicas` action or call `POST /api/runtime-libraries/replicas/cleanup`
+- set `RIVET_WORKFLOW_EXECUTION_DEBUG_HEADERS=true` when you want additive managed execution timing headers for local diagnosis of endpoint resolve/materialize/execute stages
 
 ## Recording-storage notes
 
@@ -243,3 +245,11 @@ For routing/auth/deployment changes:
 
 1. `npm run dev`
 2. validate the browser flow through `http://localhost:8080` by default, or your configured `RIVET_PORT`
+
+For managed endpoint latency and cache behavior:
+
+1. run in `RIVET_STORAGE_MODE=managed`
+2. call the same trivial published or latest endpoint twice
+3. expect the first request after startup or after a publish/save/rename/move to be the cold path
+4. expect the second request for the same unchanged workflow to drop onto the warm local path
+5. if you enabled `RIVET_WORKFLOW_EXECUTION_DEBUG_HEADERS=true`, confirm `x-workflow-cache` moves from `miss` to `hit` and inspect `x-workflow-resolve-ms` / `x-workflow-materialize-ms`

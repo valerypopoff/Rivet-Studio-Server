@@ -21,6 +21,11 @@ Inside `Phase 2`, add a required `Phase 2.1` visibility pass:
 - make runtime-library convergence visible across live replicas before relying on scaled endpoint execution
 - treat replica-readiness visibility as part of runtime-library externalization quality, not as optional UI polish
 
+Inside `Phase 2`, add a required `Phase 2.2` endpoint-performance pass:
+
+- make managed published/latest endpoint execution use local derived caches on the warm path instead of repeated remote shared-state reads
+- treat managed endpoint latency as part of shared-state execution quality, not as optional Phase 4 tuning
+
 The reason for this order is simple:
 
 - the current `workflows/` folder model is the biggest obstacle to shared truth across replicas
@@ -58,7 +63,8 @@ That means:
 
 - workflows, recordings, and runtime-library releases can now use shared Postgres plus object storage as the authoritative backend
 - managed runtime-library convergence is now visible across API and executor tiers
-- the next live roadmap step is `Phase 3`: Kubernetes adoption on top of the managed-state architecture
+- the next live roadmap step is `Phase 2.2`: managed endpoint hot-path hardening on top of the managed-state architecture
+- Kubernetes adoption remains the next step after that hardening pass closes
 
 ## End-State Mental Model
 
@@ -96,6 +102,7 @@ These parts still block safe backend autoscaling:
 
 - latest debugger state is process-local
 - public workflow execution currently happens inside the API process tier
+- managed endpoint execution still pays shared-state lookup and revision materialization costs on the request path
 - plugin install/load semantics and any remaining process-local caches still need replica-safe review
 - `filesystem` mode remains single-backend-replica only by design
 
@@ -1352,9 +1359,194 @@ All of these acceptance targets are now met on the current managed implementatio
 11. endpoint-tier reporting reuses the existing API process sync lifecycle instead of creating a second convergence timer
 12. executor-tier reporting reuses the existing executor sync poller instead of creating a parallel readiness timer
 
+## Phase 2.2: Managed Endpoint Hot-Path Hardening - DONE
+
+After phase 2.1, harden managed published/latest endpoint execution before Kubernetes.
+
+The app already has the correct shared-truth architecture for workflows, recordings, and runtime libraries.
+
+That is not enough by itself.
+
+If a trivial endpoint in `filesystem` mode returns in roughly `10ms` but the same endpoint in `managed` mode takes roughly `1000ms`, then the shared-state execution path is still paying the wrong costs on the request hot path.
+
+Kubernetes does not fix that.
+
+It would only replicate the same expensive request path across more pods.
+
+### Why Phase 2.2 is required
+
+Today the managed endpoint hot path still behaves like a cold shared-state read:
+
+- resolve endpoint ownership in Postgres
+- resolve the selected revision row in Postgres
+- fetch the project blob from object storage
+- fetch the dataset blob from object storage when present
+- deserialize the project on demand before execution
+
+That is structurally correct, but it is too expensive for the steady-state warm path.
+
+The goal of Phase 2.2 is to preserve shared truth while making live managed endpoint execution feel like local execution for already-known revisions.
+
+### Phase 2.2 goals
+
+- make warm managed published endpoint execution fast enough to be comparable to `filesystem` mode for trivial no-code workflows
+- make warm managed latest endpoint execution fast enough for normal product use without repeated shared-state round trips
+- keep Postgres as the source of truth for endpoint ownership and revision pointers
+- keep object storage as the source of truth for immutable revision blobs
+- make publish/save/unpublish changes become visible across API replicas without waiting for TTL polling
+- avoid reintroducing pod-local workflow truth or a shared authoritative workflow volume
+
+### Phase 2.2 design
+
+This subphase should add a local derived execution cache to each API replica.
+
+That cache is acceleration only.
+
+It is not a new source of truth.
+
+Recommended internal cache layers:
+
+- `EndpointPointerCache`
+  - key: `runKind + normalizedEndpointName`
+  - value: workflow id, relative path, chosen revision id, and project virtual path
+- `RevisionMaterializationCache`
+  - key: `revisionId`
+  - value: immutable raw revision payload:
+    - project contents
+    - dataset contents
+
+Implementation rules:
+
+- cache raw revision text payloads, not shared mutable execution objects
+- do not store mutable path metadata in the revision cache; current relative path and project virtual path must come from the live endpoint pointer because workflows can be renamed or moved without changing revision ids
+- rebuild per-request `Project`, attached data, and `NodeDatasetProvider` from cached raw contents
+- keep request isolation intact
+- cache positive endpoint/reference resolutions only; do not cache `null` / not-found endpoint lookups in the first version
+- deduplicate in-flight cold loads by endpoint key and revision id so concurrent warm-up requests share one database/blob fetch instead of stampeding Postgres and object storage
+- bind endpoint-load singleflight to the current invalidation generation so a request that starts after a publish/save/unpublish does not accidentally inherit a stale in-flight miss or stale pre-invalidation pointer load
+- if an invalidation lands while an endpoint load is already in flight, that in-flight load must detect the generation change, avoid repopulating pointer cache from pre-invalidation state, and retry from authoritative state before returning
+- use a simple generation model:
+  - one monotonic generation for any invalidation during the pre-query miss window when the workflow id is not known yet
+  - one per-workflow generation after the resolved workflow id is known, so unrelated workflow mutations do not force retries on already-resolved endpoints
+  - one clear-all generation for coarse invalidations such as folder-tree moves
+  - prune old per-workflow generation bookkeeping after a safe retention window so long-lived replicas do not accumulate one entry per historically changed workflow forever
+  - do not prune generation bookkeeping for workflows that currently have an active endpoint load, or the bookkeeping cleanup itself can look like a false mutation to an in-flight request
+- on a cold miss, once the workflow id becomes known, use the recorded invalidation timestamps to distinguish "same workflow changed during this lookup" from "some unrelated workflow changed during this lookup" so unrelated churn does not force unnecessary retries
+- keep object-storage reads parallel on a cache miss
+- replace the current two-step managed endpoint lookup with one joined query that resolves endpoint ownership plus the chosen revision row together
+- make managed project-reference loading reuse the same revision-materialization cache once a reference resolves to a revision; do not add a separate project-reference pointer cache in the first version unless later profiling proves it is needed
+- once a referenced workflow resolves to a concrete workflow id, apply the same invalidation-aware retry rule during referenced revision materialization so a concurrent referenced-workflow change does not return stale referenced contents
+- do not swallow real referenced-workflow load failures behind a generic "all hint paths failed" fallback once a hint path or workflow id has resolved to a real workflow row
+
+### Cross-replica invalidation
+
+Phase 2.2 should not rely on short polling or stale TTLs for correctness.
+
+Recommended invalidation mechanism:
+
+- use Postgres `LISTEN/NOTIFY`
+- publish one transactional invalidation event whenever managed workflow mutation changes endpoint-serving state
+- emit that invalidation from the database transaction itself, not from an application-side post-commit callback, so a process crash after commit cannot silently drop the event
+- emit the invalidation only after the authoritative workflow rows and workflow-endpoint rows reflect the final committed state that should be served
+- the same API process that commits a managed save/publish/unpublish/move/delete mutation must synchronously clear its own local endpoint-pointer entries for that workflow after commit succeeds and before returning the mutation response; `NOTIFY` is for every other replica
+- API replicas keep one dedicated listener connection and invalidate local endpoint caches immediately when they receive a committed change event
+
+The invalidation payload should stay minimal and be used for invalidation, not for clever cache rewrites.
+
+The payload should include:
+
+- workflow id
+- event type
+
+Mutation rules:
+
+- no-op save emits no invalidation
+- any real save, publish, unpublish, rename, move, delete, or import that changes endpoint-serving state invalidates all cached endpoint-pointer entries for that workflow
+- folder-level moves or renames may clear the full endpoint-pointer cache in the first version instead of trying to enumerate every affected workflow id across replicas
+- after invalidation, the next request repopulates from authoritative Postgres state
+- `RevisionMaterializationCache` entries stay valid because revisions are immutable; only pointer entries need correctness-sensitive invalidation in the first version
+
+### Failure and degradation rules
+
+The cache must never become a correctness dependency.
+
+Rules:
+
+- if the invalidation listener is healthy, endpoint pointer cache entries remain valid until invalidated or evicted
+- if the invalidation listener is disconnected, immediately clear endpoint-pointer cache entries, then bypass that pointer cache and do a real managed lookup on each request until the listener is healthy again
+- while the listener is degraded, do not repopulate pointer caches from fallback database lookups; only resume pointer-cache population after a fresh healthy listener session is established
+- when the listener reconnects, keep serving misses until the fresh listener session is fully established rather than trusting pointer entries created before the disconnect
+- if repeated invalidations keep racing a single endpoint load, prefer retrying from authoritative state and eventually failing that one request over serving a stale cached revision
+- revision materialization cache may still be reused while the pointer cache is bypassed
+- degraded mode may be slower, but it must remain correct
+
+### Bounded local cache policy
+
+Phase 2.2 should keep the first version deliberately simple.
+
+Recommended defaults:
+
+- endpoint-pointer cache: LRU by entry count, default `4096`
+- revision-materialization cache: LRU by total bytes, default `64 MiB`
+- skip caching a single revision payload larger than `8 MiB`
+
+Do not add public env knobs for these limits in the first pass unless real profiling proves they are needed operationally.
+
+### Miss-path hardening
+
+Even after caching, the cold miss path still matters after restart, publish, or pod churn.
+
+Required miss-path improvements:
+
+- one joined database lookup for endpoint -> workflow -> chosen revision row
+- in-flight singleflight dedupe for the same endpoint key and the same revision id during cold-start or post-publish warm-up
+- parallel blob reads for project and dataset
+- do not add publish-time background prewarm in the first version; let the first post-invalidation request repopulate lazily unless profiling later proves prewarm is worth the complexity
+
+### Runtime-library interaction rule
+
+The primary target of Phase 2.2 is workflow-state lookup and revision materialization.
+
+Do not block this subphase on redesigning runtime-library execution again.
+
+For trivial workflows with no `Code` nodes, this subphase should assume runtime-library sync is not the dominant hot-path cost, because `ManagedCodeRunner.runCode(...)` is only invoked when a `Code` node executes.
+
+If profiling still shows meaningful extra overhead on trivial no-code endpoint runs after the new execution cache lands, treat that as a follow-up optimization on top of Phase 2.2 rather than as a reason to delay the cache work.
+
+### Phase 2.2 acceptance targets
+
+- warm managed published endpoint p95 under `25ms` for a trivial no-code workflow with no project references and no datasets
+- warm managed latest endpoint p95 under `35ms` for a trivial no-code workflow with no project references and no datasets
+- warm managed published/latest endpoint execution for that trivial workflow class should not hit Postgres or object storage on the steady-state request path after the cache is populated
+- first miss after pod start or after a new publish may still be slower, but should stay under `450ms` for a small workflow without datasets
+- publish changes become visible across live API replicas without waiting for TTL polling
+- save changes to a published workflow update the `latest` route across replicas without waiting for TTL polling
+- `filesystem` mode behavior and latency remain unchanged
+
+### Phase 2.2 test scenarios
+
+1. call the same trivial managed published endpoint twice and confirm the second request is served from the warm cache path
+2. call the same trivial managed latest endpoint twice with no save in between and confirm the second request is served from the warm cache path
+3. save a published workflow in managed mode and confirm the `latest` route changes to the new draft revision while the published route still serves the published revision
+4. publish a new revision in managed mode and confirm all live API replicas invalidate the old endpoint pointer and begin serving the new published revision
+5. unpublish a managed workflow and confirm both published and latest routes stop resolving the old endpoint name
+6. rename or move a published managed workflow and confirm endpoint execution still works and recordings continue attaching to the same workflow id
+7. publish a managed workflow on one API replica and immediately hit the endpoint through that same replica; confirm it does not serve the stale pre-publish pointer before the listener callback arrives
+8. hit a not-yet-published managed endpoint and get `404`, then publish that endpoint and confirm the next request succeeds instead of being trapped behind a cached miss
+9. restart an API replica and confirm the first managed endpoint request can miss, but the second request becomes warm again
+10. simulate invalidation-listener loss and confirm managed endpoint execution remains correct by clearing pointer caches and bypassing pointer-cache hits instead of serving stale data
+11. restore the invalidation listener after a simulated disconnect and confirm the API process resumes normal warm pointer-cache behavior only after the fresh listener session is established
+12. execute a workflow that references another managed workflow and confirm the second run does not refetch the same referenced revision blob, even if reference metadata is still resolved normally
+13. send concurrent cold-start requests for the same managed endpoint and confirm they share one cold-load path instead of triggering duplicate blob downloads for the same revision
+14. start a managed endpoint load, publish a new revision while that load is in flight, and confirm the in-flight request does not repopulate or return the stale pre-publish pointer
+15. start loading a managed referenced workflow, publish or move that referenced workflow while the reference load is in flight, and confirm the reference load retries or fails rather than returning stale referenced contents
+16. force a real managed referenced-workflow load failure after a hint path resolves and confirm the error surfaces as an operational load failure instead of being misreported as "all hint paths failed"
+17. rerun the existing endpoint execution tests in `filesystem` mode and confirm there is no regression
+18. confirm endpoint execution debug headers remain additive-only and are enabled only when the dedicated debug flag is on
+
 ## Phase 3: Kubernetes Adoption
 
-After phases 1 and 2, move the managed architecture onto Kubernetes.
+After phases 1, 2, 2.1, and 2.2, move the managed architecture onto Kubernetes.
 
 At this point Kubernetes becomes much safer because the runtime no longer depends on host folders for authoritative workflow state or runtime-library truth.
 
@@ -1424,7 +1616,7 @@ Reason:
 - plugin behavior and a few remaining backend paths still justify a conservative backend rollout initially
 - external state services are already handled outside the cluster
 
-### Storage in Kubernetes after phases 1 and 2
+### Storage in Kubernetes after phases 1, 2, 2.1, and 2.2
 
 #### No authoritative `workflows` PVC
 
@@ -1507,10 +1699,10 @@ No local workflow folder should matter.
 
 ### Coordination and caching
 
-At higher scale, add:
+At higher scale, extend the cache and coordination model introduced by Phase 2.2:
 
-- cache for endpoint-to-revision lookups
-- cache invalidation or pub/sub on publish changes
+- endpoint-to-revision cache sizing and topology appropriate for a larger execution tier
+- stronger invalidation or pub/sub on publish changes if Postgres `LISTEN/NOTIFY` is no longer sufficient by itself
 - background job coordination for retention, cleanup, or artifact compaction
 
 Use cache only as acceleration.
@@ -1778,7 +1970,7 @@ New operational interfaces introduced by the roadmap:
 - the current host `workflows/` directory becomes migration input in `managed` mode
 - no authoritative `workflows` PVC should exist in the managed runtime architecture
 - no authoritative runtime-libraries PVC should exist in the managed runtime architecture
-- Kubernetes adoption happens after workflow/recording externalization and runtime-library externalization
+- Kubernetes adoption happens after workflow/recording externalization, runtime-library externalization, and managed endpoint hot-path hardening
 
 New internal application interfaces introduced by phase 1:
 
@@ -1819,6 +2011,19 @@ New internal application interfaces introduced by phase 2.1:
 - process-level replica-status reporting attached to the existing managed runtime-library sync lifecycle in API and executor processes
 - an explicit process-role config surface so readiness reporting can distinguish `api` from `executor`
 - server-side aggregation of live versus stale replica readiness by tier
+
+New additive API/debug surface introduced by phase 2.2:
+
+- managed endpoint execution routes should expose additive stage timing headers such as resolve/materialize/execute timing when `RIVET_WORKFLOW_EXECUTION_DEBUG_HEADERS=true`
+- those headers must stay debug-only and must not change normal endpoint response bodies or the existing `x-duration-ms` contract
+
+New internal application interfaces introduced by phase 2.2:
+
+- an API-process `EndpointPointerCache` for managed published/latest endpoint resolution
+- an API-process `RevisionMaterializationCache` for immutable managed revision payloads
+- a transactional Postgres invalidation event emitted from the database transaction itself plus a dedicated listener path for managed endpoint cache invalidation on save/publish/unpublish/move/delete
+- a same-process post-commit pointer-cache invalidation step for the API process that performed the managed mutation
+- in-flight singleflight dedupe for identical managed endpoint/reference cold loads so one revision miss does not fan out into repeated object-storage fetches
 
 ## Test Cases And Scenarios
 
@@ -1876,36 +2081,56 @@ New internal application interfaces introduced by phase 2.1:
 39. `DONE`: confirm `filesystem` mode returns no replica-readiness surface in the modal
 40. `DONE`: confirm the runtime-libraries modal still renders active-job logs, cancellation, and terminal status correctly while readiness polling is enabled
 
+### Phase 2.2: managed endpoint hot-path hardening
+
+41. Measure warm-path managed published and latest endpoint latency for a trivial no-code workflow with no project references and no datasets, and record a baseline against `filesystem` mode.
+42. Confirm debug timing headers for managed endpoint execution are additive-only and appear only when the dedicated execution-debug flag is enabled.
+43. Call the same managed published endpoint twice and confirm the second request is served from the warm local cache path.
+44. Call the same managed latest endpoint twice with no save in between and confirm the second request is served from the warm local cache path.
+45. Confirm warm managed published/latest endpoint execution for that trivial workflow class does not hit Postgres or object storage on the steady-state request path after the cache is populated.
+46. Save a published managed workflow and confirm the `latest` route changes to the new draft revision while the published route still serves the published revision.
+47. Publish a new managed revision and confirm live API replicas invalidate the old endpoint pointer and begin serving the new published revision without TTL polling.
+48. Unpublish a managed workflow and confirm both published and latest routes stop resolving the old endpoint name immediately across replicas.
+49. Publish a managed workflow on one API replica and immediately hit the endpoint through that same replica; confirm it does not serve the stale pre-publish pointer before the listener callback arrives.
+50. Hit a not-yet-published managed endpoint and get `404`, then publish that endpoint and confirm the next request succeeds instead of being trapped behind a cached miss.
+51. Restart an API replica and confirm the first managed endpoint request can miss, but the next request becomes warm again.
+52. Simulate invalidation-listener loss and confirm managed endpoint execution stays correct by clearing pointer caches and bypassing pointer-cache hits rather than serving stale data.
+53. Restore the invalidation listener after a simulated disconnect and confirm the API process resumes normal warm pointer-cache behavior only after the fresh listener session is established.
+54. Execute a workflow that references another managed workflow and confirm the second run does not refetch the same referenced revision blob.
+55. Start loading a managed referenced workflow, publish or move that referenced workflow while the reference load is in flight, and confirm the reference load retries or fails rather than returning stale referenced contents.
+56. Force a real managed referenced-workflow load failure after a hint path resolves and confirm the error surfaces as an operational load failure instead of being misreported as "all hint paths failed".
+57. Send concurrent cold-start requests for the same managed endpoint and confirm they share one cold-load path instead of triggering duplicate blob downloads for the same revision; then rerun the existing endpoint execution suite in `filesystem` mode and confirm there is no regression.
+
 ### Phase 3: Kubernetes adoption
 
-41. Deploy the managed-state version to a test namespace.
-42. Confirm ingress serves `/`.
-43. If UI gate is enabled, confirm gate login works.
-44. Confirm editor iframe loads.
-45. Confirm `/api/*` routes work only through proxy behavior.
-46. Confirm executor websocket works through `/ws/executor/internal`.
-47. Confirm latest debugger websocket works when enabled.
-48. Confirm the workflow tree matches shared database state.
-49. Restart backend pods and confirm no workflow or recording data is lost.
-50. Scale `web` above `1` replica and confirm UI still works.
-51. Scale `proxy` above `1` replica and confirm routing still works.
-52. Confirm `filesystem` mode is rejected or documented as unsupported for backend replica count greater than `1`.
-53. Confirm the app works against the managed Postgres service and managed object storage without in-cluster fallbacks.
-54. Confirm runtime-library managed mode works in-cluster without a shared authoritative runtime-libraries PVC.
+58. Deploy the managed-state version to a test namespace.
+59. Confirm ingress serves `/`.
+60. If UI gate is enabled, confirm gate login works.
+61. Confirm editor iframe loads.
+62. Confirm `/api/*` routes work only through proxy behavior.
+63. Confirm executor websocket works through `/ws/executor/internal`.
+64. Confirm latest debugger websocket works when enabled.
+65. Confirm the workflow tree matches shared database state.
+66. Restart backend pods and confirm no workflow or recording data is lost.
+67. Scale `web` above `1` replica and confirm UI still works.
+68. Scale `proxy` above `1` replica and confirm routing still works.
+69. Confirm `filesystem` mode is rejected or documented as unsupported for backend replica count greater than `1`.
+70. Confirm the app works against the managed Postgres service and managed object storage without in-cluster fallbacks.
+71. Confirm runtime-library managed mode works in-cluster without a shared authoritative runtime-libraries PVC.
 
 ### Phase 4: scale-out
 
-55. Confirm published execution works correctly across multiple execution replicas.
-56. Confirm new publish operations become visible across replicas without filesystem refresh.
-57. Confirm recording metadata and artifacts remain globally visible regardless of which pod executed the run.
-58. Confirm runtime-library activation remains consistent across execution replicas under concurrent publish and execution load.
-59. Confirm endpoint lookup remains correct under cache invalidation and concurrent publish changes.
+72. Confirm published execution works correctly across multiple execution replicas.
+73. Confirm new publish operations become visible across replicas without filesystem refresh.
+74. Confirm recording metadata and artifacts remain globally visible regardless of which pod executed the run.
+75. Confirm runtime-library activation remains consistent across execution replicas under concurrent publish and execution load.
+76. Confirm endpoint lookup remains correct under cache invalidation and concurrent publish changes.
 
 ### Vault and non-root
 
-60. Deploy with Vault injection enabled and verify `/vault/dotenv` is present where expected.
-61. Confirm all containers run as uid/gid `10001`.
-62. Confirm no container requires privileged ports or root-only filesystem writes.
+77. Deploy with Vault injection enabled and verify `/vault/dotenv` is present where expected.
+78. Confirm all containers run as uid/gid `10001`.
+79. Confirm no container requires privileged ports or root-only filesystem writes.
 
 ## Rollout Order
 
@@ -1940,13 +2165,26 @@ New internal application interfaces introduced by phase 2.1:
 29. `DONE`: Add read-only `GET /api/runtime-libraries` readiness aggregation for active-release convergence across live replicas.
 30. `DONE`: Add runtime-libraries modal readiness counts and expandable per-replica details, with modal polling that works even when no job is active.
 31. `DONE`: Validate replica-readiness visibility against partial convergence, stale replicas, sync-failure cases, and the guarantee that UI polling does not itself trigger sync.
-32. Add `image/` Dockerfiles and entrypoints for the managed-state runtime.
-33. Add `charts/` Helm chart and overlays.
-34. Add `.gitlab-ci.yml` for the devops-standard deployment path.
-35. Deploy the managed-state runtime to Kubernetes.
-36. Validate in-cluster behavior with backend scaling still conservative.
-37. Redesign remaining process-local paths.
-38. Scale execution safely only after that redesign is complete.
+32. Add managed endpoint execution timing visibility beyond the existing total-duration header.
+33. Introduce an API-process managed endpoint pointer cache keyed by route kind plus normalized endpoint name.
+34. Keep those pointer caches positive-only in the first version; do not cache managed endpoint misses / not-found results.
+35. Introduce an API-process managed revision materialization cache keyed by immutable revision id.
+36. Add in-flight singleflight dedupe for identical managed endpoint/reference cold loads so concurrent misses share one database/blob fetch.
+37. Refactor managed endpoint resolution to use one joined database lookup for endpoint ownership plus the chosen revision row.
+38. Keep project and dataset blob reads parallel on managed cache misses.
+39. Add transactional Postgres invalidation events for managed endpoint-serving state changes on save/publish/unpublish/move/delete, emitted from the database transaction itself rather than from application post-commit hooks.
+40. Add one dedicated managed endpoint-cache invalidation listener connection per API process, clear pointer caches on listener loss, and bypass pointer-cache hits until listener health is restored.
+41. Add same-process post-commit pointer-cache invalidation logic for the API process that performed the managed mutation so it cannot briefly serve stale pointers before its own listener callback fires.
+42. Invalidate endpoint-pointer cache entries at workflow granularity for any managed mutation that changes endpoint-serving state; keep immutable revision payloads cached.
+43. Reuse managed revision-materialization caching for referenced-project loading during endpoint execution without adding a separate reference-pointer cache in the first version.
+44. Re-measure warm managed published/latest endpoint latency and confirm the Phase 2.2 acceptance targets before Kubernetes work begins.
+45. Add `image/` Dockerfiles and entrypoints for the managed-state runtime.
+46. Add `charts/` Helm chart and overlays.
+47. Add `.gitlab-ci.yml` for the devops-standard deployment path.
+48. Deploy the managed-state runtime to Kubernetes.
+49. Validate in-cluster behavior with backend scaling still conservative.
+50. Redesign remaining process-local paths.
+51. Scale execution safely only after that redesign is complete.
 
 ## What Is Explicitly Out Of Scope For The First Phase
 
@@ -1970,11 +2208,12 @@ New internal application interfaces introduced by phase 2.1:
 - the `filesystem` runtime-library backend is supported only for single-backend-replica deployments
 - the managed backend is the target runtime architecture for Kubernetes and scale
 - the default backend during transition is `filesystem`
-- Kubernetes adoption comes after workflow/recording externalization and runtime-library externalization
+- Kubernetes adoption comes after workflow/recording externalization, runtime-library externalization, and managed endpoint hot-path hardening
 - backend scale-out comes after Kubernetes adoption and after remaining process-local paths are redesigned
 - proxy and web can scale earlier than the stateful backend paths
 - all application containers should run as uid/gid `10001`
 - runtime-library replica-readiness visibility is part of Phase 2 quality, not optional polish
+- managed endpoint hot-path hardening is part of Phase 2 quality, not optional Phase 4 polish
 - endpoint-execution readiness currently maps to the `api` process tier because published/latest endpoint execution still runs there today
 - editor-execution readiness currently maps to the `executor` process tier
 - replica-readiness denominator should use app-observed healthy replicas, not Kubernetes desired replica count
@@ -1982,3 +2221,11 @@ New internal application interfaces introduced by phase 2.1:
 - replica readiness should track only the currently active runtime-library release in the first version
 - the existing process-level managed runtime-library sync in API and executor containers should remain the convergence mechanism, and Phase 2.1 should layer reporting onto it rather than create duplicate convergence timers
 - `GET /api/runtime-libraries` must remain a read-only visibility surface rather than a hidden sync trigger
+- managed endpoint execution caches are local derived acceleration only; Postgres and object storage remain authoritative
+- managed endpoint cache invalidation should use transactional Postgres `LISTEN/NOTIFY` before Kubernetes rollout rather than short TTL polling
+- the API process that commits a managed mutation should also synchronously clear its own pointer caches after commit succeeds instead of waiting for its own async notification callback
+- the first managed endpoint cache should be positive-only; do not cache `404` / not-found endpoint lookups in the initial version
+- the first managed endpoint cache should invalidate at workflow granularity when endpoint-serving state changes; narrower per-route repointing is a later optimization only if needed
+- published execution is the highest-priority managed endpoint hot path, but latest execution should also become warm-path local after cache population
+- the warm latency target is defined first for a trivial managed workflow with no `Code` nodes, no project references, and no datasets
+- runtime-library sync is not expected to dominate that trivial-workflow hot path because `ManagedCodeRunner.runCode(...)` is only reached when a `Code` node executes

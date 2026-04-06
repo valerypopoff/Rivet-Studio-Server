@@ -156,8 +156,24 @@ Current request/response behavior:
 - if the workflow's final `output` port is typed as `any`, the HTTP response body is that raw value
 - otherwise the response body is the full outputs object
 - every execution response sets `x-duration-ms`
+- when `RIVET_WORKFLOW_EXECUTION_DEBUG_HEADERS=true`, execution responses also emit:
+  - `x-workflow-resolve-ms`
+  - `x-workflow-materialize-ms`
+  - `x-workflow-execute-ms`
+  - `x-workflow-cache`
 - if the success payload is an object and does not already include `durationMs`, the API injects `durationMs` into the JSON body
 - failures return JSON shaped like `{ "error": { "name"?: string, "message": string }, "durationMs": number }`
+
+## Managed execution hot path
+
+In `RIVET_STORAGE_MODE=managed`, workflow execution stays authoritative through Postgres plus object storage, but each API replica keeps local derived execution caches for the warm path:
+
+- endpoint-pointer cache entries map `runKind + endpointName` to workflow identity, relative path, and revision id
+- revision-materialization cache entries store immutable raw project and dataset contents by revision id
+- the first request after startup or after an invalidating mutation can still be a cold miss that reads Postgres/object storage
+- repeated requests for the same unchanged workflow reuse the warm local cache path instead of repeating remote shared-state reads
+- pointer-cache invalidation comes from same-process post-commit clearing plus Postgres `LISTEN/NOTIFY`
+- if the invalidation listener is degraded, pointer caches are cleared and bypassed until listener health is restored
 
 ## Workflow execution auth
 
