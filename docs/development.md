@@ -8,7 +8,7 @@ See also: [Mistakes and Misconceptions](./mistakes-and-misconceptions.md)
   - ensures `wrapper/api` and `wrapper/web` dependencies exist
   - clones `rivet/` from the upstream repo if it is missing
   - installs upstream Yarn dependencies and builds `@ironclad/rivet-core` and `@ironclad/rivet-node` when needed
-  - expects `rivet/` to be absent or a Git checkout; if `rivet/` already contains a non-Git snapshot from `npm run setup:rivet`, remove or rename it first
+  - accepts either a Git checkout or a valid upstream snapshot already present in `rivet/`
 - `npm run setup:rivet`
   - downloads the newest stable upstream Rivet tag into `./rivet`
   - use this when you want a clean versioned upstream snapshot for local Docker builds
@@ -24,6 +24,12 @@ See also: [Mistakes and Misconceptions](./mistakes-and-misconceptions.md)
 | `npm run dev:down` | Stops the Docker dev stack | Cleanup |
 | `npm run dev:docker:ps` | Shows Docker dev container status | Diagnostics |
 | `npm run dev:docker:logs` | Streams Docker dev logs | Diagnostics |
+| `npm run dev:kubernetes-test` | Builds local images, deploys the local Kubernetes rehearsal stack, and starts a proxy port-forward | Most authentic local browser rehearsal against managed external services |
+| `npm run dev:kubernetes-test:recreate` | Rebuilds images, recreates the local Kubernetes rehearsal namespace/release, and restarts the proxy port-forward | Reset the local Kubernetes rehearsal cleanly |
+| `npm run dev:kubernetes-test:config` | Generates the local Kubernetes values file and renders the Helm manifest | Verify local Kubernetes launcher wiring without deploying |
+| `npm run dev:kubernetes-test:ps` | Shows local Kubernetes rehearsal pods, deployments, statefulsets, and services | Diagnostics |
+| `npm run dev:kubernetes-test:logs` | Streams logs for the local Kubernetes rehearsal release | Diagnostics |
+| `npm run dev:kubernetes-test:down` | Stops the proxy port-forward and removes the local Kubernetes rehearsal release/namespace | Cleanup |
 | `npm run dev:local` | Starts API, web, and executor as local processes | Process-level debugging |
 | `npm run dev:local:api` | Starts only the API locally | API debugging |
 | `npm run dev:local:web` | Starts only the Vite web app locally | Frontend work |
@@ -37,6 +43,7 @@ See also: [Mistakes and Misconceptions](./mistakes-and-misconceptions.md)
 | `npm run verify:filesystem:docker` | Verifies the filesystem Docker launcher shape with a disposable env/fixture root | Check that Docker launcher config still supports filesystem mode without managed services |
 | `npm run verify:local-docker` | Verifies managed-storage local-Docker launcher shape with a disposable env/fixture root | Check that `managed + local-docker` still enables the expected Postgres/MinIO rehearsal path |
 | `npm run verify:local-docker:split` | Runs split-topology repo-local checks plus local-Docker launcher validation | Check that split-era control/execution contracts still fit the local-Docker managed rehearsal model |
+| `npm run verify:kubernetes` | Runs the Kubernetes static-contract tests, renders the local rehearsal values path, and lint-renders the production overlay | Catch local/prod chart drift before handing the repo to operators |
 | `npm --prefix wrapper/api run workflow-execution:measure -- --base-url http://localhost:8080 --endpoint hello-world --kind published --runs 5 --warmups 1` | Calls one published/latest workflow endpoint repeatedly and prints timing headers | Measure managed cold-hit vs warm-hit behavior safely |
 | `npm run runtime-libraries:managed:audit` | Audits managed runtime-library release/job/object state and writes a JSON snapshot | Inspect live managed runtime-library state safely |
 | `npm run runtime-libraries:managed:prune` | Builds a dry-run prune plan for managed runtime-library state | Review cleanup impact before applying it |
@@ -96,6 +103,71 @@ Compatibility rules:
 - `local-docker` means `RIVET_STORAGE_MODE=managed` with `RIVET_DATABASE_MODE=local-docker`
 - Docker combined-mode rehearsal is necessary but not sufficient to prove the real split runtime shape
 - the repo-local split verification command proves the control-plane versus execution-plane contract; live Kubernetes validation is still required for real in-cluster routing and scaling behavior
+
+## Local Kubernetes launcher
+
+The repo now includes a local Kubernetes rehearsal launcher:
+
+- `npm run dev:kubernetes-test`
+- `npm run dev:kubernetes-test:recreate`
+- `npm run dev:kubernetes-test:down`
+- `npm run dev:kubernetes-test:config`
+- `npm run dev:kubernetes-test:ps`
+- `npm run dev:kubernetes-test:logs`
+- `npm run verify:kubernetes`
+
+Current behavior:
+
+- it builds local `proxy`, `web`, `api`, and `executor` images from the current workspace
+- it deploys the real Helm chart into a dedicated local namespace
+- it targets `RIVET_K8S_CONTEXT` explicitly without mutating your global `kubectl` current-context
+- on Docker-backed local clusters such as Docker Desktop Kubernetes, it imports the freshly built images into the cluster nodes automatically
+- it keeps `web=1`
+- it keeps `backend=1`
+- it scales the legitimate local rehearsal targets:
+  - `proxy`
+  - `execution`
+- it creates Kubernetes secrets from the canonical managed-service envs already used by the app:
+  - `RIVET_KEY`
+  - `RIVET_DATABASE_CONNECTION_STRING`
+  - `RIVET_STORAGE_URL` or the explicit `RIVET_STORAGE_*` tuple
+  - `RIVET_STORAGE_ACCESS_KEY_ID`
+  - `RIVET_STORAGE_ACCESS_KEY`
+- it starts a local `kubectl port-forward` for the proxy service so the app is available on `http://127.0.0.1:${RIVET_K8S_PROXY_PORT:-RIVET_PORT:-8080}`
+- the proxy startup normalizes `RIVET_PROXY_RESOLVER` so Kubernetes DNS service hostnames resolve to the IPs nginx expects
+
+Operational notes:
+
+- this launcher is for the supported Kubernetes topology only:
+  - `proxy>=2`
+  - `web=1`
+  - `backend=1`
+  - `execution>=2`
+- the scalable tiers do not grow in fixed pairs:
+  - a new `execution` pod is only another execution-plane API pod
+  - a new `proxy` pod is only another nginx proxy pod
+- for endpoint-heavy load, `execution` is the primary scale target and `proxy` is the secondary ingress tier
+- it is intentionally opinionated toward external managed Postgres plus external S3 or S3-compatible storage
+- it does not replace the production chart or create a second deployment contract; it is a local wrapper around the same chart the real deployment should use
+- by default it expects the Docker Desktop Kubernetes context `docker-desktop`
+- optional launcher-specific overrides are:
+  - `RIVET_K8S_CONTEXT`
+  - `RIVET_K8S_CLUSTER_DOMAIN`
+  - `RIVET_K8S_NAMESPACE`
+  - `RIVET_K8S_RELEASE`
+  - `RIVET_K8S_PROXY_PORT`
+  - `RIVET_K8S_PROXY_REPLICAS`
+  - `RIVET_K8S_WEB_REPLICAS`
+  - `RIVET_K8S_EXECUTION_REPLICAS`
+  - `RIVET_K8S_LOAD_LOCAL_IMAGES`
+
+For the operator-facing chart contract and handoff checklist, see:
+
+- [Kubernetes](./kubernetes.md)
+
+For the full operator checklist and manual equivalent, see the root runbook:
+
+- [Local Kubernetes Rehearsal for Scaled Execution + Latest Debugger](../Local%20Kubernetes%20Rehearsal%20for%20Scaled%20Execution%20%2B%20Latest%20Debugger.md)
 
 ## Observable Playwright flow
 
@@ -342,16 +414,20 @@ For routing/auth/deployment changes:
 
 For the current Helm chart and images:
 
-1. keep `replicaCount.backend=1`
-2. keep `autoscaling.backend.enabled=false`
-3. keep `workflowStorage.backend=managed` and `runtimeLibraries.backend=managed`
-4. keep `RIVET_PUBLISHED_WORKFLOWS_BASE_PATH=/workflows` and `RIVET_LATEST_WORKFLOWS_BASE_PATH=/workflows-latest`
-5. set `env.RIVET_PROXY_RESOLVER` for in-cluster nginx DNS resolution
-6. provide `RIVET_KEY` through `auth.keySecretName` or Vault, even if the optional UI gate and public workflow bearer checks are disabled
-7. keep the control-plane API on `RIVET_API_PROFILE=control` and the execution Deployment on `RIVET_API_PROFILE=execution`
-8. keep control-plane runtime-library reporting at `RIVET_RUNTIME_LIBRARIES_REPLICA_TIER=none`
-9. keep execution-plane runtime-library reporting at `RIVET_RUNTIME_LIBRARIES_REPLICA_TIER=endpoint` with `RIVET_RUNTIME_LIBRARIES_JOB_WORKER_ENABLED=false`
-10. if Vault is enabled, make sure the injected `/vault/dotenv` carries the required managed Postgres/object-storage env vars before relying on it instead of Kubernetes secret refs
+1. keep `replicaCount.proxy>=2` and let proxy autoscaling absorb ingress pressure from public endpoint traffic
+2. keep `replicaCount.web=1` unless real dashboard/editor traffic becomes significant
+3. keep `replicaCount.backend=1`
+4. keep `autoscaling.backend.enabled=false`
+5. keep `workflowStorage.backend=managed` and `runtimeLibraries.backend=managed`
+6. keep `RIVET_PUBLISHED_WORKFLOWS_BASE_PATH=/workflows` and `RIVET_LATEST_WORKFLOWS_BASE_PATH=/workflows-latest`
+7. set `env.RIVET_PROXY_RESOLVER` for in-cluster nginx DNS resolution
+8. provide `RIVET_KEY` through `auth.keySecretName` or Vault, even if the optional UI gate and public workflow bearer checks are disabled
+9. keep the control-plane API on `RIVET_API_PROFILE=control` and the execution Deployment on `RIVET_API_PROFILE=execution`
+10. keep control-plane runtime-library reporting at `RIVET_RUNTIME_LIBRARIES_REPLICA_TIER=none`
+11. keep execution-plane runtime-library reporting at `RIVET_RUNTIME_LIBRARIES_REPLICA_TIER=endpoint` with `RIVET_RUNTIME_LIBRARIES_JOB_WORKER_ENABLED=false`
+12. if Vault is enabled, make sure the injected `/vault/dotenv` carries the required managed Postgres/object-storage env vars before relying on it instead of Kubernetes secret refs
+13. do not scale `proxy` and `execution` as if they were a fixed pair; they are separate deployments with separate pressure profiles
+14. define concrete CPU and memory requests for at least `resources.proxy` and `resources.execution` before treating the CPU-based HPAs as production-ready
 
 For managed endpoint latency and cache behavior:
 
@@ -373,10 +449,12 @@ For managed endpoint measurement with the dedicated script:
 For the current execution-plane split specifically:
 
 1. keep the control plane conservative and scale the execution Deployment instead of the backend StatefulSet
-2. confirm `${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH}` reaches the execution-plane API while `${RIVET_LATEST_WORKFLOWS_BASE_PATH}` still reaches the control-plane API
-3. confirm `/api/*` and `POST /__rivet_auth` still reach the control-plane API
-4. confirm `/internal/workflows/:endpointName` is not exposed through nginx and is only reachable inside the cluster
-5. confirm runtime-library `Endpoint execution` readiness reflects execution-plane API replicas, not control-plane API replicas
+2. keep the proxy Deployment redundant because every published endpoint call still crosses it
+3. treat `execution` as the primary endpoint-throughput scale boundary and `proxy` as a separate ingress tier rather than a one-for-one partner
+4. confirm `${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH}` reaches the execution-plane API while `${RIVET_LATEST_WORKFLOWS_BASE_PATH}` still reaches the control-plane API
+5. confirm `/api/*` and `POST /__rivet_auth` still reach the control-plane API
+6. confirm `/internal/workflows/:endpointName` is not exposed through nginx and is only reachable inside the cluster
+7. confirm runtime-library `Endpoint execution` readiness reflects execution-plane API replicas, not control-plane API replicas
 
 ## Validation boundaries
 

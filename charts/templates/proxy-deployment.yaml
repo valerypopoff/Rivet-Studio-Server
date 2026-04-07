@@ -52,19 +52,19 @@ spec:
             - name: RIVET_VAULT_DOTENV_FILE_NAME
               value: {{ .Values.vault.dotenvFileName | quote }}
             - name: RIVET_WEB_UPSTREAM_HOST
-              value: {{ include "rivet.webServiceName" . | quote }}
+              value: {{ include "rivet.serviceFqdn" (dict "root" . "serviceName" (include "rivet.webServiceName" .)) | quote }}
             - name: RIVET_WEB_UPSTREAM_PORT
               value: {{ .Values.service.web.port | quote }}
             - name: RIVET_API_UPSTREAM_HOST
-              value: {{ include "rivet.apiServiceName" . | quote }}
+              value: {{ include "rivet.serviceFqdn" (dict "root" . "serviceName" (include "rivet.apiServiceName" .)) | quote }}
             - name: RIVET_API_UPSTREAM_PORT
               value: {{ .Values.service.api.port | quote }}
             - name: RIVET_EXECUTION_UPSTREAM_HOST
-              value: {{ include "rivet.executionServiceName" . | quote }}
+              value: {{ include "rivet.serviceFqdn" (dict "root" . "serviceName" (include "rivet.executionServiceName" .)) | quote }}
             - name: RIVET_EXECUTION_UPSTREAM_PORT
               value: {{ .Values.service.execution.port | quote }}
             - name: RIVET_EXECUTOR_UPSTREAM_HOST
-              value: {{ include "rivet.executorServiceName" . | quote }}
+              value: {{ include "rivet.serviceFqdn" (dict "root" . "serviceName" (include "rivet.executorServiceName" .)) | quote }}
             - name: RIVET_EXECUTOR_UPSTREAM_PORT
               value: {{ .Values.service.executor.port | quote }}
             {{- if .Values.auth.keySecretName }}

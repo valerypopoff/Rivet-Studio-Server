@@ -20,6 +20,7 @@ Rivet Studio Server is a self-hosted personal Rivet platform with a UI that you 
 - [Architecture](./docs/architecture.md)
 - [Access and routing](./docs/access-and-routing.md)
 - [Development](./docs/development.md)
+- [Kubernetes](./docs/kubernetes.md)
 - [Editor bridge](./docs/editor-bridge.md)
 - [Workflow publication](./docs/workflow-publication.md)
 - [Runtime libraries](./docs/runtime-libraries.md)
@@ -103,6 +104,24 @@ npm run dev:docker:ps
 npm run dev:docker:logs
 npm run dev:down
 ```
+
+### Kubernetes shape
+
+The supported Kubernetes topology today is:
+
+- `proxy`: scalable
+- `execution`: scalable
+- `web`: fixed at `1` by default
+- `backend`: fixed at `1`
+
+That is intentional:
+
+- published workflow endpoint traffic is meant to scale on `execution`
+- `proxy` remains a separate ingress tier and does not need to scale one-for-one with `execution`
+- `web` only serves the dashboard/editor shell and can stay single-replica when UI traffic is just one operator
+- `backend` stays singleton because latest execution and `/ws/latest-debugger` are still process-local control-plane features
+
+For the real chart contract, local Kubernetes rehearsal, and production handoff checklist, see [docs/kubernetes.md](./docs/kubernetes.md).
 
 ## Runtime shape
 

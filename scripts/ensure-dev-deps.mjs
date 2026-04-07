@@ -41,6 +41,17 @@ function exists(relPath) {
   return fs.existsSync(path.join(rootDir, relPath));
 }
 
+function hasExpectedRivetWorkspace() {
+  const requiredEntries = [
+    'rivet/package.json',
+    'rivet/.yarnrc.yml',
+    'rivet/packages/core/package.json',
+    'rivet/packages/node/package.json',
+  ];
+
+  return requiredEntries.every((relPath) => exists(relPath));
+}
+
 function ensureRivetRepo() {
   if (fs.existsSync(path.join(rivetDir, '.git'))) {
     return;
@@ -50,8 +61,14 @@ function ensureRivetRepo() {
     const contents = fs.readdirSync(rivetDir);
 
     if (contents.length > 0) {
-      console.error('[predev] Expected rivet/ to be either absent or a Git checkout.');
-      console.error('[predev] Remove or rename the existing rivet/ directory, then run the command again.');
+      if (hasExpectedRivetWorkspace()) {
+        console.log('[predev] Using existing rivet/ snapshot.');
+        return;
+      }
+
+      console.error('[predev] Expected rivet/ to be absent, a Git checkout, or a valid upstream snapshot.');
+      console.error('[predev] The existing rivet/ directory is populated but does not match the expected upstream workspace layout.');
+      console.error('[predev] Remove or rename it, then run the command again.');
       process.exit(1);
     }
   }

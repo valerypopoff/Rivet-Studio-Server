@@ -1,5 +1,7 @@
 imagePullSecrets: []
 
+clusterDomain: cluster.local
+
 images:
   proxy:
     repository: example.invalid/rivet/proxy
@@ -19,29 +21,29 @@ images:
     pullPolicy: IfNotPresent
 
 replicaCount:
-  proxy: 1
+  proxy: 2
   web: 1
   backend: 1
-  execution: 1
+  execution: 2
 
 autoscaling:
   proxy:
-    enabled: false
+    enabled: true
     minReplicas: 2
     maxReplicas: 5
-    targetCPUUtilizationPercentage: 80
+    targetCPUUtilizationPercentage: 75
   web:
     enabled: false
-    minReplicas: 2
-    maxReplicas: 5
+    minReplicas: 1
+    maxReplicas: 1
     targetCPUUtilizationPercentage: 80
   backend:
     enabled: false
     minReplicas: 1
-    maxReplicas: 2
+    maxReplicas: 1
     targetCPUUtilizationPercentage: 80
   execution:
-    enabled: false
+    enabled: true
     minReplicas: 2
     maxReplicas: 10
     targetCPUUtilizationPercentage: 75

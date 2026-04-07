@@ -46,9 +46,13 @@ That control-plane singleton is intentional, not accidental. In the current supp
 
 - `backend` stays at one replica
 - `execution` is the horizontal scale boundary for endpoint traffic
+- `proxy` stays as a separate scalable ingress tier in front of the execution plane
+- `web` may stay at `1` when dashboard/editor traffic is negligible
 - latest-workflow execution and `/ws/latest-debugger` stay on the same control-plane process boundary
 - published endpoint execution scales on the execution Deployment and remains non-debuggable
 - the latest debugger is still process-local rather than a distributed cross-replica service
+
+The important operational detail is that these tiers scale independently. A new execution replica is only another execution-plane API pod; it does not automatically imply a matching proxy pod. In an endpoint-heavy deployment, `execution` is the primary scale target, `proxy` is the supporting ingress tier, `web` can remain fixed at `1`, and `backend` remains singleton by constraint rather than by capacity preference.
 
 ## Hosted UI model
 
@@ -204,9 +208,12 @@ Workflow recording settings are documented in detail in [workflow-publication.md
 |---|---|---|---|
 | Local direct-process | `npm run dev:local` | `http://localhost:5174` | Runs API, web, and executor directly. Good for process-level work, but it does not recreate nginx's trusted-proxy wiring, so browser-driven `/api/*`, `/ui-auth`, and `/ws/latest-debugger` behavior is not representative there. |
 | Docker dev | `npm run dev` | `http://localhost:8080` by default | Closest to production while still using bind mounts and a Vite dev server. The proxy port can be overridden with `RIVET_PORT`. |
+| Local Kubernetes rehearsal | `npm run dev:kubernetes-test` | `http://127.0.0.1:8080` by default | Builds local images, deploys the real Helm chart against the local Kubernetes cluster, keeps `web=1`, keeps `backend=1`, scales `proxy` and `execution`, and port-forwards the proxy service for browser testing. This is the closest local rehearsal of the supported Kubernetes topology. |
 | Production-style Docker | `npm run prod` | `http://localhost:8080` by default | Uses prebuilt images when available, otherwise falls back to local builds. The proxy port can be overridden with `RIVET_PORT`. |
 
 The API now depends on Node's built-in `node:sqlite`, so host-based API execution requires Node 24+.
+
+For the current Kubernetes handoff contract, see [kubernetes.md](kubernetes.md).
 
 ## Boundary guidelines
 

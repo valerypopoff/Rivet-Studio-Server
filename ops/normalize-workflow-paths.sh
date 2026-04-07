@@ -49,6 +49,74 @@ has_nonempty_value() {
   fi
 }
 
+append_space_separated() {
+  list="$1"
+  value="$2"
+
+  if [ -z "$value" ]; then
+    printf '%s' "$list"
+    return
+  fi
+
+  if [ -z "$list" ]; then
+    printf '%s' "$value"
+  else
+    printf '%s %s' "$list" "$value"
+  fi
+}
+
+resolve_proxy_resolver() {
+  value="$1"
+  trimmed=$(printf '%s' "${value}" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+
+  if [ -z "$trimmed" ]; then
+    printf '%s' "$trimmed"
+    return
+  fi
+
+  old_ifs=$IFS
+  IFS=' ,'
+  set -- $trimmed
+  IFS=$old_ifs
+
+  resolved=''
+
+  for resolver in "$@"; do
+    resolver_trimmed=$(printf '%s' "${resolver}" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+    if [ -z "$resolver_trimmed" ]; then
+      continue
+    fi
+
+    case "$resolver_trimmed" in
+      *[!0-9A-Fa-f:.]*)
+        resolver_ips=''
+
+        if command -v getent >/dev/null 2>&1; then
+          resolver_ips=$(getent hosts "$resolver_trimmed" 2>/dev/null | awk '{print $1}' | awk '!seen[$0]++')
+        fi
+
+        if [ -z "$resolver_ips" ] && command -v nslookup >/dev/null 2>&1; then
+          resolver_ips=$(nslookup "$resolver_trimmed" 2>/dev/null | awk '/^Address: / {print $2}' | awk '!seen[$0]++')
+        fi
+
+        if [ -n "$resolver_ips" ]; then
+          for resolver_ip in $resolver_ips; do
+            resolved=$(append_space_separated "$resolved" "$resolver_ip")
+          done
+        else
+          >&2 printf 'Warning: could not resolve RIVET_PROXY_RESOLVER entry "%s"; leaving it unchanged.\n' "$resolver_trimmed"
+          resolved=$(append_space_separated "$resolved" "$resolver_trimmed")
+        fi
+        ;;
+      *)
+        resolved=$(append_space_separated "$resolved" "$resolver_trimmed")
+        ;;
+    esac
+  done
+
+  printf '%s' "$resolved"
+}
+
 sha256_hex() {
   value="$1"
   if command -v sha256sum >/dev/null 2>&1; then
@@ -108,6 +176,7 @@ export RIVET_LATEST_WORKFLOWS_BASE_PATH="$(normalize_path "${RIVET_LATEST_WORKFL
 export RIVET_REQUIRE_UI_GATE_KEY="$(normalize_bool "${RIVET_REQUIRE_UI_GATE_KEY:-}" "0")"
 export RIVET_UI_GATE_KEY_PRESENT="$(has_nonempty_value "${RIVET_KEY:-}")"
 export RIVET_UI_TOKEN_FREE_HOSTS_REGEX="$(build_host_regex "${RIVET_UI_TOKEN_FREE_HOSTS:-}" "${RIVET_KEY:-}")"
+export RIVET_PROXY_RESOLVER="$(resolve_proxy_resolver "${RIVET_PROXY_RESOLVER:-}")"
 export RIVET_PROXY_AUTH_TOKEN="$(sha256_hex "${RIVET_KEY:-}:proxy-auth")"
 export RIVET_UI_SESSION_TOKEN="$(sha256_hex "${RIVET_KEY:-}:ui-session")"
 

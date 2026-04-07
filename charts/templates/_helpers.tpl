@@ -52,6 +52,13 @@ app.kubernetes.io/component: {{ .component }}
 {{- printf "%s-execution" (include "rivet.fullname" .) -}}
 {{- end -}}
 
+{{- define "rivet.serviceFqdn" -}}
+{{- $serviceName := .serviceName -}}
+{{- $namespace := .root.Release.Namespace -}}
+{{- $clusterDomain := default "cluster.local" .root.Values.clusterDomain -}}
+{{- printf "%s.%s.svc.%s" $serviceName $namespace $clusterDomain -}}
+{{- end -}}
+
 {{- define "rivet.backendName" -}}
 {{- printf "%s-backend" (include "rivet.fullname" .) -}}
 {{- end -}}
