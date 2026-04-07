@@ -127,46 +127,36 @@ export function useRemoteExecutor() {
     console.log('sidecar stdout', data);
   };
 
+  const simpleMessageHandlers: Partial<Record<string, (data: unknown) => void>> = {
+    nodeStart: (data) => currentExecution.onNodeStart(data as ProcessEvents['nodeStart']),
+    nodeFinish: (data) => currentExecution.onNodeFinish(data as ProcessEvents['nodeFinish']),
+    nodeError: (data) => currentExecution.onNodeError(data as ProcessEvents['nodeError']),
+    userInput: (data) => currentExecution.onUserInput(data as ProcessEvents['userInput']),
+    start: (data) => currentExecution.onStart(data as ProcessEvents['start']),
+    graphAbort: (data) => currentExecution.onGraphAbort(data as ProcessEvents['graphAbort']),
+    partialOutput: (data) => currentExecution.onPartialOutput(data as ProcessEvents['partialOutput']),
+    graphStart: (data) => currentExecution.onGraphStart(data as ProcessEvents['graphStart']),
+    graphFinish: (data) => currentExecution.onGraphFinish(data as ProcessEvents['graphFinish']),
+    nodeOutputsCleared: (data) => currentExecution.onNodeOutputsCleared(data as ProcessEvents['nodeOutputsCleared']),
+    nodeExcluded: (data) => currentExecution.onNodeExcluded(data as ProcessEvents['nodeExcluded']),
+  };
+
   setCurrentDebuggerMessageHandler((message, data) => {
+    const simpleHandler = simpleMessageHandlers[message];
+    if (simpleHandler) {
+      simpleHandler(data);
+      return;
+    }
+
     switch (message) {
-      case 'nodeStart':
-        currentExecution.onNodeStart(data as ProcessEvents['nodeStart']);
-        break;
-      case 'nodeFinish':
-        currentExecution.onNodeFinish(data as ProcessEvents['nodeFinish']);
-        break;
-      case 'nodeError':
-        currentExecution.onNodeError(data as ProcessEvents['nodeError']);
-        break;
-      case 'userInput':
-        currentExecution.onUserInput(data as ProcessEvents['userInput']);
-        break;
-      case 'start':
-        currentExecution.onStart(data as ProcessEvents['start']);
-        break;
       case 'done':
         const doneData = data as ProcessEvents['done'];
         graphExecutionPromise?.resolve?.(doneData.results);
-        currentExecution.onDone(data as ProcessEvents['done']);
+        currentExecution.onDone(doneData);
         break;
       case 'abort':
         graphExecutionPromise?.reject?.(new Error('graph execution aborted'));
         currentExecution.onAbort(data as ProcessEvents['abort']);
-        break;
-      case 'graphAbort':
-        currentExecution.onGraphAbort(data as ProcessEvents['graphAbort']);
-        break;
-      case 'partialOutput':
-        currentExecution.onPartialOutput(data as ProcessEvents['partialOutput']);
-        break;
-      case 'graphStart':
-        currentExecution.onGraphStart(data as ProcessEvents['graphStart']);
-        break;
-      case 'graphFinish':
-        currentExecution.onGraphFinish(data as ProcessEvents['graphFinish']);
-        break;
-      case 'nodeOutputsCleared':
-        currentExecution.onNodeOutputsCleared(data as ProcessEvents['nodeOutputsCleared']);
         break;
       case 'trace':
         logRemoteTrace(data);
@@ -180,11 +170,10 @@ export function useRemoteExecutor() {
       case 'error':
         const errorData = data as ProcessEvents['error'];
         graphExecutionPromise?.reject?.(errorData.error);
-        currentExecution.onError(data as ProcessEvents['error']);
+        currentExecution.onError(errorData);
         break;
-      case 'nodeExcluded':
-        currentExecution.onNodeExcluded(data as ProcessEvents['nodeExcluded']);
-        break;
+      default:
+        console.warn('Unhandled remote debugger message', message, data);
     }
   });
 

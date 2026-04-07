@@ -1,27 +1,32 @@
-function normalizeBoolean(value, fallback = false) {
-  const normalized = value?.trim().toLowerCase();
+function parseEnv(rawValue, parser, fallback) {
+  const normalized = rawValue?.trim();
   if (!normalized) {
     return fallback;
   }
 
-  if (['1', 'true', 'yes', 'on'].includes(normalized)) {
-    return true;
-  }
+  return parser(normalized, fallback);
+}
 
-  if (['0', 'false', 'no', 'off'].includes(normalized)) {
-    return false;
-  }
+function normalizeBoolean(value, fallback = false) {
+  return parseEnv(value, (normalized) => {
+    const lower = normalized.toLowerCase();
+    if (['1', 'true', 'yes', 'on'].includes(lower)) {
+      return true;
+    }
 
-  return fallback;
+    if (['0', 'false', 'no', 'off'].includes(lower)) {
+      return false;
+    }
+
+    return fallback;
+  }, fallback);
 }
 
 function normalizePositiveInt(value, fallback) {
-  const parsed = Number.parseInt(value ?? '', 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return fallback;
-  }
-
-  return parsed;
+  return parseEnv(value, (normalized) => {
+    const parsed = Number.parseInt(normalized, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+  }, fallback);
 }
 
 function stripDatabaseSslQueryOptions(rawConnectionString) {

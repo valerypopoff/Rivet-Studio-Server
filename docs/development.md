@@ -20,6 +20,7 @@ See also: [Mistakes and Misconceptions](./mistakes-and-misconceptions.md)
 |---|---|---|
 | `npm run dev` | Starts the Docker dev stack | Closest-to-production browser testing |
 | `npm run dev:recreate` | Rebuilds and recreates the Docker dev stack | Pick up Dockerfile/env/runtime changes |
+| `npm run dev:docker:config` | Renders the merged Docker dev Compose config without starting containers | Verify launcher/env/Compose wiring |
 | `npm run dev:down` | Stops the Docker dev stack | Cleanup |
 | `npm run dev:docker:ps` | Shows Docker dev container status | Diagnostics |
 | `npm run dev:docker:logs` | Streams Docker dev logs | Diagnostics |
@@ -29,12 +30,14 @@ See also: [Mistakes and Misconceptions](./mistakes-and-misconceptions.md)
 | `npm run dev:local:executor` | Starts only the executor locally | Executor debugging |
 | `npm run prod` | Starts the production-style Docker stack | Smoke-test deployment behavior |
 | `npm run prod:prebuilt` | Pulls prebuilt images and starts without building | Fast deploy verification |
+| `npm run prod:prebuilt:recreate` | Recreates the prebuilt-image production stack from scratch | Verify the published artifact path cleanly |
 | `npm run prod:local-build` | Forces a local production image build | Test custom image changes |
+| `npm run prod:docker:config` | Renders the merged production-style Docker Compose config without starting containers | Verify launcher/env/Compose wiring |
 | `npm run verify:filesystem` | Runs the repo-local compatibility baseline for single-host filesystem mode | Check that filesystem mode still has build/test and launcher-contract coverage |
 | `npm run verify:filesystem:docker` | Verifies the filesystem Docker launcher shape with a disposable env/fixture root | Check that Docker launcher config still supports filesystem mode without managed services |
 | `npm run verify:local-docker` | Verifies managed-storage local-Docker launcher shape with a disposable env/fixture root | Check that `managed + local-docker` still enables the expected Postgres/MinIO rehearsal path |
 | `npm run verify:local-docker:split` | Runs split-topology repo-local checks plus local-Docker launcher validation | Check that split-era control/execution contracts still fit the local-Docker managed rehearsal model |
-| `npm --prefix wrapper/api run workflow-execution:measure -- --base-url http://localhost:8081 --endpoint hello-world --kind published --runs 5 --warmups 1` | Calls one published/latest workflow endpoint repeatedly and prints timing headers | Measure managed cold-hit vs warm-hit behavior safely |
+| `npm --prefix wrapper/api run workflow-execution:measure -- --base-url http://localhost:8080 --endpoint hello-world --kind published --runs 5 --warmups 1` | Calls one published/latest workflow endpoint repeatedly and prints timing headers | Measure managed cold-hit vs warm-hit behavior safely |
 | `npm run runtime-libraries:managed:audit` | Audits managed runtime-library release/job/object state and writes a JSON snapshot | Inspect live managed runtime-library state safely |
 | `npm run runtime-libraries:managed:prune` | Builds a dry-run prune plan for managed runtime-library state | Review cleanup impact before applying it |
 | `npm run ui:observe:install` | Installs Playwright Chromium for observable frontend runs | First-time browser setup |
@@ -131,17 +134,25 @@ Windows PowerShell override example:
 Important constraints:
 
 - host Node must be `24+` for local API execution because the API now uses Node's built-in `node:sqlite`
-- this mode does not recreate the nginx trusted-proxy layer, so it is best for service-level debugging rather than final end-to-end auth/routing validation
+- this mode does not recreate the nginx trusted-proxy layer
+- the Vite dev server only proxies `/api/*` to the API and `/ws/executor*` to the executor
+- Vite does not proxy the published/latest workflow route families, `/ui-auth`, or `/ws/latest-debugger`, and it does not inject the trusted proxy headers that those control-plane routes expect
+- use it for service-level debugging, direct API/executor work, or frontend iteration that does not rely on fully wired hosted-shell control-plane routing
 - Docker dev remains the best path for testing the full hosted browser flow exactly as deployed
 
-## Docker dev behavior
+## Docker launcher behavior
 
-`npm run dev` uses `ops/docker-compose.dev.yml`.
+The Docker launchers now render layered Compose files:
+
+- `npm run dev` / `npm run dev:docker:*` use `ops/docker-compose.managed-services.yml` plus `ops/docker-compose.dev.yml`
+- `npm run prod` / `npm run prod:docker:*` use `ops/docker-compose.managed-services.yml` plus `ops/docker-compose.yml`
+- the shared file only contributes the managed Postgres/MinIO services, and the launcher auto-enables the `workflow-managed` profile only when `RIVET_STORAGE_MODE=managed`
 
 Current behavior:
 
 - the browser entrypoint is still `http://localhost:8080` through nginx by default; override it with `RIVET_PORT` if needed
 - the API is also exposed directly on `http://localhost:3100` for diagnostics
+- the local Docker stacks keep `RIVET_API_PROFILE=combined` by default, so `/api/*`, `${RIVET_LATEST_WORKFLOWS_BASE_PATH}`, and `${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH}` all land on the same `api` container there
 - the `web` service runs the Vite dev server inside the container with live bind mounts
 - the `api` and `executor` services rebuild from Dockerfiles, so Node/runtime changes are picked up without a separate manual build step
 - the launcher waits for healthy services; `RIVET_DOCKER_WAIT_TIMEOUT` controls the wait window
@@ -213,6 +224,45 @@ For workflow-library project creation behavior:
 5. confirm the folder expands and the new project opens in the editor
 6. confirm there is no inline `+` create-project button on folder rows anymore
 7. try an existing name in the same folder and confirm the UI shows the API conflict instead of silently overwriting the file
+
+For workflow-library folder creation behavior:
+
+1. `npm run dev`
+2. validate the browser flow through `http://localhost:8080` by default, or your configured `RIVET_PORT`
+3. click `+ New folder` at the bottom of the workflow library
+4. enter a folder name when prompted
+5. confirm the new folder appears at the root level of the tree
+6. try an existing root-level name and confirm the UI shows the API conflict instead of silently overwriting anything
+
+For workflow-library folder rename behavior:
+
+1. `npm run dev`
+2. validate the browser flow through `http://localhost:8080` by default, or your configured `RIVET_PORT`
+3. right-click a folder in the left panel and run `Rename folder`
+4. enter a new folder name when prompted
+5. confirm the folder remains in the tree under the new name
+6. if the folder contained projects that are open in the editor, confirm those tabs still point at the renamed paths and save correctly afterward
+7. try renaming to an existing sibling folder name and confirm the UI shows the API conflict
+
+For workflow-library folder deletion behavior:
+
+1. `npm run dev`
+2. validate the browser flow through `http://localhost:8080` by default, or your configured `RIVET_PORT`
+3. right-click an empty folder in the left panel and run `Delete folder`
+4. confirm the UI asks for confirmation before deletion
+5. confirm the folder disappears only after confirming
+6. right-click a non-empty folder and confirm the `Delete folder` action is disabled
+7. if you call the API directly for a non-empty folder, confirm it still rejects with `Only empty folders can be deleted`
+
+For workflow-library drag/drop move behavior:
+
+1. `npm run dev`
+2. validate the browser flow through `http://localhost:8080` by default, or your configured `RIVET_PORT`
+3. drag a project from one folder to another and confirm the tree updates after the drop
+4. if that project is open in the editor, confirm saves still target the new path after the move
+5. drag a folder into another folder and confirm all nested projects move with it
+6. drag a project or folder back to the root area and confirm it is reparented to the root
+7. try to drag a folder into itself or one of its descendants and confirm the move is rejected cleanly
 
 For workflow-library upload behavior:
 
@@ -314,7 +364,7 @@ For managed endpoint measurement with the dedicated script:
 
 1. run the app in `RIVET_STORAGE_MODE=managed`
 2. optionally set `RIVET_WORKFLOW_EXECUTION_DEBUG_HEADERS=true` so the route emits stage timings
-3. run `npm --prefix wrapper/api run workflow-execution:measure -- --base-url http://localhost:8081 --endpoint hello-world --kind published --runs 5 --warmups 1`
+3. run `npm --prefix wrapper/api run workflow-execution:measure -- --base-url http://localhost:8080 --endpoint hello-world --kind published --runs 5 --warmups 1`
 4. expect one output line per request with HTTP status, client duration, `x-duration-ms`, `x-workflow-resolve-ms`, `x-workflow-materialize-ms`, `x-workflow-execute-ms`, and `x-workflow-cache`
 5. if debug headers are disabled, expect those per-stage fields to print as `n/a` rather than failing
 6. use the transition from `x-workflow-cache=miss` to `x-workflow-cache=hit` to verify cold-first-hit then warm-hit behavior
@@ -337,7 +387,7 @@ Use the three validation layers intentionally:
 - managed Docker rehearsal:
   - proves managed-state behavior against disposable Postgres plus object storage
   - use this for workflow-storage migration rehearsal, `workflow-storage:verify`, managed endpoint measurement, hosted browser flows, and runtime-library install/remove/readiness checks
-  - the current Docker stacks still run the API in the `combined` profile, so they do not prove the real control-plane versus execution-plane split by themselves
+  - the current Docker stacks still run the API in the `combined` profile, so they do not prove the real control-plane versus execution-plane split by themselves even though the route families are still exposed at their normal published/latest paths
 - live Kubernetes validation:
   - proves the real split topology, ingress/proxy behavior, control-plane versus execution-plane routing, restart boundaries, and execution scaling
   - do not treat chart render success or Docker rehearsal as a substitute for this layer when the question is about real in-cluster behavior

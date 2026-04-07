@@ -14,6 +14,8 @@ The current runtime split keeps:
   - published workflow execution
   - internal published-only execution for trusted in-cluster callers
 
+Those labels describe logical ownership. In `RIVET_API_PROFILE=combined`, the same API process serves both surfaces. In split deployments, `RIVET_API_PROFILE=control` and `RIVET_API_PROFILE=execution` separate them.
+
 ## Proxy-exposed routes
 
 The Docker dev and production stacks expose these route families through nginx:
@@ -32,12 +34,19 @@ The Docker dev and production stacks expose these route families through nginx:
 
 The nginx configs also set `client_max_body_size 100m`, so large API/editor payloads are allowed up to that limit.
 
+Important local-Docker wiring note:
+
+- the repo-local Docker stacks still run a single `api` container in `combined` mode
+- nginx therefore proxies both `${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH}` and `${RIVET_LATEST_WORKFLOWS_BASE_PATH}` to that same container there
+- the control-plane vs execution-plane labels in the table describe the intended split topology and the route ownership enforced by `RIVET_API_PROFILE`, not a guarantee that local Docker physically runs two API services
+
 ## `/api/*` route families
 
 The wrapper API currently exposes these groups behind `/api`:
 
 - `/api/workflows/*`
   - `GET /api/workflows/tree`
+  - `GET /api/workflows/recordings` (compatibility alias for the workflow-list response)
   - `POST /api/workflows/move`
   - `POST|PATCH|DELETE /api/workflows/folders`
   - `POST|PATCH|DELETE /api/workflows/projects`
@@ -56,13 +65,18 @@ The wrapper API currently exposes these groups behind `/api`:
   - `GET /api/runtime-libraries/`
   - `POST /api/runtime-libraries/install`
   - `POST /api/runtime-libraries/remove`
+  - `POST /api/runtime-libraries/replicas/cleanup`
   - `GET /api/runtime-libraries/jobs/:jobId`
+  - `POST /api/runtime-libraries/jobs/:jobId/cancel`
   - `GET /api/runtime-libraries/jobs/:jobId/stream`
 - `/api/native/*`
   - hosted filesystem read/write/list/remove helpers used by the editor
 - `/api/projects/*`
   - `GET /api/projects/list`
   - `POST /api/projects/open-dialog`
+  - `POST /api/projects/load`
+  - `POST /api/projects/save`
+  - `GET /api/projects/workspace-root`
 - `/api/plugins/*`
   - `POST /api/plugins/install-package`
   - `POST /api/plugins/load-package-main`
@@ -72,6 +86,14 @@ The wrapper API currently exposes these groups behind `/api`:
   - hosted env/config helpers
 
 `GET /healthz` lives on the API service itself and is used by the Docker healthchecks.
+
+Current move-route behavior:
+
+- `POST /api/workflows/move` accepts `{ "itemType": "project" | "folder", "sourceRelativePath": string, "destinationFolderRelativePath"?: string }`
+- omitting or emptying `destinationFolderRelativePath` moves the item back to the workflow root
+- it returns the moved `project` or `folder` plus `movedProjectPaths` for any affected open project references
+- moving a folder into itself or one of its descendants is rejected
+- the dashboard uses this route for workflow-library drag/drop and then applies `movedProjectPaths` through the editor bridge retargeting flow
 
 Current duplicate-route behavior:
 
@@ -96,7 +118,7 @@ Current create-project route behavior:
 
 Current upload-route behavior:
 
-- `POST /api/workflows/projects/upload` accepts `{ "folderRelativePath": string, "fileName": string, "contents": string }`
+- `POST /api/workflows/projects/upload` accepts `{ "folderRelativePath"?: string, "fileName": string, "contents": string }`
 - it returns `201 { "project": WorkflowProjectItem }`
 - it parses the uploaded `.rivet-project`, assigns a fresh workflow metadata ID, updates the stored title to the final saved filename base, and writes only a new project file into the selected folder
 - name collisions are resolved as `Name`, then `Name 1`, `Name 2`, and so on
@@ -242,4 +264,13 @@ Endpoint recording persistence is unaffected by debugger state. Latest-workflow 
 
 `npm run dev` preserves the nginx routing and auth model described above.
 
-`npm run dev:local` does not recreate that proxy boundary. It starts the services directly and serves the web app from Vite on `http://localhost:5174`, so Docker dev remains the authoritative path for validating proxy-injected auth, the UI gate, and production-like routing behavior.
+`npm run dev:local` does not recreate that proxy boundary. It starts the services directly and serves the web app from Vite on `http://localhost:5174`.
+
+Current Vite wiring in that mode:
+
+- `/api/*` is proxied directly to `http://localhost:3100`
+- `/ws/executor` and `/ws/executor/internal` are proxied directly to the local executor websocket service
+- published/latest workflow endpoints, `/ui-auth`, and `/ws/latest-debugger` are not recreated through a trusted proxy layer
+- Vite does not inject nginx's trusted proxy headers when it proxies `/api/*`
+
+That means browser-driven control-plane routes that depend on proxy trust, including `/api/*`, `/ui-auth`, and `/ws/latest-debugger`, are not representative in `dev:local` unless you add your own trusted proxy in front. Use Docker dev for full hosted-shell routing and auth validation.

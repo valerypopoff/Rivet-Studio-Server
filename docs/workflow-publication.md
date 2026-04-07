@@ -2,11 +2,13 @@
 
 Workflows can be published as HTTP endpoints. This document describes the current publication, execution, and recording model.
 
-In the current runtime split:
+In the current deployment model:
 
-- published execution runs on the execution-plane API
-- latest execution stays on the control-plane API
-- internal published-only execution also runs on the execution plane
+- published execution belongs to the execution surface
+- latest execution belongs to the control surface
+- internal published-only execution also belongs to the execution surface
+
+In `RIVET_API_PROFILE=combined`, the same API process serves both surfaces. In split deployments, `RIVET_API_PROFILE=control` and `RIVET_API_PROFILE=execution` separate them.
 
 ## Concepts
 
@@ -114,12 +116,35 @@ In the current dashboard UI, the project-row context menu exposes `Rename projec
 
 - `Rename project` opens Project Settings for that workflow and reuses the existing rename flow there
 
+The folder-row context menu exposes `Rename folder`, `Create project`, `Upload project`, and `Delete folder`.
+
+- `Rename folder` prompts immediately and retargets already-open project tabs through the editor bridge path-move flow
+- `Delete folder` is enabled only for empty folders in the dashboard, and the API still rejects non-empty folder deletion if called directly
+
 `Delete project` is still guarded:
 
 - for `unpublished` projects, clicking it opens Project Settings and the user must click `Delete project` there to complete deletion
 - for `published` or `unpublished_changes` projects, the dashboard shows a toast telling the user to unpublish first
 
 The API delete route itself still handles cleanup even if called directly for a published project.
+
+## Folder management
+
+Workflow folders are managed through:
+
+- `POST /api/workflows/folders`
+- `PATCH /api/workflows/folders`
+- `DELETE /api/workflows/folders`
+
+Current folder behavior:
+
+- the workflow library's `+ New folder` action creates new folders at the root level
+- `Rename folder` prompts for the new name, renames the folder on the backend, returns `movedProjectPaths`, and lets the dashboard retarget open editor tabs without closing them
+- folder rename preserves expanded-state intent by remapping the saved expanded-folder ids to the new relative path
+- `Delete folder` is restricted to empty folders only
+- the dashboard shows `Delete folder` as disabled for non-empty folders, and the API enforces the same rule with `409 Only empty folders can be deleted`
+- projects and folders can be moved by drag-and-drop, which calls the move route and returns `movedProjectPaths` when project paths changed
+- folder moves and renames are intentionally path-based operations; they do not create new workflow IDs or duplicate any project state
 
 ## Project creation
 
@@ -239,11 +264,11 @@ Two public endpoint families exist:
 - **Published** (`${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH:-/workflows}/:endpointName`)
   - serves the frozen published snapshot
   - stable across live edits
-  - is routed to the execution-plane API
+  - belongs to the execution surface
 - **Latest** (`${RIVET_LATEST_WORKFLOWS_BASE_PATH:-/workflows-latest}/:endpointName`)
   - serves the live project file for the same published workflow
   - reflects unpublished changes immediately
-  - stays on the control-plane API
+  - belongs to the control surface
 
 Both routes:
 
@@ -263,7 +288,7 @@ There is also an internal published-only route:
 
 - `POST /internal/workflows/:endpointName`
 
-That route is mounted on the execution-plane API service, is not exposed through nginx, and intentionally skips public bearer auth for trusted intra-stack callers.
+That route is mounted on the execution surface, is not exposed through nginx, and intentionally skips public bearer auth for trusted intra-stack callers.
 
 ## HTTP execution contract
 
@@ -299,6 +324,8 @@ That cache/invalidation model is reused unchanged across both API planes:
 - execution-plane API replicas serve the published route
 - control-plane API replicas still serve the latest route
 - both planes stay correct through the same managed invalidation and immutable-revision cache rules
+
+In local Docker combined mode, those same route families still terminate at the single `api` container because the local stacks do not split the API profile by default.
 
 The later cleanup pass did not change those cache semantics. It was structural only:
 
@@ -451,8 +478,15 @@ When a run is opened, the hosted editor:
 
 ## Project rename, move, and delete behavior
 
-When a project is renamed, moved, duplicated, uploaded, downloaded, or deleted, sidecars and publication artifacts stay consistent:
+When a project or folder is renamed, moved, duplicated, uploaded, downloaded, or deleted, sidecars and publication artifacts stay consistent:
 
+- **Folder rename/move**
+  - recomputes every affected project path under that folder
+  - returns `movedProjectPaths` so the dashboard/editor bridge can retarget already-open tabs
+  - does not create new workflow IDs or copy project contents
+- **Folder delete**
+  - succeeds only when the folder is empty
+  - never implicitly deletes child projects, snapshots, sidecars, or recordings
 - **Rename/move**
   - `moveProjectWithSidecars()` renames the project, `.rivet-data`, and `.wrapper-settings.json`
   - folder moves calculate all affected absolute project paths so the dashboard/editor bridge can retarget open tabs
@@ -481,7 +515,12 @@ When a project is renamed, moved, duplicated, uploaded, downloaded, or deleted, 
 - `wrapper/api/src/routes/workflows/publication.ts` - publication logic, status derivation, endpoint lookup
 - `wrapper/api/src/routes/workflows/execution.ts` - public/latest/internal execution handlers
 - `wrapper/api/src/routes/workflows/storage-backend.ts` - backend-specific execution resolution and hosted-project dispatch
-- `wrapper/api/src/routes/workflows/managed/backend.ts` - managed endpoint resolution, invalidation, and revision materialization
+- `wrapper/api/src/routes/workflows/managed/backend.ts` - managed workflow facade that wires the storage and execution submodules together
+- `wrapper/api/src/routes/workflows/managed/catalog.ts` - managed folder/project CRUD, hosted-path reads, and download/duplicate/upload flows
+- `wrapper/api/src/routes/workflows/managed/revisions.ts` - managed save/import flows and revision persistence
+- `wrapper/api/src/routes/workflows/managed/publication.ts` - managed publish/unpublish mutations
+- `wrapper/api/src/routes/workflows/managed/recordings.ts` - managed recording import, persistence, listing, artifact reads, and deletion
+- `wrapper/api/src/routes/workflows/managed/schema.ts` - managed Postgres schema DDL
 - `wrapper/api/src/routes/workflows/managed/execution-cache.ts` - managed endpoint-pointer and immutable revision-payload caches
 - `wrapper/api/src/routes/workflows/managed/execution-invalidation.ts` - managed execution invalidation listener lifecycle, generation bookkeeping, and transactional invalidation helpers
 - `wrapper/api/src/routes/workflows/managed/execution-service.ts` - managed published/latest execution loading, revision materialization, reference loading, and debug info production

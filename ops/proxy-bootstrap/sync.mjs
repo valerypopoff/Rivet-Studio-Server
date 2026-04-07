@@ -96,16 +96,21 @@ function createReplicaStatusReporter(pool, config) {
   let lastCleanupAt = 0;
   let priorReplicaRowsCleared = false;
 
-  const handleReportingError = (error, action) => {
-    if (getPgErrorCode(error) === REPLICA_STATUS_UNDEFINED_TABLE_CODE) {
-      if (!schemaMissingLogged) {
-        console.warn(`[runtime-libraries] replica-status reporting skipped during ${action}: runtime_library_replica_status does not exist yet.`);
-        schemaMissingLogged = true;
+  const safeReplicaStatusWrite = async (action, fn) => {
+    try {
+      await fn();
+      schemaMissingLogged = false;
+    } catch (error) {
+      if (getPgErrorCode(error) === REPLICA_STATUS_UNDEFINED_TABLE_CODE) {
+        if (!schemaMissingLogged) {
+          console.warn(`[runtime-libraries] replica-status reporting skipped during ${action}: runtime_library_replica_status does not exist yet.`);
+          schemaMissingLogged = true;
+        }
+        return;
       }
-      return;
-    }
 
-    console.error(`[runtime-libraries] replica-status reporting failed during ${action}:`, error);
+      console.error(`[runtime-libraries] replica-status reporting failed during ${action}:`, error);
+    }
   };
 
   const upsert = async ({
@@ -116,7 +121,7 @@ function createReplicaStatusReporter(pool, config) {
     lastSyncStartedAt,
     lastSyncCompletedAt,
   }) => {
-    try {
+    await safeReplicaStatusWrite('status upsert', async () => {
       await pool.query(
         `
           INSERT INTO runtime_library_replica_status(
@@ -167,10 +172,7 @@ function createReplicaStatusReporter(pool, config) {
           lastSyncCompletedAt,
         ],
       );
-      schemaMissingLogged = false;
-    } catch (error) {
-      handleReportingError(error, 'status upsert');
-    }
+    });
   };
 
   const clearPriorReplicaRows = async () => {
@@ -178,7 +180,7 @@ function createReplicaStatusReporter(pool, config) {
       return;
     }
 
-    try {
+    await safeReplicaStatusWrite('superseded status cleanup', async () => {
       await pool.query(
         `
           DELETE FROM runtime_library_replica_status
@@ -189,10 +191,7 @@ function createReplicaStatusReporter(pool, config) {
         [config.runtimeProcessRole, displayName, replicaId],
       );
       priorReplicaRowsCleared = true;
-      schemaMissingLogged = false;
-    } catch (error) {
-      handleReportingError(error, 'superseded status cleanup');
-    }
+    });
   };
 
   const cleanupStaleRows = async () => {
@@ -200,7 +199,7 @@ function createReplicaStatusReporter(pool, config) {
       return;
     }
 
-    try {
+    await safeReplicaStatusWrite('status cleanup', async () => {
       await pool.query(
         `
           DELETE FROM runtime_library_replica_status
@@ -209,10 +208,7 @@ function createReplicaStatusReporter(pool, config) {
         [config.replicaStatusRetentionMs],
       );
       lastCleanupAt = Date.now();
-      schemaMissingLogged = false;
-    } catch (error) {
-      handleReportingError(error, 'status cleanup');
-    }
+    });
   };
 
   return {
@@ -262,11 +258,9 @@ function createReplicaStatusReporter(pool, config) {
       await cleanupStaleRows();
     },
     async dispose() {
-      try {
+      await safeReplicaStatusWrite('status delete', async () => {
         await pool.query('DELETE FROM runtime_library_replica_status WHERE replica_id = $1', [replicaId]);
-      } catch (error) {
-        handleReportingError(error, 'status delete');
-      }
+      });
     },
   };
 }

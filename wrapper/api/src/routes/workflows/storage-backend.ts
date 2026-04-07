@@ -84,61 +84,81 @@ async function getManagedBackend(): Promise<ManagedWorkflowBackend> {
   return managedBackendPromise;
 }
 
-export async function initializeWorkflowStorage(): Promise<void> {
+async function delegate<T>(
+  managedFn: (backend: ManagedWorkflowBackend) => Promise<T>,
+  fsFn: () => Promise<T>,
+): Promise<T> {
   if (isManagedWorkflowStorageEnabled()) {
-    await getManagedBackend();
-    return;
+    const backend = await getManagedBackend();
+    return managedFn(backend);
   }
 
-  const root = await ensureWorkflowsRoot();
-  await initializeWorkflowRecordingStorage(root);
+  return fsFn();
+}
+
+async function delegateWithWorkflowsRoot<T>(
+  managedFn: (backend: ManagedWorkflowBackend) => Promise<T>,
+  fsFn: (root: string) => Promise<T>,
+): Promise<T> {
+  return delegate(managedFn, async () => fsFn(await ensureWorkflowsRoot()));
+}
+
+export async function initializeWorkflowStorage(): Promise<void> {
+  await delegate(
+    async () => {
+      await getManagedBackend();
+    },
+    async () => {
+      const root = await ensureWorkflowsRoot();
+      await initializeWorkflowRecordingStorage(root);
+    },
+  );
 }
 
 export async function getWorkflowTree() {
-  if (isManagedWorkflowStorageEnabled()) {
-    return (await getManagedBackend()).getTree();
-  }
-
-  const root = await ensureWorkflowsRoot();
-  return {
-    root,
-    folders: await listWorkflowFolders(root),
-    projects: await listWorkflowProjects(root),
-  };
+  return delegateWithWorkflowsRoot(
+    async (backend) => backend.getTree(),
+    async (root) => ({
+      root,
+      folders: await listWorkflowFolders(root),
+      projects: await listWorkflowProjects(root),
+    }),
+  );
 }
 
 export async function listHostedProjectPaths(): Promise<string[]> {
-  if (isManagedWorkflowStorageEnabled()) {
-    return (await getManagedBackend()).listProjectPathsForHostedIo();
-  }
-
-  const root = await ensureWorkflowsRoot();
-  const projects = await listWorkflowProjects(root);
-  const folders = await listWorkflowFolders(root);
-  const nestedProjects = folders.flatMap(function flatten(folder): WorkflowProjectItem[] {
-    return [...folder.projects, ...folder.folders.flatMap(flatten)];
-  });
-  return [...projects, ...nestedProjects].map((project) => project.absolutePath);
+  return delegateWithWorkflowsRoot(
+    async (backend) => backend.listProjectPathsForHostedIo(),
+    async (root) => {
+      const projects = await listWorkflowProjects(root);
+      const folders = await listWorkflowFolders(root);
+      const nestedProjects = folders.flatMap(function flatten(folder): WorkflowProjectItem[] {
+        return [...folder.projects, ...folder.folders.flatMap(flatten)];
+      });
+      return [...projects, ...nestedProjects].map((project) => project.absolutePath);
+    },
+  );
 }
 
 export async function loadHostedProject(projectPath: string): Promise<LoadHostedProjectResult> {
-  if (isManagedWorkflowStorageEnabled()) {
-    return (await getManagedBackend()).loadHostedProject(projectPath);
-  }
+  return delegate<LoadHostedProjectResult>(
+    async (backend) => backend.loadHostedProject(projectPath),
+    async () => {
+      const [project, attachedData] = await loadProjectAndAttachedDataFromFile(projectPath);
+      void project;
+      void attachedData;
+      const fs = await import('node:fs/promises');
+      const { getWorkflowDatasetPath, pathExists } = await import('./fs-helpers.js');
+      const datasetPath = getWorkflowDatasetPath(projectPath);
+      const datasetsContents = await pathExists(datasetPath) ? await fs.readFile(datasetPath, 'utf8') : null;
 
-  const [project, attachedData] = await loadProjectAndAttachedDataFromFile(projectPath);
-  void project;
-  void attachedData;
-  const fs = await import('node:fs/promises');
-  const { getWorkflowDatasetPath, pathExists } = await import('./fs-helpers.js');
-  const datasetPath = getWorkflowDatasetPath(projectPath);
-  const datasetsContents = await pathExists(datasetPath) ? await fs.readFile(datasetPath, 'utf8') : null;
-
-  return {
-    contents: await fs.readFile(projectPath, 'utf8'),
-    datasetsContents,
-    revisionId: null,
-  };
+      return {
+        contents: await fs.readFile(projectPath, 'utf8'),
+        datasetsContents,
+        revisionId: null,
+      };
+    },
+  );
 }
 
 export async function saveHostedProject(options: {
@@ -147,30 +167,31 @@ export async function saveHostedProject(options: {
   datasetsContents: string | null;
   expectedRevisionId?: string | null;
 }): Promise<SaveHostedProjectResult> {
-  if (isManagedWorkflowStorageEnabled()) {
-    return await (await getManagedBackend()).saveHostedProject(options);
-  }
+  return delegate<SaveHostedProjectResult>(
+    async (backend) => backend.saveHostedProject(options),
+    async () => {
+      const fs = await import('node:fs/promises');
+      const path = await import('node:path');
+      const { getWorkflowDatasetPath } = await import('./fs-helpers.js');
 
-  const fs = await import('node:fs/promises');
-  const path = await import('node:path');
-  const { getWorkflowDatasetPath } = await import('./fs-helpers.js');
+      await fs.mkdir(path.dirname(options.projectPath), { recursive: true });
+      await fs.writeFile(options.projectPath, options.contents, 'utf8');
 
-  await fs.mkdir(path.dirname(options.projectPath), { recursive: true });
-  await fs.writeFile(options.projectPath, options.contents, 'utf8');
+      const datasetPath = getWorkflowDatasetPath(options.projectPath);
+      if (options.datasetsContents != null) {
+        await fs.writeFile(datasetPath, options.datasetsContents, 'utf8');
+      } else {
+        await fs.rm(datasetPath, { force: true }).catch(() => {});
+      }
 
-  const datasetPath = getWorkflowDatasetPath(options.projectPath);
-  if (options.datasetsContents != null) {
-    await fs.writeFile(datasetPath, options.datasetsContents, 'utf8');
-  } else {
-    await fs.rm(datasetPath, { force: true }).catch(() => {});
-  }
-
-  return {
-    path: options.projectPath,
-    revisionId: null,
-    project: null,
-    created: false,
-  };
+      return {
+        path: options.projectPath,
+        revisionId: null,
+        project: null,
+        created: false,
+      };
+    },
+  );
 }
 
 export async function readManagedHostedText(filePath: string): Promise<string> {
@@ -198,12 +219,10 @@ export async function readManagedHostedRelativeProject(relativeFrom: string, pro
 }
 
 export async function listWorkflowRecordingWorkflowsWithBackend(): Promise<WorkflowRecordingWorkflowListResponse> {
-  if (isManagedWorkflowStorageEnabled()) {
-    return (await getManagedBackend()).listWorkflowRecordingWorkflows();
-  }
-
-  const root = await ensureWorkflowsRoot();
-  return listWorkflowRecordingWorkflows(root);
+  return delegateWithWorkflowsRoot(
+    async (backend) => backend.listWorkflowRecordingWorkflows(),
+    async (root) => listWorkflowRecordingWorkflows(root),
+  );
 }
 
 export async function listWorkflowRecordingRunsPageWithBackend(
@@ -212,31 +231,24 @@ export async function listWorkflowRecordingRunsPageWithBackend(
   pageSize: number,
   statusFilter: WorkflowRecordingFilterStatus,
 ): Promise<WorkflowRecordingRunsPageResponse> {
-  if (isManagedWorkflowStorageEnabled()) {
-    return (await getManagedBackend()).listWorkflowRecordingRunsPage(workflowId, page, pageSize, statusFilter);
-  }
-
-  const root = await ensureWorkflowsRoot();
-  return listWorkflowRecordingRunsPage(root, workflowId, page, pageSize, statusFilter);
+  return delegateWithWorkflowsRoot(
+    async (backend) => backend.listWorkflowRecordingRunsPage(workflowId, page, pageSize, statusFilter),
+    async (root) => listWorkflowRecordingRunsPage(root, workflowId, page, pageSize, statusFilter),
+  );
 }
 
 export async function readWorkflowRecordingArtifactWithBackend(recordingId: string, artifact: 'recording' | 'replay-project' | 'replay-dataset'): Promise<string> {
-  if (isManagedWorkflowStorageEnabled()) {
-    return (await getManagedBackend()).readWorkflowRecordingArtifact(recordingId, artifact);
-  }
-
-  const root = await ensureWorkflowsRoot();
-  return readWorkflowRecordingArtifact(root, recordingId, artifact);
+  return delegateWithWorkflowsRoot(
+    async (backend) => backend.readWorkflowRecordingArtifact(recordingId, artifact),
+    async (root) => readWorkflowRecordingArtifact(root, recordingId, artifact),
+  );
 }
 
 export async function deleteWorkflowRecordingWithBackend(recordingId: string): Promise<void> {
-  if (isManagedWorkflowStorageEnabled()) {
-    await (await getManagedBackend()).deleteWorkflowRecording(recordingId);
-    return;
-  }
-
-  const root = await ensureWorkflowsRoot();
-  await deleteWorkflowRecording(root, recordingId);
+  await delegateWithWorkflowsRoot(
+    async (backend) => backend.deleteWorkflowRecording(recordingId),
+    async (root) => deleteWorkflowRecording(root, recordingId),
+  );
 }
 
 export async function moveWorkflowItemWithBackend(
@@ -244,105 +256,91 @@ export async function moveWorkflowItemWithBackend(
   sourceRelativePath: unknown,
   destinationFolderRelativePath: unknown,
 ): Promise<{ folder?: WorkflowFolderItem; project?: WorkflowProjectItem; movedProjectPaths: WorkflowProjectPathMove[] }> {
-  if (isManagedWorkflowStorageEnabled()) {
-    const backend = await getManagedBackend();
-    return itemType === 'project'
-      ? await backend.moveWorkflowProject(sourceRelativePath, destinationFolderRelativePath)
-      : await backend.moveWorkflowFolder(sourceRelativePath, destinationFolderRelativePath);
-  }
-
-  const root = await ensureWorkflowsRoot();
-  return itemType === 'project'
-    ? await moveWorkflowProject(root, sourceRelativePath, destinationFolderRelativePath)
-    : await moveWorkflowFolder(root, sourceRelativePath, destinationFolderRelativePath);
+  return delegateWithWorkflowsRoot(
+    async (backend) => itemType === 'project'
+      ? backend.moveWorkflowProject(sourceRelativePath, destinationFolderRelativePath)
+      : backend.moveWorkflowFolder(sourceRelativePath, destinationFolderRelativePath),
+    async (root) => itemType === 'project'
+      ? moveWorkflowProject(root, sourceRelativePath, destinationFolderRelativePath)
+      : moveWorkflowFolder(root, sourceRelativePath, destinationFolderRelativePath),
+  );
 }
 
 export async function createWorkflowFolderItemWithBackend(name: unknown, parentRelativePath: unknown) {
-  if (isManagedWorkflowStorageEnabled()) {
-    return (await getManagedBackend()).createWorkflowFolderItem(name, parentRelativePath);
-  }
-
-  return createWorkflowFolderItem(name, parentRelativePath);
+  return delegate(
+    async (backend) => backend.createWorkflowFolderItem(name, parentRelativePath),
+    async () => createWorkflowFolderItem(name, parentRelativePath),
+  );
 }
 
 export async function renameWorkflowFolderItemWithBackend(relativePath: unknown, newName: unknown) {
-  if (isManagedWorkflowStorageEnabled()) {
-    return (await getManagedBackend()).renameWorkflowFolderItem(relativePath, newName);
-  }
-
-  return renameWorkflowFolderItem(relativePath, newName);
+  return delegate(
+    async (backend) => backend.renameWorkflowFolderItem(relativePath, newName),
+    async () => renameWorkflowFolderItem(relativePath, newName),
+  );
 }
 
 export async function deleteWorkflowFolderItemWithBackend(relativePath: unknown) {
-  if (isManagedWorkflowStorageEnabled()) {
-    return (await getManagedBackend()).deleteWorkflowFolderItem(relativePath);
-  }
-
-  return deleteWorkflowFolderItem(relativePath);
+  return delegate(
+    async (backend) => backend.deleteWorkflowFolderItem(relativePath),
+    async () => deleteWorkflowFolderItem(relativePath),
+  );
 }
 
 export async function createWorkflowProjectItemWithBackend(folderRelativePath: unknown, name: unknown) {
-  if (isManagedWorkflowStorageEnabled()) {
-    return (await getManagedBackend()).createWorkflowProjectItem(folderRelativePath, name);
-  }
-
-  return createWorkflowProjectItem(folderRelativePath, name);
+  return delegate(
+    async (backend) => backend.createWorkflowProjectItem(folderRelativePath, name),
+    async () => createWorkflowProjectItem(folderRelativePath, name),
+  );
 }
 
 export async function renameWorkflowProjectItemWithBackend(relativePath: unknown, newName: unknown) {
-  if (isManagedWorkflowStorageEnabled()) {
-    return (await getManagedBackend()).renameWorkflowProjectItem(relativePath, newName);
-  }
-
-  return renameWorkflowProjectItem(relativePath, newName);
+  return delegate(
+    async (backend) => backend.renameWorkflowProjectItem(relativePath, newName),
+    async () => renameWorkflowProjectItem(relativePath, newName),
+  );
 }
 
 export async function duplicateWorkflowProjectItemWithBackend(relativePath: unknown, version: WorkflowProjectDownloadVersion) {
-  if (isManagedWorkflowStorageEnabled()) {
-    return (await getManagedBackend()).duplicateWorkflowProjectItem(relativePath, version);
-  }
-
-  return duplicateWorkflowProjectItem(relativePath, version);
+  return delegate(
+    async (backend) => backend.duplicateWorkflowProjectItem(relativePath, version),
+    async () => duplicateWorkflowProjectItem(relativePath, version),
+  );
 }
 
 export async function uploadWorkflowProjectItemWithBackend(folderRelativePath: unknown, fileName: unknown, contents: unknown) {
-  if (isManagedWorkflowStorageEnabled()) {
-    return (await getManagedBackend()).uploadWorkflowProjectItem(folderRelativePath, fileName, contents);
-  }
-
-  return uploadWorkflowProjectItem(folderRelativePath, fileName, contents);
+  return delegate(
+    async (backend) => backend.uploadWorkflowProjectItem(folderRelativePath, fileName, contents),
+    async () => uploadWorkflowProjectItem(folderRelativePath, fileName, contents),
+  );
 }
 
 export async function readWorkflowProjectDownloadWithBackend(relativePath: unknown, version: WorkflowProjectDownloadVersion) {
-  if (isManagedWorkflowStorageEnabled()) {
-    return (await getManagedBackend()).readWorkflowProjectDownload(relativePath, version);
-  }
-
-  return readWorkflowProjectDownload(relativePath, version);
+  return delegate(
+    async (backend) => backend.readWorkflowProjectDownload(relativePath, version),
+    async () => readWorkflowProjectDownload(relativePath, version),
+  );
 }
 
 export async function publishWorkflowProjectItemWithBackend(relativePath: unknown, settings: WorkflowProjectSettingsDraft | unknown) {
-  if (isManagedWorkflowStorageEnabled()) {
-    return (await getManagedBackend()).publishWorkflowProjectItem(relativePath, settings);
-  }
-
-  return publishWorkflowProjectItem(relativePath, settings);
+  return delegate(
+    async (backend) => backend.publishWorkflowProjectItem(relativePath, settings),
+    async () => publishWorkflowProjectItem(relativePath, settings),
+  );
 }
 
 export async function unpublishWorkflowProjectItemWithBackend(relativePath: unknown) {
-  if (isManagedWorkflowStorageEnabled()) {
-    return (await getManagedBackend()).unpublishWorkflowProjectItem(relativePath);
-  }
-
-  return unpublishWorkflowProjectItem(relativePath);
+  return delegate(
+    async (backend) => backend.unpublishWorkflowProjectItem(relativePath),
+    async () => unpublishWorkflowProjectItem(relativePath),
+  );
 }
 
 export async function deleteWorkflowProjectItemWithBackend(relativePath: unknown) {
-  if (isManagedWorkflowStorageEnabled()) {
-    return (await getManagedBackend()).deleteWorkflowProjectItem(relativePath);
-  }
-
-  return deleteWorkflowProjectItem(relativePath);
+  return delegate(
+    async (backend) => backend.deleteWorkflowProjectItem(relativePath),
+    async () => deleteWorkflowProjectItem(relativePath),
+  );
 }
 
 export async function resolvePublishedExecutionProject(endpointName: string): Promise<ExecutionProjectResult | null> {
@@ -388,12 +386,10 @@ export async function resolveLatestExecutionProject(endpointName: string): Promi
 }
 
 export async function createExecutionProjectReferenceLoader(projectPath: string) {
-  if (isManagedWorkflowStorageEnabled()) {
-    return (await getManagedBackend()).createProjectReferenceLoader();
-  }
-
-  const root = await ensureWorkflowsRoot();
-  return createPublishedWorkflowProjectReferenceLoader(root, projectPath);
+  return delegateWithWorkflowsRoot(
+    async (backend) => backend.createProjectReferenceLoader(),
+    async (root) => createPublishedWorkflowProjectReferenceLoader(root, projectPath),
+  );
 }
 
 export async function persistWorkflowExecutionRecordingWithBackend(options: {

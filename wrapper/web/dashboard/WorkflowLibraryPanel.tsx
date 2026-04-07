@@ -36,6 +36,7 @@ import {
   normalizeWorkflowPath,
   ROOT_DROP_TARGET,
 } from './workflowLibraryHelpers';
+import { applyFolderMoveToTree, remapExpandedFolderIds } from './workflowTreeOps';
 import './WorkflowLibraryPanel.css';
 
 const PROJECT_SAVE_REFRESH_DELAY_MS = 150;
@@ -55,224 +56,6 @@ const normalizePromptValue = (value: string | null): string | null => {
 
   const normalizedValue = value.trim();
   return normalizedValue || null;
-};
-
-const remapExpandedFolderIds = (
-  expandedFolders: Record<string, boolean>,
-  fromRelativePath: string,
-  toRelativePath: string,
-): Record<string, boolean> => {
-  const normalizedFromPath = normalizeWorkflowPath(fromRelativePath);
-  const normalizedToPath = normalizeWorkflowPath(toRelativePath);
-
-  if (normalizedFromPath === normalizedToPath) {
-    return expandedFolders;
-  }
-
-  let changed = false;
-  const nextExpandedFolders: Record<string, boolean> = {};
-
-  for (const [folderId, isExpanded] of Object.entries(expandedFolders)) {
-    const normalizedFolderId = normalizeWorkflowPath(folderId);
-
-    if (
-      normalizedFolderId === normalizedFromPath ||
-      normalizedFolderId.startsWith(`${normalizedFromPath}/`)
-    ) {
-      const suffix = normalizedFolderId.slice(normalizedFromPath.length);
-      nextExpandedFolders[`${normalizedToPath}${suffix}`] = isExpanded;
-      changed = true;
-      continue;
-    }
-
-    nextExpandedFolders[folderId] = isExpanded;
-  }
-
-  return changed ? nextExpandedFolders : expandedFolders;
-};
-
-const rewriteWorkflowPathPrefix = (value: string, fromPath: string, toPath: string): string => {
-  const normalizedValue = normalizeWorkflowPath(value);
-  const normalizedFromPath = normalizeWorkflowPath(fromPath);
-  const normalizedToPath = normalizeWorkflowPath(toPath);
-
-  if (normalizedValue === normalizedFromPath) {
-    return normalizedToPath;
-  }
-
-  if (normalizedValue.startsWith(`${normalizedFromPath}/`)) {
-    return `${normalizedToPath}${normalizedValue.slice(normalizedFromPath.length)}`;
-  }
-
-  return value;
-};
-
-const rewriteProjectForFolderMove = (
-  project: WorkflowProjectItem,
-  sourceFolder: WorkflowFolderItem,
-  destinationFolder: WorkflowFolderItem,
-): WorkflowProjectItem => ({
-  ...project,
-  relativePath: rewriteWorkflowPathPrefix(project.relativePath, sourceFolder.relativePath, destinationFolder.relativePath),
-  absolutePath: rewriteWorkflowPathPrefix(project.absolutePath, sourceFolder.absolutePath, destinationFolder.absolutePath),
-});
-
-const rewriteFolderTreeForFolderMove = (
-  folder: WorkflowFolderItem,
-  sourceFolder: WorkflowFolderItem,
-  destinationFolder: WorkflowFolderItem,
-): WorkflowFolderItem => {
-  const nextFolders = folder.folders.map((childFolder) =>
-    rewriteFolderTreeForFolderMove(childFolder, sourceFolder, destinationFolder));
-  const nextProjects = folder.projects.map((project) =>
-    rewriteProjectForFolderMove(project, sourceFolder, destinationFolder));
-  const normalizedFolderPath = normalizeWorkflowPath(folder.relativePath);
-  const normalizedSourcePath = normalizeWorkflowPath(sourceFolder.relativePath);
-  const isMovedFolder = normalizedFolderPath === normalizedSourcePath ||
-    normalizedFolderPath.startsWith(`${normalizedSourcePath}/`);
-
-  if (!isMovedFolder) {
-    return {
-      ...folder,
-      folders: nextFolders,
-      projects: nextProjects,
-    };
-  }
-
-  const isMovedRoot = normalizedFolderPath === normalizedSourcePath;
-
-  return {
-    ...folder,
-    id: rewriteWorkflowPathPrefix(folder.id, sourceFolder.relativePath, destinationFolder.relativePath),
-    name: isMovedRoot ? destinationFolder.name : folder.name,
-    relativePath: rewriteWorkflowPathPrefix(folder.relativePath, sourceFolder.relativePath, destinationFolder.relativePath),
-    absolutePath: rewriteWorkflowPathPrefix(folder.absolutePath, sourceFolder.absolutePath, destinationFolder.absolutePath),
-    updatedAt: isMovedRoot ? destinationFolder.updatedAt : folder.updatedAt,
-    folders: nextFolders,
-    projects: nextProjects,
-  };
-};
-
-const detachFolderFromTree = (
-  folders: WorkflowFolderItem[],
-  sourceRelativePath: string,
-): {
-  folders: WorkflowFolderItem[];
-  removedFolder: WorkflowFolderItem | null;
-} => {
-  const normalizedSourcePath = normalizeWorkflowPath(sourceRelativePath);
-  let removedFolder: WorkflowFolderItem | null = null;
-  let changed = false;
-
-  const nextFolders: WorkflowFolderItem[] = [];
-
-  for (const folder of folders) {
-    if (normalizeWorkflowPath(folder.relativePath) === normalizedSourcePath) {
-      removedFolder = folder;
-      changed = true;
-      continue;
-    }
-
-    const detachedChildren = detachFolderFromTree(folder.folders, sourceRelativePath);
-    if (detachedChildren.removedFolder) {
-      removedFolder = detachedChildren.removedFolder;
-      changed = true;
-      nextFolders.push({
-        ...folder,
-        folders: detachedChildren.folders,
-      });
-      continue;
-    }
-
-    nextFolders.push(folder);
-  }
-
-  return {
-    folders: changed ? nextFolders : folders,
-    removedFolder,
-  };
-};
-
-const insertFolderIntoTree = (
-  folders: WorkflowFolderItem[],
-  parentRelativePath: string,
-  folderToInsert: WorkflowFolderItem,
-): {
-  folders: WorkflowFolderItem[];
-  inserted: boolean;
-} => {
-  const normalizedParentPath = normalizeWorkflowPath(parentRelativePath);
-
-  if (!normalizedParentPath) {
-    return {
-      folders: [...folders, folderToInsert],
-      inserted: true,
-    };
-  }
-
-  let inserted = false;
-  const nextFolders = folders.map((folder) => {
-    if (normalizeWorkflowPath(folder.relativePath) === normalizedParentPath) {
-      inserted = true;
-      return {
-        ...folder,
-        folders: [...folder.folders, folderToInsert],
-      };
-    }
-
-    const insertedChildren = insertFolderIntoTree(folder.folders, parentRelativePath, folderToInsert);
-    if (!insertedChildren.inserted) {
-      return folder;
-    }
-
-    inserted = true;
-    return {
-      ...folder,
-      folders: insertedChildren.folders,
-    };
-  });
-
-  return {
-    folders: inserted ? nextFolders : folders,
-    inserted,
-  };
-};
-
-const applyFolderMoveToTree = (
-  folders: WorkflowFolderItem[],
-  rootProjects: WorkflowProjectItem[],
-  sourceFolder: WorkflowFolderItem,
-  destinationFolder: WorkflowFolderItem,
-): {
-  folders: WorkflowFolderItem[];
-  rootProjects: WorkflowProjectItem[];
-} => {
-  const rewrittenInPlace = {
-    folders: folders.map((folder) => rewriteFolderTreeForFolderMove(folder, sourceFolder, destinationFolder)),
-    rootProjects: rootProjects.map((project) => rewriteProjectForFolderMove(project, sourceFolder, destinationFolder)),
-  };
-  const sourceParentRelativePath = getParentRelativePath(sourceFolder.relativePath);
-  const destinationParentRelativePath = getParentRelativePath(destinationFolder.relativePath);
-
-  if (normalizeWorkflowPath(sourceParentRelativePath) === normalizeWorkflowPath(destinationParentRelativePath)) {
-    return rewrittenInPlace;
-  }
-
-  const detached = detachFolderFromTree(folders, sourceFolder.relativePath);
-  if (!detached.removedFolder) {
-    return rewrittenInPlace;
-  }
-
-  const movedFolder = rewriteFolderTreeForFolderMove(detached.removedFolder, sourceFolder, destinationFolder);
-  const inserted = insertFolderIntoTree(detached.folders, destinationParentRelativePath, movedFolder);
-  if (!inserted.inserted) {
-    return rewrittenInPlace;
-  }
-
-  return {
-    folders: inserted.folders,
-    rootProjects,
-  };
 };
 
 async function pickWorkflowProjectFile(): Promise<File | null> {
@@ -345,6 +128,22 @@ interface WorkflowLibraryPanelProps {
   onCollapse?: () => void;
 }
 
+type WorkflowProjectModalState = {
+  mode: 'download' | 'duplicate';
+  project: WorkflowProjectItem;
+};
+
+type WorkflowActionState = {
+  projectPath: string | null;
+  version: WorkflowProjectDownloadVersion | null;
+};
+
+type WorkflowDragState = {
+  draggedItem: DraggedWorkflowItem | null;
+  dropTargetFolderPath: string | null;
+  dragOverRoot: boolean;
+};
+
 export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   onOpenProject,
   onOpenRecording,
@@ -363,10 +162,11 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
   const projectRowRefs = useRef<Record<string, HTMLButtonElement | null>>({});
-  const [draggedItem, setDraggedItem] = useState<DraggedWorkflowItem | null>(null);
-  const [dropTargetFolderPath, setDropTargetFolderPath] = useState<string | null>(null);
-  const [dragOverRoot, setDragOverRoot] = useState(false);
-  const [settingsModalOpen, setSettingsModalOpen] = useState(false);
+  const [dragState, setDragState] = useState<WorkflowDragState>({
+    draggedItem: null,
+    dropTargetFolderPath: null,
+    dragOverRoot: false,
+  });
   const [selectedProjectPath, setSelectedProjectPath] = useState('');
   const [settingsModalProject, setSettingsModalProject] = useState<WorkflowProjectItem | null>(null);
   const [runtimeLibsOpen, setRuntimeLibsOpen] = useState(false);
@@ -382,14 +182,23 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     y: number;
   } | null>(null);
   const [uploadingFolderPath, setUploadingFolderPath] = useState<string | null>(null);
-  const [downloadModalProject, setDownloadModalProject] = useState<WorkflowProjectItem | null>(null);
-  const [duplicateModalProject, setDuplicateModalProject] = useState<WorkflowProjectItem | null>(null);
-  const [downloadingProjectPath, setDownloadingProjectPath] = useState<string | null>(null);
-  const [downloadingVersion, setDownloadingVersion] = useState<WorkflowProjectDownloadVersion | null>(null);
-  const [duplicatingProjectPath, setDuplicatingProjectPath] = useState<string | null>(null);
-  const [duplicatingVersion, setDuplicatingVersion] = useState<WorkflowProjectDownloadVersion | null>(null);
+  const [projectModalState, setProjectModalState] = useState<WorkflowProjectModalState | null>(null);
+  const [downloadState, setDownloadState] = useState<WorkflowActionState>({
+    projectPath: null,
+    version: null,
+  });
+  const [duplicateState, setDuplicateState] = useState<WorkflowActionState>({
+    projectPath: null,
+    version: null,
+  });
   const refreshRequestIdRef = useRef(0);
   const projectSaveRefreshTimeoutRef = useRef<number | null>(null);
+  const { draggedItem, dropTargetFolderPath, dragOverRoot } = dragState;
+  const downloadingProjectPath = downloadState.projectPath;
+  const downloadingVersion = downloadState.version;
+  const duplicatingProjectPath = duplicateState.projectPath;
+  const duplicatingVersion = duplicateState.version;
+  const settingsModalOpen = settingsModalProject != null;
 
   const refresh = useCallback(async (
     showLoading = true,
@@ -629,9 +438,11 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   };
 
   const resetDragState = () => {
-    setDraggedItem(null);
-    setDropTargetFolderPath(null);
-    setDragOverRoot(false);
+    setDragState({
+      draggedItem: null,
+      dropTargetFolderPath: null,
+      dragOverRoot: false,
+    });
   };
 
   const toggleFolderExpanded = (folderId: string) => {
@@ -707,7 +518,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   const handleDragStart = (item: DraggedWorkflowItem) => (event: React.DragEvent<HTMLElement>) => {
     event.dataTransfer.effectAllowed = 'move';
     event.dataTransfer.setData('text/plain', item.relativePath);
-    setDraggedItem(item);
+    setDragState((prev) => ({ ...prev, draggedItem: item }));
   };
 
   const handleDragEnd = () => {
@@ -722,8 +533,11 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     event.preventDefault();
     event.stopPropagation();
     event.dataTransfer.dropEffect = 'move';
-    setDropTargetFolderPath(folder.relativePath);
-    setDragOverRoot(false);
+    setDragState((prev) => ({
+      ...prev,
+      dropTargetFolderPath: folder.relativePath,
+      dragOverRoot: false,
+    }));
   };
 
   const handleFolderDrop = (folder: WorkflowFolderItem) => async (event: React.DragEvent<HTMLElement>) => {
@@ -739,8 +553,11 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
 
     event.preventDefault();
     event.dataTransfer.dropEffect = 'move';
-    setDropTargetFolderPath(ROOT_DROP_TARGET);
-    setDragOverRoot(true);
+    setDragState((prev) => ({
+      ...prev,
+      dropTargetFolderPath: ROOT_DROP_TARGET,
+      dragOverRoot: true,
+    }));
   };
 
   const handleRootDrop = async (event: React.DragEvent<HTMLDivElement>) => {
@@ -967,34 +784,28 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     uploadingFolderPath,
   ]);
 
-  const closeDownloadModal = useCallback(() => {
-    if (downloadingVersion) {
+  const closeProjectModal = useCallback(() => {
+    if (downloadingVersion || duplicatingVersion) {
       return;
     }
 
-    setDownloadModalProject(null);
-  }, [downloadingVersion]);
-
-  const closeDuplicateModal = useCallback(() => {
-    if (duplicatingVersion) {
-      return;
-    }
-
-    setDuplicateModalProject(null);
-  }, [duplicatingVersion]);
+    setProjectModalState(null);
+  }, [downloadingVersion, duplicatingVersion]);
 
   const startDuplicateProject = useCallback(async (
     project: WorkflowProjectItem,
     version: WorkflowProjectDownloadVersion,
     options?: { closeModal?: boolean },
   ) => {
-    setDuplicatingProjectPath(project.relativePath);
-    setDuplicatingVersion(version);
+    setDuplicateState({
+      projectPath: project.relativePath,
+      version,
+    });
 
     try {
       await duplicateWorkflowProjectVersion(project.relativePath, version);
       if (options?.closeModal) {
-        setDuplicateModalProject(null);
+        setProjectModalState(null);
       }
 
       try {
@@ -1005,8 +816,10 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     } catch (err: any) {
       toast.error(err.message || 'Failed to duplicate project');
     } finally {
-      setDuplicatingVersion((currentVersion) => currentVersion === version ? null : currentVersion);
-      setDuplicatingProjectPath((currentPath) => currentPath === project.relativePath ? null : currentPath);
+      setDuplicateState((current) =>
+        current.projectPath === project.relativePath && current.version === version
+          ? { projectPath: null, version: null }
+          : current);
     }
   }, [refresh]);
 
@@ -1019,8 +832,10 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     closeProjectContextMenu();
 
     if (targetProject.settings.status === 'unpublished_changes') {
-      setDownloadModalProject(null);
-      setDuplicateModalProject(targetProject);
+      setProjectModalState({
+        mode: 'duplicate',
+        project: targetProject,
+      });
       return;
     }
 
@@ -1041,19 +856,23 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     version: WorkflowProjectDownloadVersion,
     options?: { closeModal?: boolean },
   ) => {
-    setDownloadingProjectPath(project.relativePath);
-    setDownloadingVersion(version);
+    setDownloadState({
+      projectPath: project.relativePath,
+      version,
+    });
 
     try {
       await downloadWorkflowProject(project.relativePath, version);
       if (options?.closeModal) {
-        setDownloadModalProject(null);
+        setProjectModalState(null);
       }
     } catch (err: any) {
       toast.error(err.message || 'Failed to download project');
     } finally {
-      setDownloadingVersion((currentVersion) => currentVersion === version ? null : currentVersion);
-      setDownloadingProjectPath((currentPath) => currentPath === project.relativePath ? null : currentPath);
+      setDownloadState((current) =>
+        current.projectPath === project.relativePath && current.version === version
+          ? { projectPath: null, version: null }
+          : current);
     }
   }, []);
 
@@ -1066,8 +885,10 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     closeProjectContextMenu();
 
     if (targetProject.settings.status === 'unpublished_changes') {
-      setDuplicateModalProject(null);
-      setDownloadModalProject(targetProject);
+      setProjectModalState({
+        mode: 'download',
+        project: targetProject,
+      });
       return;
     }
 
@@ -1090,12 +911,10 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     }
 
     setSettingsModalProject(activeProject);
-    setSettingsModalOpen(true);
   };
 
   const openProjectSettingsModal = useCallback((project: WorkflowProjectItem) => {
     setSettingsModalProject(project);
-    setSettingsModalOpen(true);
   }, []);
 
   const handleDeleteProjectFromContextMenu = useCallback(() => {
@@ -1157,9 +976,16 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   };
 
   const closeSettingsModal = () => {
-    setSettingsModalOpen(false);
     setSettingsModalProject(null);
   };
+
+  const projectModalProject = projectModalState?.project ?? null;
+  const projectModalMode = projectModalState?.mode ?? 'download';
+  const projectModalActiveVersion = projectModalProject == null
+    ? null
+    : projectModalMode === 'download'
+      ? downloadingProjectPath === projectModalProject.relativePath ? downloadingVersion : null
+      : duplicatingProjectPath === projectModalProject.relativePath ? duplicatingVersion : null;
 
   let bodyContent: JSX.Element | null = null;
   if (loading) {
@@ -1193,7 +1019,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
         onFolderDrop={(folder) => (event) => void handleFolderDrop(folder)(event)}
         onFolderDragLeave={(folder) => {
           if (dropTargetFolderPath === folder.relativePath) {
-            setDropTargetFolderPath(null);
+            setDragState((prev) => ({ ...prev, dropTargetFolderPath: null }));
           }
         }}
         getParentRelativePath={getParentRelativePath}
@@ -1236,9 +1062,9 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
         className={`body${dragOverRoot ? ' drag-over-root' : ''}`}
         onDragOver={handleRootDragOver}
         onDragLeave={() => {
-          setDragOverRoot(false);
+          setDragState((prev) => ({ ...prev, dragOverRoot: false }));
           if (dropTargetFolderPath === ROOT_DROP_TARGET) {
-            setDropTargetFolderPath(null);
+            setDragState((prev) => ({ ...prev, dropTargetFolderPath: null }));
           }
         }}
         onDrop={(event) => void handleRootDrop(event)}
@@ -1326,45 +1152,34 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
         />
       ) : null}
       <WorkflowProjectDownloadModal
-        isOpen={downloadModalProject != null}
-        project={downloadModalProject}
-        actionLabel="Download"
-        activeVersion={downloadingProjectPath === downloadModalProject?.relativePath ? downloadingVersion : null}
-        onClose={closeDownloadModal}
+        isOpen={projectModalProject != null}
+        project={projectModalProject}
+        actionLabel={projectModalMode === 'download' ? 'Download' : 'Duplicate'}
+        activeVersion={projectModalActiveVersion}
+        onClose={closeProjectModal}
         onSelectPublished={() => {
-          if (!downloadModalProject) {
+          if (!projectModalProject) {
             return;
           }
 
-          void startDownloadProject(downloadModalProject, 'published', { closeModal: true });
+          if (projectModalMode === 'download') {
+            void startDownloadProject(projectModalProject, 'published', { closeModal: true });
+            return;
+          }
+
+          void startDuplicateProject(projectModalProject, 'published', { closeModal: true });
         }}
         onSelectUnpublishedChanges={() => {
-          if (!downloadModalProject) {
+          if (!projectModalProject) {
             return;
           }
 
-          void startDownloadProject(downloadModalProject, 'live', { closeModal: true });
-        }}
-      />
-      <WorkflowProjectDownloadModal
-        isOpen={duplicateModalProject != null}
-        project={duplicateModalProject}
-        actionLabel="Duplicate"
-        activeVersion={duplicatingProjectPath === duplicateModalProject?.relativePath ? duplicatingVersion : null}
-        onClose={closeDuplicateModal}
-        onSelectPublished={() => {
-          if (!duplicateModalProject) {
+          if (projectModalMode === 'download') {
+            void startDownloadProject(projectModalProject, 'live', { closeModal: true });
             return;
           }
 
-          void startDuplicateProject(duplicateModalProject, 'published', { closeModal: true });
-        }}
-        onSelectUnpublishedChanges={() => {
-          if (!duplicateModalProject) {
-            return;
-          }
-
-          void startDuplicateProject(duplicateModalProject, 'live', { closeModal: true });
+          void startDuplicateProject(projectModalProject, 'live', { closeModal: true });
         }}
       />
     </div>

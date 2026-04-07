@@ -190,6 +190,34 @@ export const OverlayTabs: FC = () => {
   };
 
   const communityEnabled = useFeatureFlag('community');
+  const menuItems: Array<{
+    id: string;
+    label: string;
+    className: string;
+    overlay: typeof openOverlay;
+    hidden?: boolean;
+    suffix?: JSX.Element;
+  }> = [
+    { id: 'canvas', label: 'Canvas', className: 'canvas-menu', overlay: undefined },
+    { id: 'plugins', label: 'Plugins', className: 'plugins', overlay: 'plugins' },
+    { id: 'community', label: 'Community', className: 'community', overlay: 'community', hidden: !communityEnabled },
+    { id: 'prompt-designer', label: 'Prompt Designer', className: 'prompt-designer-menu', overlay: 'promptDesigner' },
+    {
+      id: 'trivet',
+      label: 'Trivet Tests',
+      className: 'trivet-menu',
+      overlay: 'trivet',
+      suffix: trivet.runningTests
+        ? (
+            <div className="spinner">
+              <LoadingSpinner />
+            </div>
+          )
+        : undefined,
+    },
+    { id: 'chat-viewer', label: 'Chat Viewer', className: 'chat-viewer-menu', overlay: 'chatViewer' },
+    { id: 'data-studio', label: 'Data Studio', className: 'data-studio', overlay: 'dataStudio' },
+  ];
 
   return (
     <div css={styles} className={clsx({ 'sidebar-open': sidebarOpen })}>
@@ -218,102 +246,30 @@ export const OverlayTabs: FC = () => {
           </div>
         )}
 
-        <div className={clsx('menu-item canvas-menu', { active: openOverlay === undefined })}>
-          <button
-            className="dropdown-item"
-            onMouseDown={(e) => {
-              if (e.button === 0) {
-                setOpenOverlay(undefined);
-              }
-            }}
-          >
-            Canvas
-          </button>
-        </div>
+        {menuItems
+          .filter((item) => !item.hidden)
+          .map((item) => (
+            <div key={item.id} className={clsx('menu-item', item.className, { active: openOverlay === item.overlay })}>
+              <button
+                className="dropdown-item"
+                onMouseDown={(e) => {
+                  if (e.button !== 0) {
+                    return;
+                  }
 
-        <div className={clsx('menu-item plugins', { active: openOverlay === 'plugins' })}>
-          <button
-            className="dropdown-item"
-            onMouseDown={(e) => {
-              if (e.button === 0) {
-                setOpenOverlay((currentOverlay) => (currentOverlay === 'plugins' ? undefined : 'plugins'));
-              }
-            }}
-          >
-            Plugins
-          </button>
-        </div>
+                  if (item.overlay === undefined) {
+                    setOpenOverlay(undefined);
+                    return;
+                  }
 
-        {communityEnabled && (
-          <div className={clsx('menu-item community', { active: openOverlay === 'community' })}>
-            <button
-              className="dropdown-item"
-              onMouseDown={(e) => {
-                if (e.button === 0) {
-                  setOpenOverlay((currentOverlay) => (currentOverlay === 'community' ? undefined : 'community'));
-                }
-              }}
-            >
-              Community
-            </button>
-          </div>
-        )}
-
-        <div className={clsx('menu-item prompt-designer-menu', { active: openOverlay === 'promptDesigner' })}>
-          <button
-            className="dropdown-item"
-            onMouseDown={(e) => {
-              if (e.button === 0) {
-                setOpenOverlay((currentOverlay) =>
-                  currentOverlay === 'promptDesigner' ? undefined : 'promptDesigner',
-                );
-              }
-            }}
-          >
-            Prompt Designer
-          </button>
-        </div>
-        <div className={clsx('menu-item trivet-menu', { active: openOverlay === 'trivet' })}>
-          <button
-            className="dropdown-item"
-            onMouseDown={(e) => {
-              if (e.button === 0) {
-                setOpenOverlay((currentOverlay) => (currentOverlay === 'trivet' ? undefined : 'trivet'));
-              }
-            }}
-          >
-            Trivet Tests
-            {trivet.runningTests && (
-              <div className="spinner">
-                <LoadingSpinner />
-              </div>
-            )}
-          </button>
-        </div>
-        <div className={clsx('menu-item chat-viewer-menu', { active: openOverlay === 'chatViewer' })}>
-          <button
-            className="dropdown-item"
-            onMouseDown={(e) => {
-              if (e.button === 0) {
-                setOpenOverlay((currentOverlay) => (currentOverlay === 'chatViewer' ? undefined : 'chatViewer'));
-              }
-            }}
-          >
-            Chat Viewer
-          </button>
-        </div>
-        <div className={clsx('menu-item data-studio', { active: openOverlay === 'dataStudio' })}>
-          <button
-            className="dropdown-item"
-            onMouseDown={(e) => {
-              if (e.button === 0) {
-                setOpenOverlay((currentOverlay) => (currentOverlay === 'dataStudio' ? undefined : 'dataStudio'));
-              }
-            }}
-          >
-            Data Studio
-          </button>
-        </div>
+                  setOpenOverlay((currentOverlay) => (currentOverlay === item.overlay ? undefined : item.overlay));
+                }}
+              >
+                {item.label}
+                {item.suffix}
+              </button>
+            </div>
+          ))}
       </div>
     </div>
   );

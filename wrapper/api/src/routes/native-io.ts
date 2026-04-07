@@ -88,6 +88,14 @@ function normalizeManagedVirtualPath(filePath: string): string {
   return normalized || getManagedWorkflowVirtualRoot();
 }
 
+function isManagedVirtualPath(filePath: string, baseDir?: NativeBaseDir): boolean {
+  return !baseDir && isManagedWorkflowStorageEnabled() && isManagedWorkflowVirtualReference(filePath);
+}
+
+function isManagedRelativeVirtualPath(relativeFrom: string): boolean {
+  return isManagedWorkflowStorageEnabled() && isManagedWorkflowVirtualReference(relativeFrom);
+}
+
 async function listManagedVirtualEntries(): Promise<ManagedVirtualEntry[]> {
   const tree = await getWorkflowTree();
   const entries: ManagedVirtualEntry[] = [
@@ -153,7 +161,7 @@ export function resolveNativePath(inputPath: string, baseDir?: NativeBaseDir): s
 }
 
 export async function listNativeDirectory(dirPath: string, baseDir: NativeBaseDir | undefined, options: ReadDirOptions): Promise<string[]> {
-  if (!baseDir && isManagedWorkflowStorageEnabled() && isManagedWorkflowVirtualReference(dirPath)) {
+  if (isManagedVirtualPath(dirPath, baseDir)) {
     const root = getManagedWorkflowVirtualRoot();
     const normalizedDirPath = normalizeManagedVirtualPath(dirPath);
     const entries = await listManagedVirtualEntries();
@@ -205,7 +213,7 @@ export async function listNativeDirectory(dirPath: string, baseDir: NativeBaseDi
 }
 
 export async function readNativeText(filePath: string, baseDir?: NativeBaseDir): Promise<string> {
-  if (!baseDir && isManagedWorkflowStorageEnabled() && isManagedWorkflowVirtualReference(filePath)) {
+  if (isManagedVirtualPath(filePath, baseDir)) {
     return readManagedHostedText(filePath);
   }
 
@@ -213,7 +221,7 @@ export async function readNativeText(filePath: string, baseDir?: NativeBaseDir):
 }
 
 export async function readNativeBinary(filePath: string, baseDir?: NativeBaseDir): Promise<string> {
-  if (!baseDir && isManagedWorkflowStorageEnabled() && isManagedWorkflowVirtualReference(filePath)) {
+  if (isManagedVirtualPath(filePath, baseDir)) {
     const contents = await readManagedHostedText(filePath);
     return Buffer.from(contents, 'utf8').toString('base64');
   }
@@ -223,7 +231,7 @@ export async function readNativeBinary(filePath: string, baseDir?: NativeBaseDir
 }
 
 export async function writeNativeText(filePath: string, contents: string, baseDir?: NativeBaseDir): Promise<void> {
-  if (!baseDir && isManagedWorkflowStorageEnabled() && isManagedWorkflowVirtualReference(filePath)) {
+  if (isManagedVirtualPath(filePath, baseDir)) {
     throw badRequest('Managed workflow projects must be saved via the project save API');
   }
 
@@ -233,7 +241,7 @@ export async function writeNativeText(filePath: string, contents: string, baseDi
 }
 
 export async function writeNativeBinary(filePath: string, contents: string, baseDir?: NativeBaseDir): Promise<void> {
-  if (!baseDir && isManagedWorkflowStorageEnabled() && isManagedWorkflowVirtualReference(filePath)) {
+  if (isManagedVirtualPath(filePath, baseDir)) {
     throw badRequest('Managed workflow projects must be saved via the project save API');
   }
 
@@ -243,13 +251,13 @@ export async function writeNativeBinary(filePath: string, contents: string, base
 }
 
 export async function nativePathExists(filePath: string, baseDir?: NativeBaseDir): Promise<boolean> {
-  if (!baseDir && isManagedWorkflowStorageEnabled() && isManagedWorkflowVirtualReference(filePath)) {
+  if (isManagedVirtualPath(filePath, baseDir)) {
     const normalizedPath = normalizeManagedVirtualPath(filePath);
     if (normalizedPath === getManagedWorkflowVirtualRoot()) {
       return true;
     }
 
-     if (
+    if (
       normalizedPath.endsWith(WORKFLOW_PROJECT_EXTENSION) ||
       normalizedPath.endsWith(WORKFLOW_DATASET_EXTENSION)
     ) {
@@ -281,7 +289,7 @@ export async function removeNativeDirectory(dirPath: string, recursive: boolean)
 }
 
 export async function removeNativeFile(filePath: string, baseDir?: NativeBaseDir): Promise<void> {
-  if (!baseDir && isManagedWorkflowStorageEnabled() && isManagedWorkflowVirtualReference(filePath)) {
+  if (isManagedVirtualPath(filePath, baseDir)) {
     throw badRequest('Managed workflow files cannot be removed through native IO');
   }
 
@@ -289,7 +297,7 @@ export async function removeNativeFile(filePath: string, baseDir?: NativeBaseDir
 }
 
 export async function readNativeRelative(relativeFrom: string, projectFilePath: string): Promise<string> {
-  if (isManagedWorkflowStorageEnabled() && isManagedWorkflowVirtualReference(relativeFrom)) {
+  if (isManagedRelativeVirtualPath(relativeFrom)) {
     return readManagedHostedRelativeProject(relativeFrom, projectFilePath);
   }
 

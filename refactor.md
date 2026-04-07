@@ -18,7 +18,7 @@ Reduce code size and complexity without changing functionality. Every change her
 
 This is the single largest file in the codebase. It mixes SQL schema, query helpers, CRUD operations, publication logic, recording persistence, and blob management into one class.
 
-### 1.1 Extract SQL column constants `P0`
+### 1.1 Extract SQL column constants `P0` `DONE`
 
 The same workflow column list appears in 4 places (verified):
 - `#listWorkflowRows()` (lines ~732-733)
@@ -60,7 +60,7 @@ Replace each inline column list with `${WORKFLOW_COLUMNS}` or `${RECORDING_COLUM
 - If any occurrence has a subtly different column order or an extra column, the query will silently return wrong data. Mitigate by verifying each replacement with a diff of the generated SQL.
 - The `w.`-prefixed variant in `listWorkflowRecordingWorkflows` requires care — it joins with other tables so the qualified constant must use `w.` prefix consistently.
 
-### 1.2 Extract recording blob upload and insert helpers `P0`
+### 1.2 Extract recording blob upload and insert helpers `P0` `DONE`
 
 `importWorkflowRecording()` (lines ~1952-2025) and `persistWorkflowExecutionRecording()` (lines ~2198-2278) both:
 1. Build 3 blob keys (recording, replay-project, optional replay-dataset)
@@ -110,7 +110,7 @@ Both callers shrink to: prepare row data → call `#uploadRecordingBlobs` → ca
 - The timestamp difference (`$5::timestamptz` vs `NOW()`) is subtle. A parameter like `timestampMode` must be clearly documented.
 - Blob key construction logic may have subtle differences between import and persist paths — verify key prefix patterns match.
 
-### 1.3 Split the class into focused modules `P1`
+### 1.3 DONE Split the class into focused modules `P1`
 
 The `ManagedWorkflowBackend` class has 20+ methods spanning unrelated concerns.
 
@@ -136,7 +136,7 @@ Each module receives the database pool and blob store as constructor or function
 - The transaction hook pattern (`hooks.onCommit`/`hooks.onRollback`) is used across multiple concern areas. It must remain accessible to all split modules.
 - This is the highest-risk refactor in the plan. Do it last among the backend items, after 1.1 and 1.2 are stable.
 
-### 1.4 Deduplicate revision blob rollback pattern `P2`
+### 1.4 Deduplicate revision blob rollback pattern `P2` `DONE`
 
 Three places schedule blob deletion on transaction rollback (verified):
 - `saveHostedProject()` (line ~1189)
@@ -166,7 +166,7 @@ Each call site becomes a one-liner.
 **Risks:**
 - Minimal. The helper is a trivial wrapper. The only concern is ensuring the `revision` parameter type matches all three call sites (the `publishedRevision!` non-null assertion must be handled before calling the helper).
 
-### 1.5 Deduplicate recording error cleanup pattern `P0` *(NEW — gap in original plan)*
+### 1.5 Deduplicate recording error cleanup pattern `P0` *(NEW — gap in original plan)* `DONE`
 
 4 places call `#deleteBlobKeysBestEffort` for recording failure cleanup (verified):
 - `importWorkflowRecording()` upload failure (line ~1981)
@@ -188,7 +188,7 @@ All follow the pattern: `await this.#deleteBlobKeysBestEffort('recording <contex
 
 **File:** `wrapper/api/src/routes/workflows/storage-backend.ts` (423 lines)
 
-### 2.1 Replace repetitive wrappers with a generic delegator `P0`
+### 2.1 Replace repetitive wrappers with a generic delegator `P0` `DONE`
 
 Verified: 23 exported functions follow the delegation pattern (not 35+ as originally claimed). Additionally, 3 functions are managed-only (no filesystem fallback) and 2 functions have non-trivial differences between paths.
 
@@ -234,7 +234,7 @@ Apply to the ~18 functions that are truly uniform (both paths have matching call
 - `wrapper/api/src/routes/workflows/recordings.ts` (989 lines)
 - `wrapper/api/src/routes/workflows/recordings-db.ts` (535 lines)
 
-### 3.1 Deduplicate SQL column lists in recordings-db.ts `P0`
+### 3.1 Deduplicate SQL column lists in recordings-db.ts `P0` `DONE`
 
 Verified: The full `recording_runs` SELECT column list (17 columns with aliases) appears in **6** separate query functions (corrected from 5):
 - `listWorkflowRecordingRunRowsByWorkflowId()` (lines ~284-301)
@@ -280,7 +280,7 @@ Replace 6 inline column lists with `${RECORDING_RUN_COLUMNS}`.
 - Minimal. Pure string replacement. The constant is used only in template literals that build SELECT statements.
 - Verify the `listWorkflowRecordingWorkflowStatsRows` function is NOT touched — it has a fundamentally different column list with aggregates.
 
-### 3.2 Extract shared WHERE clause builder `P2`
+### 3.2 Extract shared WHERE clause builder `P2` `DONE`
 
 Status filter WHERE clause construction is duplicated in 2 functions.
 
@@ -303,7 +303,7 @@ function buildRunFilterClause(statusFilter: string | undefined): { where: string
 **Risks:**
 - Minimal. Two call sites with identical logic.
 
-### 3.3 Simplify normalizeStoredWorkflowRecording `P1`
+### 3.3 Simplify normalizeStoredWorkflowRecording `P1` `DONE`
 
 **Where:** `recordings.ts`, the `normalizeStoredWorkflowRecording()` function (lines ~242-372).
 
@@ -317,7 +317,7 @@ function buildRunFilterClause(statusFilter: string | undefined): { where: string
 - The v1 and v2 branches may have subtle validation differences that are easy to miss when extracting. Carefully diff both branches line-by-line before extracting.
 - Some v1 fields have different names or shapes than v2. The shared validator must only cover truly common fields.
 
-### 3.4 Consolidate artifact encoding helpers `P2`
+### 3.4 Consolidate artifact encoding helpers `P2` `DONE`
 
 `readArtifactBytes` and `readArtifactText` both read a file, check encoding, optionally decompress.
 
@@ -346,7 +346,7 @@ async function readArtifactRaw(filePath: string, encoding: WorkflowRecordingBlob
 
 **File:** `wrapper/api/src/routes/workflows/workflow-mutations.ts` (485 lines)
 
-### 4.1 Unify duplicate and upload retry loops `P0`
+### 4.1 Unify duplicate and upload retry loops `P0` `DONE`
 
 Verified: The retry loops in `duplicateWorkflowProjectItem()` (lines ~292-330) and `uploadWorkflowProjectItem()` (lines ~359-395) are 97% identical. The differences are:
 
@@ -405,7 +405,7 @@ Both callers become ~10 lines: prepare their path-resolution callback and call `
 
 **File:** `wrapper/api/src/routes/workflows/publication.ts` (398 lines)
 
-### 5.1 Merge findPublished and findLatest endpoint lookups `P1`
+### 5.1 Merge findPublished and findLatest endpoint lookups `P1` `DONE`
 
 Verified: `findPublishedWorkflowByEndpoint()` (lines ~291-315) and `findLatestWorkflowByEndpoint()` (lines ~317-335) share ~75% of their code (corrected from ~90%). Both:
 1. Call `listProjectPathsRecursive(root)`
@@ -448,7 +448,7 @@ async function findWorkflowByEndpoint(
 **Risks:**
 - Low. The shared logic is a pure scan with no side effects. The extra resolution step in `findPublished` stays in its own function.
 
-### 5.2 Simplify settings normalization `P2`
+### 5.2 Simplify settings normalization `P2` `DONE`
 
 **Where:** `publication.ts`, `normalizeStoredWorkflowProjectSettings()`.
 
@@ -467,7 +467,7 @@ async function findWorkflowByEndpoint(
 
 **File:** `wrapper/api/src/routes/native-io.ts` (319 lines)
 
-### 6.1 Extract managed-workflow guard into a helper `P1` *(reclassified from P0)*
+### 6.1 Extract managed-workflow guard into a helper `P1` *(reclassified from P0)* `DONE`
 
 Verified: 8 functions check the managed-workflow condition (not just "check if path is managed" — the pattern is `!baseDir && isManagedWorkflowStorageEnabled() && isManagedWorkflowVirtualReference(path)`). However, the managed-path behavior is **fundamentally different** across functions:
 
@@ -505,7 +505,7 @@ Note: `readNativeRelative` omits the `!baseDir` check — verify this is intenti
 
 **File:** `wrapper/api/src/routes/workflows/managed/execution-service.ts` (392 lines)
 
-### 7.1 Extract retry-after-invalidation pattern `P1`
+### 7.1 Extract retry-after-invalidation pattern `P1` `DONE`
 
 Verified: The pattern appears 4 times — twice in `#loadExecutionProjectByEndpointOnce()` (lines ~215-224 and ~231-240) and twice in `#loadExecutionReferencedProject()` (lines ~351-359 and ~362-370). Each occurrence is identical:
 
@@ -559,7 +559,7 @@ if (workflowSnapshot) {
 
 **File:** `wrapper/web/dashboard/WorkflowLibraryPanel.tsx` (1,372 lines)
 
-### 8.1 Group related state variables `P1` *(reclassified from P0)*
+### 8.1 Group related state variables `P1` *(reclassified from P0)* `DONE`
 
 Verified: There are **22** `useState` calls (not 40+ as originally claimed). Several are genuinely related:
 
@@ -591,7 +591,7 @@ This reduces 22 `useState` calls to ~16.
 - Compound state objects require spreading when updating a single field: `setDownloadState(prev => ({ ...prev, activePath: path }))`. This is slightly more verbose per update. Net savings still positive because there are fewer state declarations and fewer setter functions to pass around.
 - React re-renders: Compound state triggers re-render on any field change. All fields in each group are set together or cleared together, so this is not a concern in practice.
 
-### 8.2 Deduplicate download/duplicate modal rendering `P0`
+### 8.2 Deduplicate download/duplicate modal rendering `P0` `DONE`
 
 Verified: Two `WorkflowProjectDownloadModal` instances (lines ~1328-1348 and ~1349-1369) are 99% identical. Differences:
 - `actionLabel`: `"Download"` vs `"Duplicate"`
@@ -632,7 +632,7 @@ This also eliminates 2 separate state variables (`downloadModalProject`, `duplic
 **Risks:**
 - Minimal. The modal component is stateless — it receives all behavior through props. The only change is which props are passed.
 
-### 8.3 Extract tree manipulation utilities `P1`
+### 8.3 Extract tree manipulation utilities `P1` `DONE`
 
 Verified: 7 pure functions spanning lines ~60-276 (217 lines total):
 - `remapExpandedFolderIds` (33 lines)
@@ -663,7 +663,7 @@ All are pure functions with no React imports, no hooks, no state dependencies. T
 
 **File:** `wrapper/web/overrides/components/OverlayTabs.tsx` (320 lines)
 
-### 9.1 Data-drive the menu items `P1`
+### 9.1 Data-drive the menu items `P1` `DONE`
 
 Verified: 8 menu items, 7 of which are identical in structure. The exception is **Trivet Tests** which conditionally renders a `LoadingSpinner` inside the button.
 
@@ -705,7 +705,7 @@ The Trivet `suffix` prop handles its special `LoadingSpinner` without breaking t
 
 **File:** `wrapper/web/overrides/hooks/useRemoteExecutor.ts` (385 lines)
 
-### 10.1 Replace message handler switch with dispatch map `P1`
+### 10.1 Replace message handler switch with dispatch map `P1` `DONE`
 
 Verified: 17 switch cases. 12 follow the uniform `currentExecution.onXxx(data)` pattern. 5 have special logic:
 - `done`: Resolves `graphExecutionPromise` before calling `onDone`
@@ -766,7 +766,7 @@ if (handler) {
 - `scripts/dev-docker.mjs` (186 lines)
 - `scripts/prod-docker.mjs` (234 lines)
 
-### 11.1 Extract shared launcher logic `P0`
+### 11.1 Extract shared launcher logic `P0` `DONE`
 
 Verified: ~58-64% of code is identical between the two files. Shared portions:
 - `run()` function (identical, ~22 lines)
@@ -808,7 +808,7 @@ Each launcher script imports from the shared module and adds only its mode-speci
 - The `run()` and `runCapture()` functions use `rootDir` as `cwd`, which is defined as a module-level constant in each script. The shared module must accept `cwd` as a parameter or derive it from `import.meta.url`.
 - Error message prefixes (`[dev-docker]` vs `[prod-docker]`) are used in the shared logic. Parameterize with a `label` argument.
 
-### 11.2 Extract process runner utilities `P0` *(reclassified — verify-compatibility has incompatible versions)*
+### 11.2 DONE Extract process runner utilities `P0` *(reclassified — verify-compatibility has incompatible versions)*
 
 Verified: `scripts/verify-compatibility.mjs` has its own `run()` and `runCapture()` but they are **NOT identical** to the docker scripts:
 - Different return types: verify's `run()` returns `void` (resolves undefined), docker's returns `exitCode` (number)
@@ -849,7 +849,7 @@ Verified: `scripts/verify-compatibility.mjs` has its own `run()` and `runCapture
 - `ops/docker-compose.yml` (231 lines)
 - `ops/docker-compose.dev.yml` (296 lines)
 
-### 13.1 Extract shared managed-mode services only `P2` *(reclassified from P1)*
+### 13.1 Extract shared managed-mode services only `P2` *(reclassified from P1)* `DONE`
 
 **Verified reality:** Only the managed-mode services (workflow-postgres, workflow-minio, workflow-minio-init) are truly identical (~47 lines). The proxy differs only in one line (nginx config filename). But web, api, and executor services are **fundamentally different**:
 - Dev uses `node:20-alpine` with live-reload scripts and source mounts
@@ -878,7 +878,7 @@ Docker Compose `extends` would work only for the 3 managed-mode services and pro
 
 **File:** `ops/proxy-bootstrap/sync.mjs` (491 lines)
 
-### 14.1 Extract replica status reporting error handling `P2`
+### 14.1 Extract replica status reporting error handling `P2` `DONE`
 
 **Where:** `sync.mjs`.
 
@@ -904,7 +904,7 @@ async function safeReplicaStatusWrite(label, fn) {
 **Risks:**
 - The `undefinedTableWarned` flag is currently module-scoped. The helper must share this flag or accept it as a parameter.
 
-### 14.2 Consolidate env normalization helpers `P2`
+### 14.2 Consolidate env normalization helpers `P2` `DONE`
 
 **Where:** `ops/proxy-bootstrap/config.mjs`.
 
@@ -936,7 +936,7 @@ function parseEnv(name, parser, defaultValue) {
 - `wrapper/api/src/routes/runtime-libraries/config.ts`
 - `wrapper/api/src/routes/workflows/recordings-config.ts`
 
-### 15.1 Consolidate env parsing helpers `P0`
+### 15.1 Consolidate env parsing helpers `P0` `DONE`
 
 Verified: Three separate implementations of `normalizeBoolean()` with identical logic exist across these files. Two separate implementations of `normalizeEnumValue()` exist. Similar patterns for `parseIntegerEnv()` / `normalizePositiveInt()` appear with different names.
 

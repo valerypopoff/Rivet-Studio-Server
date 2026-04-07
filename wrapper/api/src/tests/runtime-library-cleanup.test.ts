@@ -231,6 +231,29 @@ test('managed runtime-library config keeps long replica-status retention for loc
   });
 });
 
+test('runtime-library config falls back on non-positive interval overrides and stays in parity with bootstrap', async () => {
+  await withManagedEnv({
+    RIVET_STORAGE_MODE: 'managed',
+    RIVET_DATABASE_MODE: 'managed',
+    RIVET_DATABASE_CONNECTION_STRING: 'postgresql://db-user:db-pass@example-db:25060/defaultdb',
+    RIVET_STORAGE_URL: 'https://test-bucket-111.sfo3.digitaloceanspaces.com',
+    RIVET_STORAGE_ACCESS_KEY_ID: 'spaces-access-key-id',
+    RIVET_STORAGE_ACCESS_KEY: 'spaces-secret-access-key',
+    RIVET_RUNTIME_PROCESS_ROLE: 'api',
+    RIVET_RUNTIME_LIBRARIES_SYNC_POLL_INTERVAL_MS: '0',
+    RIVET_RUNTIME_LIBRARIES_REPLICA_STATUS_RETENTION_MS: '-1',
+    RIVET_RUNTIME_LIBRARIES_REPLICA_STATUS_CLEANUP_INTERVAL_MS: '0',
+  }, () => {
+    const apiConfig = runtimeLibrariesConfig.getManagedRuntimeLibrariesConfig();
+    const bootstrapManagedConfig = bootstrapConfig.getManagedRuntimeLibrariesConfig() as typeof apiConfig;
+
+    assert.equal(apiConfig.syncPollIntervalMs, 5_000);
+    assert.equal(apiConfig.replicaStatusRetentionMs, 15 * 60 * 1_000);
+    assert.equal(apiConfig.replicaStatusCleanupIntervalMs, 5 * 60 * 1_000);
+    assert.deepEqual(bootstrapManagedConfig, apiConfig);
+  });
+});
+
 test('bootstrap runtime-library sync skips dev supervisor processes and keeps the real runtime process', async () => {
   await withManagedEnv({
     RIVET_STORAGE_MODE: 'managed',

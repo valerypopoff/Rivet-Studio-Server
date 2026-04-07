@@ -130,6 +130,21 @@ type NormalizedStoredWorkflowRecording = {
   run: WorkflowRecordingRunRow;
 };
 
+type NormalizedStoredWorkflowRecordingFields = {
+  id: string;
+  workflowId: string;
+  sourceProjectMetadataId: string;
+  sourceProjectName: string;
+  sourceProjectPath: string;
+  sourceProjectRelativePath: string;
+  endpointNameAtExecution: string;
+  createdAt: string;
+  runKind: WorkflowRecordingRunKind;
+  status: WorkflowRecordingStatus;
+  durationMs: number;
+  errorMessage?: string;
+};
+
 let storageReadyPromise: Promise<void> | null = null;
 let storageReadyRoot = '';
 let cleanupPromise: Promise<void> | null = null;
@@ -191,18 +206,21 @@ function getCompressedBundleSize(run: Pick<
   return run.recordingCompressedBytes + run.projectCompressedBytes + run.datasetCompressedBytes;
 }
 
-async function readArtifactBytes(filePath: string, encoding: WorkflowRecordingBlobEncoding): Promise<{ compressedBytes: number; uncompressedBytes: number }> {
-  const buffer = await fs.readFile(filePath);
-  if (encoding === 'identity') {
-    return {
-      compressedBytes: buffer.byteLength,
-      uncompressedBytes: buffer.byteLength,
-    };
-  }
-
-  const uncompressed = await gunzipAsync(buffer);
+async function readArtifactBuffer(
+  filePath: string,
+  encoding: WorkflowRecordingBlobEncoding,
+): Promise<{ compressed: Buffer; uncompressed: Buffer }> {
+  const compressed = await fs.readFile(filePath);
   return {
-    compressedBytes: buffer.byteLength,
+    compressed,
+    uncompressed: encoding === 'gzip' ? await gunzipAsync(compressed) : compressed,
+  };
+}
+
+async function readArtifactBytes(filePath: string, encoding: WorkflowRecordingBlobEncoding): Promise<{ compressedBytes: number; uncompressedBytes: number }> {
+  const { compressed, uncompressed } = await readArtifactBuffer(filePath, encoding);
+  return {
+    compressedBytes: compressed.byteLength,
     uncompressedBytes: uncompressed.byteLength,
   };
 }
@@ -230,13 +248,60 @@ async function serializeArtifact(
 }
 
 async function readArtifactText(filePath: string, encoding: WorkflowRecordingBlobEncoding): Promise<string> {
-  const buffer = await fs.readFile(filePath);
-  if (encoding === 'identity') {
-    return buffer.toString('utf8');
+  const { uncompressed } = await readArtifactBuffer(filePath, encoding);
+  return uncompressed.toString('utf8');
+}
+
+function normalizeOptionalErrorMessage(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+function normalizeStoredWorkflowRecordingFields(
+  raw: Record<string, unknown>,
+  workflowIdValue: unknown,
+): NormalizedStoredWorkflowRecordingFields | null {
+  const id = raw.id;
+  const workflowId = workflowIdValue;
+  const sourceProjectMetadataId = raw.sourceProjectMetadataId;
+  const sourceProjectName = raw.sourceProjectName;
+  const sourceProjectPath = raw.sourceProjectPath;
+  const sourceProjectRelativePath = raw.sourceProjectRelativePath;
+  const endpointNameAtExecution = raw.endpointNameAtExecution;
+  const createdAt = raw.createdAt;
+  const durationMs = normalizeNumber(raw.durationMs);
+  const runKind = normalizeRunKind(raw.runKind);
+  const status = normalizeStatus(raw.status);
+
+  if (
+    !isNonEmptyString(id) ||
+    !isNonEmptyString(workflowId) ||
+    !isNonEmptyString(sourceProjectMetadataId) ||
+    !isNonEmptyString(sourceProjectName) ||
+    !isNonEmptyString(sourceProjectPath) ||
+    !isNonEmptyString(sourceProjectRelativePath) ||
+    !isNonEmptyString(endpointNameAtExecution) ||
+    !isNonEmptyString(createdAt) ||
+    durationMs == null ||
+    runKind == null ||
+    status == null
+  ) {
+    return null;
   }
 
-  const text = await gunzipAsync(buffer);
-  return text.toString('utf8');
+  return {
+    id,
+    workflowId,
+    sourceProjectMetadataId,
+    sourceProjectName,
+    sourceProjectPath,
+    sourceProjectRelativePath,
+    endpointNameAtExecution,
+    createdAt,
+    durationMs,
+    runKind,
+    status,
+    errorMessage: normalizeOptionalErrorMessage(raw.errorMessage),
+  };
 }
 
 async function normalizeStoredWorkflowRecording(
@@ -250,41 +315,26 @@ async function normalizeStoredWorkflowRecording(
   const raw = value as Record<string, unknown>;
 
   if (raw.version === 2) {
-    const durationMs = normalizeNumber(raw.durationMs);
-    const runKind = normalizeRunKind(raw.runKind);
-    const status = normalizeStatus(raw.status);
-
-    if (
-      !isNonEmptyString(raw.id) ||
-      !isNonEmptyString(raw.workflowId) ||
-      !isNonEmptyString(raw.sourceProjectMetadataId) ||
-      !isNonEmptyString(raw.sourceProjectName) ||
-      !isNonEmptyString(raw.sourceProjectPath) ||
-      !isNonEmptyString(raw.sourceProjectRelativePath) ||
-      !isNonEmptyString(raw.endpointNameAtExecution) ||
-      !isNonEmptyString(raw.createdAt) ||
-      durationMs == null ||
-      runKind == null ||
-      status == null
-    ) {
+    const normalized = normalizeStoredWorkflowRecordingFields(raw, raw.workflowId);
+    if (!normalized) {
       return null;
     }
 
     return {
-      workflowId: raw.workflowId,
-      sourceProjectMetadataId: raw.sourceProjectMetadataId,
-      sourceProjectName: raw.sourceProjectName,
-      sourceProjectPath: raw.sourceProjectPath,
-      sourceProjectRelativePath: raw.sourceProjectRelativePath,
+      workflowId: normalized.workflowId,
+      sourceProjectMetadataId: normalized.sourceProjectMetadataId,
+      sourceProjectName: normalized.sourceProjectName,
+      sourceProjectPath: normalized.sourceProjectPath,
+      sourceProjectRelativePath: normalized.sourceProjectRelativePath,
       run: {
-        id: raw.id,
-        workflowId: raw.workflowId,
-        createdAt: raw.createdAt,
-        runKind,
-        status,
-        durationMs,
-        endpointNameAtExecution: raw.endpointNameAtExecution,
-        errorMessage: typeof raw.errorMessage === 'string' && raw.errorMessage.trim() ? raw.errorMessage : undefined,
+        id: normalized.id,
+        workflowId: normalized.workflowId,
+        createdAt: normalized.createdAt,
+        runKind: normalized.runKind,
+        status: normalized.status,
+        durationMs: normalized.durationMs,
+        endpointNameAtExecution: normalized.endpointNameAtExecution,
+        errorMessage: normalized.errorMessage,
         bundlePath,
         encoding: normalizeEncoding(raw.encoding),
         hasReplayDataset: raw.hasReplayDataset === true,
@@ -299,22 +349,8 @@ async function normalizeStoredWorkflowRecording(
   }
 
   if (raw.version === 1) {
-    const legacy = raw as Partial<StoredWorkflowRecordingMetadataV1>;
-    const durationMs = normalizeNumber(legacy.durationMs);
-    const runKind = normalizeRunKind(legacy.runKind);
-    const status = normalizeStatus(legacy.status);
-    if (
-      !isNonEmptyString(legacy.id) ||
-      !isNonEmptyString(legacy.sourceProjectMetadataId) ||
-      !isNonEmptyString(legacy.sourceProjectName) ||
-      !isNonEmptyString(legacy.sourceProjectPath) ||
-      !isNonEmptyString(legacy.sourceProjectRelativePath) ||
-      !isNonEmptyString(legacy.endpointNameAtExecution) ||
-      !isNonEmptyString(legacy.createdAt) ||
-      durationMs == null ||
-      runKind == null ||
-      status == null
-    ) {
+    const normalized = normalizeStoredWorkflowRecordingFields(raw, raw.sourceProjectMetadataId);
+    if (!normalized) {
       return null;
     }
 
@@ -341,20 +377,20 @@ async function normalizeStoredWorkflowRecording(
       : { compressedBytes: 0, uncompressedBytes: 0 };
 
     return {
-      workflowId: legacy.sourceProjectMetadataId,
-      sourceProjectMetadataId: legacy.sourceProjectMetadataId,
-      sourceProjectName: legacy.sourceProjectName,
-      sourceProjectPath: legacy.sourceProjectPath,
-      sourceProjectRelativePath: legacy.sourceProjectRelativePath,
+      workflowId: normalized.workflowId,
+      sourceProjectMetadataId: normalized.sourceProjectMetadataId,
+      sourceProjectName: normalized.sourceProjectName,
+      sourceProjectPath: normalized.sourceProjectPath,
+      sourceProjectRelativePath: normalized.sourceProjectRelativePath,
       run: {
-        id: legacy.id,
-        workflowId: legacy.sourceProjectMetadataId,
-        createdAt: legacy.createdAt,
-        runKind,
-        status,
-        durationMs,
-        endpointNameAtExecution: legacy.endpointNameAtExecution,
-        errorMessage: typeof legacy.errorMessage === 'string' && legacy.errorMessage.trim() ? legacy.errorMessage : undefined,
+        id: normalized.id,
+        workflowId: normalized.workflowId,
+        createdAt: normalized.createdAt,
+        runKind: normalized.runKind,
+        status: normalized.status,
+        durationMs: normalized.durationMs,
+        endpointNameAtExecution: normalized.endpointNameAtExecution,
+        errorMessage: normalized.errorMessage,
         bundlePath,
         encoding,
         hasReplayDataset: datasetExists,

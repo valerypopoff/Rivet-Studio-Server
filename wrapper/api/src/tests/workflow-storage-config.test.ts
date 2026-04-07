@@ -3,6 +3,7 @@ import test from 'node:test';
 
 const storageConfig = await import('../routes/workflows/storage-config.js');
 const blobStore = await import('../routes/workflows/managed/blob-store.js');
+const envParsing = await import('../utils/env-parsing.js');
 
 const managedEnvKeys = [
   'RIVET_STORAGE_MODE',
@@ -186,4 +187,16 @@ test('managed recording blob keys do not duplicate the workflows namespace segme
     blobStore.createRecordingBlobKey('workflow-123', 'recording-456', 'replay-dataset'),
     'workflow-123/recordings/recording-456/replay.rivet-data',
   );
+});
+
+test('shared env integer parsers preserve fallback and clamp semantics', () => {
+  assert.equal(envParsing.parsePositiveInt(undefined, 7), 7);
+  assert.equal(envParsing.parsePositiveInt('0', 7), 7);
+  assert.equal(envParsing.parsePositiveInt('-5', 7), 7);
+  assert.equal(envParsing.parsePositiveInt('9', 7), 9);
+
+  assert.equal(envParsing.parseIntWithMinimum(undefined, 7, 0), 7);
+  assert.equal(envParsing.parseIntWithMinimum('-5', 7, 0), 0);
+  assert.equal(envParsing.parseIntWithMinimum('0', 7, 0), 0);
+  assert.equal(envParsing.parseIntWithMinimum('9', 7, 0), 9);
 });

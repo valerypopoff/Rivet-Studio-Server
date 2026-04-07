@@ -1108,6 +1108,32 @@ test('published and latest workflow resolution split after unpublished changes',
   assert.equal(publishedDatasetContents, '{"before":true}');
 });
 
+test('published workflow lookup skips stale endpoint matches and continues to a valid published project', async () => {
+  const staleCandidate = await workflowMutations.createWorkflowProjectItem('', 'EndpointStaleCandidate');
+  await workflowMutations.createWorkflowFolderItem('Nested', '');
+  const healthyCandidate = await workflowMutations.createWorkflowProjectItem('Nested', 'EndpointHealthyCandidate');
+  const sharedEndpoint = 'shared-published-endpoint';
+
+  await workflowMutations.publishWorkflowProjectItem(healthyCandidate.relativePath, {
+    endpointName: sharedEndpoint,
+  });
+
+  const staleSettingsPath = workflowFs.getProjectSidecarPaths(staleCandidate.absolutePath).settings;
+  await fs.writeFile(staleSettingsPath, `${JSON.stringify({
+    endpointName: sharedEndpoint,
+    publishedEndpointName: sharedEndpoint,
+    publishedSnapshotId: null,
+    publishedStateHash: 'stale-publication-state',
+    lastPublishedAt: '2025-01-01T00:00:00.000Z',
+  }, null, 2)}\n`, 'utf8');
+
+  const publishedMatch = await workflowPublication.findPublishedWorkflowByEndpoint(workflowsRoot, sharedEndpoint);
+
+  assert.ok(publishedMatch);
+  assert.equal(publishedMatch.projectPath, healthyCandidate.absolutePath);
+  assert.match(publishedMatch.publishedProjectPath, /\.published[\\/].+\.rivet-project$/);
+});
+
 test('legacy published settings without lastPublishedAt still expose a fallback timestamp', async () => {
   const created = await workflowMutations.createWorkflowProjectItem('', 'LegacyPublished');
   const published = await workflowMutations.publishWorkflowProjectItem(created.relativePath, {

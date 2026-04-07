@@ -59,6 +59,14 @@ The official API and executor images set `RIVET_RUNTIME_PROCESS_ROLE` automatica
 Custom launches should set it explicitly when `RIVET_STORAGE_MODE=managed` so replica-readiness
 reporting lands in the correct tier.
 
+Default inference rules when you do not override the topology envs:
+
+- `RIVET_RUNTIME_PROCESS_ROLE=api` defaults `RIVET_RUNTIME_LIBRARIES_REPLICA_TIER` to `endpoint`
+- `RIVET_RUNTIME_PROCESS_ROLE=executor` defaults `RIVET_RUNTIME_LIBRARIES_REPLICA_TIER` to `editor`
+- `RIVET_RUNTIME_LIBRARIES_JOB_WORKER_ENABLED` defaults to `true`
+
+That means the repo-local Docker stacks, which run one combined `api` service with `RIVET_RUNTIME_PROCESS_ROLE=api` and no explicit tier override, report that single API container as `Endpoint execution`.
+
 The current chart split uses the runtime-library topology envs like this:
 
 - control-plane `api`
@@ -124,6 +132,7 @@ Only one install/remove job can run at a time.
 
 In `managed` mode that exclusivity is enforced in Postgres, not only in process memory.
 In the current split, install/remove job ownership stays on the control-plane API while execution-plane API replicas run in sync-only mode.
+In combined local modes, the single API process owns both the admin flow and any published-execution-side reconciliation it still performs.
 
 Managed `replicaReadiness` is observational only:
 
@@ -209,6 +218,8 @@ In the current split, that means:
 
 - execution-plane API replicas consume the active release for published execution
 - control-plane API replicas can still reconcile managed releases for any local execution they retain, but they do not count toward `Endpoint execution` readiness
+
+In combined local-Docker mode, those responsibilities collapse into the single API container, so it both reconciles managed releases and reports as the sole `Endpoint execution` replica by default.
 
 If no managed runtime-library set is active, code execution falls back to the dependencies baked into the running image / normal Node resolution.
 

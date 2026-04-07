@@ -15,7 +15,7 @@ type ParsedArgs = {
 function printUsage(): void {
   console.error(
     'Usage: npm --prefix wrapper/api run workflow-execution:measure -- ' +
-    '--base-url http://localhost:8081 --endpoint hello-world --kind published|latest ' +
+    '--base-url http://localhost:8080 --endpoint hello-world --kind published|latest ' +
     '[--runs 5] [--warmups 1] [--body \'{}\'] [--bearer token]',
   );
 }

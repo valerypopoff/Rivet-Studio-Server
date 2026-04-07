@@ -3,29 +3,32 @@ import fs from 'node:fs/promises';
 import test from 'node:test';
 import { resolveManagedHostedProjectSaveTarget } from '../routes/workflows/managed/backend.js';
 
-const managedBackendSource = await fs.readFile(
-  new URL('../routes/workflows/managed/backend.ts', import.meta.url),
+const managedSchemaSource = await fs.readFile(
+  new URL('../routes/workflows/managed/schema.ts', import.meta.url),
   'utf8',
 );
 
 test('managed folder move SQL escapes wildcard characters in prefix LIKE patterns', () => {
   assert.ok(
-    managedBackendSource.includes(
-      "source_prefix_pattern TEXT := replace(replace(replace(source_relative_path, '\\', '\\\\'), '%', '\\%'), '_', '\\_') || '/%';",
-    ),
+    managedSchemaSource.includes('DROP FUNCTION IF EXISTS move_managed_workflow_folder(TEXT, TEXT, TEXT, TEXT);'),
   );
   assert.ok(
-    managedBackendSource.includes(
-      "temporary_prefix_pattern TEXT := replace(replace(replace(temporary_prefix, '\\', '\\\\'), '%', '\\%'), '_', '\\_') || '/%';",
-    ),
+    managedSchemaSource.includes('CREATE FUNCTION move_managed_workflow_folder('),
+  );
+  assert.equal(managedSchemaSource.includes('CREATE OR REPLACE FUNCTION move_managed_workflow_folder('), false);
+  assert.ok(
+    managedSchemaSource.includes('source_prefix_pattern TEXT := replace(replace(replace(source_relative_path,'),
+  );
+  assert.ok(
+    managedSchemaSource.includes('temporary_prefix_pattern TEXT := replace(replace(replace(temporary_prefix,'),
   );
 
-  const sourceEscapeMatches = managedBackendSource.match(/LIKE source_prefix_pattern ESCAPE '\\'/g) ?? [];
-  const temporaryEscapeMatches = managedBackendSource.match(/LIKE temporary_prefix_pattern ESCAPE '\\'/g) ?? [];
+  const sourceEscapeMatches = managedSchemaSource.match(/LIKE source_prefix_pattern ESCAPE '\\'/g) ?? [];
+  const temporaryEscapeMatches = managedSchemaSource.match(/LIKE temporary_prefix_pattern ESCAPE '\\'/g) ?? [];
 
-  assert.ok(sourceEscapeMatches.length >= 4, `Expected source prefix LIKE clauses to use ESCAPE, found ${sourceEscapeMatches.length}`);
+  assert.ok(sourceEscapeMatches.length >= 2, `Expected source prefix LIKE clauses to use ESCAPE, found ${sourceEscapeMatches.length}`);
   assert.ok(
-    temporaryEscapeMatches.length >= 4,
+    temporaryEscapeMatches.length >= 2,
     `Expected temporary prefix LIKE clauses to use ESCAPE, found ${temporaryEscapeMatches.length}`,
   );
 });

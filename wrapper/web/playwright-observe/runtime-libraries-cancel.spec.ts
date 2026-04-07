@@ -29,12 +29,15 @@ test.describe('Runtime library job cancellation', () => {
       }
     }
 
-    const addButton = modal.getByRole('button', { name: 'Add library...' });
-    if (await addButton.count()) {
-      await addButton.click({ force: true });
+    const packageNameInput = modal.locator('#runtime-library-package-name');
+    if ((await packageNameInput.count()) === 0) {
+      const addButton = modal.locator('.runtime-libraries-add-button');
+      await addButton.waitFor({ state: 'visible', timeout: 30_000 });
+      await addButton.click();
+      await packageNameInput.waitFor({ state: 'visible', timeout: 30_000 });
     }
 
-    await modal.locator('#runtime-library-package-name').fill('sharp');
+    await packageNameInput.fill('sharp');
     await modal.locator('#runtime-library-package-version').fill('latest');
     await modal.getByRole('button', { name: 'Install' }).click();
 

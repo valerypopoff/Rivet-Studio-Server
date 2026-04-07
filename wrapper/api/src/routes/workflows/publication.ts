@@ -79,25 +79,10 @@ export function normalizeWorkflowProjectSettingsDraft(value: unknown): WorkflowP
 export function normalizeStoredWorkflowProjectSettings(value: unknown): StoredWorkflowProjectSettings {
   const defaults = createDefaultStoredWorkflowProjectSettings();
   const raw = (value ?? {}) as Record<string, unknown>;
-  const endpointName = typeof raw.endpointName === 'string' ? raw.endpointName : defaults.endpointName;
-  const publishedEndpointName = typeof raw.publishedEndpointName === 'string'
-    ? raw.publishedEndpointName
-    : defaults.publishedEndpointName;
-  const publishedSnapshotId = typeof raw.publishedSnapshotId === 'string'
-    ? raw.publishedSnapshotId
-    : raw.publishedSnapshotId === null
-      ? null
-      : defaults.publishedSnapshotId;
-  const publishedStateHash = typeof raw.publishedStateHash === 'string'
-    ? raw.publishedStateHash
-    : raw.publishedStateHash === null
-      ? null
-      : defaults.publishedStateHash;
-  const lastPublishedAt = typeof raw.lastPublishedAt === 'string'
-    ? raw.lastPublishedAt
-    : raw.lastPublishedAt === null
-      ? null
-      : defaults.lastPublishedAt;
+  const endpointName = normalizeStoredEndpointName(coerceString(raw.endpointName, defaults.endpointName));
+  const publishedSnapshotId = coerceNullableString(raw.publishedSnapshotId, defaults.publishedSnapshotId);
+  const publishedStateHash = coerceNullableString(raw.publishedStateHash, defaults.publishedStateHash);
+  const lastPublishedAt = coerceNullableString(raw.lastPublishedAt, defaults.lastPublishedAt);
   const legacyStatus = typeof raw.status === 'string' ? raw.status : undefined;
 
   if (
@@ -110,8 +95,10 @@ export function normalizeStoredWorkflowProjectSettings(value: unknown): StoredWo
   }
 
   return {
-    endpointName: normalizeStoredEndpointName(endpointName),
-    publishedEndpointName: normalizeStoredEndpointName(publishedEndpointName || (publishedStateHash ? endpointName : '')),
+    endpointName,
+    publishedEndpointName: normalizeStoredEndpointName(
+      coerceString(raw.publishedEndpointName, defaults.publishedEndpointName) || (publishedStateHash ? endpointName : ''),
+    ),
     publishedSnapshotId,
     publishedStateHash,
     lastPublishedAt,
@@ -289,24 +276,16 @@ export async function resolvePublishedWorkflowProjectPath(
 }
 
 export async function findPublishedWorkflowByEndpoint(root: string, endpointName: string): Promise<PublishedWorkflowMatch | null> {
-  const projectPaths = await listProjectPathsRecursive(root);
-
-  for (const projectPath of projectPaths) {
-    const projectName = path.basename(projectPath, PROJECT_EXTENSION);
-    const settings = await readStoredWorkflowProjectSettings(projectPath, projectName);
-
-    if (!isWorkflowEndpointPublished(settings, endpointName)) {
-      continue;
-    }
-
-    const publishedProjectPath = await resolvePublishedWorkflowProjectPath(root, projectPath, settings);
+  const matches = await listWorkflowMatchesByEndpoint(root, endpointName);
+  for (const match of matches) {
+    const publishedProjectPath = await resolvePublishedWorkflowProjectPath(root, match.projectPath, match.settings);
     if (!publishedProjectPath) {
       continue;
     }
 
     return {
       endpointName,
-      projectPath,
+      projectPath: match.projectPath,
       publishedProjectPath,
     };
   }
@@ -315,7 +294,23 @@ export async function findPublishedWorkflowByEndpoint(root: string, endpointName
 }
 
 export async function findLatestWorkflowByEndpoint(root: string, endpointName: string): Promise<LatestWorkflowMatch | null> {
+  const [match] = await listWorkflowMatchesByEndpoint(root, endpointName);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    endpointName,
+    projectPath: match.projectPath,
+  };
+}
+
+async function listWorkflowMatchesByEndpoint(
+  root: string,
+  endpointName: string,
+): Promise<Array<{ projectPath: string; settings: StoredWorkflowProjectSettings }>> {
   const projectPaths = await listProjectPathsRecursive(root);
+  const matches: Array<{ projectPath: string; settings: StoredWorkflowProjectSettings }> = [];
 
   for (const projectPath of projectPaths) {
     const projectName = path.basename(projectPath, PROJECT_EXTENSION);
@@ -325,13 +320,22 @@ export async function findLatestWorkflowByEndpoint(root: string, endpointName: s
       continue;
     }
 
-    return {
-      endpointName,
-      projectPath,
-    };
+    matches.push({ projectPath, settings });
   }
 
-  return null;
+  return matches;
+}
+
+function coerceString(value: unknown, fallback: string): string {
+  return typeof value === 'string' ? value : fallback;
+}
+
+function coerceNullableString(value: unknown, fallback: string | null): string | null {
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  return value === null ? null : fallback;
 }
 
 export function createPublishedWorkflowProjectReferenceLoader(root: string, rootProjectPath: string) {

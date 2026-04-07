@@ -12,6 +12,8 @@
 
 ## Runtime shape
 
+The route map below describes logical ownership. In `RIVET_API_PROFILE=combined`, one API process serves both the control-plane and published-execution surfaces. In split deployments, `RIVET_API_PROFILE=control` and `RIVET_API_PROFILE=execution` separate those surfaces into different API workloads.
+
 ```text
 Browser
   |- /                       -> dashboard shell
@@ -25,7 +27,8 @@ Browser
 ```
 
 In Docker dev and production, nginx fronts the stack and injects the trusted proxy header the API expects.
-In local direct-process mode, the services run separately without nginx.
+The repo-local Docker stacks still run the API in `combined` mode, so both workflow route families terminate at the same `api` container there even though the published-vs-latest split remains a first-class deployment contract.
+In local direct-process mode, the services run separately without nginx. The Vite dev server only proxies `/api/*` and `/ws/executor*`, so published/latest workflow endpoints, `/ui-auth`, and `/ws/latest-debugger` are not recreated there with production-like routing or trust behavior.
 
 The current runtime keeps the control plane conservative while published execution scales separately:
 
@@ -44,8 +47,11 @@ The current runtime keeps the control plane conservative while published executi
 - The top-level page is the wrapper dashboard. It renders the workflow library, project settings, runtime libraries, run recordings, and an `<iframe src="/?editor">`.
 - The workflow library tree now includes custom context menus on both project and folder entries.
 - Project rows currently expose `Rename project`, `Download`, `Duplicate`, and a guarded `Delete project` action.
-- Folder rows currently expose `Create project` and `Upload project`.
+- Folder rows currently expose `Rename folder`, `Create project`, `Upload project`, and `Delete folder`.
+- `Delete folder` is enabled only for empty folders in the dashboard, and the API enforces the same empty-folder rule if called directly.
+- The workflow library also exposes a root-level `+ New folder` action that creates top-level folders rather than nested ones.
 - Folder-level project creation now lives only in the folder context menu, not in an inline `+` button on the row.
+- Projects and folders can also be moved by drag-and-drop between folders or back to the root, with the dashboard retargeting open editor tabs when project paths change.
 - `Create project` prompts for a name, creates a new blank `.rivet-project` in the target folder through the workflow API, expands that folder, refreshes the tree, and opens the new project in the editor.
 - `Rename project` in the project context menu does not rename inline. It opens the existing Project Settings modal for that project, and the rename flow still happens there.
 - `Duplicate` creates a sibling project file through the API and refreshes the tree without changing the current selection or editor tab. Duplicate names now use the same saved-version tag model as downloads, such as `Name [published] Copy` or `Name [unpublished changes] Copy`; exact-name collisions get numbered variants, but duplicate-of-duplicate naming otherwise stays literal. For `unpublished_changes`, the dashboard opens a chooser so the user can duplicate either the saved live version or the published snapshot.
@@ -62,9 +68,9 @@ The current runtime keeps the control plane conservative while published executi
 ## API surface overview
 
 - `/api/workflows/*` manages workflow folders/projects, project creation/duplication/uploading/downloading, publication, movement/rename, and the recordings browser APIs.
-- `/api/runtime-libraries/*` manages runtime-library state, replica readiness, stale-replica cleanup, install/remove jobs, and live log streaming over SSE from the control plane.
+- `/api/runtime-libraries/*` manages runtime-library state, replica readiness, stale-replica cleanup, install/remove jobs, job cancellation, and live log streaming over SSE from the control plane.
 - `/api/native/*` exposes the hosted editor's filesystem API, constrained to allowed roots and supported base dirs.
-- `/api/projects/*` exposes lightweight project discovery for the hosted IO provider.
+- `/api/projects/*` exposes hosted project discovery and IO helper routes (`/list`, `/open-dialog`, `/load`, `/save`, `/workspace-root`) for the hosted IO provider.
 - `/api/plugins/*` downloads, extracts, and loads NPM plugins for upstream plugin flows.
 - `/api/shell/exec` runs allowlisted shell commands (`git` and `pnpm` by default, extendable via env).
 - `/api/config`, `/api/path/*`, and `/api/config/env/:name` expose hosted-mode configuration, app-data paths, and allowlisted env vars.
@@ -77,6 +83,7 @@ The current runtime keeps the control plane conservative while published executi
 ## Core wrapper seams
 
 - Workflow library management, publication, execution, and recordings live in `wrapper/api/src/routes/workflows/`.
+- Managed workflow storage internals now live under `wrapper/api/src/routes/workflows/managed/`, with `backend.ts` acting as a thin facade over `schema.ts`, `catalog.ts`, `revisions.ts`, `publication.ts`, `recordings.ts`, and the execution-support modules.
 - Managed warm execution is internally split across `execution-cache.ts`, `execution-invalidation.ts`, and `execution-service.ts`; this is an internal maintainability boundary only, not a separate product/API surface.
 - Recording metadata indexing lives in `wrapper/api/src/routes/workflows/recordings-db.ts`.
 - Runtime-library management lives under `wrapper/api/src/runtime-libraries/`.
@@ -161,7 +168,7 @@ Interpretation rules:
 
 Development-only execution measurement is available through:
 
-- `npm --prefix wrapper/api run workflow-execution:measure -- --base-url http://localhost:8081 --endpoint hello-world --kind published --runs 5 --warmups 1`
+- `npm --prefix wrapper/api run workflow-execution:measure -- --base-url http://localhost:8080 --endpoint hello-world --kind published --runs 5 --warmups 1`
 - this tool is read-only and meant for cold-hit vs warm-hit diagnosis; it does not change server behavior or introduce a new public API surface
 
 ### Safety and compatibility
@@ -187,7 +194,7 @@ Workflow recording settings are documented in detail in [workflow-publication.md
 
 | Mode | Entry command | Browser entry | Notes |
 |---|---|---|---|
-| Local direct-process | `npm run dev:local` | `http://localhost:5174` | Runs API, web, and executor directly. Good for process-level work, but nginx-specific routing/auth behavior is not reproduced exactly. |
+| Local direct-process | `npm run dev:local` | `http://localhost:5174` | Runs API, web, and executor directly. Good for process-level work, but it does not recreate nginx's trusted-proxy wiring, so browser-driven `/api/*`, `/ui-auth`, and `/ws/latest-debugger` behavior is not representative there. |
 | Docker dev | `npm run dev` | `http://localhost:8080` by default | Closest to production while still using bind mounts and a Vite dev server. The proxy port can be overridden with `RIVET_PORT`. |
 | Production-style Docker | `npm run prod` | `http://localhost:8080` by default | Uses prebuilt images when available, otherwise falls back to local builds. The proxy port can be overridden with `RIVET_PORT`. |
 

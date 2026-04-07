@@ -212,15 +212,19 @@ export class ManagedWorkflowExecutionService {
         throw error;
       }
 
-      if (workflowSnapshot && this.#invalidationController.shouldRetryAfterMaterialize(resolveSnapshot, pointer.workflowId, workflowSnapshot)) {
-        if (remainingInvalidationRetries > 0) {
-          return this.#loadExecutionProjectByEndpointOnce(runKind, lookupName, {
-            forceBypassPointerCache: true,
-            remainingInvalidationRetries: remainingInvalidationRetries - 1,
-          });
-        }
-
-        throw createHttpError(503, 'Workflow endpoint changed while loading. Retry the request.');
+      const retryAfterMaterialize = this.#retryAfterMaterialize(
+        resolveSnapshot,
+        pointer.workflowId,
+        workflowSnapshot,
+        remainingInvalidationRetries,
+        (nextRetries) => this.#loadExecutionProjectByEndpointOnce(runKind, lookupName, {
+          forceBypassPointerCache: true,
+          remainingInvalidationRetries: nextRetries,
+        }),
+        'Workflow endpoint changed while loading. Retry the request.',
+      );
+      if (retryAfterMaterialize) {
+        return retryAfterMaterialize;
       }
 
       const [project, attachedData] = loadProjectAndAttachedDataFromString(materialization.contents);
@@ -228,15 +232,19 @@ export class ManagedWorkflowExecutionService {
         materialization.datasetsContents ? deserializeDatasets(materialization.datasetsContents) : [],
       );
 
-      if (workflowSnapshot && this.#invalidationController.shouldRetryAfterMaterialize(resolveSnapshot, pointer.workflowId, workflowSnapshot)) {
-        if (remainingInvalidationRetries > 0) {
-          return this.#loadExecutionProjectByEndpointOnce(runKind, lookupName, {
-            forceBypassPointerCache: true,
-            remainingInvalidationRetries: remainingInvalidationRetries - 1,
-          });
-        }
-
-        throw createHttpError(503, 'Workflow endpoint changed while loading. Retry the request.');
+      const retryAfterProjectLoad = this.#retryAfterMaterialize(
+        resolveSnapshot,
+        pointer.workflowId,
+        workflowSnapshot,
+        remainingInvalidationRetries,
+        (nextRetries) => this.#loadExecutionProjectByEndpointOnce(runKind, lookupName, {
+          forceBypassPointerCache: true,
+          remainingInvalidationRetries: nextRetries,
+        }),
+        'Workflow endpoint changed while loading. Retry the request.',
+      );
+      if (retryAfterProjectLoad) {
+        return retryAfterProjectLoad;
       }
 
       return {
@@ -253,6 +261,25 @@ export class ManagedWorkflowExecutionService {
     } finally {
       this.#invalidationController.endWorkflowLoad(pointer.workflowId);
     }
+  }
+
+  #retryAfterMaterialize<T>(
+    resolveSnapshot: ManagedExecutionResolveSnapshot,
+    workflowId: string,
+    workflowSnapshot: ReturnType<ManagedWorkflowExecutionInvalidationController['captureWorkflowSnapshot']> | null,
+    remainingInvalidationRetries: number,
+    retry: (nextRetries: number) => Promise<T>,
+    errorMessage: string,
+  ): Promise<T> | null {
+    if (!workflowSnapshot || !this.#invalidationController.shouldRetryAfterMaterialize(resolveSnapshot, workflowId, workflowSnapshot)) {
+      return null;
+    }
+
+    if (remainingInvalidationRetries > 0) {
+      return retry(remainingInvalidationRetries - 1);
+    }
+
+    throw createHttpError(503, errorMessage);
   }
 
   async #getOrLoadRevisionMaterialization(
@@ -348,25 +375,33 @@ export class ManagedWorkflowExecutionService {
     this.#invalidationController.beginWorkflowLoad(workflow.workflow_id);
     try {
       const materialization = await this.#getOrLoadRevisionMaterialization(revisionId, null);
-      if (this.#invalidationController.shouldRetryAfterMaterialize(resolveSnapshot, workflow.workflow_id, workflowSnapshot)) {
-        if (remainingInvalidationRetries > 0) {
-          return this.#loadExecutionReferencedProject(loadWorkflow, {
-            remainingInvalidationRetries: remainingInvalidationRetries - 1,
-          });
-        }
-
-        throw createHttpError(503, 'Referenced workflow changed while loading. Retry the request.');
+      const retryAfterMaterialize = this.#retryAfterMaterialize(
+        resolveSnapshot,
+        workflow.workflow_id,
+        workflowSnapshot,
+        remainingInvalidationRetries,
+        (nextRetries) => this.#loadExecutionReferencedProject(loadWorkflow, {
+          remainingInvalidationRetries: nextRetries,
+        }),
+        'Referenced workflow changed while loading. Retry the request.',
+      );
+      if (retryAfterMaterialize) {
+        return retryAfterMaterialize;
       }
 
       const project = loadProjectFromString(materialization.contents);
-      if (this.#invalidationController.shouldRetryAfterMaterialize(resolveSnapshot, workflow.workflow_id, workflowSnapshot)) {
-        if (remainingInvalidationRetries > 0) {
-          return this.#loadExecutionReferencedProject(loadWorkflow, {
-            remainingInvalidationRetries: remainingInvalidationRetries - 1,
-          });
-        }
-
-        throw createHttpError(503, 'Referenced workflow changed while loading. Retry the request.');
+      const retryAfterProjectLoad = this.#retryAfterMaterialize(
+        resolveSnapshot,
+        workflow.workflow_id,
+        workflowSnapshot,
+        remainingInvalidationRetries,
+        (nextRetries) => this.#loadExecutionReferencedProject(loadWorkflow, {
+          remainingInvalidationRetries: nextRetries,
+        }),
+        'Referenced workflow changed while loading. Retry the request.',
+      );
+      if (retryAfterProjectLoad) {
+        return retryAfterProjectLoad;
       }
 
       return project;

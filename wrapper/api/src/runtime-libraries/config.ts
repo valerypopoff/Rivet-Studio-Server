@@ -3,6 +3,7 @@ import {
   type ManagedWorkflowStorageConfig,
 } from '../routes/workflows/storage-config.js';
 import { badRequest } from '../utils/httpError.js';
+import { parseBoolean, parseEnum, parsePositiveInt } from '../utils/env-parsing.js';
 import type {
   RuntimeLibrariesBackendMode,
   RuntimeLibraryProcessRole,
@@ -37,53 +38,6 @@ const RETIRED_ENV_REPLACEMENTS = {
 function readEnv(name: string): string | undefined {
   const value = process.env[name]?.trim();
   return value ? value : undefined;
-}
-
-function normalizeEnumValue<T extends string>(
-  rawValue: string | undefined,
-  allowedValues: readonly T[],
-  fallback: T,
-): T {
-  const normalized = rawValue?.trim().toLowerCase();
-  if (!normalized) {
-    return fallback;
-  }
-
-  if ((allowedValues as readonly string[]).includes(normalized)) {
-    return normalized as T;
-  }
-
-  throw badRequest(`Invalid configuration value "${rawValue}"`);
-}
-
-function normalizePositiveInt(value: string | undefined, fallback: number): number {
-  if (!value) {
-    return fallback;
-  }
-
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return fallback;
-  }
-
-  return parsed;
-}
-
-function normalizeBoolean(value: string | undefined, fallback: boolean): boolean {
-  if (!value) {
-    return fallback;
-  }
-
-  const normalized = value.trim().toLowerCase();
-  if (normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on') {
-    return true;
-  }
-
-  if (normalized === '0' || normalized === 'false' || normalized === 'no' || normalized === 'off') {
-    return false;
-  }
-
-  return fallback;
 }
 
 function inferRuntimeProcessRole(): RuntimeLibraryProcessRole {
@@ -154,10 +108,11 @@ function assertNoRetiredEnv(): void {
 
 export function getRuntimeLibrariesBackendMode(): RuntimeLibrariesBackendMode {
   assertNoRetiredEnv();
-  return normalizeEnumValue(
+  return parseEnum(
     readEnv(STORAGE_MODE_ENV_NAME),
     ['filesystem', 'managed'],
     'filesystem',
+    { strict: true },
   );
 }
 
@@ -168,7 +123,7 @@ export function isManagedRuntimeLibrariesEnabled(): boolean {
 export function getManagedRuntimeLibrariesConfig(): ManagedRuntimeLibrariesConfig {
   assertNoRetiredEnv();
   const workflowConfig = getManagedWorkflowStorageConfig();
-  const replicaStatusRetentionMs = normalizePositiveInt(
+  const replicaStatusRetentionMs = parsePositiveInt(
     readEnv(RUNTIME_LIBRARIES_REPLICA_STATUS_RETENTION_ENV_NAME),
     getDefaultReplicaStatusRetentionMs(workflowConfig.databaseMode),
   );
@@ -177,18 +132,18 @@ export function getManagedRuntimeLibrariesConfig(): ManagedRuntimeLibrariesConfi
   return {
     ...workflowConfig,
     objectStoragePrefix: MANAGED_RUNTIME_LIBRARIES_OBJECT_STORAGE_PREFIX,
-    syncPollIntervalMs: normalizePositiveInt(
+    syncPollIntervalMs: parsePositiveInt(
       readEnv(RUNTIME_LIBRARIES_SYNC_POLL_INTERVAL_ENV_NAME),
       5_000,
     ),
     runtimeProcessRole,
     runtimeReplicaTier: inferRuntimeReplicaTier(runtimeProcessRole),
     replicaStatusRetentionMs,
-    replicaStatusCleanupIntervalMs: normalizePositiveInt(
+    replicaStatusCleanupIntervalMs: parsePositiveInt(
       readEnv(RUNTIME_LIBRARIES_REPLICA_STATUS_CLEANUP_INTERVAL_ENV_NAME),
       getDefaultReplicaStatusCleanupIntervalMs(workflowConfig.databaseMode),
     ),
-    jobWorkerEnabled: normalizeBoolean(
+    jobWorkerEnabled: parseBoolean(
       readEnv(RUNTIME_LIBRARIES_JOB_WORKER_ENABLED_ENV_NAME),
       true,
     ),

@@ -1,4 +1,5 @@
 import { badRequest } from '../../utils/httpError.js';
+import { parseBoolean, parseEnum } from '../../utils/env-parsing.js';
 
 export type WorkflowStorageBackendMode = 'filesystem' | 'managed';
 export type ManagedWorkflowDatabaseMode = 'local-docker' | 'managed';
@@ -72,36 +73,6 @@ function stripDatabaseSslQueryOptions(rawConnectionString: string): string {
   } catch {
     return rawConnectionString;
   }
-}
-
-function normalizeEnumValue<T extends string>(rawValue: string | undefined, allowedValues: readonly T[], fallback: T): T {
-  const normalized = rawValue?.trim().toLowerCase();
-  if (!normalized) {
-    return fallback;
-  }
-
-  if ((allowedValues as readonly string[]).includes(normalized)) {
-    return normalized as T;
-  }
-
-  throw badRequest(`Invalid configuration value "${rawValue}"`);
-}
-
-function normalizeBoolean(value: string | undefined, fallback = false): boolean {
-  const normalized = value?.trim().toLowerCase();
-  if (!normalized) {
-    return fallback;
-  }
-
-  if (['1', 'true', 'yes', 'on'].includes(normalized)) {
-    return true;
-  }
-
-  if (['0', 'false', 'no', 'off'].includes(normalized)) {
-    return false;
-  }
-
-  return fallback;
 }
 
 function readEnv(name: string): string | undefined {
@@ -183,7 +154,7 @@ function parseManagedStorageUrl(rawUrl: string): ParsedStorageUrl {
 
 export function getWorkflowStorageBackendMode(): WorkflowStorageBackendMode {
   assertNoRetiredEnv();
-  return normalizeEnumValue(readEnv(STORAGE_MODE_ENV_NAME), ['filesystem', 'managed'], 'filesystem');
+  return parseEnum(readEnv(STORAGE_MODE_ENV_NAME), ['filesystem', 'managed'], 'filesystem', { strict: true });
 }
 
 export function isManagedWorkflowStorageEnabled(): boolean {
@@ -192,7 +163,7 @@ export function isManagedWorkflowStorageEnabled(): boolean {
 
 export function getManagedWorkflowStorageConfig(): ManagedWorkflowStorageConfig {
   assertNoRetiredEnv();
-  const databaseMode = normalizeEnumValue(readEnv(DATABASE_MODE_ENV_NAME), ['local-docker', 'managed'], 'managed');
+  const databaseMode = parseEnum(readEnv(DATABASE_MODE_ENV_NAME), ['local-docker', 'managed'], 'managed', { strict: true });
   const databaseUrl = stripDatabaseSslQueryOptions(
     requireEnv(DATABASE_CONNECTION_STRING_ENV_NAME),
   );
@@ -204,10 +175,11 @@ export function getManagedWorkflowStorageConfig(): ManagedWorkflowStorageConfig 
   return {
     databaseMode,
     databaseUrl,
-    databaseSslMode: normalizeEnumValue(
+    databaseSslMode: parseEnum(
       readEnv(DATABASE_SSL_MODE_ENV_NAME),
       ['disable', 'require', 'verify-full'],
       databaseMode === 'local-docker' ? 'disable' : 'require',
+      { strict: true },
     ),
     objectStorageBucket: readEnv(OBJECT_STORAGE_BUCKET_ENV_NAME) || parsedStorageUrl?.bucket || requireEnv(OBJECT_STORAGE_BUCKET_ENV_NAME),
     objectStorageRegion: explicitRegion || parsedStorageUrl?.region || 'us-east-1',
@@ -215,7 +187,7 @@ export function getManagedWorkflowStorageConfig(): ManagedWorkflowStorageConfig 
     objectStorageAccessKeyId: requireEnv(OBJECT_STORAGE_ACCESS_KEY_ID_ENV_NAME),
     objectStorageSecretAccessKey: requireEnv(OBJECT_STORAGE_ACCESS_KEY_ENV_NAME),
     objectStoragePrefix: (readEnv(OBJECT_STORAGE_PREFIX_ENV_NAME) || 'workflows/').replace(/^\/+/, ''),
-    objectStorageForcePathStyle: normalizeBoolean(
+    objectStorageForcePathStyle: parseBoolean(
       readEnv(OBJECT_STORAGE_FORCE_PATH_STYLE_ENV_NAME),
       parsedStorageUrl?.forcePathStyle ?? false,
     ),
