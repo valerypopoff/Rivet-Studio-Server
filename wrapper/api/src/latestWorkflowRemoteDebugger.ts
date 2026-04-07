@@ -77,3 +77,26 @@ export function getLatestWorkflowRemoteDebugger(): RivetDebuggerServer {
 
   return latestWorkflowRemoteDebugger;
 }
+
+async function closeWebSocketServer(server: WebSocketServer): Promise<void> {
+  for (const client of server.clients) {
+    client.terminate();
+  }
+
+  await new Promise<void>((resolve) => {
+    server.close(() => resolve());
+  });
+}
+
+// Test-only reset seam for the module-scoped debugger singleton.
+export async function resetLatestWorkflowRemoteDebuggerForTests(): Promise<void> {
+  const debuggerServer = latestWorkflowRemoteDebugger;
+  latestWorkflowRemoteDebugger = null;
+  latestWorkflowRemoteDebuggerUpgradeHandlerInitialized = false;
+
+  if (!debuggerServer) {
+    return;
+  }
+
+  await closeWebSocketServer(debuggerServer.webSocketServer);
+}

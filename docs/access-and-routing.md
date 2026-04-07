@@ -260,6 +260,14 @@ Endpoint recording persistence is unaffected by debugger state. Latest-workflow 
 - in `filesystem` mode, as recording bundles plus SQLite index rows
 - in `managed` mode, as Postgres metadata plus recording/replay blobs in object storage
 
+Kubernetes support note:
+
+- the supported Kubernetes topology keeps `/ws/latest-debugger` and `${RIVET_LATEST_WORKFLOWS_BASE_PATH:-/workflows-latest}` on the singleton control-plane backend
+- execution-plane API replicas may scale independently for `${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH:-/workflows}`
+- latest endpoint runs remain debuggable in that topology because both the latest execution route and `/ws/latest-debugger` stay on the same backend process boundary
+- published endpoint runs remain non-debuggable
+- manually scaling the backend outside the chart guardrails is unsupported for latest debugging because the current debugger is still process-local, not a distributed cross-replica debugger
+
 ## Local dev note
 
 `npm run dev` preserves the nginx routing and auth model described above.

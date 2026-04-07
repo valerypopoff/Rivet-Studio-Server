@@ -33,11 +33,11 @@
 {{- end -}}
 
 {{- if ne (int .Values.replicaCount.backend) 1 -}}
-{{- fail "Phase 3 keeps replicaCount.backend=1 until the remaining process-local backend paths are redesigned for safe multi-replica rollout" -}}
+{{- fail "Phase 3 keeps replicaCount.backend=1 because latest-workflow execution and /ws/latest-debugger are still process-local control-plane features" -}}
 {{- end -}}
 
 {{- if .Values.autoscaling.backend.enabled -}}
-{{- fail "Phase 3 keeps autoscaling.backend.enabled=false until the remaining process-local backend paths are redesigned for safe multi-replica rollout" -}}
+{{- fail "Phase 3 keeps autoscaling.backend.enabled=false because latest-workflow execution and /ws/latest-debugger are still process-local control-plane features" -}}
 {{- end -}}
 
 {{- if and (eq .Values.workflowStorage.backend "filesystem") (ne (int .Values.replicaCount.backend) 1) -}}

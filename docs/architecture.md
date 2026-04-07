@@ -42,6 +42,14 @@ The current runtime keeps the control plane conservative while published executi
   - published endpoint execution only
   - internal published-only execution for trusted in-cluster callers
 
+That control-plane singleton is intentional, not accidental. In the current supported Kubernetes topology:
+
+- `backend` stays at one replica
+- `execution` is the horizontal scale boundary for endpoint traffic
+- latest-workflow execution and `/ws/latest-debugger` stay on the same control-plane process boundary
+- published endpoint execution scales on the execution Deployment and remains non-debuggable
+- the latest debugger is still process-local rather than a distributed cross-replica service
+
 ## Hosted UI model
 
 - The top-level page is the wrapper dashboard. It renders the workflow library, project settings, runtime libraries, run recordings, and an `<iframe src="/?editor">`.
