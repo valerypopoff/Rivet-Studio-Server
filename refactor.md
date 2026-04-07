@@ -1,1038 +1,891 @@
-# Post-Kubernetizing Refactoring Plan
-
-## Goal
-
-Reduce code size and complexity without changing functionality. Every change here is a pure refactor: same behavior, less code, clearer structure.
-
-## Priority Legend
-
-- `P0` — high duplication or complexity, large line savings, low risk
-- `P1` — moderate savings, moderate risk
-- `P2` — small savings or cosmetic, do when touching nearby code
-
----
-
-## 1. Backend: The Managed Workflow Backend Monster
-
-**File:** `wrapper/api/src/routes/workflows/managed/backend.ts` (2,279 lines)
-
-This is the single largest file in the codebase. It mixes SQL schema, query helpers, CRUD operations, publication logic, recording persistence, and blob management into one class.
-
-### 1.1 Extract SQL column constants `P0` `DONE`
-
-The same workflow column list appears in 4 places (verified):
-- `#listWorkflowRows()` (lines ~732-733)
-- `#getWorkflowByRelativePath()` (lines ~743-744)
-- `#getWorkflowById()` (lines ~757-758)
-- `listWorkflowRecordingWorkflows()` (lines ~2032-2033, adds `w.` table prefix but same columns)
-
-All 4 select the identical 11 columns: `workflow_id, name, file_name, relative_path, folder_relative_path, updated_at, current_draft_revision_id, published_revision_id, endpoint_name, published_endpoint_name, last_published_at`.
-
-The same recording column list appears in 4 places (verified):
-- `deleteWorkflowRecording()` (lines ~1862-1865)
-- `listWorkflowRecordingRunsPage()` (lines ~2102-2105)
-- `readWorkflowRecordingArtifact()` (lines ~2147-2150)
-- A second query inside `deleteWorkflowRecording()` (lines ~2176-2179)
-
-All 4 select the identical 20 columns: `recording_id, workflow_id, source_project_name, source_project_relative_path, created_at, run_kind, status, duration_ms, endpoint_name_at_execution, error_message, recording_blob_key, replay_project_blob_key, replay_dataset_blob_key, has_replay_dataset, recording_compressed_bytes, recording_uncompressed_bytes, project_compressed_bytes, project_uncompressed_bytes, dataset_compressed_bytes, dataset_uncompressed_bytes`.
-
-**Where:** Top of `managed/backend.ts`, before the class definition.
-
-**What to change:**
-```ts
-const WORKFLOW_COLUMNS = `workflow_id, name, file_name, relative_path, folder_relative_path, updated_at,
-  current_draft_revision_id, published_revision_id, endpoint_name, published_endpoint_name, last_published_at`;
-
-const RECORDING_COLUMNS = `recording_id, workflow_id, source_project_name, source_project_relative_path, created_at,
-  run_kind, status, duration_ms, endpoint_name_at_execution, error_message,
-  recording_blob_key, replay_project_blob_key, replay_dataset_blob_key, has_replay_dataset,
-  recording_compressed_bytes, recording_uncompressed_bytes, project_compressed_bytes,
-  project_uncompressed_bytes, dataset_compressed_bytes, dataset_uncompressed_bytes`;
-```
-
-Replace each inline column list with `${WORKFLOW_COLUMNS}` or `${RECORDING_COLUMNS}`. The `listWorkflowRecordingWorkflows` occurrence needs the `w.` table-qualified variant — use a small helper `withTablePrefix(cols, 'w')` or define a second constant `WORKFLOW_COLUMNS_QUALIFIED`.
-
-**How to verify:** Run existing tests (`npm test` in `wrapper/api`). SQL output is identical. No runtime change.
-
-**Estimated savings:** ~60 lines (corrected from original ~80 — 4 occurrences each, not 5+)
-
-**Risks:**
-- If any occurrence has a subtly different column order or an extra column, the query will silently return wrong data. Mitigate by verifying each replacement with a diff of the generated SQL.
-- The `w.`-prefixed variant in `listWorkflowRecordingWorkflows` requires care — it joins with other tables so the qualified constant must use `w.` prefix consistently.
-
-### 1.2 Extract recording blob upload and insert helpers `P0` `DONE`
-
-`importWorkflowRecording()` (lines ~1952-2025) and `persistWorkflowExecutionRecording()` (lines ~2198-2278) both:
-1. Build 3 blob keys (recording, replay-project, optional replay-dataset)
-2. Upload blobs in parallel with `Promise.all`
-3. On upload failure, delete partial uploads with `#deleteBlobKeysBestEffort`
-4. Insert a recording row with a 20-column INSERT statement
-
-Verified differences:
-- **Blob upload**: Structurally identical. Different variable names (`options.recordingContents` vs `options.recordingSerialized`) but same shape — 3 `putText` calls with identical conditional logic for the optional dataset blob.
-- **INSERT SQL**: Column list is identical. VALUES differ only in timestamp: `$5::timestamptz` (import passes a timestamp) vs `NOW()` (persist uses server time). The `ON CONFLICT (recording_id) DO NOTHING` clause is only on the import version.
-- **Row data preparation**: Fundamentally different — import reads from `options` directly, persist derives values from Project objects and serialization results.
-
-**Where:** New private methods on `ManagedWorkflowBackend` or module-level helpers in `managed/backend.ts`.
-
-**What to change:**
-
-Extract a blob upload helper:
-```ts
-async #uploadRecordingBlobs(
-  recordingId: string,
-  artifacts: { recording: string; replayProject: string; replayDataset?: string | null },
-): Promise<{ recordingBlobKey: string; replayProjectBlobKey: string; replayDatasetBlobKey: string | null }> {
-  // Build keys, upload in parallel, cleanup on failure
-}
-```
-
-Extract a row insert helper that takes a timestamp parameter:
-```ts
-async #insertRecordingRow(
-  client: PoolClient,
-  row: RecordingRowData,
-  timestampMode: 'provided' | 'now',
-  onConflict: 'ignore' | 'fail',
-): Promise<void> {
-  // Single INSERT with parameterized timestamp handling
-}
-```
-
-Both callers shrink to: prepare row data → call `#uploadRecordingBlobs` → call `#insertRecordingRow`.
-
-**How to verify:** Run recording-related tests. Import and persist paths both exercise these. Managed-mode Playwright flow covers end-to-end recording persistence.
-
-**Estimated savings:** ~50 lines (corrected from ~60 — row data preparation stays in each caller)
-
-**Risks:**
-- The `ON CONFLICT DO NOTHING` clause only exists on the import path. The extracted helper must parameterize this, not assume one behavior.
-- The timestamp difference (`$5::timestamptz` vs `NOW()`) is subtle. A parameter like `timestampMode` must be clearly documented.
-- Blob key construction logic may have subtle differences between import and persist paths — verify key prefix patterns match.
-
-### 1.3 DONE Split the class into focused modules `P1`
-
-The `ManagedWorkflowBackend` class has 20+ methods spanning unrelated concerns.
-
-**Where:** `wrapper/api/src/routes/workflows/managed/` directory.
-
-**What to change:** Create new modules and move methods:
-
-- `managed/schema.ts` — the `SCHEMA_SQL` constant and `#ensureSchema()` method (~200 lines of SQL DDL at lines ~215-417)
-- `managed/catalog.ts` — folder/workflow CRUD methods: `getTree`, `createWorkflowFolderItem`, `renameWorkflowFolderItem`, `deleteWorkflowFolderItem`, `#moveFolderRelativePath`, `createWorkflowProjectItem`, `renameWorkflowProjectItem`, `deleteWorkflowProjectItem`, `listProjectPathsForHostedIo`, `moveWorkflowProject`, `moveWorkflowFolder` (~500 lines)
-- `managed/revisions.ts` — `saveHostedProject`, `importWorkflow`, `#readRevisionContents`, revision blob upload/cleanup helpers (~350 lines)
-- `managed/publication.ts` — `publishWorkflowProjectItem`, `unpublishWorkflowProjectItem`, endpoint resolution queries (~250 lines)
-- `managed/recordings.ts` — recording import, persist, list, delete, replay lookup, the extracted blob/insert helpers from 1.2 (~400 lines)
-- `managed/backend.ts` — thin facade that instantiates the above modules with shared `Pool` and `BlobStore` dependencies, exposes the combined backend interface
-
-Each module receives the database pool and blob store as constructor or function parameters. The facade wires them together and re-exports the unified interface that `storage-backend.ts` consumes.
-
-**How to verify:** All existing tests pass. The public interface of `ManagedWorkflowBackend` does not change — only its internal organization.
-
-**Estimated savings:** No net line reduction. Each file drops to 200-500 lines instead of one 2,279-line monster.
-
-**Risks:**
-- Private methods (`#deleteBlobKeysBestEffort`, `#queryRows`, `#queryOne`, transaction helpers) are shared across all concerns. These must become shared utilities within the `managed/` directory, which changes the class's encapsulation model.
-- The transaction hook pattern (`hooks.onCommit`/`hooks.onRollback`) is used across multiple concern areas. It must remain accessible to all split modules.
-- This is the highest-risk refactor in the plan. Do it last among the backend items, after 1.1 and 1.2 are stable.
-
-### 1.4 Deduplicate revision blob rollback pattern `P2` `DONE`
-
-Three places schedule blob deletion on transaction rollback (verified):
-- `saveHostedProject()` (line ~1189)
-- `importWorkflow()` (line ~1280) — draft revision
-- `importWorkflow()` (line ~1298) — published revision
-
-All three are structurally identical: `hooks.onRollback(() => this.#deleteBlobKeysBestEffort('transaction rollback', [revision.project_blob_key, revision.dataset_blob_key]))`. The only difference is the variable name (`revision`, `draftRevision`, `publishedRevision!`).
-
-**Where:** New private method on `ManagedWorkflowBackend`.
-
-**What to change:**
-```ts
-#scheduleRevisionBlobCleanup(hooks: TransactionHooks, revision: { project_blob_key: string; dataset_blob_key: string | null }): void {
-  hooks.onRollback(() => this.#deleteBlobKeysBestEffort('transaction rollback', [
-    revision.project_blob_key,
-    revision.dataset_blob_key,
-  ]));
-}
-```
-
-Each call site becomes a one-liner.
-
-**How to verify:** Run workflow save and import tests. Verify rollback behavior by checking that blob cleanup is still triggered on transaction failure.
-
-**Estimated savings:** ~10 lines
-
-**Risks:**
-- Minimal. The helper is a trivial wrapper. The only concern is ensuring the `revision` parameter type matches all three call sites (the `publishedRevision!` non-null assertion must be handled before calling the helper).
-
-### 1.5 Deduplicate recording error cleanup pattern `P0` *(NEW — gap in original plan)* `DONE`
-
-4 places call `#deleteBlobKeysBestEffort` for recording failure cleanup (verified):
-- `importWorkflowRecording()` upload failure (line ~1981)
-- `importWorkflowRecording()` insert failure (line ~2022)
-- `persistWorkflowExecutionRecording()` upload failure (line ~2236)
-- `persistWorkflowExecutionRecording()` insert failure (line ~2275)
-
-All follow the pattern: `await this.#deleteBlobKeysBestEffort('recording <context> failure', uploadedBlobKeys)`.
-
-**Where:** This is addressed by item 1.2 — when the upload and insert logic is extracted into helpers, the error cleanup becomes internal to those helpers. No separate extraction needed if 1.2 is done first.
-
-**Estimated savings:** Included in 1.2's savings.
-
-**Risks:** Same as 1.2.
-
----
-
-## 2. Backend: Storage Backend Delegation
-
-**File:** `wrapper/api/src/routes/workflows/storage-backend.ts` (423 lines)
-
-### 2.1 Replace repetitive wrappers with a generic delegator `P0` `DONE`
-
-Verified: 23 exported functions follow the delegation pattern (not 35+ as originally claimed). Additionally, 3 functions are managed-only (no filesystem fallback) and 2 functions have non-trivial differences between paths.
-
-The 23 uniform delegation functions each check `isManagedWorkflowStorageEnabled()`, get the managed backend, and call the corresponding method. The filesystem fallback typically calls a local function with the workflows root path.
-
-Functions that **cannot** use a simple delegator:
-- `resolvePublishedExecutionProject()` (lines ~348-367): The filesystem path has complex multi-step logic (find workflow → load project → build dataset provider → assemble return). The managed path is a single backend call. These are architecturally different, not just calling different functions.
-- `resolveLatestExecutionProject()` (lines ~369-388): Same issue as above.
-- `persistWorkflowExecutionRecordingWithBackend()` (lines ~399-419): The filesystem path destructures `{ root, ...options }` and passes `root` separately. Different call shape.
-- `readManagedHostedText()`, `managedHostedPathExists()`, `readManagedHostedRelativeProject()`: Managed-only, no filesystem fallback.
-
-**Where:** Top of `storage-backend.ts`, before the exported functions.
-
-**What to change:**
-```ts
-async function delegate<T>(
-  managedFn: (backend: ManagedWorkflowBackend) => Promise<T>,
-  fsFn: () => Promise<T>,
-): Promise<T> {
-  if (isManagedWorkflowStorageEnabled()) {
-    const backend = await getManagedBackend();
-    return managedFn(backend);
-  }
-  return fsFn();
-}
-```
-
-Apply to the ~18 functions that are truly uniform (both paths have matching call shapes). Keep the 5 non-uniform functions as-is with inline if/else — do not force them into the delegator pattern.
-
-**How to verify:** All existing tests pass. Each refactored function produces identical behavior for both storage modes.
-
-**Estimated savings:** ~80 lines (corrected from ~150 — only ~18 of the 23 functions are uniform enough, and each saves ~4-5 lines)
-
-**Risks:**
-- TypeScript generics may require explicit type annotations at some call sites to preserve return type inference. Test that callers still get the correct types.
-- The 5 non-uniform functions must NOT be forced into the delegator. Doing so would obscure their architectural differences and make the code harder to understand.
-
----
-
-## 3. Backend: Recordings DB
-
-**Files:**
-- `wrapper/api/src/routes/workflows/recordings.ts` (989 lines)
-- `wrapper/api/src/routes/workflows/recordings-db.ts` (535 lines)
-
-### 3.1 Deduplicate SQL column lists in recordings-db.ts `P0` `DONE`
-
-Verified: The full `recording_runs` SELECT column list (17 columns with aliases) appears in **6** separate query functions (corrected from 5):
-- `listWorkflowRecordingRunRowsByWorkflowId()` (lines ~284-301)
-- `getWorkflowRecordingRunRow()` (lines ~328-345)
-- `listWorkflowRecordingRunRowsForWorkflow()` (lines ~356-373)
-- `listWorkflowRecordingRunsOlderThan()` (lines ~385-402)
-- `listWorkflowRecordingRunsOldestFirst()` (lines ~414-431)
-- Note: `listWorkflowRecordingWorkflowStatsRows()` uses a DIFFERENT column list with aggregates — do not consolidate with this one.
-
-All 6 are 100% identical: same 17 columns, same order, same aliases.
-
-**Where:** Top of `recordings-db.ts`, as a module-level constant.
-
-**What to change:**
-```ts
-const RECORDING_RUN_COLUMNS = `
-  id AS id,
-  workflow_id AS workflowId,
-  created_at AS createdAt,
-  run_kind AS runKind,
-  status AS status,
-  duration_ms AS durationMs,
-  endpoint_name_at_execution AS endpointNameAtExecution,
-  error_message AS errorMessage,
-  bundle_path AS bundlePath,
-  encoding AS encoding,
-  has_replay_dataset AS hasReplayDataset,
-  recording_compressed_bytes AS recordingCompressedBytes,
-  recording_uncompressed_bytes AS recordingUncompressedBytes,
-  project_compressed_bytes AS projectCompressedBytes,
-  project_uncompressed_bytes AS projectUncompressedBytes,
-  dataset_compressed_bytes AS datasetCompressedBytes,
-  dataset_uncompressed_bytes AS datasetUncompressedBytes`;
-```
-
-Replace 6 inline column lists with `${RECORDING_RUN_COLUMNS}`.
-
-**How to verify:** Run `recordings-db` tests and the full workflow-services test suite.
-
-**Estimated savings:** ~85 lines (corrected up from ~60 — 6 occurrences × ~15 lines each, minus the constant definition)
-
-**Risks:**
-- Minimal. Pure string replacement. The constant is used only in template literals that build SELECT statements.
-- Verify the `listWorkflowRecordingWorkflowStatsRows` function is NOT touched — it has a fundamentally different column list with aggregates.
-
-### 3.2 Extract shared WHERE clause builder `P2` `DONE`
-
-Status filter WHERE clause construction is duplicated in 2 functions.
-
-**Where:** `recordings-db.ts`, new helper function.
-
-**What to change:**
-```ts
-function buildRunFilterClause(statusFilter: string | undefined): { where: string; params: any[] } {
-  if (statusFilter === 'failed') {
-    return { where: `WHERE workflow_id = ? AND status IN ('failed', 'suspicious')`, params: [] };
-  }
-  return { where: 'WHERE workflow_id = ?', params: [] };
-}
-```
-
-**How to verify:** Run recordings-db tests.
-
-**Estimated savings:** ~8 lines
-
-**Risks:**
-- Minimal. Two call sites with identical logic.
-
-### 3.3 Simplify normalizeStoredWorkflowRecording `P1` `DONE`
-
-**Where:** `recordings.ts`, the `normalizeStoredWorkflowRecording()` function (lines ~242-372).
-
-**What to change:** Extract the shared validation that both v1 and v2 branches perform into a `validateRecordingFields(obj)` helper. Both branches currently validate the same required fields (workflowId, recording id, status, timestamps) with identical logic. Each branch then becomes ~15 lines of version-specific field extraction plus the shared validation call.
-
-**How to verify:** Run recording normalization tests and the full workflow-services test suite. Edge cases: malformed v1 recordings, malformed v2 recordings, missing fields.
-
-**Estimated savings:** ~40 lines
-
-**Risks:**
-- The v1 and v2 branches may have subtle validation differences that are easy to miss when extracting. Carefully diff both branches line-by-line before extracting.
-- Some v1 fields have different names or shapes than v2. The shared validator must only cover truly common fields.
-
-### 3.4 Consolidate artifact encoding helpers `P2` `DONE`
-
-`readArtifactBytes` and `readArtifactText` both read a file, check encoding, optionally decompress.
-
-**Where:** `recordings.ts`.
-
-**What to change:**
-```ts
-async function readArtifactRaw(filePath: string, encoding: WorkflowRecordingBlobEncoding): Promise<Buffer> {
-  const raw = await fs.readFile(filePath);
-  return encoding === 'gzip' ? await gunzipAsync(raw) : raw;
-}
-```
-`readArtifactBytes` becomes `return readArtifactRaw(path, enc)`.
-`readArtifactText` becomes `return (await readArtifactRaw(path, enc)).toString('utf-8')`.
-
-**How to verify:** Run recording artifact read tests.
-
-**Estimated savings:** ~12 lines
-
-**Risks:**
-- Minimal. Both functions already handle the same two encoding cases (`identity` and `gzip`).
-
----
-
-## 4. Backend: Workflow Mutations
-
-**File:** `wrapper/api/src/routes/workflows/workflow-mutations.ts` (485 lines)
-
-### 4.1 Unify duplicate and upload retry loops `P0` `DONE`
-
-Verified: The retry loops in `duplicateWorkflowProjectItem()` (lines ~292-330) and `uploadWorkflowProjectItem()` (lines ~359-395) are 97% identical. The differences are:
-
-1. Path resolution function: `getDuplicateWorkflowProjectPath(...)` vs `getUploadedWorkflowProjectPath(...)`
-2. ENOENT error message: `'Project not found'` vs `'Folder not found'`
-3. Everything else — serialization, `writeFile` with `flag: 'wx'`, EEXIST retry, metadata assignment — is identical.
-
-**Where:** `workflow-mutations.ts`, new module-level function.
-
-**What to change:**
-```ts
-async function writeUniqueProjectFile(
-  getPathForIndex: (index: number) => { projectName: string; projectPath: string },
-  project: Project,
-  attachedData: AttachedData | undefined,
-  projectId: string,
-  root: string,
-  notFoundMessage: string,
-): Promise<WorkflowProjectItem> {
-  for (let index = 0; ; index += 1) {
-    const { projectName, projectPath } = getPathForIndex(index);
-    project.metadata.id = projectId;
-    project.metadata.title = projectName;
-
-    let serialized: string;
-    try {
-      serialized = serializeProject(project, attachedData);
-      if (typeof serialized !== 'string') throw new Error('...');
-    } catch { throw createHttpError(400, '...'); }
-
-    try {
-      await fs.writeFile(projectPath, serialized, { encoding: 'utf8', flag: 'wx' });
-      return getWorkflowProject(root, projectPath);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'EEXIST') continue;
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') throw createHttpError(404, notFoundMessage);
-      throw error;
-    }
-  }
-}
-```
-
-Both callers become ~10 lines: prepare their path-resolution callback and call `writeUniqueProjectFile`.
-
-**How to verify:** Run workflow mutation tests — specifically duplicate and upload test cases. Verify EEXIST retry and ENOENT error behaviors.
-
-**Estimated savings:** ~40 lines (corrected from ~50 — the helper function itself takes ~25 lines)
-
-**Risks:**
-- The path resolution functions have different signatures (`getDuplicateWorkflowProjectPath` takes 5 args, `getUploadedWorkflowProjectPath` takes 3). The callback abstraction must accommodate this via closures at the call site.
-- The error message in the `try/catch` around serialization differs (`'Could not duplicate project'` vs `'Could not upload project'`). Parameterize this too, or use a generic message.
-
----
-
-## 5. Backend: Publication
-
-**File:** `wrapper/api/src/routes/workflows/publication.ts` (398 lines)
-
-### 5.1 Merge findPublished and findLatest endpoint lookups `P1` `DONE`
-
-Verified: `findPublishedWorkflowByEndpoint()` (lines ~291-315) and `findLatestWorkflowByEndpoint()` (lines ~317-335) share ~75% of their code (corrected from ~90%). Both:
-1. Call `listProjectPathsRecursive(root)`
-2. Iterate project paths
-3. Call `path.basename()` and `readStoredWorkflowProjectSettings()`
-4. Check `isWorkflowEndpointPublished()`
-
-They differ in:
-- `findPublished` performs an additional validation step: calls `resolvePublishedWorkflowProjectPath()` and skips if it returns null
-- `findPublished` returns `{ endpointName, projectPath, publishedProjectPath }` (3 fields)
-- `findLatest` returns `{ endpointName, projectPath }` (2 fields)
-
-**Where:** `publication.ts`.
-
-**What to change:** Extract the shared scan into a helper:
-```ts
-async function findWorkflowByEndpoint(
-  root: string,
-  endpointName: string,
-): Promise<{ projectPath: string; settings: WorkflowProjectSettings } | null> {
-  const projectPaths = await listProjectPathsRecursive(root);
-  for (const projectPath of projectPaths) {
-    const projectName = path.basename(projectPath, PROJECT_EXTENSION);
-    const settings = await readStoredWorkflowProjectSettings(projectPath, projectName);
-    if (isWorkflowEndpointPublished(settings, endpointName)) {
-      return { projectPath, settings };
-    }
-  }
-  return null;
-}
-```
-
-`findPublishedWorkflowByEndpoint` calls this, then does its extra resolution step.
-`findLatestWorkflowByEndpoint` calls this and returns directly.
-
-**How to verify:** Run publication tests and endpoint resolution tests in filesystem mode.
-
-**Estimated savings:** ~15 lines (corrected from ~25 — the shared portion is shorter than initially estimated)
-
-**Risks:**
-- Low. The shared logic is a pure scan with no side effects. The extra resolution step in `findPublished` stays in its own function.
-
-### 5.2 Simplify settings normalization `P2` `DONE`
-
-**Where:** `publication.ts`, `normalizeStoredWorkflowProjectSettings()`.
-
-**What to change:** Use a defaults-and-override pattern instead of deeply nested ternaries. Apply explicit field validation only where the raw value needs type coercion (e.g., ensuring `lastPublishedAt` is a valid ISO string).
-
-**How to verify:** Run settings normalization tests.
-
-**Estimated savings:** ~15 lines
-
-**Risks:**
-- The current ternary chain may include implicit type coercion or null-vs-undefined distinctions. A spread pattern must preserve these semantics exactly.
-
----
-
-## 6. Backend: Native IO
-
-**File:** `wrapper/api/src/routes/native-io.ts` (319 lines)
-
-### 6.1 Extract managed-workflow guard into a helper `P1` *(reclassified from P0)* `DONE`
-
-Verified: 8 functions check the managed-workflow condition (not just "check if path is managed" — the pattern is `!baseDir && isManagedWorkflowStorageEnabled() && isManagedWorkflowVirtualReference(path)`). However, the managed-path behavior is **fundamentally different** across functions:
-
-- `readNativeText`, `readNativeBinary`, `readNativeRelative`: Delegate to managed read helpers
-- `writeNativeText`, `writeNativeBinary`, `removeNativeFile`: **Throw errors** — managed writes are rejected
-- `nativePathExists`: Complex virtual path resolution with special root-path and extension logic
-- `listNativeDirectory`: Complex virtual entry filtering
-
-A generic `withManagedRouting` higher-order function would NOT work for all 8 because the managed paths range from simple delegation to error throwing to complex multi-step logic.
-
-**Where:** `native-io.ts`.
-
-**What to change:** Extract only the repeated guard condition into a helper:
-```ts
-function isManagedVirtualPath(filePath: string, baseDir: string | undefined): boolean {
-  return !baseDir && isManagedWorkflowStorageEnabled() && isManagedWorkflowVirtualReference(filePath);
-}
-```
-
-This replaces the 3-part condition in all 8 functions with `if (isManagedVirtualPath(filePath, baseDir))`. The managed-path bodies stay inline because they are too different to abstract uniformly.
-
-Note: `readNativeRelative` omits the `!baseDir` check — verify this is intentional before applying the helper.
-
-**How to verify:** Run native-io tests and managed-mode Playwright tests.
-
-**Estimated savings:** ~15 lines (corrected significantly from ~80 — only the guard condition is extractable, not the bodies)
-
-**Risks:**
-- `readNativeRelative` uses `relativeFrom` instead of `filePath` and omits the `!baseDir` check. This function may need its own guard variant or to be excluded from the helper.
-- The guard function introduces a level of indirection that makes it slightly less obvious what the condition checks. Keep the helper adjacent to the functions that use it.
-
----
-
-## 7. Backend: Execution Service
-
-**File:** `wrapper/api/src/routes/workflows/managed/execution-service.ts` (392 lines)
-
-### 7.1 Extract retry-after-invalidation pattern `P1` `DONE`
-
-Verified: The pattern appears 4 times — twice in `#loadExecutionProjectByEndpointOnce()` (lines ~215-224 and ~231-240) and twice in `#loadExecutionReferencedProject()` (lines ~351-359 and ~362-370). Each occurrence is identical:
-
-```ts
-if (workflowSnapshot && this.#invalidationController.shouldRetryAfterMaterialize(snapshot, workflowId)) {
-  if (remainingInvalidationRetries > 0) {
-    return this.#loadExecutionProjectByEndpointOnce(runKind, endpointName, remainingInvalidationRetries - 1);
-  }
-  throw createHttpError(503, 'Workflow endpoint changed while loading. Retry the request.');
-}
-```
-
-**Where:** `execution-service.ts`, new private method.
-
-**What to change:**
-```ts
-#checkInvalidationRetry(
-  snapshot: GenerationSnapshot,
-  workflowId: string,
-  remainingRetries: number,
-  retryFn: (retriesLeft: number) => Promise<T>,
-): void | never {
-  if (this.#invalidationController.shouldRetryAfterMaterialize(snapshot, workflowId)) {
-    if (remainingRetries > 0) {
-      return retryFn(remainingRetries - 1);
-    }
-    throw createHttpError(503, 'Workflow endpoint changed while loading. Retry the request.');
-  }
-}
-```
-
-Each call site becomes:
-```ts
-if (workflowSnapshot) {
-  const retry = this.#checkInvalidationRetry(snapshot, workflowId, remaining, (n) => this.#loadExecutionProjectByEndpointOnce(runKind, endpointName, n));
-  if (retry) return retry;
-}
-```
-
-**How to verify:** Run managed-execution-invalidation tests.
-
-**Estimated savings:** ~25 lines
-
-**Risks:**
-- The retry function returns a `Promise<T>` which means the type signature of the helper must propagate the generic correctly.
-- Two of the 4 occurrences are in `#loadExecutionReferencedProject` which has a different retry target function. The helper must accept the retry function as a parameter.
-
----
-
-## 8. Frontend: WorkflowLibraryPanel
-
-**File:** `wrapper/web/dashboard/WorkflowLibraryPanel.tsx` (1,372 lines)
-
-### 8.1 Group related state variables `P1` *(reclassified from P0)* `DONE`
-
-Verified: There are **22** `useState` calls (not 40+ as originally claimed). Several are genuinely related:
-
-- **Download state (3):** `downloadModalProject`, `downloadingProjectPath`, `downloadingVersion`
-- **Duplicate state (3):** `duplicateModalProject`, `duplicatingProjectPath`, `duplicatingVersion`
-- **Drag state (3):** `draggedItem`, `dropTargetFolderPath`, `dragOverRoot`
-- **Settings modal (2):** `settingsModalOpen`, `settingsModalProject` — could merge into just `settingsModalProject` (null = closed)
-
-**Where:** `WorkflowLibraryPanel.tsx`, state declarations (lines ~360-390).
-
-**What to change:** Group the download/duplicate states into compound objects:
-```ts
-const [downloadState, setDownloadState] = useState<{
-  modalProject: WorkflowProjectItem | null;
-  activePath: string | null;
-  activeVersion: WorkflowProjectDownloadVersion | null;
-}>({ modalProject: null, activePath: null, activeVersion: null });
-```
-
-Same for duplicate state. Replace `settingsModalOpen` + `settingsModalProject` with just `settingsModalProject` (null means closed).
-
-This reduces 22 `useState` calls to ~16.
-
-**How to verify:** Manual UI testing of download, duplicate, and settings modals. Existing Playwright tests.
-
-**Estimated savings:** ~15 lines
-
-**Risks:**
-- Compound state objects require spreading when updating a single field: `setDownloadState(prev => ({ ...prev, activePath: path }))`. This is slightly more verbose per update. Net savings still positive because there are fewer state declarations and fewer setter functions to pass around.
-- React re-renders: Compound state triggers re-render on any field change. All fields in each group are set together or cleared together, so this is not a concern in practice.
-
-### 8.2 Deduplicate download/duplicate modal rendering `P0` `DONE`
-
-Verified: Two `WorkflowProjectDownloadModal` instances (lines ~1328-1348 and ~1349-1369) are 99% identical. Differences:
-- `actionLabel`: `"Download"` vs `"Duplicate"`
-- `isOpen` / `onClose`: Different state variables
-- `onSelectPublished` / `onSelectUnpublishedChanges`: Call `startDownloadProject` vs `startDuplicateProject`
-- `activeVersion`: Computed from different state
-
-**Where:** `WorkflowLibraryPanel.tsx`, modal rendering section.
-
-**What to change:** Track the active modal mode and render one instance:
-```ts
-const [activeProjectModal, setActiveProjectModal] = useState<{
-  project: WorkflowProjectItem;
-  mode: 'download' | 'duplicate';
-} | null>(null);
-
-// In JSX:
-<WorkflowProjectDownloadModal
-  isOpen={activeProjectModal != null}
-  project={activeProjectModal?.project ?? null}
-  actionLabel={activeProjectModal?.mode === 'download' ? 'Download' : 'Duplicate'}
-  activeVersion={...}
-  onClose={() => setActiveProjectModal(null)}
-  onSelectPublished={() => {
-    const handler = activeProjectModal?.mode === 'download' ? startDownloadProject : startDuplicateProject;
-    handler(activeProjectModal!.project, 'published', { closeModal: true });
-  }}
-  onSelectUnpublishedChanges={() => { /* same pattern */ }}
-/>
-```
-
-This also eliminates 2 separate state variables (`downloadModalProject`, `duplicateModalProject`) and their setters.
-
-**How to verify:** Manual UI testing of both download and duplicate flows. Existing Playwright tests.
-
-**Estimated savings:** ~20 lines
-
-**Risks:**
-- Minimal. The modal component is stateless — it receives all behavior through props. The only change is which props are passed.
-
-### 8.3 Extract tree manipulation utilities `P1` `DONE`
-
-Verified: 7 pure functions spanning lines ~60-276 (217 lines total):
-- `remapExpandedFolderIds` (33 lines)
-- `rewriteWorkflowPathPrefix` (15 lines)
-- `rewriteProjectForFolderMove` (9 lines)
-- `rewriteFolderTreeForFolderMove` (35 lines)
-- `detachFolderFromTree` (39 lines)
-- `insertFolderIntoTree` (44 lines)
-- `applyFolderMoveToTree` (36 lines)
-
-All are pure functions with no React imports, no hooks, no state dependencies. They operate on `WorkflowFolderItem[]` and `WorkflowProjectItem[]` types.
-
-**Where:** New file `wrapper/web/dashboard/workflowTreeOps.ts`.
-
-**What to change:** Move all 7 functions verbatim. Add imports in `WorkflowLibraryPanel.tsx`.
-
-**How to verify:** All existing tests and Playwright flows. The functions are unchanged.
-
-**Estimated savings:** 0 net lines, but the component file shrinks by 217 lines.
-
-**Risks:**
-- Minimal. Pure function extraction with no behavioral change.
-- Ensure all types used by the tree functions are importable from `wrapper/shared/workflow-types.ts` or the local `types.ts`.
-
----
-
-## 9. Frontend: OverlayTabs
-
-**File:** `wrapper/web/overrides/components/OverlayTabs.tsx` (320 lines)
-
-### 9.1 Data-drive the menu items `P1` `DONE`
-
-Verified: 8 menu items, 7 of which are identical in structure. The exception is **Trivet Tests** which conditionally renders a `LoadingSpinner` inside the button.
-
-**Where:** `OverlayTabs.tsx`.
-
-**What to change:** Define a config array:
-```ts
-type MenuItem = {
-  id: string;
-  label: string;
-  overlay: OverlayType | undefined; // undefined = canvas (no overlay)
-  hidden?: boolean;
-  suffix?: React.ReactNode;
-};
-
-const menuItems: MenuItem[] = [
-  { id: 'canvas', label: 'Canvas', overlay: undefined },
-  { id: 'plugins', label: 'Plugins', overlay: 'promptDesigner' },
-  // ...
-  { id: 'trivet', label: 'Trivet Tests', overlay: 'trivet', suffix: /* LoadingSpinner logic */ },
-];
-```
-
-Render with `.filter(item => !item.hidden).map(item => <MenuItemButton key={item.id} ... />)`.
-
-The Trivet `suffix` prop handles its special `LoadingSpinner` without breaking the pattern.
-
-**How to verify:** Manual UI testing of all menu items including Trivet with running tests.
-
-**Estimated savings:** ~50 lines (corrected from ~60 — the config array + MenuItem component add ~20 lines)
-
-**Risks:**
-- The Trivet item's `LoadingSpinner` depends on `trivet.runningTests` from a React hook. The `suffix` must be computed inside the component body (not at module level), so the config array must be built inside the component or the suffix must be a render function.
-- Community menu item has a feature-flag conditional for `hidden`. This works cleanly with the `hidden` prop.
-
----
-
-## 10. Frontend: useRemoteExecutor
-
-**File:** `wrapper/web/overrides/hooks/useRemoteExecutor.ts` (385 lines)
-
-### 10.1 Replace message handler switch with dispatch map `P1` `DONE`
-
-Verified: 17 switch cases. 12 follow the uniform `currentExecution.onXxx(data)` pattern. 5 have special logic:
-- `done`: Resolves `graphExecutionPromise` before calling `onDone`
-- `abort`: Rejects `graphExecutionPromise` before calling `onAbort`
-- `error`: Rejects `graphExecutionPromise` before calling `onError`
-- `trace`: Calls `logRemoteTrace(data)` instead of `currentExecution.onTrace`
-- `pause`/`resume`: Call handlers with no data parameter
-
-**Where:** `useRemoteExecutor.ts`, the switch statement (lines ~130-189).
-
-**What to change:** Extract only the 12 uniform cases into a dispatch map:
-```ts
-const simpleHandlers: Record<string, (data: any) => void> = {
-  nodeStart: (d) => currentExecution.onNodeStart(d),
-  nodeFinish: (d) => currentExecution.onNodeFinish(d),
-  nodeError: (d) => currentExecution.onNodeError(d),
-  userInput: (d) => currentExecution.onUserInput(d),
-  start: (d) => currentExecution.onStart(d),
-  partialOutput: (d) => currentExecution.onPartialOutput(d),
-  graphStart: (d) => currentExecution.onGraphStart(d),
-  graphFinish: (d) => currentExecution.onGraphFinish(d),
-  nodeOutputsCleared: (d) => currentExecution.onNodeOutputsCleared(d),
-  graphAbort: (d) => currentExecution.onGraphAbort(d),
-  nodeExcluded: (d) => currentExecution.onNodeExcluded(d),
-  pause: () => currentExecution.onPause(),
-};
-```
-
-The 5 special cases remain as explicit switch cases after the map lookup fails. Overall dispatch:
-```ts
-const handler = simpleHandlers[type];
-if (handler) {
-  handler(data);
-} else {
-  switch (type) {
-    case 'done': /* ... */
-    case 'abort': /* ... */
-    case 'error': /* ... */
-    case 'trace': /* ... */
-    case 'resume': /* ... */
-  }
-}
-```
-
-**How to verify:** Run existing execution tests. Manual testing of workflow execution including abort, error, and trace scenarios.
-
-**Estimated savings:** ~20 lines (corrected from ~30 — 5 special cases must remain as explicit handlers)
-
-**Risks:**
-- The dispatch map loses compile-time exhaustiveness checking that a switch statement provides. If a new message type is added upstream, it will silently be ignored instead of triggering a missing-case warning. Mitigate by adding a `default` log in the fallback switch.
-- `pause` takes no data parameter but is included in the map — ensure the handler ignores data correctly.
-
----
-
-## 11. Ops: Docker Launcher Scripts
-
-**Files:**
-- `scripts/dev-docker.mjs` (186 lines)
-- `scripts/prod-docker.mjs` (234 lines)
-
-### 11.1 Extract shared launcher logic `P0` `DONE`
-
-Verified: ~58-64% of code is identical between the two files. Shared portions:
-- `run()` function (identical, ~22 lines)
-- `runCapture()` function (identical, ~32 lines)
-- `assertValidPort()` function (identical, ~8 lines)
-- `ensurePortAvailable()` logic (~15 lines)
-- `isComposeServiceRunning()` logic (~10 lines)
-- `printFailureDiagnostics()` logic (~15 lines)
-- Compose profile detection for managed mode (~10 lines)
-
-Mode-specific portions that must stay separate:
-- Default action name (`'dev'` vs `'prod'`)
-- Compose file path
-- Error message prefixes
-- `prod-docker.mjs` has additional actions (`prod-prebuilt`, `recreate-prebuilt`, `auto` mode — ~42 lines of unique logic)
-- Different build service lists
-
-**Where:** New file `scripts/lib/docker-launcher.mjs`.
-
-**What to change:** Move all shared functions into the new module and export them:
-```js
-// scripts/lib/docker-launcher.mjs
-export function run(command, env, options) { ... }
-export function runCapture(command, env, options) { ... }
-export function assertValidPort(port, name) { ... }
-export function ensurePortAvailable(port, name) { ... }
-export function isComposeServiceRunning(composePath, service, env) { ... }
-export function printFailureDiagnostics(composePath, env) { ... }
-export function detectComposeProfiles(env) { ... }
-```
-
-Each launcher script imports from the shared module and adds only its mode-specific dispatch.
-
-**How to verify:** Run `npm run dev-docker -- help` and `npm run prod-docker -- help`. Both should produce the same help output. Test at least one `dev` and one `prod` compose action.
-
-**Estimated savings:** ~100 lines (corrected from ~120 — some shared logic has minor config differences that require parameterization)
-
-**Risks:**
-- The `run()` and `runCapture()` functions use `rootDir` as `cwd`, which is defined as a module-level constant in each script. The shared module must accept `cwd` as a parameter or derive it from `import.meta.url`.
-- Error message prefixes (`[dev-docker]` vs `[prod-docker]`) are used in the shared logic. Parameterize with a `label` argument.
-
-### 11.2 DONE Extract process runner utilities `P0` *(reclassified — verify-compatibility has incompatible versions)*
-
-Verified: `scripts/verify-compatibility.mjs` has its own `run()` and `runCapture()` but they are **NOT identical** to the docker scripts:
-- Different return types: verify's `run()` returns `void` (resolves undefined), docker's returns `exitCode` (number)
-- Different signatures: verify's `runCapture()` returns `{ stdout, stderr }`, docker's returns `{ exitCode, stdout, stderr }`
-- No `allowFailure` option support in verify's version
-
-**Revised action:** Extract `run()` and `runCapture()` from the docker scripts into `scripts/lib/docker-launcher.mjs` (covered by 11.1). Do NOT try to unify with `verify-compatibility.mjs` — the signatures are incompatible and forcing compatibility would be overengineering.
-
-**Estimated savings:** Included in 11.1's savings. Remove this as a separate item.
-
-**Risks:** N/A — item merged into 11.1.
-
----
-
-## 12. Ops: Nginx Configuration *(REMOVED)*
-
-**Files:**
-- `ops/nginx.conf` (188 lines)
-- `ops/nginx.dev.conf` (182 lines)
-
-**Original claim:** 95% identical, merge with `envsubst`.
-
-**Verified reality:** The differences are **structural**, not just variable substitution:
-- Prod uses upstream **variables** (`$web_upstream`, `$api_upstream`) set in a `set` block. Dev uses **hardcoded** hostnames (`http://web:5174`, `http://api`).
-- Dev has a `resolver` directive (line 3) that prod does not.
-- Dev has extra `proxy_cache_bypass` and `proxy_http_version` headers in the root location that prod does not.
-- The upstream-variable vs direct-hostname difference is architectural: prod needs dynamic resolution for Kubernetes Service names.
-
-`envsubst` cannot handle conditional blocks. `nginx.conf` `if` directives are notoriously fragile. Merging would require a templating engine (envsubst cannot do it) and would make the nginx config harder to understand.
-
-**Decision:** Remove this item. The two configs serve genuinely different deployment modes and are better kept separate. They are not that large (188 + 182 lines) and diverge in important ways.
-
----
-
-## 13. Ops: Docker Compose *(DOWNGRADED)*
-
-**Files:**
-- `ops/docker-compose.yml` (231 lines)
-- `ops/docker-compose.dev.yml` (296 lines)
-
-### 13.1 Extract shared managed-mode services only `P2` *(reclassified from P1)* `DONE`
-
-**Verified reality:** Only the managed-mode services (workflow-postgres, workflow-minio, workflow-minio-init) are truly identical (~47 lines). The proxy differs only in one line (nginx config filename). But web, api, and executor services are **fundamentally different**:
-- Dev uses `node:20-alpine` with live-reload scripts and source mounts
-- Prod uses prebuilt container images
-- Dev has extra volumes for `node_modules` caches
-- Different healthcheck timings, different exposed ports
-
-Docker Compose `extends` would work only for the 3 managed-mode services and proxy. The main workload services are too different to share.
-
-**Where:** New file `ops/docker-compose.managed-services.yml`.
-
-**What to change:** Move the 3 identical managed-mode service definitions (workflow-postgres, workflow-minio, workflow-minio-init) into a shared file. Both dev and prod compose files include it via `-f ops/docker-compose.managed-services.yml -f ops/docker-compose.yml`.
-
-**How to verify:** Run `npm run dev-docker dev` and `npm run prod-docker prod` with `RIVET_STORAGE_MODE=managed`.
-
-**Estimated savings:** ~40 lines (corrected from ~150 — only managed services are truly sharable)
-
-**Risks:**
-- Docker Compose multi-file composition (`-f`) changes the project directory context, which can break relative paths for volume mounts. Verify all `./` relative paths still resolve correctly.
-- The managed-mode services use `profiles: ["workflow-managed"]`, which must still work correctly across the multi-file setup.
-- Complexity cost: Developers must now understand a 3-file compose setup instead of a self-contained single file. This may not be worth the ~40 lines saved.
-
----
-
-## 14. Ops: Proxy Bootstrap
-
-**File:** `ops/proxy-bootstrap/sync.mjs` (491 lines)
-
-### 14.1 Extract replica status reporting error handling `P2` `DONE`
-
-**Where:** `sync.mjs`.
-
-**What to change:** Extract the repeated "try to write, catch undefined-table error, log once and skip" pattern:
-```js
-async function safeReplicaStatusWrite(label, fn) {
-  try {
-    await fn();
-  } catch (err) {
-    if (getPgErrorCode(err) === REPLICA_STATUS_UNDEFINED_TABLE_CODE) {
-      if (!undefinedTableWarned) { log(...); undefinedTableWarned = true; }
-      return;
-    }
-    throw err;
-  }
-}
-```
-
-**How to verify:** Run managed mode with the executor and API. Verify replica status writes still work and undefined-table errors are still handled gracefully.
-
-**Estimated savings:** ~25 lines
-
-**Risks:**
-- The `undefinedTableWarned` flag is currently module-scoped. The helper must share this flag or accept it as a parameter.
-
-### 14.2 Consolidate env normalization helpers `P2` `DONE`
-
-**Where:** `ops/proxy-bootstrap/config.mjs`.
-
-**What to change:** Extract a generic parser:
-```js
-function parseEnv(name, parser, defaultValue) {
-  const raw = process.env[name];
-  if (raw == null || raw.trim() === '') return defaultValue;
-  return parser(raw.trim());
-}
-```
-
-`normalizeBoolean` becomes `parseEnv(name, v => ['1','true','yes','on'].includes(v.toLowerCase()), false)`.
-`normalizePositiveInt` becomes `parseEnv(name, v => Math.max(1, parseInt(v, 10) || default), default)`.
-
-**How to verify:** Run proxy-bootstrap in managed mode.
-
-**Estimated savings:** ~12 lines
-
-**Risks:**
-- Minimal. Pure utility extraction.
-
----
-
-## 15. Backend: Duplicated Config Parsing Utilities *(NEW — gap in original plan)*
-
-**Files:**
-- `wrapper/api/src/routes/workflows/storage-config.ts`
-- `wrapper/api/src/routes/runtime-libraries/config.ts`
-- `wrapper/api/src/routes/workflows/recordings-config.ts`
-
-### 15.1 Consolidate env parsing helpers `P0` `DONE`
-
-Verified: Three separate implementations of `normalizeBoolean()` with identical logic exist across these files. Two separate implementations of `normalizeEnumValue()` exist. Similar patterns for `parseIntegerEnv()` / `normalizePositiveInt()` appear with different names.
-
-**Where:** New file `wrapper/api/src/utils/env-parsing.ts`.
-
-**What to change:** Create shared helpers:
-```ts
-export function parseBoolean(value: string | undefined, fallback: boolean): boolean {
-  const normalized = value?.trim().toLowerCase();
-  if (!normalized) return fallback;
-  if (['1', 'true', 'yes', 'on'].includes(normalized)) return true;
-  if (['0', 'false', 'no', 'off'].includes(normalized)) return false;
-  return fallback;
-}
-
-export function parseEnum<T extends string>(value: string | undefined, allowed: readonly T[], fallback: T): T {
-  const normalized = value?.trim().toLowerCase();
-  return allowed.includes(normalized as T) ? (normalized as T) : fallback;
-}
-
-export function parsePositiveInt(value: string | undefined, fallback: number): number {
-  if (value == null) return fallback;
-  const parsed = parseInt(value.trim(), 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-}
-```
-
-Replace all 3 `normalizeBoolean` implementations, both `normalizeEnumValue` implementations, and the integer parsing variants with imports from the shared module.
-
-**How to verify:** Run storage-config tests, runtime-library tests, and recording-config tests.
-
-**Estimated savings:** ~50 lines
-
-**Risks:**
-- The three implementations have subtle differences in edge case handling (e.g., `parseBooleanEnv` in recordings-config checks `value == null` separately before trimming, while `normalizeBoolean` in storage-config checks `!normalized` after trimming). Verify that the shared implementation handles all edge cases from all three versions.
-- The recordings-config version uses the name `parseBooleanEnv` rather than `normalizeBoolean`. Update all call sites.
-
----
+# Comprehensive Post-Kubernetizing Consolidation Refactor
 
 ## Summary
 
-| # | Area | Priority | Estimated Savings | Risk |
-|---|------|----------|-------------------|------|
-| 1.1 | Managed backend SQL constants | P0 | ~60 lines | Low |
-| 1.2 | Managed backend recording helpers | P0 | ~50 lines | Medium |
-| 1.5 | Managed backend recording error cleanup | P0 | (included in 1.2) | — |
-| 2.1 | Storage backend delegator | P0 | ~80 lines | Low |
-| 3.1 | Recordings-db SQL constants | P0 | ~85 lines | Low |
-| 4.1 | Mutation retry loop dedup | P0 | ~40 lines | Low |
-| 8.2 | WorkflowLibraryPanel modal dedup | P0 | ~20 lines | Low |
-| 11.1 | Docker launcher shared logic | P0 | ~100 lines | Low |
-| 15.1 | Consolidate env parsing helpers | P0 | ~50 lines | Low |
-| 1.3 | Managed backend class split | P1 | structural | High |
-| 1.4 | Managed backend rollback dedup | P2 | ~10 lines | Low |
-| 3.2 | Recordings-db WHERE builder | P2 | ~8 lines | Low |
-| 3.3 | Recordings normalization | P1 | ~40 lines | Medium |
-| 3.4 | Recordings artifact helpers | P2 | ~12 lines | Low |
-| 5.1 | Publication endpoint lookup merge | P1 | ~15 lines | Low |
-| 5.2 | Publication settings normalization | P2 | ~15 lines | Medium |
-| 6.1 | Native IO managed guard helper | P1 | ~15 lines | Low |
-| 7.1 | Execution retry pattern | P1 | ~25 lines | Medium |
-| 8.1 | WorkflowLibraryPanel state groups | P1 | ~15 lines | Low |
-| 8.3 | WorkflowLibraryPanel tree ops extract | P1 | structural | Low |
-| 9.1 | OverlayTabs data-driven menu | P1 | ~50 lines | Low |
-| 10.1 | useRemoteExecutor dispatch map | P1 | ~20 lines | Medium |
-| 13.1 | Docker Compose shared services | P2 | ~40 lines | Medium |
-| 14.1 | Bootstrap error handling | P2 | ~25 lines | Low |
-| 14.2 | Bootstrap env normalization | P2 | ~12 lines | Low |
+This refactor should aggressively consolidate the codebase around the architecture that now actually exists:
 
-**Removed items:**
-- ~~11.2 Process runner extract~~ — verify-compatibility has incompatible signatures; merged into 11.1
-- ~~12.1 Nginx config merge~~ — differences are structural, not variable; merge would hurt clarity
+- managed shared state is the primary production architecture
+- Kubernetes is managed-only and keeps `backend` singleton
+- published endpoint load belongs to the `execution` plane
+- filesystem mode remains for compatibility, migration, and local fallback
 
-**Total estimated savings:** ~835 lines of code removed or deduplicated (corrected from ~1,350 after deep verification).
+The goal is not more features. The goal is to make the current system obvious, smaller, safer, and easier to hand to another engineer.
 
-P0 items account for ~485 lines and carry the lowest risk.
+Success criteria:
 
----
+- no external behavior changes
+- materially less code in the remaining orchestration hotspots
+- fewer god files mixing transport, business logic, state orchestration, and infrastructure
+- clearer ownership boundaries between control plane, execution plane, runtime-library management, filesystem compatibility, and UI orchestration
+- lower bug surface from fewer module-scoped side effects and less duplicated logic
+- docs and tests reflect the new structure, not the legacy transition structure
+
+Non-goals:
+
+- no new product behavior
+- no workflow semantics changes
+- no HTTP, websocket, or Helm contract expansion
+- no Kubernetes topology change
+- no backend scale-out redesign
+- no distributed debugger work
+- no React state-library migration
+- no database schema redesign unless a purely internal rename is unavoidable
+- no cross-domain "managed platform" base class or generic persistence framework
+
+Three compatibility boundaries must remain explicit throughout the refactor:
+
+1. `filesystem` vs `managed` workflow storage
+2. control-plane backend vs execution-plane backend
+3. runtime-library job-worker mode vs sync-only mode
+
+## Anti-Complexity Guardrails
+
+These rules apply to every workstream. The refactor is only successful if it removes complexity instead of redistributing it.
+
+- Prefer domain-local helpers over generic helper frameworks.
+- Prefer composition roots plus plain modules over inheritance or service-locator patterns.
+- Do not extract a helper unless it removes real branching or duplicated state transitions.
+- Do not hide compatibility boundaries behind abstract interfaces that make the architecture harder to read.
+- Keep public facades thin, but do not force every internal function behind an interface.
+- Keep Helm helper extraction shallow. Reused blocks are good; template mazes are not.
+- Treat file-size budgets as warning lights, not goals to hit by inventing wrappers.
+- If a refactor introduces more concepts than it removes, reject that shape and simplify again.
+
+## Important Public APIs / Interfaces / Types
+
+### External contracts: unchanged
+
+These must remain behaviorally identical:
+
+- `POST /workflows-latest/:endpointName`
+- `POST /workflows/:endpointName`
+- `POST /internal/workflows/:endpointName`
+- `GET /api/config`
+- `WS /ws/latest-debugger`
+- existing env var names
+- existing Helm values surface
+- existing Docker/Kubernetes launcher entrypoints
+- existing filesystem and managed mode semantics
+- `prepareForExecution()` and managed runtime-library sync behavior
+- `globalThis.__RIVET_PREPARE_RUNTIME_LIBRARIES__`
+
+### Internal additions and reorganizations
+
+Add internal-only seams and make them the new implementation boundaries:
+
+- `wrapper/api/src/routes/workflows/managed/context.ts`
+  - `ManagedWorkflowContext`
+- `wrapper/api/src/routes/workflows/managed/db.ts`
+  - workflow-managed query helpers and retry wrapper
+- `wrapper/api/src/routes/workflows/managed/transactions.ts`
+  - `TransactionHooks`, transaction runner, rollback/commit hook utilities
+- `wrapper/api/src/routes/workflows/managed/mappers.ts`
+  - row mappers, shared SQL column constants, data-shaping helpers
+- `wrapper/api/src/routes/workflows/managed/revision-factory.ts`
+  - revision/blob-key construction and cleanup scheduling
+- `wrapper/api/src/routes/workflows/managed/endpoint-sync.ts`
+  - endpoint ownership sync and invariant helpers
+- `wrapper/api/src/routes/workflows/recordings-store.ts`
+  - explicit filesystem recording storage manager replacing module-scoped queue/state
+
+- `wrapper/api/src/runtime-libraries/managed/context.ts`
+  - `ManagedRuntimeLibrariesContext`
+- `wrapper/api/src/runtime-libraries/managed/job-store.ts`
+- `wrapper/api/src/runtime-libraries/managed/job-stream.ts`
+- `wrapper/api/src/runtime-libraries/managed/job-worker.ts`
+- `wrapper/api/src/runtime-libraries/managed/artifact-activation.ts`
+- `wrapper/api/src/runtime-libraries/managed/process-registry.ts`
+- `wrapper/api/src/runtime-libraries/managed/replica-status.ts`
+
+- `wrapper/web/dashboard/useWorkflowLibraryController.ts`
+- `wrapper/web/dashboard/useRunRecordingsController.ts`
+- `wrapper/web/dashboard/useProjectSettingsActions.ts`
+- `wrapper/web/dashboard/runtimeLibrariesJobStream.ts` (extracted from existing `useRuntimeLibrariesModalState.ts`, not a replacement)
+- `wrapper/web/dashboard/useDashboardSidebar.ts`
+- `wrapper/web/dashboard/useEditorBridgeEvents.ts`
+- `wrapper/web/dashboard/apiRequest.ts`
+- `wrapper/web/overrides/hooks/remoteExecutorProtocol.ts`
+- `wrapper/web/overrides/hooks/remoteExecutionSession.ts`
+- `wrapper/web/overrides/hooks/remoteDebuggerClient.ts`
+- `wrapper/web/overrides/hooks/remoteDebuggerDatasets.ts`
+
+- `charts/templates/_env.tpl`
+- `charts/templates/_pod.tpl`
+
+No new public types should leak outside these internals.
+
+## Refactor Workstreams
+
+### 1. Managed workflow backend: finish the split around real infrastructure seams
+
+**Target files**
+
+- `wrapper/api/src/routes/workflows/managed/backend.ts`
+- `wrapper/api/src/routes/workflows/managed/catalog.ts`
+- `wrapper/api/src/routes/workflows/managed/revisions.ts`
+- `wrapper/api/src/routes/workflows/managed/recordings.ts`
+- `wrapper/api/src/routes/workflows/managed/publication.ts`
+- `wrapper/api/src/routes/workflows/managed/execution-service.ts`
+- `wrapper/api/src/routes/workflows/managed/execution-invalidation.ts`
+- `wrapper/api/src/routes/workflows/managed/execution-cache.ts`
+- `wrapper/api/src/routes/workflows/managed/execution-types.ts`
+
+**Existing files to preserve as-is (not split, only imported from)**
+
+- `wrapper/api/src/routes/workflows/managed/types.ts` — shared types including `TransactionHooks`, `WorkflowRow`, `RecordingRow`, etc.
+- `wrapper/api/src/routes/workflows/managed/blob-store.ts` — S3 blob store (text-based: `putText`/`getText`) plus blob-key factories
+
+**Complexity to remove**
+
+- one file currently owns facade wiring, DB retry logic, transaction orchestration, row mapping, blob cleanup, revision creation, and endpoint sync
+- service constructors currently receive large callback bundles rather than one explicit context
+- execution invalidation and cache infrastructure are tightly coupled to backend wiring but are not represented as a first-class seam
+- bidirectional dependency chain: ExecutionService → ExecutionInvalidationController → ExecutionCache callbacks — this wiring order is implicit and easy to break
+
+**Implementation substeps**
+
+1. Create `managed/context.ts`.
+   - Define `ManagedWorkflowContext` as the shared dependency container for workflow-managed modules.
+   - Put `pool`, `blobStore`, `executionCache`, `executionInvalidationController`, and shared helper modules on the context.
+   - Do not make it a service locator with lazy lookup logic; it should be plain data plus small helper references.
+   - Document and enforce the initialization order: (1) blobStore.initialize, (2) DB schema init via withManagedDbRetry, (3) executionInvalidationController.initialize.
+   - Document and enforce the disposal order: (1) mark disposed, (2) executionInvalidationController.dispose, (3) executionCache.clearRevisionMaterializations, (4) pool.end.
+   - Enforce the execution infrastructure wiring order: (1) create executionCache, (2) create executionInvalidationController with cache invalidation callbacks, (3) create executionService with both cache and controller.
+
+2. Create `managed/db.ts`.
+   - Move `withManagedDbRetry`, retry constants, `queryRows`, and `queryOne` out of `backend.ts`.
+   - Keep these helpers workflow-managed-specific. Do not create a shared API/runtime-library DB layer yet.
+   - Export exactly the helpers needed by workflow-managed services.
+   - Document that `withManagedDbRetry` is a public contract consumed by `execution-invalidation.ts`. Its retry codes (`ECONNREFUSED`, `ECONNRESET`, `ETIMEDOUT`, `EHOSTUNREACH`, `ENETUNREACH`) and attempt count (3) are part of the contract.
+
+3. Create `managed/transactions.ts`.
+   - Move `#connectWithRetry`, `#withTransaction`, and transaction runner logic out of `backend.ts`.
+   - Import `TransactionHooks` from the existing `managed/types.ts` — do not redefine the type.
+   - Keep rollback and commit task ordering identical to the current implementation.
+   - Document the execution order contract: `onRollback` tasks run if the transaction fails, `onCommit` tasks run after successful COMMIT. Blob cleanup is scheduled via `onRollback` to prevent orphaned objects. Execution invalidation is scheduled via `onCommit` to prevent premature cache updates. This ordering is correctness-critical.
+   - Preserve best-effort cleanup logging semantics.
+
+4. Create `managed/mappers.ts`.
+   - Move `WORKFLOW_COLUMNS`, `WORKFLOW_COLUMNS_QUALIFIED`, `RECORDING_COLUMNS`, `toIsoString`, `getWorkflowStatus`, `mapWorkflowRowToProjectItem`, `mapFolderRowToFolderItem`, and `splitCurrentDraftRevisionRow`.
+   - Keep `normalizeWorkflowEndpointLookupName` usage and status semantics identical.
+   - Keep table-qualified constants explicit rather than deriving them dynamically at runtime.
+
+5. Create `managed/revision-factory.ts`.
+   - Move revision ID/blob-key creation, blob upload, insert, and rollback cleanup helpers out of `backend.ts`.
+   - Keep the current cleanup behavior identical for partial upload failures.
+   - Keep revision creation workflow-local; do not merge recording blob helpers into the same module if the resulting module becomes mixed-purpose.
+
+6. Create `managed/endpoint-sync.ts`.
+   - Move `#syncWorkflowEndpointRows` and related endpoint ownership checks out of `backend.ts`.
+   - Keep endpoint conflict detection explicit.
+   - Preserve current lookup-name normalization and ownership invariants.
+
+7. Refactor `ManagedWorkflowExecutionService`.
+   - Replace the current callback-heavy dependency bundle with `ManagedWorkflowContext` plus a small execution-specific adapter where needed.
+   - Keep `execution-cache.ts` and `execution-invalidation.ts` as explicit infrastructure modules.
+   - Do not generalize invalidation snapshots or retry logic beyond workflow execution.
+
+8. Refactor `ManagedWorkflowBackend`.
+   - Convert `backend.ts` into a composition root that builds the context and domain services.
+   - Preserve the public method surface exactly.
+   - Keep lifecycle methods `initialize()` and `dispose()` in the facade.
+
+9. Run an anti-complexity review before finishing the phase.
+   - Reject any helper that only forwards one existing method.
+   - Reject any "base service" abstraction spanning catalog, revisions, publication, and recordings.
+   - Verify no circular imports exist in the new module graph. The dependency order must be: `types.ts` → `mappers.ts`/`db.ts` → `transactions.ts` → domain services → `context.ts` → `backend.ts` facade.
+
+**Required result**
+
+- `managed/backend.ts` is mostly wiring and interface exposure, not mixed infra plus orchestration
+- no workflow-managed service knows more than its explicit context and domain concern
+- no duplicated row mapping or blob-cleanup logic remains across workflow-managed modules
+- execution-service dependencies become stable, explicit infrastructure seams instead of callback bundles
+- invalidation and cache logic remain readable and local to workflow execution, not generalized across unrelated backends
+
+**Risks**
+
+- transaction hook ordering is correctness-sensitive; moving it can silently break cleanup timing
+- execution invalidation snapshots are race-sensitive; over-abstracting them can introduce stale endpoint bugs
+- context objects can become hidden service locators if they grow without discipline
+- merging revision and recording blob helpers too aggressively can create a new mixed-purpose module instead of reducing complexity
+
+### 2. Managed runtime libraries: split the next backend monster without inventing a new platform layer
+
+**Target files**
+
+- `wrapper/api/src/runtime-libraries/managed/backend.ts`
+- `wrapper/api/src/runtime-libraries/managed/schema.ts`
+- `wrapper/api/src/runtime-libraries/managed/state.ts`
+- `wrapper/api/src/runtime-libraries/managed/local-cache.ts`
+- `wrapper/api/src/runtime-libraries/managed/release-builder.ts`
+
+**Existing files to preserve as-is (not split, only imported from)**
+
+- `wrapper/api/src/runtime-libraries/managed/blob-store.ts` — S3 blob store (binary-based: `putBuffer`/`getBuffer`) plus list/delete helpers and blob-key factories
+- `wrapper/api/src/runtime-libraries/managed/cleanup.ts` — audit/retention/prune pipeline (491 lines). This file orchestrates across releases, jobs, and artifacts for retention policy enforcement. Keep it as a separate orchestrator; do not split it across `job-store.ts` and `artifact-activation.ts`.
+
+**Complexity to remove**
+
+- one class currently owns lifecycle, job persistence, SSE streaming, worker loop, stale-job recovery, activation, and running-process cleanup
+- sync-only mode and worker-enabled mode are both implemented in the same orchestration surface
+- process tracking lives as mutable state in the backend class rather than an explicit subsystem
+
+**Implementation substeps**
+
+1. Create `managed/context.ts`.
+   - Define `ManagedRuntimeLibrariesContext` with `pool`, `blobStore`, `localCache`, `config`, `instanceId`, and shared helpers.
+   - Keep this context runtime-library-specific.
+
+2. Create `managed/process-registry.ts`.
+   - Move `#runningProcesses` and `#terminateRunningProcess` out of `backend.ts`.
+   - Export `registerRunningProcess(jobId, process)` and `terminateRunningProcess(jobId)` as the public API. Both `release-builder.ts` and `job-worker.ts` depend on this registry.
+   - Preserve graceful SIGTERM then SIGKILL behavior and log timing.
+   - Keep registry semantics explicit and synchronous.
+
+3. Create `managed/job-store.ts`.
+   - Move `#insertJob`, `#appendJobLog`, `#updateJobStatus`, `#failJob`, `#touchJob`, `#isCancellationRequested`, and `#throwIfCancellationRequested`.
+   - Keep direct use of `schema.ts` query helpers and row mappers.
+   - Preserve `isUniqueViolation` conflict handling.
+
+4. Create `managed/job-stream.ts`.
+   - Move `streamJob()` into its own module.
+   - Keep SSE framing, keepalive, and done/error termination behavior unchanged.
+   - Keep polling semantics explicit rather than inventing a generic event-stream wrapper.
+
+5. Create `managed/job-worker.ts`.
+   - Move `#startWorkerLoop`, `#workerLoop`, `#claimNextJob`, `#withJobHeartbeat`, and `#recoverStaleJobs`.
+   - Keep worker-enabled vs sync-only branching in the public backend, but move the actual loop into this module.
+   - Preserve stale-job failure semantics and heartbeat intervals.
+
+6. Create `managed/artifact-activation.ts`.
+   - Move the "build release -> upload artifact -> activate release -> finalize job" flow out of `#processJob`.
+   - Keep use of `release-builder.ts`, `local-cache.ts`, and `state.ts` explicit.
+   - Preserve rollback and delete-on-failure behavior for uploaded release artifacts.
+
+7. Create `managed/replica-status.ts`.
+   - Move `clearStaleReplicaStatuses()` and any related replica-readiness helpers.
+   - Keep its data flow aligned with `runtime-library-cleanup.test.ts`.
+
+8. Refactor `ManagedRuntimeLibrariesBackend`.
+   - Keep the public facade for `initialize`, `prepareForExecution`, `dispose`, `getState`, `enqueueInstall`, `enqueueRemove`, `getJob`, `cancelJob`, `clearStaleReplicaStatuses`, and `streamJob`.
+   - Keep `jobWorkerEnabled` branching at the facade level so the supported modes stay visible.
+   - Preserve `globalThis.__RIVET_PREPARE_RUNTIME_LIBRARIES__` behavior and local-cache sync semantics.
+
+9. Run an anti-complexity review before finishing the phase.
+   - Reject any shared "managed backend" superclass spanning workflows and runtime libraries.
+   - Keep `schema.ts`, `state.ts`, `release-builder.ts`, `cleanup.ts`, and `blob-store.ts` as domain helpers, not hidden implementation details behind a second abstraction layer.
+   - Verify no circular imports exist in the new module graph. The dependency order must be: `schema.ts` → `state.ts`/`job-store.ts`/`process-registry.ts` → `job-worker.ts`/`artifact-activation.ts` → `context.ts` → `backend.ts` facade.
+
+**Required result**
+
+- backend init/dispose remains public and unchanged
+- enqueue/get/cancel/stream behavior remains unchanged
+- sync-only and worker-enabled modes remain explicit and easy to trace
+- no single file mixes all of:
+  - DB access
+  - SSE streaming
+  - worker control loop
+  - process termination
+  - release activation
+- runtime-library code stays domain-local; do not merge it into shared workflow-managed infrastructure
+
+**Risks**
+
+- job cancellation and process termination are timing-sensitive and easy to regress during extraction
+- the activation flow mixes object storage, DB transaction, and local-cache invalidation; splitting it can accidentally reorder side effects
+- hiding `jobWorkerEnabled` behind too much structure would make the supported runtime modes less obvious
+- SSE stream behavior is externally visible; even small framing changes would be a functional regression
+
+### 3. Backend compatibility boundaries and filesystem recording-state cleanup
+
+**Target files**
+
+- `wrapper/api/src/routes/workflows/recordings.ts`
+- `wrapper/api/src/routes/workflows/recordings-db.ts`
+- `wrapper/api/src/routes/workflows/storage-backend.ts`
+- `wrapper/api/src/routes/workflows/workflow-mutations.ts`
+- `wrapper/api/src/routes/workflows/publication.ts`
+- `wrapper/api/src/routes/workflows/execution.ts`
+- `wrapper/api/src/routes/native-io.ts`
+
+**Complexity to remove**
+
+- `recordings.ts` still owns a large amount of hidden mutable process state
+- route modules still mix HTTP translation, normalization, storage lookup, and artifact operations
+- `storage-backend.ts` is the compatibility boundary, but parts of its logic are still cluttered by inline mode branching
+- `native-io.ts` mixes managed virtual-path semantics with filesystem/native operations in one long file
+
+**Implementation substeps**
+
+1. Create `routes/workflows/recordings-store.ts`.
+   - Move filesystem recording storage readiness, cleanup scheduling, persistence queue, and test reset state out of `recordings.ts`.
+   - Move exactly these 8 module-scoped variables: `storageReadyPromise`, `storageReadyRoot`, `cleanupPromise`, `cleanupRequested`, `persistenceQueue`, `persistenceQueuePromise`, `lastDroppedPersistenceLogAt`, `resettingWorkflowRecordingStorageForTests`.
+   - Preserve persistence queue backpressure: tasks exceeding `maxPendingWrites` are dropped with rate-limited logging. Do not convert drops to thrown errors.
+   - Preserve the cleanup scheduler's "run-to-completion then reschedule if pending" recursion. Do not simplify to a single-shot timer.
+   - Preserve storage readiness root-pinning: if a different root is passed, it reinitializes. This is a safeguard for test isolation.
+   - Preserve the test-reset hook as an explicit `resetForTests()` method on the recordings store. Do not remove the `resettingWorkflowRecordingStorageForTests` check from production paths — the cleanup scheduler and persistence queue both check it to short-circuit during test isolation.
+
+2. Slim `recordings.ts`.
+   - Keep it focused on recording-domain operations and artifact normalization.
+   - Move artifact serialization/deserialization helpers into a local helper module if they remain pure and shared.
+   - Do not merge DB query code back into this file.
+
+3. Reorganize `storage-backend.ts` by domain.
+   - Group exports by hosted IO, tree/catalog operations, mutations, publication, execution resolution, and recordings.
+   - Keep `filesystem` vs `managed` routing explicit at the function boundary.
+   - Do not replace the compatibility boundary with a generic delegator that hides control flow.
+
+4. Extract request/input validation helpers.
+   - `workflow-mutations.ts`: name/path/body validation
+   - `publication.ts`: endpoint normalization and user-facing validation
+   - `execution.ts`: route/input normalization and run-kind branching
+   - `native-io.ts`: managed virtual-path checks and dir-read option normalization
+
+5. Split `native-io.ts` only where it removes real complexity.
+   - Keep managed virtual-path semantics explicit.
+   - If extracted, create a helper like `managed-virtual-io.ts` for the managed side only.
+   - Do not hide `filesystem` vs managed virtual behavior behind opaque adapters.
+
+6. Run an anti-complexity review before finishing the phase.
+   - `storage-backend.ts` must remain a readable compatibility story.
+   - Reject any change that makes it harder to see which code path runs in `filesystem` vs `managed`.
+
+**Required result**
+
+- route and compatibility modules stop mixing transport concerns with storage implementation details
+- filesystem recording persistence no longer depends on scattered module globals
+- normalization helpers live next to their domain, not inline inside route handlers
+- backend-selection code remains obvious to a reader who needs to understand the compatibility story quickly
+
+**Risks**
+
+- filesystem recording persistence is stateful; moving queues and readiness can easily break cleanup timing
+- over-abstracting `storage-backend.ts` would remove one of the most important readability seams in the codebase
+- `native-io.ts` exposes managed virtual-path behavior that is subtly different from filesystem semantics; collapsing them too aggressively could introduce edge-case regressions
+
+### 4. Frontend dashboard, modal, and client decomposition
+
+**Target files**
+
+- `wrapper/web/dashboard/WorkflowLibraryPanel.tsx`
+- `wrapper/web/dashboard/RunRecordingsModal.tsx`
+- `wrapper/web/dashboard/ProjectSettingsModal.tsx`
+- `wrapper/web/dashboard/useRuntimeLibrariesModalState.ts`
+- `wrapper/web/dashboard/workflowApi.ts`
+- `wrapper/web/dashboard/runtimeLibrariesApi.ts`
+- `wrapper/web/dashboard/DashboardPage.tsx`
+- `wrapper/web/dashboard/EditorMessageBridge.tsx`
+- `wrapper/web/overrides/components/NavigationBar.tsx`
+- `wrapper/web/overrides/hooks/useRemoteExecutor.ts`
+- `wrapper/web/overrides/hooks/useRemoteDebugger.ts`
+
+**Complexity to remove**
+
+- large components still combine data loading, mutation orchestration, modal state, and rendering
+- runtime-library modal logic hides SSE and long-lived controller state inside one hook
+- remote executor/debugger hooks still own protocol/state machines directly
+- API client code duplicates response/error handling patterns
+
+**Implementation substeps**
+
+1. Extract `WorkflowLibraryPanel` controller logic.
+   - Create `useWorkflowLibraryController.ts` for tree refresh, background reconciliation, selection, upload/download/duplicate state, and mutation orchestration.
+   - Keep drag/drop state in the controller or a focused `useWorkflowLibraryDragState` helper if it reduces branching.
+   - Keep presentational subcomponents thin and prop-driven.
+
+2. Extract `RunRecordingsModal` controller logic.
+   - Create `useRunRecordingsController.ts` for workflow loading, run loading, filter/page state, and delete flow.
+   - Keep `RecordingRow` as a focused row component.
+   - If useful, create `RecordingWorkflowSelect.tsx` and `RecordingRunsTable.tsx`.
+
+3. Extract `ProjectSettingsModal` action logic.
+   - Create `useProjectSettingsActions.ts` for rename, publish, unpublish, and delete flows.
+   - Create `projectSettingsForm.ts` for endpoint/project-name validation helpers and display formatting.
+   - Keep the modal component primarily presentational.
+
+4. Slim runtime-library modal state hook.
+   - Slim `useRuntimeLibrariesModalState.ts` rather than replacing it. The hook already exists as a standalone 371-line extracted hook managing SSE lifecycle, log merging, and replica tracking.
+   - Extract SSE connection lifecycle and log merging into `runtimeLibrariesJobStream.ts` to reduce the hook's scope.
+   - Do not create a parallel `useRuntimeLibrariesController.ts` that duplicates its role.
+   - Keep `runtimeLibrariesApi.ts` flat; only extract shared request helpers, not endpoint-specific functions.
+
+5. Extract dashboard shell state.
+   - Create `useDashboardSidebar.ts` for resize/collapse/ghost state.
+   - Create `useEditorBridgeEvents.ts` for window message handling and command dispatch.
+   - Create `editorBridgeFocus.ts` for focus-preservation helpers.
+
+6. Split `NavigationBar`.
+   - Extract search input, go-to results, and highlight rendering into dedicated components/helpers.
+   - Keep the top-level component focused on composition and atom wiring.
+
+7. Split remote debugger and executor protocol state.
+   - Extract the module-level WebSocket singleton into `remoteDebuggerClient.ts` (connection/reconnect/send lifecycle). Preserve the singleton pattern — `useRemoteDebugger.ts` is NOT a standard React hook but a thin wrapper around module-level state (`ws`, `wsUrl`, `reconnectTimer`, `sharedRemoteDebuggerState`, `remoteDebuggerSubscribers`). The single-WebSocket guarantee prevents multi-instance chaos.
+   - Extract dataset message handlers into `remoteDebuggerDatasets.ts` for dataset forwarding.
+   - The `useRemoteDebugger` hook becomes a thin subscriber to the module-level client.
+   - Create `remoteExecutorProtocol.ts` for message dispatch and upload/run protocol.
+   - Replace the loose `graphExecutionPromise` module variable with an explicit `remoteExecutionSession.ts` object that still preserves the current one-run-at-a-time limitation.
+   - Keep the limitation explicit in comments and docs; do not pretend the protocol is run-scoped if it is not.
+
+8. Extract shared API request helpers.
+   - Extract only common `parseJsonResponse()`, `parseTextResponse()`, and error-extraction patterns from `workflowApi.ts` and `runtimeLibrariesApi.ts` into `apiRequest.ts`.
+   - Do not attempt to generalize blob/SSE/content-disposition parsing — `workflowApi.ts` has domain-specific blob response handling (content-disposition parsing, browser download triggers) and `runtimeLibrariesApi.ts` has SSE streaming. These remain domain-specific in their respective modules.
+   - Keep endpoint-specific calls flat and obvious.
+   - Do not build a large generic data-client layer.
+
+9. Run an anti-complexity review before finishing the phase.
+   - Reject prop-drilling explosions created only to avoid one local hook.
+   - Reject controller extraction if it only moves five lines of state without reducing branching.
+
+**Required result**
+
+- UI components become composition-heavy and side-effect-light
+- socket lifecycle and protocol dispatch are testable without rendering large React trees
+- dashboard shell code stops mixing DOM focus, iframe bridge protocol, and page layout in one file
+- runtime-library modal behavior no longer hides long-lived SSE/state transitions inside one hook
+- API client code uses one error/response path instead of duplicating fetch parsing
+
+**Risks**
+
+- moving state out of UI components can accidentally introduce prop churn and make the tree harder to follow if extraction is too fine-grained
+- remote debugger/executor code is timing-sensitive; changing reconnect or dispatch ordering could cause subtle UI regressions
+- the current `graphExecutionPromise` behavior is intentionally limited; refactoring it must preserve that limitation without implying new concurrency support
+- dashboard focus/iframe behavior is browser-visible and easy to regress
+
+### 5. Kubernetes and ops transparency refactor
+
+**Target files**
+
+- `charts/templates/backend-statefulset.yaml`
+- `charts/templates/execution-deployment.yaml`
+- `charts/templates/proxy-deployment.yaml`
+- `charts/templates/web-deployment.yaml`
+- `charts/templates/validate-values.yaml`
+- `charts/templates/_helpers.tpl`
+- `scripts/dev-kubernetes.mjs`
+- `scripts/lib/kubernetes-launcher-config.mjs`
+- `scripts/dev-docker.mjs`
+- `scripts/prod-docker.mjs`
+
+**Complexity to remove**
+
+- backend and execution manifests duplicate long env/volume sections
+- launcher scripts are aligned conceptually, but some command/env conventions are still spread across files
+- chart helper extraction is currently shallow, but the shared env blocks are still repetitive
+
+**Implementation substeps**
+
+1. Create `_env.tpl`.
+   - Extract shared API env wiring for backend and execution.
+   - Extract shared auth/postgres/object-storage env blocks.
+   - Keep control-plane-specific and execution-specific envs inline in their own manifests.
+
+2. Create `_pod.tpl`.
+   - Extract shared pod fragments only where they are truly identical: image pull secrets, common security context, common volume definitions, and repeated volume mounts.
+   - Keep backend-specific two-container logic in `backend-statefulset.yaml`.
+   - Document the intentional executor app-data mount difference in `_pod.tpl` comments: the executor container mounts app-data at `/home/rivet/.local/share/com.ironcladapp.rivet` (expects Rivet desktop app storage layout), while API containers mount at `/data/rivet-app`. Do not unify these paths.
+
+3. Refactor backend/execution manifests to use the new helpers.
+   - Preserve current values and branching exactly.
+   - Keep `backend-statefulset.yaml` readable even if it remains longer than other manifests.
+
+4. Keep `proxy` and `web` mostly explicit.
+   - Only extract helpers if the resulting templates become clearer.
+   - Do not force them through the same helper path as backend/execution just for symmetry.
+
+5. Refactor launcher scripts only where it removes real duplication.
+   - Keep `dev-kubernetes.mjs` as the Kubernetes orchestration script.
+   - Keep `dev-docker.mjs` and `prod-docker.mjs` separate because their action sets differ meaningfully.
+   - Normalize env loading, command tables, and diagnostics wording where useful.
+
+6. Preserve validation visibility.
+   - Keep `validate-values.yaml` explicit and operator-readable.
+   - Do not factor its failure messages into indirect helpers.
+
+7. Run an anti-complexity review before finishing the phase.
+   - Reject any Helm helper extraction that makes it harder to understand the rendered pod shape.
+   - Reject any launcher abstraction that obscures which commands actually run.
+
+**Required result**
+
+- chart templates reflect the real topology more clearly
+- backend and execution manifests read as intentionally different workloads built from a shared base, not copy-pasted YAML
+- launcher scripts describe the same contracts the chart enforces
+- validation logic stays straightforward and operator-readable
+
+**Risks**
+
+- Helm over-templating can make a simpler manifest harder to read than the duplication it replaces
+- backend and execution look similar but are not identical; excessive helper extraction can erase important differences
+- launcher script dedup can reduce clarity if it hides actual command flow behind generic wrappers
+
+### 6. Test harness consolidation and extracted-module coverage
+
+**Target files**
+
+- `wrapper/api/src/tests/workflow-services.test.ts`
+- `wrapper/api/src/tests/runtime-library-cleanup.test.ts`
+- `wrapper/api/src/tests/latest-workflow-remote-debugger.test.ts`
+- `wrapper/api/src/tests/managed-execution-service.test.ts`
+- `wrapper/api/src/tests/managed-execution-invalidation.test.ts`
+
+**Add**
+
+- `wrapper/api/src/tests/helpers/workflow-fixtures.ts`
+- `wrapper/api/src/tests/helpers/managed-backend-harness.ts`
+- `wrapper/api/src/tests/helpers/runtime-library-harness.ts`
+- `wrapper/api/src/tests/helpers/http-server-harness.ts`
+- `wrapper/api/src/tests/helpers/websocket-harness.ts`
+
+**Complexity to remove**
+
+- large integration tests spend too much space on fixture and server setup
+- extracted backend helpers would otherwise be covered only indirectly
+- debugger/runtime-library test setup is repeated across files
+
+**Implementation substeps**
+
+1. Extract workflow-managed test fixtures.
+   - Move common temp-dir setup, managed env setup, and project/revision fixture creation into `workflow-fixtures.ts`.
+   - Keep scenario assertions in the test files.
+
+2. Extract backend/runtime-library harnesses.
+   - Create helpers for managed backend setup and teardown.
+   - Extract `FakeListener` into `managed-backend-harness.ts` with the `DeferredConnectListener` variant. These are currently duplicated across `managed-execution-service.test.ts` and `managed-execution-invalidation.test.ts`.
+   - Extract `createDeferred()` into a shared test utility — identically duplicated in both execution test files.
+   - Create helpers for runtime-library job and cleanup setup.
+   - Keep helper APIs narrow and scenario-oriented.
+
+3. Extract HTTP/WebSocket harnesses.
+   - Reuse real server creation, websocket client setup, and cleanup logic.
+   - Preserve current debugger test behavior and trust-header setup.
+
+4. Add direct tests for newly extracted pure helpers where it reduces risk.
+   - row mappers
+   - endpoint sync normalization helpers
+   - request/response parsing helpers
+   - execution session bookkeeping helpers
+
+5. Keep frontend verification on the current testing stack.
+   - Do not add Vitest/Jest/RTL in this refactor.
+   - Use Playwright for browser-visible regressions and lightweight pure-module tests only where they can run in the existing environment.
+
+6. Update the `test` script in `wrapper/api/package.json` to include new test files for extracted helpers. The current script explicitly lists 18 test files by path — new tests must be added to this list.
+
+7. Run an anti-complexity review before finishing the phase.
+   - Reject harnesses that are more complicated than the duplicated setup they replace.
+   - Keep test helpers focused on setup, not hidden assertions.
+
+**Required result**
+
+- biggest test files become readable scenario lists instead of setup-heavy integration scripts
+- local fixtures and harnesses mirror the new internal boundaries
+- websocket and managed-mode setup logic is defined once
+- high-risk extracted backend helpers gain direct coverage instead of relying only on broad integration tests
+
+**Risks**
+
+- overly smart test harnesses can hide the scenario under test and make failures harder to understand
+- table-driven conversions can reduce readability if the scenarios are only superficially similar
+- adding too many helper layers to tests can reproduce the same complexity problem seen in production code
+
+### 7. Documentation and architecture map refresh
+
+**Target files**
+
+- `README.md`
+- `docs/architecture.md`
+- `docs/development.md`
+- `docs/kubernetes.md`
+- `docs/access-and-routing.md`
+
+**Complexity to remove**
+
+- current docs explain the architecture, but they do not yet describe the intended post-refactor ownership boundaries
+- without an explicit internal map, future work can drift back into god files
+
+**Implementation substeps**
+
+1. Add an internal architecture map to `docs/architecture.md`.
+   - explain control plane
+   - explain execution plane
+   - explain runtime-library management plane
+   - explain filesystem compatibility layer
+
+2. Update `docs/development.md`.
+   - explain where new controller/helper modules live
+   - explain the "facade plus explicit context" pattern for backend modules
+   - explain that compatibility boundaries must remain visible
+
+3. Update `docs/kubernetes.md` and `docs/access-and-routing.md`.
+   - keep the current Kubernetes topology explicit
+   - describe backend singleton vs execution scaling
+   - describe why the refactor does not change those constraints
+
+4. Update `README.md`.
+   - add a concise architecture summary
+   - point contributors to the deeper architecture docs
+
+5. Run an anti-complexity review before finishing the phase.
+   - docs should reduce ambiguity, not duplicate every implementation detail.
+
+**Required result**
+
+- docs explain the real architecture as it exists after the refactor
+- contributors can see where to put new code without recreating mixed-responsibility files
+- Kubernetes guidance stays aligned with the supported topology
+
+**Risks**
+
+- over-documenting implementation detail can make docs noisy and stale quickly
+- under-documenting the new boundaries would waste much of the refactor benefit by allowing the old complexity to return
 
 ## Execution Order
 
-Recommended order to minimize risk and maximize early impact:
+### Phase 1: Backend core consolidation
 
-**Phase 1: P0 mechanical deduplication** (items 1.1, 1.2, 2.1, 3.1, 4.1, 8.2, 11.1, 15.1)
-- Pure extraction, no logic changes, testable immediately
-- Run full test suite after each item
+- Workstream 1
+- Workstream 2
 
-**Phase 2: P1 structural improvements** (items 3.3, 5.1, 6.1, 7.1, 8.1, 8.3, 9.1, 10.1)
-- Slightly more involved, but still behavior-preserving
-- Each item is independent
+### Phase 2: Backend compatibility-boundary cleanup
 
-**Phase 3: P1 high-risk structural** (item 1.3)
-- The managed backend class split depends on 1.1 and 1.2 being done first
-- This is the only item with a dependency on other items
+- Workstream 3
 
-**Phase 4: P2 polish** (items 1.4, 3.2, 3.4, 5.2, 13.1, 14.1, 14.2)
-- Do when touching nearby code
+### Phase 3: Frontend orchestration and client cleanup
 
-Within each phase, items are independent and can be done in any order — except 1.3 which requires 1.1 and 1.2 first.
+- Workstream 4
+
+### Phase 4: Kubernetes and launcher cleanup
+
+- Workstream 5
+
+### Phase 5: Test harness consolidation
+
+- Workstream 6
+
+### Phase 6: Docs and final transparency pass
+
+- Workstream 7
+
+Delivery rule:
+
+- each phase lands green before the next phase begins
+- frontend-affecting phases must include Playwright verification before phase completion
+- chart/script changes must include Kubernetes verification before phase completion
+- file budgets are guardrails, not permission to add indirection just to hit a number
+
+## Test Cases And Scenarios
+
+### Backend verification
+
+Run after each backend phase:
+
+```bash
+npm --prefix wrapper/api run build
+npm --prefix wrapper/api test
+```
+
+Required scenarios to stay green:
+
+- filesystem workflow CRUD, publish/unpublish, open/save, duplicate/upload, and recordings behavior remain unchanged
+- managed workflow CRUD, publish/unpublish, open/save, rename/move, recordings import/read/delete, and execution resolution remain unchanged
+- runtime-library install/remove/stream/cancel/recovery behavior remains unchanged
+- latest debugger behavior remains unchanged
+- managed execution invalidation/retry behavior remains unchanged
+
+### Frontend verification
+
+Run after each UI-affecting phase:
+
+```bash
+PLAYWRIGHT_HEADLESS=1 PLAYWRIGHT_SLOW_MO=0 node scripts/playwright-observe.mjs test
+```
+
+Required scenarios:
+
+- workflow library tree loading, selection, drag/drop, upload, duplicate, download, settings modal, and run recordings modal still work
+- runtime-library modal install/remove/cancel/cleanup flows still work
+- dashboard sidebar resizing/collapse/restore still works
+- editor bridge open/save/delete/path-move behavior still works
+- remote execution and remote debugger flows still work
+- navigation search and go-to behavior still works
+
+### Kubernetes and ops verification
+
+Run after chart/launcher phases:
+
+```bash
+npm run verify:kubernetes
+npm run dev:kubernetes-test:config
+```
+
+If local credentials are available, also run:
+
+```bash
+npm run dev:kubernetes-test:up
+npm run dev:kubernetes-test:ps
+npm run dev:kubernetes-test:down
+```
+
+Required scenarios:
+
+- chart still enforces managed-only Kubernetes mode
+- chart still enforces singleton backend
+- local Kubernetes rehearsal still starts the supported topology
+- proxy/backend/execution routing contracts remain unchanged
+- launcher output still tells the operator the correct topology and URLs
+
+## Explicit Assumptions And Defaults
+
+- Use the aggressive-consolidation bias chosen here, but still land the work in phased, reviewable slices.
+- Preserve all current product behavior and external contracts.
+- Preserve both `filesystem` and `managed` modes.
+- Treat `managed` mode as the primary production architecture and `filesystem` as compatibility/migration/local fallback.
+- Keep Kubernetes managed-only, `backend=1`, `execution` as the main scale target, `proxy` independently scalable, and `web=1` by default.
+- Do not introduce inheritance-heavy abstractions or generic helper factories unless they represent a real ownership boundary.
+- Prefer composition plus explicit context objects over module-scoped mutable state and lambda wiring.
+- Do not create a shared workflow/runtime-library "managed backend framework" in this refactor; keep common infrastructure domain-local unless duplication remains obviously harmful after the domain-local split.
+- Workflow blob store uses text serialization (`putText`/`getText` for project YAML, dataset JSON, recording data). Runtime-library blob store uses binary serialization (`putBuffer`/`getBuffer` for tar archives). These are intentionally separate interfaces. Do not unify them.
+- Any UI-affecting refactor must update relevant docs and pass Playwright.
+- Any Kubernetes-affecting refactor must update docs and pass chart/launcher verification.
+
+## Codebase Audit: Gaps Found and Corrections
+
+This section documents gaps discovered by deep code analysis, compared against every workstream's assumptions. Each gap is tagged to its workstream so the fix can land in the right phase.
+
+### Gap 1 (Workstream 1): Initialization and disposal ordering is undocumented but correctness-critical
+
+The current `ManagedWorkflowBackend.initialize()` has this exact sequence:
+
+1. `blobStore.initialize()` (S3 bucket check/create)
+2. `pool.query(MANAGED_WORKFLOW_SCHEMA_SQL)` (DB schema init, wrapped in `withManagedDbRetry`)
+3. `executionInvalidationController.initialize()` (starts PG LISTEN, begins notification processing)
+
+Disposal is:
+
+1. `this.#disposed = true`
+2. `executionInvalidationController.dispose()` (stops PG LISTEN, cancels reconnect timer)
+3. `executionCache.clearRevisionMaterializations()`
+4. `pool.end()`
+
+**Fix:** `managed/context.ts` must document and enforce this exact order. The context's `initialize()` and `dispose()` must be the single owner of sequencing — not something each consumer re-discovers. Add inline comments in the context with the ordering rationale.
+
+### Gap 2 (Workstream 1): Bidirectional dependency between execution infrastructure modules
+
+The backend currently creates callbacks that wire execution cache invalidation into the execution invalidation controller:
+
+```
+ExecutionService → depends on → ExecutionInvalidationController
+ExecutionInvalidationController → calls back into → ExecutionCache
+```
+
+This means `ManagedWorkflowContext` cannot just hold these as flat peers — the invalidation controller must receive cache callbacks at construction time, and the execution service must receive the controller. The context must compose them in the right order.
+
+**Fix:** Add a substep to Workstream 1 step 7 specifying the wiring order:
+1. Create `executionCache`
+2. Create `executionInvalidationController` with cache callbacks
+3. Create `executionService` with both cache and controller
+
+### Gap 3 (Workstream 1): `types.ts` already exists and holds shared types
+
+The managed workflow directory already has `types.ts` containing `TransactionHooks`, `WorkflowRow`, `RecordingRow`, and other shared type definitions. The plan proposes creating `managed/mappers.ts` and `managed/transactions.ts` — these should import from the existing `types.ts` rather than redefining types.
+
+**Fix:** Add `managed/types.ts` to the "existing files to preserve" list. Ensure `mappers.ts` and `transactions.ts` import `TransactionHooks`, `WorkflowRow`, etc. from `types.ts` rather than re-exporting or duplicating them.
+
+### Gap 4 (Workstream 1): `withManagedDbRetry` is a contract, not just a helper
+
+The `withManagedDbRetry` function is not only used by backend.ts — it is also injected into the `ManagedWorkflowExecutionInvalidationController` constructor as a dependency. This makes it a correctness-critical contract between infrastructure modules, not just a convenience wrapper.
+
+**Fix:** When extracting `managed/db.ts`, document that `withManagedDbRetry` is a public contract consumed by the invalidation controller. Its retry codes (`ECONNREFUSED`, `ECONNRESET`, `ETIMEDOUT`, `EHOSTUNREACH`, `ENETUNREACH`) and attempt count (3) are part of this contract.
+
+### Gap 5 (Workstream 2): `cleanup.ts` (491 lines) is not mentioned anywhere in the plan
+
+The runtime-libraries managed directory contains `cleanup.ts` with audit/retention/prune logic including:
+- `auditManagedRuntimeLibrariesState()` — complete state analysis
+- `pruneManagedRuntimeLibrariesState()` — retention policy enforcement
+- Retention policy constants (7-day releases, 24h orphaned artifacts, 30d succeeded jobs, 14d failed jobs)
+
+This file already exists alongside `blob-store.ts` (239 lines, also not mentioned), and both are well-structured, domain-local helpers.
+
+**Fix:** Add both `cleanup.ts` and `blob-store.ts` to the Workstream 2 target files list as "existing files to preserve." Add a substep noting: "Keep `cleanup.ts` and `blob-store.ts` as domain helpers. Do not merge them into extracted modules. The audit/prune pipeline in `cleanup.ts` spans releases, jobs, and artifacts — it should remain a separate orchestrator, not get split across `job-store.ts` and `artifact-activation.ts`."
+
+### Gap 6 (Workstream 2): `release-builder.ts` has a process-registry dependency the plan doesn't call out
+
+`buildReleaseArtifact()` calls `registerRunningProcess(jobId, process)` and `terminateRunningProcess()` — functions that currently live in `backend.ts`. The proposed `process-registry.ts` module must export these as callable APIs that `release-builder.ts` and `job-worker.ts` both consume.
+
+**Fix:** Add to Workstream 2 step 2 (process-registry.ts): "Export `registerRunningProcess(jobId, process)` and `terminateRunningProcess(jobId)` as the public API. `release-builder.ts` and `job-worker.ts` both depend on this registry."
+
+### Gap 7 (Workstream 2): Blob store interfaces intentionally diverge (text vs binary)
+
+Two separate blob store implementations exist:
+- `wrapper/api/src/routes/workflows/managed/blob-store.ts` — `putText()`/`getText()` for YAML/JSON project data
+- `wrapper/api/src/runtime-libraries/managed/blob-store.ts` — `putBuffer()`/`getBuffer()` for binary tar artifacts
+
+The plan states "do not create a shared workflow/runtime-library managed backend framework" — but doesn't explain *why* the stores differ. Without this context, a future contributor might try to unify them.
+
+**Fix:** Add to the "Explicit Assumptions and Defaults" section: "Workflow blob store uses text serialization (project YAML, dataset JSON, recording data). Runtime-library blob store uses binary serialization (tar archives). These are intentionally separate interfaces. Do not unify them."
+
+### Gap 8 (Workstream 3): `recordings.ts` test reset hook is production-coupled
+
+The `resettingWorkflowRecordingStorageForTests` flag (line 155) is read in production code paths (cleanup scheduling, persistence queue). When extracting `recordings-store.ts`, this flag must remain an explicit parameter or callback on the store — not hidden behind a generic reset method.
+
+**Fix:** Add to Workstream 3 step 1: "Preserve the test-reset hook as an explicit `resetForTests()` method on the recordings store. Do not remove the flag from production paths — the cleanup scheduler and persistence queue both check it to short-circuit during test isolation."
+
+### Gap 9 (Workstream 3): Persistence queue has backpressure semantics
+
+The recording persistence queue (recordings.ts) drops tasks and logs rate-limited warnings when `maxPendingWrites` is reached. The new `recordings-store.ts` must preserve these drop semantics, not convert them to errors or silent failures.
+
+**Fix:** Add to Workstream 3 step 1: "Preserve persistence queue backpressure: tasks exceeding `maxPendingWrites` are dropped with rate-limited logging. Do not convert drops to thrown errors."
+
+### Gap 10 (Workstream 4): `useRuntimeLibrariesModalState.ts` already exists as an extracted hook
+
+The plan proposes "Replace or slim `useRuntimeLibrariesModalState.ts` with `useRuntimeLibrariesController.ts`" — but `useRuntimeLibrariesModalState.ts` is already a standalone 371-line hook, not embedded in a component. It manages SSE streaming, log aggregation, and replica tracking.
+
+**Fix:** Reframe Workstream 4 step 4: "Slim `useRuntimeLibrariesModalState.ts` rather than replacing it. The hook already exists and manages SSE lifecycle, log merging, and replica tracking. Extract SSE connection lifecycle and log merging into `runtimeLibrariesJobStream.ts` to reduce the hook's scope, but do not create a parallel `useRuntimeLibrariesController.ts` that duplicates its role."
+
+### Gap 11 (Workstream 4): `useRemoteDebugger.ts` is a module-level singleton, not a React hook
+
+The current implementation maintains a module-level WebSocket singleton with subscriber pattern:
+- Module-scoped: `ws`, `wsUrl`, `reconnectTimer`, `sharedRemoteDebuggerState`, `remoteDebuggerSubscribers`
+- Functions: `doConnect`, `doDisconnect`, `doSend`, `doSendRaw`, `isExecutorConnected`
+- The React hook is a thin wrapper that subscribes to the module-level state
+
+The plan proposes splitting into `remoteDebuggerClient.ts` + `remoteDebuggerDatasets.ts`, assuming a standard hook pattern. Splitting the singleton requires preserving the single-WebSocket guarantee.
+
+**Fix:** Reframe Workstream 4 step 7: "Extract the module-level WebSocket singleton into `remoteDebuggerClient.ts` (connection/reconnect/send lifecycle). Keep the singleton pattern — the single-WebSocket guarantee prevents multi-instance chaos. Extract dataset message handlers into `remoteDebuggerDatasets.ts`. The `useRemoteDebugger` hook becomes a thin subscriber to the module-level client."
+
+### Gap 12 (Workstream 4): API layer generalization is harder than assumed
+
+`workflowApi.ts` (332 lines, 20+ functions) uses domain-specific response parsing: blob responses with content-disposition parsing, text responses, JSON responses with custom error extraction. `runtimeLibrariesApi.ts` (118 lines, 6 functions) uses a different pattern with SSE streaming.
+
+**Fix:** Narrow the scope of `apiRequest.ts`: "Extract only the common `parseJsonResponse()`, `parseTextResponse()`, and error-extraction patterns. Do not attempt to generalize blob/SSE/content-disposition parsing — these remain domain-specific in their respective API modules."
+
+### Gap 13 (Workstream 5): Volume mount inconsistency between executor and API containers
+
+The executor container mounts app-data at `/home/rivet/.local/share/com.ironcladapp.rivet` while all API containers mount it at `/data/rivet-app`. This is intentional (the executor expects a different storage layout) but is not documented.
+
+**Fix:** Add to Workstream 5 step 2: "Document the intentional executor app-data mount difference in `_pod.tpl` comments. The executor uses `/home/rivet/.local/share/com.ironcladapp.rivet` because it expects the Rivet desktop app storage layout. Do not unify this with the API mount path."
+
+### Gap 14 (Workstream 6): `package.json` test script must be updated
+
+The test script in `wrapper/api/package.json` explicitly lists 18 test files by path. Adding tests for newly extracted modules (mappers, endpoint-sync, revision-factory helpers) requires updating this list.
+
+**Fix:** Add to Workstream 6: "Update the `test` script in `wrapper/api/package.json` to include new test files for extracted helpers. Verify the complete test list matches the actual test directory contents."
+
+### Gap 15 (Workstream 6): `FakeListener` and `createDeferred` are duplicated across test files
+
+`FakeListener` is defined separately in both `managed-execution-service.test.ts` and `managed-execution-invalidation.test.ts` (with slight variations). `createDeferred()` is identically duplicated in both files.
+
+**Fix:** Add to Workstream 6 step 2: "Extract `FakeListener` into `managed-backend-harness.ts` with the `DeferredConnectListener` variant. Extract `createDeferred()` into a shared test utility. Both are currently duplicated across execution test files."
+
+### Gap 16 (Cross-cutting): No import-graph safety verification
+
+The refactor creates many new modules that import from each other. There is no step verifying that the new module boundaries don't introduce circular imports.
+
+**Fix:** Add to each workstream's anti-complexity review: "Verify no circular imports exist in the new module graph. The dependency order must be: `types.ts` → `mappers.ts`/`db.ts` → `transactions.ts` → domain services → `context.ts` → `backend.ts` facade. If TypeScript reports circular references, reject the module boundary and restructure."
+
+### Gap 17 (Cross-cutting): Transaction hook ordering is correctness-sensitive across all domain services
+
+The `TransactionHooks` pattern (`onCommit`/`onRollback`) is used by catalog, revisions, publication, and recordings. The commit tasks run AFTER the database COMMIT, and rollback tasks run AFTER ROLLBACK. Reordering these (e.g., running cleanup before commit) would silently corrupt data.
+
+**Fix:** Add to Workstream 1 step 3 (transactions.ts): "Document the execution order contract: `onRollback` tasks run if the transaction fails, `onCommit` tasks run after successful COMMIT. Blob cleanup is scheduled via `onRollback` to prevent orphaned objects. Execution invalidation is scheduled via `onCommit` to prevent premature cache updates. This ordering is correctness-critical."
