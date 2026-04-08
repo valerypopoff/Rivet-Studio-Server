@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process';
 import { loadDevEnv } from './lib/dev-env.mjs';
 import { assertNoRetiredEnv } from './lib/docker-launcher-env.mjs';
 import { assertValidPort, ensurePortAvailable } from './lib/docker-launcher.mjs';
+import { resolveHelmBinOrThrow } from './lib/k8s-tools.mjs';
 import {
   buildImageRef,
   buildKubernetesLauncherConfig,
@@ -25,20 +26,6 @@ function quoteArg(arg) {
   return `"${String(arg).replace(/"/g, '\\"')}"`;
 }
 
-function resolveHelmBin(env) {
-  const explicit = String(env.RIVET_K8S_HELM_BIN ?? '').trim();
-  if (explicit) {
-    return explicit;
-  }
-
-  const bundledHelm = path.join(rootDir, '.tools', 'helm.exe');
-  if (process.platform === 'win32' && fs.existsSync(bundledHelm)) {
-    return bundledHelm;
-  }
-
-  return process.platform === 'win32' ? 'helm.exe' : 'helm';
-}
-
 function resolveKubectlBin(env) {
   const explicit = String(env.RIVET_K8S_KUBECTL_BIN ?? '').trim();
   if (explicit) {
@@ -55,6 +42,15 @@ function resolveDockerBin(env) {
   }
 
   return process.platform === 'win32' ? 'docker.exe' : 'docker';
+}
+
+function resolveMinikubeBin(env) {
+  const explicit = String(env.RIVET_K8S_MINIKUBE_BIN ?? '').trim();
+  if (explicit) {
+    return explicit;
+  }
+
+  return process.platform === 'win32' ? 'minikube.exe' : 'minikube';
 }
 
 function spawnProgram(program, args, options = {}) {
@@ -115,6 +111,74 @@ async function ensureCommandWorks(program, args, label, env) {
   } catch (error) {
     throw new Error(`[${launcherName}] ${label} is not available: ${error.message}`);
   }
+}
+
+async function commandWorks(program, args, env) {
+  try {
+    await spawnProgram(program, args, { env, capture: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function inferLocalClusterProvider(context, explicitProvider) {
+  const normalizedExplicitProvider = String(explicitProvider ?? '').trim().toLowerCase();
+  if (normalizedExplicitProvider) {
+    return normalizedExplicitProvider;
+  }
+
+  if (context === 'docker-desktop') {
+    return 'docker-desktop';
+  }
+
+  if (context === 'minikube' || context.startsWith('minikube-')) {
+    return 'minikube';
+  }
+
+  return 'generic';
+}
+
+async function readCurrentKubectlContext(kubectlBin, env) {
+  try {
+    const currentContext = await spawnProgram(kubectlBin, ['config', 'current-context'], {
+      env,
+      capture: true,
+      allowFailure: true,
+    });
+    if (currentContext.exitCode !== 0) {
+      return null;
+    }
+
+    const context = currentContext.stdout.trim();
+    return context || null;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveLauncherEnvOverrides(action, kubectlBin, minikubeBin, env) {
+  if (action === 'build' || String(env.RIVET_K8S_CONTEXT ?? '').trim()) {
+    return {};
+  }
+
+  const currentContext = await readCurrentKubectlContext(kubectlBin, env);
+  if (currentContext) {
+    return {
+      RIVET_K8S_CONTEXT: currentContext,
+      RIVET_K8S_CLUSTER_PROVIDER: inferLocalClusterProvider(currentContext, env.RIVET_K8S_CLUSTER_PROVIDER),
+    };
+  }
+
+  if (await commandWorks(minikubeBin, ['version'], env)) {
+    return {
+      RIVET_K8S_CONTEXT: 'minikube',
+      RIVET_K8S_CLUSTER_PROVIDER: 'minikube',
+      RIVET_K8S_MINIKUBE_PROFILE: String(env.RIVET_K8S_MINIKUBE_PROFILE ?? '').trim() || 'minikube',
+    };
+  }
+
+  return {};
 }
 
 function getChartName() {
@@ -287,6 +351,57 @@ async function assertKubectlContext(kubectlBin, config, env) {
   await spawnProgram(kubectlBin, withKubectlContext(config, ['get', 'nodes']), { env });
 }
 
+async function readMinikubeStatus(minikubeBin, config, env) {
+  const profile = config.minikubeProfile ?? config.context;
+  const status = await spawnProgram(minikubeBin, ['-p', profile, 'status', '-o', 'json'], {
+    env,
+    capture: true,
+    allowFailure: true,
+  });
+  if (status.exitCode !== 0) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(status.stdout);
+  } catch {
+    return null;
+  }
+}
+
+function isMinikubeReady(status) {
+  if (!status || typeof status !== 'object') {
+    return false;
+  }
+
+  const host = String(status.Host ?? '').toLowerCase();
+  const kubelet = String(status.Kubelet ?? '').toLowerCase();
+  const apiServer = String(status.APIServer ?? '').toLowerCase();
+  const kubeconfig = String(status.Kubeconfig ?? '').toLowerCase();
+  return host === 'running' &&
+    kubelet === 'running' &&
+    apiServer === 'running' &&
+    (kubeconfig === 'configured' || kubeconfig === 'running');
+}
+
+async function ensureMinikubeReady(minikubeBin, config, env, { autoStart = false } = {}) {
+  const profile = config.minikubeProfile ?? config.context;
+  const status = await readMinikubeStatus(minikubeBin, config, env);
+  if (isMinikubeReady(status)) {
+    return;
+  }
+
+  if (!autoStart) {
+    throw new Error(
+      `[${launcherName}] Minikube profile "${profile}" is not running. ` +
+      `Run "minikube start -p ${profile}" or set RIVET_K8S_CONTEXT to another reachable cluster.`,
+    );
+  }
+
+  console.log(`[${launcherName}] Starting Minikube profile "${profile}"...`);
+  await spawnProgram(minikubeBin, ['-p', profile, 'start'], { env });
+}
+
 function renderValuesFile(config) {
   fs.mkdirSync(stateDir, { recursive: true });
   const { valuesPath } = getStatePaths(config);
@@ -358,6 +473,16 @@ async function loadImagesIntoCluster(dockerBin, kubectlBin, config, env) {
     buildImageRef(config.images.web),
     buildImageRef(config.images.proxy),
   ];
+
+  if (config.localClusterProvider === 'minikube') {
+    const minikubeBin = resolveMinikubeBin(env);
+    const profile = config.minikubeProfile ?? config.context;
+    for (const imageRef of imageRefs) {
+      await spawnProgram(minikubeBin, ['-p', profile, 'image', 'load', '--daemon=true', imageRef], { env });
+    }
+    return;
+  }
+
   const nodeNames = await listClusterNodeNames(kubectlBin, config, env);
   if (nodeNames.length === 0) {
     throw new Error(`[${launcherName}] Could not find any Kubernetes nodes in context "${config.context}".`);
@@ -550,80 +675,106 @@ async function main() {
   const envFileLabel = hasEnvFile ? path.basename(envPath) : '.env';
 
   assertNoRetiredEnv(mergedEnv, { launcherName, envFileLabel });
-
-  const config = buildKubernetesLauncherConfig(mergedEnv);
-  const helmBin = resolveHelmBin(mergedEnv);
   const kubectlBin = resolveKubectlBin(mergedEnv);
-  const dockerBin = resolveDockerBin(mergedEnv);
+  const minikubeBin = resolveMinikubeBin(mergedEnv);
+  const launcherEnvOverrides = await resolveLauncherEnvOverrides(action, kubectlBin, minikubeBin, mergedEnv);
+  const effectiveEnv = {
+    ...mergedEnv,
+    ...launcherEnvOverrides,
+  };
+  const config = buildKubernetesLauncherConfig(effectiveEnv);
+  const helmBin = action === 'build'
+    ? null
+    : resolveHelmBinOrThrow(rootDir, { env: effectiveEnv, launcherName });
+  const dockerBin = resolveDockerBin(effectiveEnv);
 
   if (action === 'build' || action === 'dev' || action === 'recreate') {
-    await ensureCommandWorks(dockerBin, ['version'], 'Docker', mergedEnv);
+    await ensureCommandWorks(dockerBin, ['version'], 'Docker', effectiveEnv);
   }
 
   if (action === 'up' && config.loadLocalImages) {
-    await ensureCommandWorks(dockerBin, ['version'], 'Docker', mergedEnv);
+    await ensureCommandWorks(dockerBin, ['version'], 'Docker', effectiveEnv);
   }
 
   if (action !== 'build') {
-    await ensureCommandWorks(kubectlBin, ['version', '--client'], 'kubectl', mergedEnv);
-    await ensureCommandWorks(helmBin, ['version'], 'Helm', mergedEnv);
+    await ensureCommandWorks(kubectlBin, ['version', '--client'], 'kubectl', effectiveEnv);
+    await ensureCommandWorks(helmBin, ['version'], 'Helm', effectiveEnv);
+  }
+
+  if (action !== 'build' && config.localClusterProvider === 'minikube') {
+    await ensureCommandWorks(minikubeBin, ['version'], 'Minikube', effectiveEnv);
   }
 
   switch (action) {
     case 'build':
-      await buildImages(dockerBin, config, mergedEnv);
+      await buildImages(dockerBin, config, effectiveEnv);
       return;
     case 'config': {
       const valuesPath = renderValuesFile(config);
-      await helmLint(helmBin, valuesPath, mergedEnv);
-      await helmTemplate(helmBin, config, valuesPath, mergedEnv);
+      await helmLint(helmBin, valuesPath, effectiveEnv);
+      await helmTemplate(helmBin, config, valuesPath, effectiveEnv);
       console.log(`[${launcherName}] Generated values file: ${valuesPath}`);
       return;
     }
     case 'ps':
-      await printStatus(kubectlBin, config, mergedEnv);
+      if (config.localClusterProvider === 'minikube') {
+        await ensureMinikubeReady(minikubeBin, config, effectiveEnv);
+      }
+      await printStatus(kubectlBin, config, effectiveEnv);
       return;
     case 'logs':
-      await printLogs(kubectlBin, config, mergedEnv);
+      if (config.localClusterProvider === 'minikube') {
+        await ensureMinikubeReady(minikubeBin, config, effectiveEnv);
+      }
+      await printLogs(kubectlBin, config, effectiveEnv);
       return;
     case 'down':
       await stopPortForward(config);
-      await uninstallRelease(helmBin, kubectlBin, config, mergedEnv);
+      await uninstallRelease(helmBin, kubectlBin, config, effectiveEnv);
       removeState(config);
       return;
     case 'up': {
-      await assertKubectlContext(kubectlBin, config, mergedEnv);
-      await loadImagesIntoCluster(dockerBin, kubectlBin, config, mergedEnv);
+      if (config.localClusterProvider === 'minikube') {
+        await ensureMinikubeReady(minikubeBin, config, effectiveEnv, { autoStart: true });
+      }
+      await assertKubectlContext(kubectlBin, config, effectiveEnv);
+      await loadImagesIntoCluster(dockerBin, kubectlBin, config, effectiveEnv);
       const valuesPath = renderValuesFile(config);
-      await applySecrets(kubectlBin, config, mergedEnv);
+      await applySecrets(kubectlBin, config, effectiveEnv);
       try {
-        await helmUpgradeInstall(helmBin, config, valuesPath, mergedEnv);
+        await helmUpgradeInstall(helmBin, config, valuesPath, effectiveEnv);
       } catch (error) {
-        await printStatus(kubectlBin, config, mergedEnv);
+        await printStatus(kubectlBin, config, effectiveEnv);
         throw error;
       }
 
-      await startPortForward(kubectlBin, config, mergedEnv, envFileLabel);
+      await startPortForward(kubectlBin, config, effectiveEnv, envFileLabel);
       return;
     }
     case 'recreate':
       await stopPortForward(config);
-      await uninstallRelease(helmBin, kubectlBin, config, mergedEnv);
+      await uninstallRelease(helmBin, kubectlBin, config, effectiveEnv);
       removeState(config);
-      await buildImages(dockerBin, config, mergedEnv);
-      await assertKubectlContext(kubectlBin, config, mergedEnv);
-      await loadImagesIntoCluster(dockerBin, kubectlBin, config, mergedEnv);
-      await applySecrets(kubectlBin, config, mergedEnv);
-      await helmUpgradeInstall(helmBin, config, renderValuesFile(config), mergedEnv);
-      await startPortForward(kubectlBin, config, mergedEnv, envFileLabel);
+      await buildImages(dockerBin, config, effectiveEnv);
+      if (config.localClusterProvider === 'minikube') {
+        await ensureMinikubeReady(minikubeBin, config, effectiveEnv, { autoStart: true });
+      }
+      await assertKubectlContext(kubectlBin, config, effectiveEnv);
+      await loadImagesIntoCluster(dockerBin, kubectlBin, config, effectiveEnv);
+      await applySecrets(kubectlBin, config, effectiveEnv);
+      await helmUpgradeInstall(helmBin, config, renderValuesFile(config), effectiveEnv);
+      await startPortForward(kubectlBin, config, effectiveEnv, envFileLabel);
       return;
     case 'dev':
-      await buildImages(dockerBin, config, mergedEnv);
-      await assertKubectlContext(kubectlBin, config, mergedEnv);
-      await loadImagesIntoCluster(dockerBin, kubectlBin, config, mergedEnv);
-      await applySecrets(kubectlBin, config, mergedEnv);
-      await helmUpgradeInstall(helmBin, config, renderValuesFile(config), mergedEnv);
-      await startPortForward(kubectlBin, config, mergedEnv, envFileLabel);
+      await buildImages(dockerBin, config, effectiveEnv);
+      if (config.localClusterProvider === 'minikube') {
+        await ensureMinikubeReady(minikubeBin, config, effectiveEnv, { autoStart: true });
+      }
+      await assertKubectlContext(kubectlBin, config, effectiveEnv);
+      await loadImagesIntoCluster(dockerBin, kubectlBin, config, effectiveEnv);
+      await applySecrets(kubectlBin, config, effectiveEnv);
+      await helmUpgradeInstall(helmBin, config, renderValuesFile(config), effectiveEnv);
+      await startPortForward(kubectlBin, config, effectiveEnv, envFileLabel);
       return;
     default:
       console.error(`Unknown action: ${action}`);

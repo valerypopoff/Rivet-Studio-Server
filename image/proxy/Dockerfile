@@ -11,7 +11,7 @@ COPY --chown=10001:10001 image/proxy/entrypoint.sh /opt/rivet/proxy/entrypoint.s
 COPY --chown=10001:10001 image/proxy/nginx.conf /etc/nginx/nginx.conf
 COPY --chown=10001:10001 image/proxy/default.conf.template /etc/nginx/templates/default.conf.template
 COPY --chown=10001:10001 image/proxy/ui-gate-prompt.html /usr/share/nginx/html/ui-gate-prompt.html
-COPY --chown=10001:10001 ops/normalize-workflow-paths.sh /opt/rivet/proxy/normalize-workflow-paths.sh
+COPY --chown=10001:10001 image/proxy/normalize-workflow-paths.sh /opt/rivet/proxy/normalize-workflow-paths.sh
 
 RUN chmod +x /opt/rivet/lib/load-env.sh /opt/rivet/proxy/entrypoint.sh /opt/rivet/proxy/normalize-workflow-paths.sh
 

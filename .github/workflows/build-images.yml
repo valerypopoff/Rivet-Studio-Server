@@ -45,6 +45,9 @@ jobs:
         with:
           node-version: 20
 
+      - name: Verify Repo Structure
+        run: npm run verify:repo-structure
+
       - name: Bootstrap Upstream Rivet
         run: |
           if [ ! -d rivet ] || [ -z "$(ls -A rivet 2>/dev/null)" ]; then

@@ -1,3 +1,8 @@
+- Do we need /health enpoint for k8s?
+
+- Project settings block shows "0 graphs, 0 nodes total" but the project has more
+
+
 - Убедиться, что RIVET_RECORDINGS_MAX_PENDING_WRITES работает правильно — на каждую реплику
 
 - Убедиться что реплики хорошо работают с дебаг сервером

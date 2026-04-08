@@ -21,9 +21,50 @@ Rivet Studio Server is a self-hosted personal Rivet platform with a UI that you 
 - [Access and routing](./docs/access-and-routing.md)
 - [Development](./docs/development.md)
 - [Kubernetes](./docs/kubernetes.md)
+- [Repo structure](./docs/repo-structure.md)
 - [Editor bridge](./docs/editor-bridge.md)
 - [Workflow publication](./docs/workflow-publication.md)
 - [Runtime libraries](./docs/runtime-libraries.md)
+
+## Repository Map
+
+- `wrapper/`
+  - application code, hosted overrides, shared browser/server contracts, executor packaging, and runtime bootstrap under `wrapper/bootstrap/`
+- `image/`
+  - canonical image build definitions and shared proxy-image assets
+- `ops/`
+  - deployment-only assets:
+    - `ops/compose/` for Docker Compose stacks
+    - `ops/docker/` for Compose-only Dockerfiles
+    - `ops/nginx/` for Compose-only proxy templates
+- `charts/`
+  - the Helm chart and overlays
+- `scripts/`
+  - root launcher, verification, and bootstrap commands
+- `docs/`
+  - contributor and operator documentation
+- `.github/`
+  - CI workflows
+- `rivet/`
+  - upstream input, treated as read-only in this repo
+
+## Root Working Docs
+
+The repo root stays intentionally small. Root Markdown is reserved for:
+
+- `README.md`
+- `AGENTS.md`
+- the current tracked working-doc baseline: `backlog.md` and `repo-rearrangement.md`
+
+Reference documentation lives under `docs/`, not at the repo root.
+
+## Tooling Notes
+
+- the root repo uses `npm run ...` as the supported command surface
+- upstream `rivet/` still uses Yarn internally where the wrapper needs it
+- `npm run setup:k8s-tools` installs the pinned cached Helm binary under `.data/tools/helm/`
+- `RIVET_K8S_HELM_BIN` overrides Helm resolution for the Kubernetes launchers and verification scripts
+- ordinary launcher and verification flows do not silently download Helm; they use an existing override, system install, or cached copy and otherwise fail with setup instructions
 
 ## Quick Start
 
@@ -65,7 +106,7 @@ To pin a specific image tag, set `RIVET_IMAGE_TAG` or override the individual im
 
 | Command | Behaviour |
 |---|---|
-| `npm run prod` | Auto — pull prebuilt images, fall back to local build |
+| `npm run prod` | Auto - pull prebuilt images, fall back to local build |
 | `npm run prod:prebuilt` | Always pull prebuilt images (no build) |
 | `npm run prod:local-build` | Always build locally from source |
 

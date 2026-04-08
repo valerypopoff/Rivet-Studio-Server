@@ -1,5 +1,11 @@
 # Repo Structure Professionalization Plan
 
+Status note, April 2026:
+
+- this document is the historical implementation plan for the repo rearrangement, not the current source of truth for the repo contract
+- the current repo contract is documented in `README.md` and `docs/repo-structure.md`
+- references below to older root-doc names or pre-move paths are historical planning context unless the document explicitly says otherwise
+
 ## Summary
 
 The refactor left the **application code layout** in good shape. The repo now feels strongest under `wrapper/`, where ownership boundaries are explicit and professional. The weaker parts are at the **repo root and infrastructure/tooling boundaries**:

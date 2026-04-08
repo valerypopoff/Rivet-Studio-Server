@@ -1,6 +1,7 @@
 # Development
 
 See also: [Mistakes and Misconceptions](./mistakes-and-misconceptions.md)
+See also: [Repo structure](./repo-structure.md)
 
 ## Setup commands
 
@@ -9,6 +10,9 @@ See also: [Mistakes and Misconceptions](./mistakes-and-misconceptions.md)
   - clones `rivet/` from the upstream repo if it is missing
   - installs upstream Yarn dependencies and builds `@ironclad/rivet-core` and `@ironclad/rivet-node` when needed
   - accepts either a Git checkout or a valid upstream snapshot already present in `rivet/`
+- `npm run setup:k8s-tools`
+  - downloads the pinned Helm release into `.data/tools/helm/`
+  - use this when you want Kubernetes verification or the local Kubernetes launcher to work without a system Helm install
 - `npm run setup:rivet`
   - downloads the newest stable upstream Rivet tag into `./rivet`
   - use this when you want a clean versioned upstream snapshot for local Docker builds
@@ -45,6 +49,7 @@ See also: [Mistakes and Misconceptions](./mistakes-and-misconceptions.md)
 | `npm run verify:filesystem:docker` | Verifies the filesystem Docker launcher shape with a disposable env/fixture root | Check that Docker launcher config still supports filesystem mode without managed services |
 | `npm run verify:local-docker` | Verifies managed-storage local-Docker launcher shape with a disposable env/fixture root | Check that `managed + local-docker` still enables the expected Postgres/MinIO rehearsal path |
 | `npm run verify:local-docker:split` | Runs split-topology repo-local checks plus local-Docker launcher validation | Check that split-era control/execution contracts still fit the local-Docker managed rehearsal model |
+| `npm run verify:repo-structure` | Verifies the intended authored repo layout and blocks legacy path drift | Catch misplaced runtime/deployment/tooling files before they spread |
 | `npm run verify:web-pure` | Runs the pure web helper tests with `tsx --test` | Catch regressions in extracted non-React dashboard/protocol helpers quickly |
 | `npm run verify:kubernetes` | Runs the Kubernetes static-contract tests, renders the local rehearsal values path, and lint-renders the production overlay | Catch local/prod chart drift before handing the repo to operators |
 | `npm --prefix wrapper/api run workflow-execution:measure -- --base-url http://localhost:8080 --endpoint hello-world --kind published --runs 5 --warmups 1` | Calls one published/latest workflow endpoint repeatedly and prints timing headers | Measure managed cold-hit vs warm-hit behavior safely |
@@ -124,7 +129,11 @@ Current behavior:
 - it builds local `proxy`, `web`, `api`, and `executor` images from the current workspace
 - it deploys the real Helm chart into a dedicated local namespace
 - it targets `RIVET_K8S_CONTEXT` explicitly without mutating your global `kubectl` current-context
-- on Docker-backed local clusters such as Docker Desktop Kubernetes, it imports the freshly built images into the cluster nodes automatically
+- if `RIVET_K8S_CONTEXT` is unset, it uses the current `kubectl` context when one exists
+- if no current `kubectl` context is set and `minikube` is installed, it falls back to the `minikube` context automatically
+- on Docker Desktop Kubernetes, it imports the freshly built images into the cluster nodes automatically
+- on Minikube, it loads the freshly built images with `minikube image load --daemon=true`
+- on Minikube-backed `dev`, `up`, and `recreate`, it starts the target Minikube profile automatically if it is not already running
 - it keeps `web=1`
 - it keeps `backend=1`
 - it scales the legitimate local rehearsal targets:
@@ -152,10 +161,22 @@ Operational notes:
 - for endpoint-heavy load, `execution` is the primary scale target and `proxy` is the secondary ingress tier
 - it is intentionally opinionated toward external managed Postgres plus external S3 or S3-compatible storage
 - it does not replace the production chart or create a second deployment contract; it is a local wrapper around the same chart the real deployment should use
-- by default it expects the Docker Desktop Kubernetes context `docker-desktop`
+- by default it prefers:
+  - the explicit `RIVET_K8S_CONTEXT`, if set
+  - otherwise the current `kubectl` context, if one exists
+  - otherwise the `minikube` context when the Minikube CLI is installed
+  - otherwise the historical fallback `docker-desktop`
+- Helm resolution order is:
+  - `RIVET_K8S_HELM_BIN`
+  - system `helm`
+  - cached Helm under `.data/tools/helm/`
+- if no explicit, system, or cached Helm is available, the launcher fails with an instruction to run `npm run setup:k8s-tools`
 - optional launcher-specific overrides are:
   - `RIVET_K8S_CONTEXT`
+  - `RIVET_K8S_CLUSTER_PROVIDER`
   - `RIVET_K8S_CLUSTER_DOMAIN`
+  - `RIVET_K8S_MINIKUBE_PROFILE`
+  - `RIVET_K8S_MINIKUBE_BIN`
   - `RIVET_K8S_NAMESPACE`
   - `RIVET_K8S_RELEASE`
   - `RIVET_K8S_PROXY_PORT`
@@ -167,10 +188,6 @@ Operational notes:
 For the operator-facing chart contract and handoff checklist, see:
 
 - [Kubernetes](./kubernetes.md)
-
-For the full operator checklist and manual equivalent, see the root runbook:
-
-- [Local Kubernetes Rehearsal for Scaled Execution + Latest Debugger](../Local%20Kubernetes%20Rehearsal%20for%20Scaled%20Execution%20%2B%20Latest%20Debugger.md)
 
 ## Observable Playwright flow
 
@@ -226,8 +243,8 @@ Important constraints:
 
 The Docker launchers now render layered Compose files:
 
-- `npm run dev` / `npm run dev:docker:*` use `ops/docker-compose.managed-services.yml` plus `ops/docker-compose.dev.yml`
-- `npm run prod` / `npm run prod:docker:*` use `ops/docker-compose.managed-services.yml` plus `ops/docker-compose.yml`
+- `npm run dev` / `npm run dev:docker:*` use `ops/compose/docker-compose.managed-services.yml` plus `ops/compose/docker-compose.dev.yml`
+- `npm run prod` / `npm run prod:docker:*` use `ops/compose/docker-compose.managed-services.yml` plus `ops/compose/docker-compose.yml`
 - the shared file only contributes the managed Postgres/MinIO services, and the launcher auto-enables the `workflow-managed` profile only when `RIVET_STORAGE_MODE=managed`
 
 Current behavior:
@@ -261,7 +278,8 @@ For host-based API execution, filesystem-mode recording persistence still requir
 
 ## Source of truth
 
-- authored source lives under `wrapper/`, `ops/`, `scripts/`, and `docs/`
+- authored source lives under `wrapper/`, `image/`, `ops/`, `charts/`, `scripts/`, `docs/`, and `.github/`
+- runtime/bootstrap code belongs under `wrapper/bootstrap/`, not under `ops/`
 - hosted editor patches that must survive production image builds should live under `wrapper/web/overrides/`, `wrapper/web/dashboard/`, or other tracked wrapper files
 - `rivet/` is upstream source that can be replaced or refreshed and should be treated as read-only input for this repo
 - generated build output should not be treated as authored source

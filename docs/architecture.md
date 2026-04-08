@@ -7,8 +7,11 @@
 - `wrapper/api/` contains workflow management, publication, recordings, runtime-library management, native IO shims, plugin install/load routes, and guarded shell/config endpoints.
 - `wrapper/shared/` contains browser/server contracts such as hosted env constants, editor-bridge messages, workflow types, and recording helpers.
 - `wrapper/executor/` is the packaged Node executor used behind the executor websocket.
-- `ops/` contains Dockerfiles, Compose files, nginx templates, and bootstrap scripts for containerized modes.
+- `wrapper/bootstrap/` contains runtime/bootstrap code used by the API and executor processes in containerized modes.
+- `image/` contains the canonical image build definitions plus shared proxy-image runtime assets.
+- `ops/` contains deployment-only assets: Compose files under `ops/compose/`, Compose-only Dockerfiles under `ops/docker/`, and Compose-only proxy templates under `ops/nginx/`.
 - `scripts/` contains the root launchers, environment loading, and upstream bootstrap helpers.
+- `.github/` contains CI workflows.
 
 ## Runtime shape
 

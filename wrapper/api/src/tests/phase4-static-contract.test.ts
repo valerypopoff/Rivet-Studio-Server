@@ -23,7 +23,7 @@ function renderLocalKubernetesChart(): string {
 
 test('proxy template keeps published traffic on execution upstream, latest debugger traffic on the control-plane API, and hides internal published routes from nginx', () => {
   const proxyTemplate = readRepoFile('image/proxy/default.conf.template');
-  const proxyBootstrap = readRepoFile('ops/normalize-workflow-paths.sh');
+  const proxyBootstrap = readRepoFile('image/proxy/normalize-workflow-paths.sh');
 
   assert.match(proxyTemplate, /location = \/__rivet_auth \{[\s\S]*proxy_pass \$api_ui_auth_upstream;/);
   assert.match(proxyTemplate, /location \/api\/ \{[\s\S]*proxy_pass \$api_upstream;/);

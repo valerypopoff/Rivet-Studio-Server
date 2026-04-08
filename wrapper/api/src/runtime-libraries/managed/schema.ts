@@ -159,6 +159,14 @@ ALTER TABLE runtime_library_job_logs
   ADD COLUMN IF NOT EXISTS source TEXT NULL;
 `;
 
+// Serialize managed runtime-library schema initialization across pods/processes.
+// The DDL above includes ALTER TABLE statements that can deadlock when multiple
+// replicas attempt first-run schema setup against the same Postgres database.
+const MANAGED_RUNTIME_LIBRARIES_SCHEMA_LOCK = {
+  classId: 8_071,
+  objectId: 24_001,
+} as const;
+
 export const ACTIVE_JOB_STATUS_CLAUSE = `('queued', 'running', 'validating', 'activating')`;
 export const JOB_HEARTBEAT_INTERVAL_MS = 5_000;
 export const STALE_JOB_TIMEOUT_MS = 10 * 60_000;
@@ -315,4 +323,45 @@ export function isUniqueViolation(error: unknown): boolean {
 
 export async function wait(delayMs: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
+export async function ensureManagedRuntimeLibrariesSchema(pool: Pool): Promise<void> {
+  const client = await pool.connect();
+  let pendingError: unknown = null;
+  let lockAcquired = false;
+
+  try {
+    await client.query(
+      'SELECT pg_advisory_lock($1::integer, $2::integer)',
+      [MANAGED_RUNTIME_LIBRARIES_SCHEMA_LOCK.classId, MANAGED_RUNTIME_LIBRARIES_SCHEMA_LOCK.objectId],
+    );
+    lockAcquired = true;
+    await client.query(MANAGED_RUNTIME_LIBRARIES_SCHEMA_SQL);
+  } catch (error) {
+    pendingError = error;
+  } finally {
+    if (lockAcquired) {
+      try {
+        await client.query(
+          'SELECT pg_advisory_unlock($1::integer, $2::integer)',
+          [MANAGED_RUNTIME_LIBRARIES_SCHEMA_LOCK.classId, MANAGED_RUNTIME_LIBRARIES_SCHEMA_LOCK.objectId],
+        );
+      } catch (unlockError) {
+        if (pendingError) {
+          console.warn(
+            '[runtime-libraries] Failed to release managed schema advisory lock after a schema-init error:',
+            unlockError,
+          );
+        } else {
+          pendingError = unlockError;
+        }
+      }
+    }
+
+    client.release();
+  }
+
+  if (pendingError) {
+    throw pendingError;
+  }
 }

@@ -92,6 +92,23 @@ function parseImageConfig(env, prefix, defaultRepository, defaultTag) {
   };
 }
 
+function inferLocalClusterProvider(context, explicitProvider) {
+  const normalizedExplicitProvider = String(explicitProvider ?? '').trim().toLowerCase();
+  if (normalizedExplicitProvider) {
+    return normalizedExplicitProvider;
+  }
+
+  if (context === 'docker-desktop') {
+    return 'docker-desktop';
+  }
+
+  if (context === 'minikube' || context.startsWith('minikube-')) {
+    return 'minikube';
+  }
+
+  return 'generic';
+}
+
 function yamlString(value) {
   return JSON.stringify(String(value));
 }
@@ -118,16 +135,22 @@ export function buildKubernetesLauncherConfig(env) {
   const storageUrl = readEnv(env, 'RIVET_STORAGE_URL');
   const parsedStorageUrl = storageUrl ? parseManagedStorageUrl(storageUrl) : null;
   const imageTag = readEnv(env, 'RIVET_K8S_IMAGE_TAG') ?? 'dev';
+  const context = readEnv(env, 'RIVET_K8S_CONTEXT') ?? 'docker-desktop';
+  const localClusterProvider = inferLocalClusterProvider(context, readEnv(env, 'RIVET_K8S_CLUSTER_PROVIDER'));
 
   return {
     release: readEnv(env, 'RIVET_K8S_RELEASE') ?? 'rivet-local',
     namespace: readEnv(env, 'RIVET_K8S_NAMESPACE') ?? 'rivet-local',
-    context: readEnv(env, 'RIVET_K8S_CONTEXT') ?? 'docker-desktop',
+    context,
+    localClusterProvider,
+    minikubeProfile: localClusterProvider === 'minikube'
+      ? readEnv(env, 'RIVET_K8S_MINIKUBE_PROFILE') ?? context
+      : undefined,
     clusterDomain: readEnv(env, 'RIVET_K8S_CLUSTER_DOMAIN') ?? 'cluster.local',
     localPort: parsePositiveInt(readEnv(env, 'RIVET_K8S_PROXY_PORT') ?? readEnv(env, 'RIVET_PORT'), 8080),
     loadLocalImages: parseBoolean(
       readEnv(env, 'RIVET_K8S_LOAD_LOCAL_IMAGES'),
-      (readEnv(env, 'RIVET_K8S_CONTEXT') ?? 'docker-desktop') === 'docker-desktop',
+      localClusterProvider === 'docker-desktop' || localClusterProvider === 'minikube',
     ),
     replicas: {
       proxy: parsePositiveInt(readEnv(env, 'RIVET_K8S_PROXY_REPLICAS'), 2),

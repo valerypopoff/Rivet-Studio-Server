@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import type { Pool } from 'pg';
 import { withArgv, withScopedEnv } from './helpers/runtime-library-harness.js';
 
 const cleanup = await import('../runtime-libraries/managed/cleanup.js');
+const managedSchema = await import('../runtime-libraries/managed/schema.js');
 const managedState = await import('../runtime-libraries/managed/state.js');
 const runtimeLibrariesConfig = await import('../runtime-libraries/config.js');
-const bootstrapConfig = await import(new URL('../../../../ops/proxy-bootstrap/config.mjs', import.meta.url).href) as {
+const bootstrapConfig = await import(new URL('../../../../wrapper/bootstrap/proxy-bootstrap/config.mjs', import.meta.url).href) as {
   isManagedRuntimeLibrariesEnabled: () => boolean;
   shouldBootstrapManagedRuntimeLibrariesInCurrentProcess: () => boolean;
   getManagedRuntimeLibrariesConfig: () => Record<string, unknown>;
@@ -163,6 +165,76 @@ test('API and bootstrap runtime-library config keep explicit replica-tier and jo
     assert.equal(bootstrapManagedConfig.jobWorkerEnabled, false);
     assert.deepEqual(bootstrapManagedConfig, apiConfig);
   });
+});
+
+test('managed runtime-library schema init serializes DDL behind an advisory lock', async () => {
+  const queries: Array<{ sql: string; params: unknown[] }> = [];
+  let released = false;
+  const fakePool = {
+    connect: async () => ({
+      query: async (sql: string, params: unknown[] = []) => {
+        queries.push({ sql, params });
+        return { rows: [], rowCount: 0 };
+      },
+      release: () => {
+        released = true;
+      },
+    }),
+  } as unknown as Pool;
+
+  await managedSchema.ensureManagedRuntimeLibrariesSchema(fakePool);
+
+  assert.equal(queries.length, 3);
+  assert.equal(queries[0]?.sql, 'SELECT pg_advisory_lock($1::integer, $2::integer)');
+  assert.equal(queries[1]?.sql, managedSchema.MANAGED_RUNTIME_LIBRARIES_SCHEMA_SQL);
+  assert.equal(queries[2]?.sql, 'SELECT pg_advisory_unlock($1::integer, $2::integer)');
+  assert.deepEqual(queries[0]?.params, queries[2]?.params);
+  assert.equal(released, true);
+});
+
+test('managed runtime-library schema init preserves the schema error and still releases the advisory lock client', async () => {
+  const schemaError = new Error('schema failed');
+  const unlockError = new Error('unlock failed');
+  const warnings: unknown[][] = [];
+  const originalWarn = console.warn;
+  let released = false;
+  let unlockAttempted = false;
+  const fakePool = {
+    connect: async () => ({
+      query: async (sql: string) => {
+        if (sql === managedSchema.MANAGED_RUNTIME_LIBRARIES_SCHEMA_SQL) {
+          throw schemaError;
+        }
+        if (sql === 'SELECT pg_advisory_unlock($1::integer, $2::integer)') {
+          unlockAttempted = true;
+          throw unlockError;
+        }
+        return { rows: [], rowCount: 0 };
+      },
+      release: () => {
+        released = true;
+      },
+    }),
+  } as unknown as Pool;
+
+  console.warn = (...args: unknown[]) => {
+    warnings.push(args);
+  };
+
+  try {
+    await assert.rejects(
+      managedSchema.ensureManagedRuntimeLibrariesSchema(fakePool),
+      schemaError,
+    );
+  } finally {
+    console.warn = originalWarn;
+  }
+
+  assert.equal(unlockAttempted, true);
+  assert.equal(released, true);
+  assert.equal(warnings.length, 1);
+  assert.match(String(warnings[0]?.[0] ?? ''), /Failed to release managed schema advisory lock/);
+  assert.equal(warnings[0]?.[1], unlockError);
 });
 
 test('managed runtime-library config keeps long replica-status retention for local-docker and shortens it for managed environments', async () => {

@@ -13,7 +13,7 @@ import {
 } from './lib/docker-launcher-env.mjs';
 
 const rootDir = process.cwd();
-let composeBase = 'docker compose -f ops/docker-compose.managed-services.yml -f ops/docker-compose.yml';
+let composeBase = 'docker compose -f ops/compose/docker-compose.managed-services.yml -f ops/compose/docker-compose.yml';
 const diagnosticServices = 'api web executor proxy';
 let envFileLabel = '.env';
 
@@ -24,7 +24,7 @@ async function main() {
   envFileLabel = path.basename(envPath);
   if (hasEnvFile) {
     const relativeEnvPath = path.relative(rootDir, envPath) || envFileLabel;
-    composeBase = `docker compose --env-file "${relativeEnvPath}" -f ops/docker-compose.managed-services.yml -f ops/docker-compose.yml`;
+    composeBase = `docker compose --env-file "${relativeEnvPath}" -f ops/compose/docker-compose.managed-services.yml -f ops/compose/docker-compose.yml`;
   }
 
   const buildHeavyActions = new Set(['build', 'up', 'prod', 'recreate', 'auto']);

@@ -9,8 +9,8 @@ import {
 } from './blob-store.js';
 import {
   ACTIVE_JOB_STATUS_CLAUSE,
+  ensureManagedRuntimeLibrariesSchema,
   getPoolConfig,
-  MANAGED_RUNTIME_LIBRARIES_SCHEMA_SQL,
   queryOne,
   queryRows,
   toIsoString,
@@ -350,7 +350,7 @@ export async function auditManagedRuntimeLibrariesState(
   const pool = new Pool(getPoolConfig(config));
 
   try {
-    await pool.query(MANAGED_RUNTIME_LIBRARIES_SCHEMA_SQL);
+    await ensureManagedRuntimeLibrariesSchema(pool);
     const state = await queryCleanupState(pool);
     state.objects = await listRuntimeLibrariesBlobObjects(config);
     return buildManagedRuntimeLibrariesAuditSnapshotFromState(state, options.now);
@@ -448,7 +448,7 @@ async function deleteManagedRuntimeLibraryJobs(
   const pool = new Pool(getPoolConfig(config));
 
   try {
-    await pool.query(MANAGED_RUNTIME_LIBRARIES_SCHEMA_SQL);
+    await ensureManagedRuntimeLibrariesSchema(pool);
     const deletedJobs = await pool.query<{ job_id: string }>(
       `
         DELETE FROM runtime_library_jobs
@@ -474,7 +474,7 @@ async function deleteManagedRuntimeLibraryReleases(
   const pool = new Pool(getPoolConfig(config));
 
   try {
-    await pool.query(MANAGED_RUNTIME_LIBRARIES_SCHEMA_SQL);
+    await ensureManagedRuntimeLibrariesSchema(pool);
     const deletedReleases = await pool.query<{ release_id: string }>(
       `
         DELETE FROM runtime_library_releases

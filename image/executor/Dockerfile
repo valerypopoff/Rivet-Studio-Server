@@ -23,7 +23,7 @@ RUN corepack enable && corepack prepare yarn@4.6.0 --activate
 
 WORKDIR /app
 
-COPY ops/proxy-bootstrap/ /opt/proxy-bootstrap/
+COPY wrapper/bootstrap/proxy-bootstrap/ /opt/proxy-bootstrap/
 RUN --mount=type=cache,target=/root/.npm npm --prefix /opt/proxy-bootstrap ci
 
 COPY rivet/ /app/rivet/
@@ -33,8 +33,8 @@ RUN --mount=type=cache,target=/root/.cache/yarn YARN_NODE_LINKER=node-modules YA
 RUN YARN_NODE_LINKER=node-modules yarn workspace @ironclad/rivet-core run build
 RUN YARN_NODE_LINKER=node-modules yarn workspace @ironclad/rivet-node run build
 
-COPY ops/bundle-executor.cjs /app/ops/bundle-executor.cjs
-RUN NODE_PATH=/app/rivet/node_modules node /app/ops/bundle-executor.cjs
+COPY wrapper/executor/build/bundle-executor.cjs /app/wrapper/executor/build/bundle-executor.cjs
+RUN NODE_PATH=/app/rivet/node_modules node /app/wrapper/executor/build/bundle-executor.cjs
 
 FROM node:20-alpine
 

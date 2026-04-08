@@ -160,7 +160,7 @@ The browser/editor surface can be protected at the nginx layer:
 
 When the gate is enabled for a host that is not exempt:
 
-- `GET /` serves the prompt page from `ops/ui-gate-prompt.html`
+- `GET /` serves the prompt page from `image/proxy/ui-gate-prompt.html`
 - `POST /__rivet_auth` forwards to the API's internal `/ui-auth` route
 - the API validates the submitted `key` or `token` form field
 - on success the response sets an HTTP-only `rivet_ui_token` cookie

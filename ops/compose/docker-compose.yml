@@ -1,0 +1,180 @@
+services:
+  proxy:
+    image: nginx:alpine
+    ports:
+      - "${RIVET_PORT:-8080}:80"
+    env_file:
+      - ../../.env
+    environment:
+      - RIVET_PUBLISHED_WORKFLOWS_BASE_PATH=${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH:-/workflows}
+      - RIVET_LATEST_WORKFLOWS_BASE_PATH=${RIVET_LATEST_WORKFLOWS_BASE_PATH:-/workflows-latest}
+      - RIVET_KEY=${RIVET_KEY:-}
+      - RIVET_REQUIRE_UI_GATE_KEY=${RIVET_REQUIRE_UI_GATE_KEY:-false}
+      - RIVET_UI_TOKEN_FREE_HOSTS=${RIVET_UI_TOKEN_FREE_HOSTS:-}
+    volumes:
+      - ../nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ../../image/proxy/normalize-workflow-paths.sh:/normalize-workflow-paths.sh:ro
+      - ../../image/proxy/ui-gate-prompt.html:/usr/share/nginx/html/ui-gate-prompt.html:ro
+    entrypoint: ["/bin/sh", "/normalize-workflow-paths.sh"]
+    depends_on:
+      web:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+      executor:
+        condition: service_started
+    restart: unless-stopped
+
+  web:
+    image: ${RIVET_WEB_IMAGE:-ghcr.io/valerypopoff/cloud-hosted-rivet-wrapper/web:${RIVET_IMAGE_TAG:-latest}}
+    build:
+      context: ../..
+      dockerfile: ops/docker/Dockerfile.web
+      args:
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        ALL_PROXY: ${ALL_PROXY:-}
+        NO_PROXY: ${NO_PROXY:-}
+        http_proxy: ${http_proxy:-${HTTP_PROXY:-}}
+        https_proxy: ${https_proxy:-${HTTPS_PROXY:-}}
+        all_proxy: ${all_proxy:-${ALL_PROXY:-}}
+        no_proxy: ${no_proxy:-${NO_PROXY:-}}
+        VITE_RIVET_DEBUG_LOGS: ${VITE_RIVET_DEBUG_LOGS:-false}
+        RIVET_PUBLISHED_WORKFLOWS_BASE_PATH: ${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH:-/workflows}
+        RIVET_LATEST_WORKFLOWS_BASE_PATH: ${RIVET_LATEST_WORKFLOWS_BASE_PATH:-/workflows-latest}
+        RIVET_WEB_BUILD_MAX_OLD_SPACE_SIZE: ${RIVET_WEB_BUILD_MAX_OLD_SPACE_SIZE:-4096}
+    env_file:
+      - ../../.env
+    environment:
+      - HTTP_PROXY=${HTTP_PROXY:-}
+      - HTTPS_PROXY=${HTTPS_PROXY:-}
+      - ALL_PROXY=${ALL_PROXY:-}
+      - NO_PROXY=${NO_PROXY:-}
+      - http_proxy=${http_proxy:-${HTTP_PROXY:-}}
+      - https_proxy=${https_proxy:-${HTTPS_PROXY:-}}
+      - all_proxy=${all_proxy:-${ALL_PROXY:-}}
+      - no_proxy=${no_proxy:-${NO_PROXY:-}}
+      - npm_config_cache=/root/.npm
+      - YARN_CACHE_FOLDER=/root/.cache/yarn
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:3000/',r=>{process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  api:
+    image: ${RIVET_API_IMAGE:-ghcr.io/valerypopoff/cloud-hosted-rivet-wrapper/api:${RIVET_IMAGE_TAG:-latest}}
+    build:
+      context: ../..
+      dockerfile: ops/docker/Dockerfile.api
+      args:
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        ALL_PROXY: ${ALL_PROXY:-}
+        NO_PROXY: ${NO_PROXY:-}
+        http_proxy: ${http_proxy:-${HTTP_PROXY:-}}
+        https_proxy: ${https_proxy:-${HTTPS_PROXY:-}}
+        all_proxy: ${all_proxy:-${ALL_PROXY:-}}
+        no_proxy: ${no_proxy:-${NO_PROXY:-}}
+    env_file:
+      - ../../.env
+    environment:
+      - HTTP_PROXY=${HTTP_PROXY:-}
+      - HTTPS_PROXY=${HTTPS_PROXY:-}
+      - ALL_PROXY=${ALL_PROXY:-}
+      - NO_PROXY=${NO_PROXY:-}
+      - http_proxy=${http_proxy:-${HTTP_PROXY:-}}
+      - https_proxy=${https_proxy:-${HTTPS_PROXY:-}}
+      - all_proxy=${all_proxy:-${ALL_PROXY:-}}
+      - no_proxy=${no_proxy:-${NO_PROXY:-}}
+      - npm_config_cache=/root/.npm
+      - PORT=80
+      - RIVET_WORKSPACE_ROOT=/workspace
+      - RIVET_WORKFLOWS_ROOT=/workflows
+      - RIVET_APP_DATA_ROOT=/data/rivet-app
+      - RIVET_RUNTIME_LIBRARIES_ROOT=/data/runtime-libraries
+      - RIVET_RUNTIME_PROCESS_ROLE=api
+      - RIVET_PUBLISHED_WORKFLOWS_BASE_PATH=${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH:-/workflows}
+      - RIVET_LATEST_WORKFLOWS_BASE_PATH=${RIVET_LATEST_WORKFLOWS_BASE_PATH:-/workflows-latest}
+      - RIVET_STORAGE_MODE
+      - RIVET_DATABASE_MODE
+      - RIVET_DATABASE_CONNECTION_STRING
+      - RIVET_DATABASE_SSL_MODE
+      - RIVET_STORAGE_URL
+      - RIVET_STORAGE_BUCKET
+      - RIVET_STORAGE_REGION
+      - RIVET_STORAGE_ENDPOINT
+      - RIVET_STORAGE_ACCESS_KEY_ID
+      - RIVET_STORAGE_ACCESS_KEY
+      - RIVET_STORAGE_PREFIX
+      - RIVET_STORAGE_FORCE_PATH_STYLE
+      - RIVET_RUNTIME_LIBRARIES_SYNC_POLL_INTERVAL_MS
+      - RIVET_ENABLE_LATEST_REMOTE_DEBUGGER=${RIVET_ENABLE_LATEST_REMOTE_DEBUGGER:-false}
+      - RIVET_KEY=${RIVET_KEY:-}
+      - RIVET_REQUIRE_WORKFLOW_KEY=${RIVET_REQUIRE_WORKFLOW_KEY:-false}
+      - RIVET_ENV_ALLOWLIST=${RIVET_ENV_ALLOWLIST:-}
+      - RIVET_SHELL_ALLOWLIST=${RIVET_SHELL_ALLOWLIST:-}
+      - RIVET_EXTRA_ROOTS=${RIVET_EXTRA_ROOTS:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_ORG_ID=${OPENAI_ORG_ID:-}
+      - OPENAI_ENDPOINT=${OPENAI_ENDPOINT:-}
+    volumes:
+      - rivet_workspace:/workspace
+      - ${RIVET_WORKFLOWS_HOST_PATH:-../../workflows}:/workflows
+      - rivet_data:/data/rivet-app
+      - ${RIVET_RUNTIME_LIBS_HOST_PATH:-rivet_runtime_libs}:/data/runtime-libraries
+    healthcheck:
+      test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:80/healthz',r=>{process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  executor:
+    image: ${RIVET_EXECUTOR_IMAGE:-ghcr.io/valerypopoff/cloud-hosted-rivet-wrapper/executor:${RIVET_IMAGE_TAG:-latest}}
+    build:
+      context: ../..
+      dockerfile: ops/docker/Dockerfile.executor
+    env_file:
+      - ../../.env
+    environment:
+      - HTTP_PROXY=${HTTP_PROXY:-}
+      - HTTPS_PROXY=${HTTPS_PROXY:-}
+      - ALL_PROXY=${ALL_PROXY:-}
+      - NO_PROXY=${NO_PROXY:-}
+      - http_proxy=${http_proxy:-${HTTP_PROXY:-}}
+      - https_proxy=${https_proxy:-${HTTPS_PROXY:-}}
+      - all_proxy=${all_proxy:-${ALL_PROXY:-}}
+      - no_proxy=${no_proxy:-${NO_PROXY:-}}
+      - npm_config_cache=/root/.npm
+      - YARN_CACHE_FOLDER=/root/.cache/yarn
+      - HOME=/root
+      - RIVET_RUNTIME_LIBRARIES_ROOT=/data/runtime-libraries
+      - RIVET_RUNTIME_PROCESS_ROLE=executor
+      - RIVET_STORAGE_MODE
+      - RIVET_DATABASE_MODE
+      - RIVET_DATABASE_CONNECTION_STRING
+      - RIVET_DATABASE_SSL_MODE
+      - RIVET_STORAGE_URL
+      - RIVET_STORAGE_BUCKET
+      - RIVET_STORAGE_REGION
+      - RIVET_STORAGE_ENDPOINT
+      - RIVET_STORAGE_ACCESS_KEY_ID
+      - RIVET_STORAGE_ACCESS_KEY
+      - RIVET_STORAGE_FORCE_PATH_STYLE
+      - RIVET_RUNTIME_LIBRARIES_SYNC_POLL_INTERVAL_MS
+    volumes:
+      - rivet_data:/root/.local/share/com.ironcladapp.rivet
+      - ${RIVET_RUNTIME_LIBS_HOST_PATH:-rivet_runtime_libs}:/data/runtime-libraries
+    restart: unless-stopped
+
+volumes:
+  rivet_workspace:
+    driver: local
+  rivet_data:
+    driver: local
+  rivet_runtime_libs:
+    driver: local

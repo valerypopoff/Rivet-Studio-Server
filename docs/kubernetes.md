@@ -70,14 +70,26 @@ Use the local Kubernetes launcher when you want the closest practical browser-le
 npm run dev:kubernetes-test
 ```
 
+If Helm is not already on PATH, install the pinned cached copy first:
+
+```bash
+npm run setup:k8s-tools
+```
+
 Current behavior:
 
 - builds local `proxy`, `web`, `api`, and `executor` images
 - deploys the real Helm chart into a dedicated namespace
+- uses the explicit `RIVET_K8S_CONTEXT` when set
+- otherwise uses the current `kubectl` context when one exists
+- otherwise falls back to the `minikube` context automatically when the Minikube CLI is installed
 - keeps `backend=1`
 - keeps `web=1`
 - scales `proxy` and `execution`
 - port-forwards the proxy service for local browser access
+- on Docker Desktop, imports freshly built images into the cluster node containers
+- on Minikube, loads freshly built images with `minikube image load --daemon=true`
+- on Minikube-backed `dev`, `up`, and `recreate`, starts the target Minikube profile automatically when needed
 
 The launcher expects:
 
@@ -88,12 +100,29 @@ The launcher expects:
 
 The local overlay at [charts/overlays/local-kubernetes.yaml](/d:/Programming/Self-hosted-rivet/charts/overlays/local-kubernetes.yaml) is not a standalone values file. It is meant to be merged with the generated values file from `scripts/dev-kubernetes.mjs`.
 
+Managed runtime-library startup now serializes its shared Postgres schema initialization behind a PostgreSQL advisory lock. That avoids first-boot deadlocks when the control-plane API and execution/editor processes start against the same managed database at the same time.
+
 Useful commands:
 
 - `npm run dev:kubernetes-test:config`
 - `npm run dev:kubernetes-test:ps`
 - `npm run dev:kubernetes-test:logs`
 - `npm run dev:kubernetes-test:down`
+
+Useful Minikube-specific overrides:
+
+- `RIVET_K8S_CONTEXT=minikube`
+- `RIVET_K8S_CLUSTER_PROVIDER=minikube`
+- `RIVET_K8S_MINIKUBE_PROFILE=minikube`
+- `RIVET_K8S_MINIKUBE_BIN=/path/to/minikube`
+
+Helm resolution order for the local launcher and `npm run verify:kubernetes` is:
+
+1. `RIVET_K8S_HELM_BIN`
+2. system `helm`
+3. cached Helm under `.data/tools/helm/`
+
+If none of those exist, the launcher/verification flow fails with an explicit instruction to run `npm run setup:k8s-tools`.
 
 ## Production handoff
 

@@ -16,7 +16,7 @@ import { createManagedRuntimeLibrariesJobWorker } from './job-worker.js';
 import { createManagedRuntimeLibrariesProcessRegistry } from './process-registry.js';
 import { clearManagedRuntimeLibraryStaleReplicaStatuses } from './replica-status.js';
 import {
-  MANAGED_RUNTIME_LIBRARIES_SCHEMA_SQL,
+  ensureManagedRuntimeLibrariesSchema,
   normalizeJobPackages,
 } from './schema.js';
 import { getManagedJob, getManagedRuntimeLibrariesState } from './state.js';
@@ -65,7 +65,7 @@ export class ManagedRuntimeLibrariesBackend implements RuntimeLibrariesBackend {
     this.#initializePromise = (async () => {
       this.#context.ensureLocalFilesystemReady();
       await this.#context.blobStore.initialize?.();
-      await this.#context.pool.query(MANAGED_RUNTIME_LIBRARIES_SCHEMA_SQL);
+      await ensureManagedRuntimeLibrariesSchema(this.#context.pool);
       await this.#context.syncForLocalUse(true);
       if (this.#context.config.jobWorkerEnabled) {
         this.#jobWorker.startWorkerLoop();

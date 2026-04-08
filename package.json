@@ -5,6 +5,7 @@
   "description": "Root launcher for the Rivet Studio Server Docker stacks",
   "scripts": {
     "setup": "node scripts/ensure-dev-deps.mjs",
+    "setup:k8s-tools": "node scripts/ensure-k8s-tools.mjs",
     "setup:rivet": "node scripts/bootstrap-rivet.mjs",
     "runtime-libraries:managed:audit": "node scripts/run-with-env.mjs \"npm --prefix wrapper/api run runtime-libraries:managed:audit\"",
     "runtime-libraries:managed:prune": "node scripts/run-with-env.mjs \"npm --prefix wrapper/api run runtime-libraries:managed:prune --\"",
@@ -15,6 +16,7 @@
     "verify:filesystem:docker": "node scripts/verify-compatibility.mjs filesystem:docker",
     "verify:local-docker": "node scripts/verify-compatibility.mjs local-docker",
     "verify:local-docker:split": "node scripts/verify-compatibility.mjs local-docker:split",
+    "verify:repo-structure": "node scripts/verify-repo-structure.mjs",
     "verify:web-pure": "npx tsx --test wrapper/web/tests/api-request.test.ts wrapper/web/tests/remote-execution-session.test.ts wrapper/web/tests/remote-executor-protocol.test.ts",
     "verify:kubernetes": "npx tsx --test wrapper/api/src/tests/kubernetes-launcher-config.test.ts wrapper/api/src/tests/phase4-static-contract.test.ts && node scripts/verify-kubernetes.mjs",
     "ui:observe": "node scripts/playwright-observe.mjs test",
@@ -62,6 +64,5 @@
     "dev:local:api": "node scripts/run-with-env.mjs \"npm --prefix wrapper/api run dev\"",
     "dev:local:web": "node scripts/run-with-env.mjs \"npm --prefix wrapper/web run dev\"",
     "dev:local:executor": "node scripts/run-with-env.mjs \"corepack yarn --cwd rivet workspace @ironclad/rivet-app-executor run dev\""
-  },
-  "packageManager": "yarn@3.5.0+sha512.2dc70be5fce9f66756d25b00a888f3ca66f86b502b76750e72ba54cec89da767b938c54124595e26f868825688e0fe3552c26c76a330673343057acadd5cfcf2"
+  }
 }

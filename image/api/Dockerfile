@@ -24,7 +24,7 @@ RUN npm install -g pnpm
 
 WORKDIR /app
 
-COPY ops/proxy-bootstrap/ /opt/proxy-bootstrap/
+COPY wrapper/bootstrap/proxy-bootstrap/ /opt/proxy-bootstrap/
 RUN --mount=type=cache,target=/root/.npm npm --prefix /opt/proxy-bootstrap ci
 
 COPY wrapper/api/ wrapper/api/

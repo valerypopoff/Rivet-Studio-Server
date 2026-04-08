@@ -41,6 +41,9 @@ test('kubernetes launcher config uses managed canonical envs and local rehearsal
   assert.equal(config.namespace, 'rivet-dev');
   assert.equal(config.release, 'rivet-dev');
   assert.equal(config.localPort, 8090);
+  assert.equal(config.context, 'docker-desktop');
+  assert.equal(config.localClusterProvider, 'docker-desktop');
+  assert.equal(config.minikubeProfile, undefined);
   assert.equal(config.clusterDomain, 'cluster.local');
   assert.equal(config.databaseSslMode, 'verify-full');
   assert.equal(config.loadLocalImages, true);
@@ -157,6 +160,28 @@ test('kubernetes launcher config can disable local image loading explicitly', as
   });
 
   assert.equal(config.context, 'custom-cluster');
+  assert.equal(config.localClusterProvider, 'generic');
+  assert.equal(config.minikubeProfile, undefined);
   assert.equal(config.clusterDomain, 'corp.internal');
   assert.equal(config.loadLocalImages, false);
+});
+
+test('kubernetes launcher config treats minikube as a first-class local cluster provider', async () => {
+  const { buildKubernetesLauncherConfig } = await loadKubernetesLauncherModule();
+  const config = buildKubernetesLauncherConfig({
+    RIVET_STORAGE_MODE: 'managed',
+    RIVET_DATABASE_MODE: 'managed',
+    RIVET_DATABASE_CONNECTION_STRING: 'postgresql://db-user:db-pass@example-db:5432/rivet?sslmode=require',
+    RIVET_STORAGE_BUCKET: 'rivet-prod',
+    RIVET_STORAGE_REGION: 'us-east-1',
+    RIVET_STORAGE_ACCESS_KEY_ID: 'spaces-key',
+    RIVET_STORAGE_ACCESS_KEY: 'spaces-secret',
+    RIVET_KEY: 'shared-key',
+    RIVET_K8S_CONTEXT: 'minikube',
+  });
+
+  assert.equal(config.context, 'minikube');
+  assert.equal(config.localClusterProvider, 'minikube');
+  assert.equal(config.minikubeProfile, 'minikube');
+  assert.equal(config.loadLocalImages, true);
 });

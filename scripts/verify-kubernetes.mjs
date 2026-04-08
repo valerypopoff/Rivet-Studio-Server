@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
+import { resolveHelmBinOrThrow } from './lib/k8s-tools.mjs';
 
 const rootDir = process.cwd();
 const launcherName = 'verify-kubernetes';
@@ -12,20 +13,6 @@ function quoteArg(arg) {
   }
 
   return `"${String(arg).replace(/"/g, '\\"')}"`;
-}
-
-function resolveHelmBin() {
-  const explicit = String(process.env.RIVET_K8S_HELM_BIN ?? '').trim();
-  if (explicit) {
-    return explicit;
-  }
-
-  const bundledHelm = path.join(rootDir, '.tools', 'helm.exe');
-  if (process.platform === 'win32' && fs.existsSync(bundledHelm)) {
-    return bundledHelm;
-  }
-
-  return process.platform === 'win32' ? 'helm.exe' : 'helm';
 }
 
 function spawnProgram(program, args, options = {}) {
@@ -104,7 +91,7 @@ async function verifyProdRender(helmBin) {
 }
 
 async function main() {
-  const helmBin = resolveHelmBin();
+  const helmBin = resolveHelmBinOrThrow(rootDir, { env: process.env, launcherName });
   const nodeBin = process.execPath;
   const { tempDir, envPath } = writeLocalVerificationEnv();
 
