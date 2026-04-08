@@ -1,7 +1,6 @@
+- Когда открываешь Run recordings, там  есть прелоадер пока пусто. А в Runtime libraries нету
+
 - Do we need /health enpoint for k8s?
-
-- Project settings block shows "0 graphs, 0 nodes total" but the project has more
-
 
 - Убедиться, что RIVET_RECORDINGS_MAX_PENDING_WRITES работает правильно — на каждую реплику
 
@@ -9,7 +8,6 @@
 
 - Убедиться, что filesystem mode не сломался
 
-- Когда открываешь Run recordings, там  есть прелоадер пока пусто. А в Runtime libraries нету
 
 - Проверить что запущенные воркфлоу реплеи сохраняются (тоже должно быть в s3)
 

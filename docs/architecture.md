@@ -61,6 +61,7 @@ The important operational detail is that these tiers scale independently. A new 
 
 - The top-level page is the wrapper dashboard. It renders the workflow library, project settings, runtime libraries, run recordings, and an `<iframe src="/?editor">`.
 - The workflow library tree now includes custom context menus on both project and folder entries.
+- The active project summary is driven from the selected `WorkflowProjectItem` returned by `GET /api/workflows/tree`, including both publication metadata and per-project graph/node stats.
 - Project rows currently expose `Rename project`, `Download`, `Duplicate`, and a guarded `Delete project` action.
 - Folder rows currently expose `Rename folder`, `Create project`, `Upload project`, and `Delete folder`.
 - `Delete folder` is enabled only for empty folders in the dashboard, and the API enforces the same empty-folder rule if called directly.

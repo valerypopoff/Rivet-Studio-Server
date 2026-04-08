@@ -97,6 +97,12 @@ The wrapper API currently exposes these groups behind `/api`:
 - `/api/config`, `/api/path/app-local-data-dir`, `/api/path/app-log-dir`, `/api/config/env/:name`
   - hosted env/config helpers
 
+Current tree-response note:
+
+- `GET /api/workflows/tree` is the dashboard's main workflow-library metadata source
+- each `WorkflowProjectItem` in that response carries the API-derived publication status used by the sidebar and Project Settings flows
+- that same project item also carries per-project `stats` (`graphCount`, `totalNodeCount`), which drive the active project summary shown in the dashboard
+
 `GET /healthz` lives on the API service itself and is used by the Docker healthchecks.
 
 Current move-route behavior:

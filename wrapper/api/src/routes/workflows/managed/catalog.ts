@@ -17,6 +17,7 @@ import type {
 import { WORKFLOW_PROJECT_EXTENSION } from '../../../../../shared/workflow-types.js';
 import { badRequest, conflict, createHttpError } from '../../../utils/httpError.js';
 import { createBlankProjectFile, sanitizeWorkflowName } from '../fs-helpers.js';
+import { getWorkflowProjectStatsFromContents } from '../project-stats.js';
 import { getWorkflowDownloadFileName, getWorkflowDuplicateProjectName } from '../workflow-project-naming.js';
 import {
   getManagedWorkflowFolderVirtualPath,
@@ -61,6 +62,7 @@ export function createManagedWorkflowCatalogService(options: ManagedWorkflowCata
     getWorkflowByRelativePath: options.context.queries.getWorkflowByRelativePath,
     getCurrentDraftWorkflowRevision: options.context.queries.getCurrentDraftWorkflowRevision,
     getRevision: options.context.queries.getRevision,
+    readRevisionProjectContents: options.context.revisions.readRevisionProjectContents,
     readRevisionContents: options.context.revisions.readRevisionContents,
     assertFolderExists: options.context.queries.assertFolderExists,
     saveHostedProject: options.saveHostedProject,
@@ -73,7 +75,12 @@ export function createManagedWorkflowCatalogService(options: ManagedWorkflowCata
     deleteBlobKeysBestEffort: options.context.revisions.deleteBlobKeysBestEffort,
     isUniqueViolation: options.context.db.isUniqueViolation,
     recordingColumns: options.context.mappers.RECORDING_COLUMNS,
+    getWorkflowProjectStatsFromContents,
   };
+  const emptyProjectStats = {
+    graphCount: 0,
+    totalNodeCount: 0,
+  } as const;
 
   const moveFolderRelativePath = async (
     sourceRelativePath: string,
@@ -216,8 +223,42 @@ export function createManagedWorkflowCatalogService(options: ManagedWorkflowCata
         }
       }
 
-      for (const row of workflowRows) {
+      const workflowProjects = await Promise.all(workflowRows.map(async (row) => {
         const project = deps.mapWorkflowRowToProjectItem(row);
+        const revision = await deps.getRevision(deps.pool, row.current_draft_revision_id);
+        if (!revision) {
+          return {
+            row,
+            project: {
+              ...project,
+              stats: emptyProjectStats,
+            },
+          };
+        }
+
+        let contents: string;
+        try {
+          contents = await deps.readRevisionProjectContents(revision);
+        } catch {
+          return {
+            row,
+            project: {
+              ...project,
+              stats: emptyProjectStats,
+            },
+          };
+        }
+
+        return {
+          row,
+          project: {
+            ...project,
+            stats: deps.getWorkflowProjectStatsFromContents(contents),
+          },
+        };
+      }));
+
+      for (const { row, project } of workflowProjects) {
         const parent = row.folder_relative_path ? folderMap.get(row.folder_relative_path) : null;
         if (parent) {
           parent.projects.push(project);

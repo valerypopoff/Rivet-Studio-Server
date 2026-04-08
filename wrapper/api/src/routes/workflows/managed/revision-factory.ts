@@ -69,13 +69,19 @@ export function createManagedWorkflowRevisionFactory(options: {
     ]));
   };
 
+  const readRevisionProjectContents = async (revision: Pick<RevisionRow, 'project_blob_key'>): Promise<string> => {
+    return options.blobStore.getText(revision.project_blob_key);
+  };
+
   return {
     deleteBlobKeysBestEffort,
     scheduleRevisionBlobCleanup,
 
+    readRevisionProjectContents,
+
     async readRevisionContents(revision: RevisionRow): Promise<ManagedRevisionContents> {
       const [contents, datasetsContents] = await Promise.all([
-        options.blobStore.getText(revision.project_blob_key),
+        readRevisionProjectContents(revision),
         revision.dataset_blob_key ? options.blobStore.getText(revision.dataset_blob_key) : Promise.resolve(null),
       ]);
 

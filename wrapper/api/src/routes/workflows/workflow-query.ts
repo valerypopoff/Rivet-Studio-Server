@@ -1,6 +1,5 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { loadProjectFromString } from '@ironclad/rivet-node';
 
 import { validatePath } from '../../security.js';
 import { badRequest, conflict } from '../../utils/httpError.js';
@@ -13,36 +12,12 @@ import {
   requireProjectPath,
   resolveWorkflowRelativePath,
 } from './fs-helpers.js';
+import { getWorkflowProjectStatsFromFile } from './project-stats.js';
 import { getWorkflowProjectSettings } from './publication.js';
 import type { WorkflowFolderItem, WorkflowProjectItem, WorkflowProjectPathMove, WorkflowProjectStats } from './types.js';
 
 async function getWorkflowProjectStats(filePath: string): Promise<WorkflowProjectStats> {
-  try {
-    const fileContents = await fs.readFile(filePath, 'utf8');
-    const project = loadProjectFromString(fileContents);
-    const graphs = Object.values(project.graphs ?? {});
-
-    return {
-      graphCount: graphs.length,
-      totalNodeCount: graphs.reduce((count, graph) => {
-        const nodes = graph.nodes as unknown;
-        if (Array.isArray(nodes)) {
-          return count + nodes.length;
-        }
-
-        if (nodes != null && typeof nodes === 'object') {
-          return count + Object.keys(nodes).length;
-        }
-
-        return count;
-      }, 0),
-    };
-  } catch {
-    return {
-      graphCount: 0,
-      totalNodeCount: 0,
-    };
-  }
+  return getWorkflowProjectStatsFromFile(filePath);
 }
 
 export async function listWorkflowFolders(root: string): Promise<WorkflowFolderItem[]> {

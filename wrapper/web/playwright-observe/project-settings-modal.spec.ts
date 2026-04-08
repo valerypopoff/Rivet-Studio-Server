@@ -9,6 +9,10 @@ type MockWorkflowProjectItem = {
   relativePath: string;
   absolutePath: string;
   updatedAt: string;
+  stats?: {
+    graphCount: number;
+    totalNodeCount: number;
+  };
   settings: {
     status: 'unpublished' | 'published' | 'unpublished_changes';
     endpointName: string;
@@ -24,6 +28,10 @@ function createProjectSettingsFixture(name: string): MockWorkflowProjectItem {
     relativePath: `${name}.rivet-project`,
     absolutePath: `/managed/workflows/${name}.rivet-project`,
     updatedAt: '2026-04-08T10:00:00.000Z',
+    stats: {
+      graphCount: 2,
+      totalNodeCount: 7,
+    },
     settings: {
       status: 'unpublished',
       endpointName: '',
@@ -90,6 +98,7 @@ test.describe('Project settings modal', () => {
     const projectRow = page.locator('.project-row', { hasText: unique });
     await expect(projectRow).toBeVisible({ timeout: 30_000 });
     await projectRow.click();
+    await expect(page.locator('.active-project-stats')).toHaveText('2 graphs, 7 nodes total');
 
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
     const modal = page.getByTestId('workflow-project-settings-modal');
