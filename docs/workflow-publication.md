@@ -336,6 +336,24 @@ The later cleanup pass did not change those cache semantics. It was structural o
 - no public execution route contract changed
 - negative caching and publish-time prewarm are still intentionally absent in the first version
 
+## Internal wiring
+
+The public routes stayed the same, but the internal ownership boundaries are now explicit:
+
+- `storage-backend.ts` is still the intentional filesystem-versus-managed dispatch seam for hosted workflow operations
+- filesystem recording compatibility stays under `wrapper/api/src/routes/workflows/`
+  - `recordings.ts` is the public orchestrator
+  - `recordings-artifacts.ts` owns bundle-path and artifact read/write helpers
+  - `recordings-metadata.ts` owns stored metadata normalization and legacy metadata reads
+  - `recordings-maintenance.ts` owns index rebuild, retention cleanup, and run deletion helpers
+  - `recordings-store.ts` owns storage readiness, queue backpressure, cleanup scheduling, and test reset state
+- managed workflow storage stays under `wrapper/api/src/routes/workflows/managed/`
+  - `backend.ts` is the facade/composition root
+  - `context.ts`, `db.ts`, `transactions.ts`, `mappers.ts`, `revision-factory.ts`, and `endpoint-sync.ts` own the shared infrastructure seams
+  - `catalog.ts`, `revisions.ts`, `publication.ts`, and `recordings.ts` stay domain-local
+  - `execution-cache.ts`, `execution-invalidation.ts`, `execution-service.ts`, and `execution-types.ts` stay local to managed execution rather than becoming a generic platform layer
+- managed virtual hosted-file semantics stay explicit through `managed-virtual-io.ts` instead of being folded into the filesystem branch
+
 ## Workflow execution auth
 
 Public execution auth is separate from the browser UI gate:
@@ -453,6 +471,8 @@ Current browser behavior:
 - supports `All` and `Bad only`, where `Bad only` includes both `failed` and `suspicious`
 - lets the user delete individual stored runs
 - opens a run by `recordingId`, not by raw filesystem path
+- `useRunRecordingsController.ts` owns workflow loading, run paging/filtering, and delete flow
+- `RecordingWorkflowSelect.tsx` and `RecordingRunsTable.tsx` render the focused UI slices instead of leaving all of that state and rendering in `RunRecordingsModal.tsx`
 
 Deleting a run removes both:
 
@@ -510,26 +530,51 @@ When a project or folder is renamed, moved, duplicated, uploaded, downloaded, or
   - in `filesystem` mode, that means `.recordings/` bundles plus SQLite index rows
   - in `managed` mode, that means recording/replay blobs plus Postgres `workflow_recordings` rows
 
+## Dashboard wiring
+
+The workflow-publication UI now follows the same controller-versus-view split as the backend:
+
+- `WorkflowLibraryPanel.tsx` renders the shell, while `useWorkflowLibraryController.ts` owns refresh, selection, drag/drop, duplicate/download/upload, and modal orchestration
+- `ProjectSettingsModal.tsx` is mostly presentational
+- `useProjectSettingsActions.ts` owns rename, publish, unpublish, and guarded delete flows
+- `projectSettingsForm.ts` owns project-name normalization, endpoint validation, last-published labels, and status labels
+- `workflowApi.ts` keeps endpoint-specific calls flat while `apiRequest.ts` owns shared JSON/text parsing and error extraction
+
 ## Key files
 
-- `wrapper/api/src/routes/workflows/publication.ts` - publication logic, status derivation, endpoint lookup
-- `wrapper/api/src/routes/workflows/execution.ts` - public/latest/internal execution handlers
-- `wrapper/api/src/routes/workflows/storage-backend.ts` - backend-specific execution resolution and hosted-project dispatch
-- `wrapper/api/src/routes/workflows/managed/backend.ts` - managed workflow facade that wires the storage and execution submodules together
-- `wrapper/api/src/routes/workflows/managed/catalog.ts` - managed folder/project CRUD, hosted-path reads, and download/duplicate/upload flows
+- `wrapper/api/src/routes/workflows/publication.ts` - publication logic, status derivation, endpoint lookup, and route-level endpoint normalization
+- `wrapper/api/src/routes/workflows/execution.ts` - public/latest/internal execution handlers and recording enqueue path
+- `wrapper/api/src/routes/workflows/storage-backend.ts` - explicit filesystem-versus-managed dispatch for hosted workflow operations
+- `wrapper/api/src/routes/workflows/managed/backend.ts` - managed workflow facade/composition root
+- `wrapper/api/src/routes/workflows/managed/context.ts` - managed initialization/disposal ordering and shared dependency container
+- `wrapper/api/src/routes/workflows/managed/db.ts` - managed DB retry/query helpers
+- `wrapper/api/src/routes/workflows/managed/transactions.ts` - managed transaction runner plus commit/rollback hook sequencing
+- `wrapper/api/src/routes/workflows/managed/mappers.ts` - shared row mappers and SQL column constants
+- `wrapper/api/src/routes/workflows/managed/revision-factory.ts` - revision/blob-key creation and rollback cleanup helpers
+- `wrapper/api/src/routes/workflows/managed/endpoint-sync.ts` - endpoint ownership sync and conflict checks
+- `wrapper/api/src/routes/workflows/managed/catalog.ts` - managed folder/project CRUD plus duplicate/upload/download flows
 - `wrapper/api/src/routes/workflows/managed/revisions.ts` - managed save/import flows and revision persistence
 - `wrapper/api/src/routes/workflows/managed/publication.ts` - managed publish/unpublish mutations
 - `wrapper/api/src/routes/workflows/managed/recordings.ts` - managed recording import, persistence, listing, artifact reads, and deletion
-- `wrapper/api/src/routes/workflows/managed/schema.ts` - managed Postgres schema DDL
 - `wrapper/api/src/routes/workflows/managed/execution-cache.ts` - managed endpoint-pointer and immutable revision-payload caches
-- `wrapper/api/src/routes/workflows/managed/execution-invalidation.ts` - managed execution invalidation listener lifecycle, generation bookkeeping, and transactional invalidation helpers
-- `wrapper/api/src/routes/workflows/managed/execution-service.ts` - managed published/latest execution loading, revision materialization, reference loading, and debug info production
-- `wrapper/api/src/routes/workflows/managed/execution-types.ts` - internal managed execution types shared by the cache, invalidation controller, and execution service
-- `wrapper/api/src/routes/workflows/recordings.ts` - recording persistence, listing, migration, and cleanup
+- `wrapper/api/src/routes/workflows/managed/execution-invalidation.ts` - managed execution invalidation listener lifecycle and degraded-mode handling
+- `wrapper/api/src/routes/workflows/managed/execution-service.ts` - managed published/latest execution loading and debug info production
+- `wrapper/api/src/routes/workflows/recordings.ts` - filesystem recording orchestrator
+- `wrapper/api/src/routes/workflows/recordings-artifacts.ts` - filesystem recording artifact path/read/write helpers
+- `wrapper/api/src/routes/workflows/recordings-metadata.ts` - filesystem recording metadata normalization and legacy metadata reads
+- `wrapper/api/src/routes/workflows/recordings-maintenance.ts` - filesystem retention cleanup, index rebuild, and run deletion helpers
+- `wrapper/api/src/routes/workflows/recordings-store.ts` - filesystem recording queue/readiness/cleanup state owner
 - `wrapper/api/src/routes/workflows/recordings-config.ts` - recording env parsing and defaults
 - `wrapper/api/src/routes/workflows/recordings-db.ts` - SQLite recording index
-- `wrapper/api/src/routes/workflows/workflow-mutations.ts` - duplicate, upload, publish, unpublish, and delete orchestration
+- `wrapper/api/src/routes/workflows/workflow-mutations.ts` - duplicate, upload, publish, unpublish, rename, move, and delete orchestration
 - `wrapper/api/src/routes/workflows/workflow-download.ts` - project-download resolution and attachment filename generation
-- `wrapper/api/src/routes/workflows/fs-helpers.ts` - sidecar paths, move/delete helpers
-- `wrapper/api/src/scripts/measure-workflow-execution.ts` - read-only managed endpoint measurement helper for cold-hit vs warm-hit diagnosis
+- `wrapper/api/src/routes/workflows/workflow-query.ts` - workflow tree and hosted-project query helpers
+- `wrapper/api/src/routes/workflows/managed-virtual-io.ts` - managed virtual-path helpers used by hosted native IO
+- `wrapper/api/src/scripts/measure-workflow-execution.ts` - read-only managed endpoint measurement helper for cold-hit versus warm-hit diagnosis
+- `wrapper/web/dashboard/useWorkflowLibraryController.ts` - workflow-tree controller
+- `wrapper/web/dashboard/useProjectSettingsActions.ts` - project-settings mutations
+- `wrapper/web/dashboard/projectSettingsForm.ts` - project-settings validation and label helpers
+- `wrapper/web/dashboard/useRunRecordingsController.ts` - run-recordings controller
+- `wrapper/web/dashboard/RecordingWorkflowSelect.tsx` - workflow selector for run recordings
+- `wrapper/web/dashboard/RecordingRunsTable.tsx` - paged runs table for run recordings
 - `wrapper/shared/workflow-recording-types.ts` - shared recording types and virtual replay path helpers

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { withScopedEnv } from './helpers/runtime-library-harness.js';
 
 const storageConfig = await import('../routes/workflows/storage-config.js');
 const blobStore = await import('../routes/workflows/managed/blob-store.js');
@@ -54,31 +55,7 @@ async function withManagedEnv(
   overrides: Partial<Record<(typeof managedEnvKeys)[number], string | undefined>>,
   run: () => Promise<void> | void,
 ) {
-  const previous = new Map<string, string | undefined>();
-
-  for (const key of managedEnvKeys) {
-    previous.set(key, process.env[key]);
-    delete process.env[key];
-  }
-
-  for (const [key, value] of Object.entries(overrides)) {
-    if (value != null) {
-      process.env[key] = value;
-    }
-  }
-
-  try {
-    await run();
-  } finally {
-    for (const key of managedEnvKeys) {
-      const value = previous.get(key);
-      if (value == null) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
-      }
-    }
-  }
+  await withScopedEnv(managedEnvKeys, overrides, run);
 }
 
 test('managed storage config accepts simplified alias envs for DigitalOcean-style storage URLs', async () => {

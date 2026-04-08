@@ -1,49 +1,18 @@
 import { useCallback, useEffect, useRef, useState, type FC } from 'react';
-import { toast, ToastContainer } from 'react-toastify';
+import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { WorkflowLibraryPanel } from './WorkflowLibraryPanel';
 import type { WorkflowProjectPathMove } from './types';
-import {
-  isEditorToDashboardEvent,
-  isValidBridgeOrigin,
-} from '../../shared/editor-bridge';
 import { useEditorCommandQueue } from './useEditorCommandQueue';
+import { focusIframeElement } from './editorBridgeFocus';
+import { useDashboardSidebar } from './useDashboardSidebar';
+import { useEditorBridgeEvents } from './useEditorBridgeEvents';
 import './DashboardPage.css';
 
 const WORKFLOW_DASHBOARD_SIDEBAR_WIDTH = '300px';
 const MIN_SIDEBAR_WIDTH = 240;
 const MAX_SIDEBAR_WIDTH = 560;
 const SIDEBAR_COLLAPSE_DURATION_MS = 260;
-
-const isSaveShortcutEvent = (event: KeyboardEvent) =>
-  (event.ctrlKey || event.metaKey) &&
-  !event.altKey &&
-  !event.shiftKey &&
-  (event.code === 'KeyS' || event.key.toLowerCase() === 's');
-
-type SidebarGhostState = {
-  fromX: number;
-  fromY: number;
-  fromWidth: number;
-  fromHeight: number;
-  toX: number;
-  toY: number;
-  toWidth: number;
-  toHeight: number;
-  active: boolean;
-} | null;
-
-const focusIframeElement = (iframe: HTMLIFrameElement | null) => {
-  if (!iframe) {
-    return;
-  }
-
-  try {
-    iframe.focus({ preventScroll: true });
-  } catch {
-    iframe.focus();
-  }
-};
 
 export const DashboardPage: FC = () => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
@@ -53,13 +22,23 @@ export const DashboardPage: FC = () => {
   const [editorReady, setEditorReady] = useState(false);
   const [openProjectCount, setOpenProjectCount] = useState(0);
   const [projectSaveSequence, setProjectSaveSequence] = useState(0);
-  const [sidebarWidth, setSidebarWidth] = useState(() => parseInt(WORKFLOW_DASHBOARD_SIDEBAR_WIDTH, 10) || 300);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [sidebarResizing, setSidebarResizing] = useState(false);
-  const [sidebarAnimating, setSidebarAnimating] = useState(false);
-  const [sidebarGhost, setSidebarGhost] = useState<SidebarGhostState>(null);
-
   const postEditorCommand = useEditorCommandQueue(iframeRef, editorReady);
+  const {
+    handleCollapseSidebar,
+    handleRestoreSidebar,
+    showRestoreButton,
+    showSidebar,
+    sidebarCollapsed,
+    sidebarGhost,
+    sidebarResizing,
+    sidebarWidth,
+  } = useDashboardSidebar({
+    collapseDurationMs: SIDEBAR_COLLAPSE_DURATION_MS,
+    maxWidth: MAX_SIDEBAR_WIDTH,
+    minWidth: MIN_SIDEBAR_WIDTH,
+    openProjectCount,
+    restoreButtonRef,
+  });
 
   const handleOpenProject = useCallback((path: string, options?: { replaceCurrent?: boolean }) => {
     postEditorCommand({ type: 'open-project', path, replaceCurrent: Boolean(options?.replaceCurrent) });
@@ -100,168 +79,34 @@ export const DashboardPage: FC = () => {
     },
     [postEditorCommand],
   );
-
-  useEffect(() => {
-    if (openProjectCount === 0) {
-      setSidebarCollapsed(false);
-      setSidebarAnimating(false);
-      setSidebarGhost(null);
-    }
-  }, [openProjectCount]);
-
-  useEffect(() => {
-    const handler = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || !editorReady) {
-        return;
-      }
-
-      if (isSaveShortcutEvent(event)) {
-        if (document.activeElement === iframeRef.current) {
-          return;
-        }
-
-        event.preventDefault();
-        event.stopPropagation();
-
-        if (!activeWorkflowProjectPath) {
-          return;
-        }
-
-        handleSaveProject();
-      }
-    };
-
-    window.addEventListener('keydown', handler, true);
-    document.addEventListener('keydown', handler, true);
-    return () => {
-      window.removeEventListener('keydown', handler, true);
-      document.removeEventListener('keydown', handler, true);
-    };
-  }, [activeWorkflowProjectPath, editorReady, handleSaveProject]);
-
-  useEffect(() => {
-    if (sidebarCollapsed) {
-      setSidebarResizing(false);
-      return;
-    }
-
-    const handleMouseMove = (event: MouseEvent) => {
-      setSidebarWidth(Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, event.clientX)));
-    };
-
-    const stopResize = () => {
-      setSidebarResizing(false);
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', stopResize);
-    };
-
-    const handleResizeStart = (event: MouseEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (!target?.closest('.dashboard-sidebar-resizer')) {
-        return;
-      }
-
-      event.preventDefault();
-      setSidebarResizing(true);
-      window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', stopResize);
-    };
-
-    window.addEventListener('mousedown', handleResizeStart);
-
-    return () => {
-      window.removeEventListener('mousedown', handleResizeStart);
-      stopResize();
-    };
-  }, [sidebarCollapsed]);
-
-  useEffect(() => {
-    if (!sidebarAnimating) {
-      return;
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      setSidebarAnimating(false);
-      setSidebarGhost(null);
-    }, SIDEBAR_COLLAPSE_DURATION_MS);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [sidebarAnimating]);
-
-  useEffect(() => {
-    const handler = (event: MessageEvent) => {
-      if (
-        !isValidBridgeOrigin(event, iframeRef.current?.contentWindow ?? null) ||
-        !isEditorToDashboardEvent(event.data)
-      ) {
-        return;
-      }
-
-      switch (event.data.type) {
-        case 'editor-ready':
-          setEditorReady(true);
-          break;
-        case 'project-opened':
-          setOpenedProjectPath(event.data.path);
-          setActiveWorkflowProjectPath(event.data.path);
-          focusEditorFrame();
-          break;
-        case 'active-project-path-changed':
-          setOpenedProjectPath(event.data.path);
-          setActiveWorkflowProjectPath(event.data.path);
-          break;
-        case 'open-project-count-changed':
-          setOpenProjectCount(event.data.count);
-          break;
-        case 'project-saved':
-          setProjectSaveSequence((prev) => prev + 1);
-          break;
-        case 'project-open-failed':
-          toast.error(`Failed to open project: ${event.data.error}`);
-          break;
-      }
-    };
-    window.addEventListener('message', handler);
-    return () => window.removeEventListener('message', handler);
-  }, [focusEditorFrame]);
+  useEditorBridgeEvents({
+    activeWorkflowProjectPath,
+    editorReady,
+    focusEditorFrame,
+    handleSaveProject,
+    iframeRef,
+    onActiveWorkflowProjectPathChange: (path) => {
+      setOpenedProjectPath(path);
+      setActiveWorkflowProjectPath(path);
+    },
+    onEditorReady: () => {
+      setEditorReady(true);
+    },
+    onOpenProjectCountChange: (count) => {
+      setOpenProjectCount(count);
+    },
+    onProjectOpenFailed: () => {
+    },
+    onProjectOpened: (path) => {
+      setOpenedProjectPath(path);
+      setActiveWorkflowProjectPath(path);
+    },
+    onProjectSaved: () => {
+      setProjectSaveSequence((prev) => prev + 1);
+    },
+  });
 
   const showEditorLoading = !editorReady;
-  const showSidebar = openProjectCount === 0 || !sidebarCollapsed;
-  const showRestoreButton = openProjectCount > 0;
-
-  const handleCollapseSidebar = useCallback(() => {
-    const restoreButtonRect = restoreButtonRef.current?.getBoundingClientRect();
-
-    if (restoreButtonRect) {
-      setSidebarGhost({
-        fromX: 0,
-        fromY: 0,
-        fromWidth: sidebarWidth,
-        fromHeight: window.innerHeight,
-        toX: restoreButtonRect.left,
-        toY: restoreButtonRect.top,
-        toWidth: restoreButtonRect.width,
-        toHeight: restoreButtonRect.height,
-        active: false,
-      });
-      window.requestAnimationFrame(() => {
-        window.requestAnimationFrame(() => {
-          setSidebarGhost((prev) => prev ? { ...prev, active: true } : prev);
-        });
-      });
-    }
-
-    setSidebarAnimating(true);
-    setSidebarCollapsed(true);
-  }, [sidebarWidth]);
-
-  const handleRestoreSidebar = useCallback(() => {
-    setSidebarCollapsed(false);
-    setSidebarAnimating(false);
-    setSidebarGhost(null);
-  }, []);
 
   return (
     <div className="dashboard-page" style={{ ['--workflow-dashboard-sidebar-width' as string]: `${sidebarWidth}px` }}>

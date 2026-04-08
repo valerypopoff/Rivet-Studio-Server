@@ -15,6 +15,7 @@
     "verify:filesystem:docker": "node scripts/verify-compatibility.mjs filesystem:docker",
     "verify:local-docker": "node scripts/verify-compatibility.mjs local-docker",
     "verify:local-docker:split": "node scripts/verify-compatibility.mjs local-docker:split",
+    "verify:web-pure": "npx tsx --test wrapper/web/tests/api-request.test.ts wrapper/web/tests/remote-execution-session.test.ts wrapper/web/tests/remote-executor-protocol.test.ts",
     "verify:kubernetes": "npx tsx --test wrapper/api/src/tests/kubernetes-launcher-config.test.ts wrapper/api/src/tests/phase4-static-contract.test.ts && node scripts/verify-kubernetes.mjs",
     "ui:observe": "node scripts/playwright-observe.mjs test",
     "ui:observe:debug": "node scripts/playwright-observe.mjs debug",

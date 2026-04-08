@@ -4,25 +4,22 @@ import type { WorkflowProjectItem, WorkflowProjectSettingsDraft } from '../../..
 import { badRequest, createHttpError } from '../../../utils/httpError.js';
 import { normalizeStoredEndpointName } from '../publication.js';
 import { normalizeManagedWorkflowRelativePath } from '../virtual-paths.js';
+import type { ManagedWorkflowContext } from './context.js';
 import type { TransactionHooks, WorkflowRow } from './types.js';
 
 type ManagedWorkflowPublicationServiceDependencies = {
-  withTransaction<T>(run: (client: PoolClient, hooks: TransactionHooks) => Promise<T>): Promise<T>;
-  getWorkflowByRelativePath(
-    client: PoolClient,
-    relativePath: string,
-    options?: { forUpdate?: boolean },
-  ): Promise<WorkflowRow | null>;
-  syncWorkflowEndpointRows(
-    client: PoolClient,
-    workflow: WorkflowRow,
-    endpoints: { draftEndpointName: string; publishedEndpointName: string },
-  ): Promise<void>;
-  mapWorkflowRowToProjectItem(row: WorkflowRow): WorkflowProjectItem;
-  queueWorkflowInvalidation(client: PoolClient, hooks: TransactionHooks, workflowId: string): Promise<void>;
+  context: ManagedWorkflowContext;
 };
 
-export function createManagedWorkflowPublicationService(deps: ManagedWorkflowPublicationServiceDependencies) {
+export function createManagedWorkflowPublicationService(options: ManagedWorkflowPublicationServiceDependencies) {
+  const deps = {
+    withTransaction: options.context.withTransaction,
+    getWorkflowByRelativePath: options.context.queries.getWorkflowByRelativePath,
+    syncWorkflowEndpointRows: options.context.endpointSync.syncWorkflowEndpointRows,
+    mapWorkflowRowToProjectItem: options.context.mappers.mapWorkflowRowToProjectItem,
+    queueWorkflowInvalidation: options.context.executionInvalidationController.queueWorkflowInvalidation.bind(options.context.executionInvalidationController),
+  };
+
   return {
     async publishWorkflowProjectItem(relativePath: unknown, settings: unknown): Promise<WorkflowProjectItem> {
       const normalizedRelativePath = normalizeManagedWorkflowRelativePath(relativePath, { allowProjectFile: true });

@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import http from 'node:http';
-import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import express from 'express';
+import { listenTestServer } from './helpers/http-server-harness.js';
+import { createWorkflowTestRoots, resetWorkflowTestRoots } from './helpers/workflow-fixtures.js';
 
-const workflowsRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'rivet-workflows-'));
-const appDataRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'rivet-app-data-'));
+const { workflowsRoot, appDataRoot } = await createWorkflowTestRoots('rivet-workflows-');
 process.env.RIVET_WORKFLOWS_ROOT = workflowsRoot;
 process.env.RIVET_APP_DATA_ROOT = appDataRoot;
 
@@ -24,10 +24,7 @@ const rivetNode = await import('@ironclad/rivet-node');
 
 async function resetWorkflowsRoot() {
   await workflowRecordings.resetWorkflowRecordingStorageForTests();
-  await fs.rm(workflowsRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
-  await fs.mkdir(workflowsRoot, { recursive: true });
-  await fs.rm(appDataRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
-  await fs.mkdir(appDataRoot, { recursive: true });
+  await resetWorkflowTestRoots({ workflowsRoot, appDataRoot });
 }
 
 test.beforeEach(async () => {
@@ -47,28 +44,12 @@ async function withWorkflowApiServer(run: (baseUrl: string) => Promise<void>) {
   });
 
   const server = http.createServer(app);
-  await new Promise<void>((resolve) => {
-    server.listen(0, '127.0.0.1', () => resolve());
-  });
-
-  const address = server.address();
-  if (!address || typeof address === 'string') {
-    throw new Error('Failed to resolve test server address');
-  }
+  const listener = await listenTestServer(server);
 
   try {
-    await run(`http://127.0.0.1:${address.port}/workflows`);
+    await run(`${listener.baseUrl}/workflows`);
   } finally {
-    await new Promise<void>((resolve, reject) => {
-      server.close((error) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-
-        resolve();
-      });
-    });
+    await listener.close();
   }
 }
 
@@ -88,33 +69,16 @@ async function withWorkflowExecutionServer(
   });
 
   const server = http.createServer(app);
-  await new Promise<void>((resolve) => {
-    server.listen(0, '127.0.0.1', () => resolve());
-  });
-
-  const address = server.address();
-  if (!address || typeof address === 'string') {
-    throw new Error('Failed to resolve test server address');
-  }
+  const listener = await listenTestServer(server);
 
   try {
-    const port = address.port;
     await run({
-      apiBaseUrl: `http://127.0.0.1:${port}/api/workflows`,
-      publishedBaseUrl: `http://127.0.0.1:${port}/workflows`,
-      latestBaseUrl: `http://127.0.0.1:${port}/workflows-latest`,
+      apiBaseUrl: `${listener.baseUrl}/api/workflows`,
+      publishedBaseUrl: `${listener.baseUrl}/workflows`,
+      latestBaseUrl: `${listener.baseUrl}/workflows-latest`,
     });
   } finally {
-    await new Promise<void>((resolve, reject) => {
-      server.close((error) => {
-        if (error) {
-          reject(error);
-          return;
-        }
-
-        resolve();
-      });
-    });
+    await listener.close();
   }
 }
 

@@ -22,24 +22,13 @@ spec:
         {{- end }}
         {{- include "rivet.vaultAnnotations" . | nindent 8 }}
     spec:
-      {{- with .Values.imagePullSecrets }}
-      imagePullSecrets:
-{{ toYaml . | nindent 8 }}
-      {{- end }}
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 10001
-        runAsGroup: 10001
-        fsGroup: 10001
+      {{- include "rivet.pod.imagePullSecrets" . | nindent 6 }}
+      {{- include "rivet.pod.workloadSecurityContext" . | nindent 6 }}
       containers:
         - name: api
           image: {{ include "rivet.image" (dict "root" . "image" .Values.images.api) }}
           imagePullPolicy: {{ .Values.images.api.pullPolicy }}
-          securityContext:
-            runAsNonRoot: true
-            runAsUser: 10001
-            runAsGroup: 10001
-            allowPrivilegeEscalation: false
+          {{- include "rivet.pod.containerSecurityContext" . | nindent 10 }}
           ports:
             - name: api-http
               containerPort: {{ .Values.service.api.targetPort }}
@@ -56,113 +45,15 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 10
           env:
-            - name: RIVET_VAULT_DOTENV_FILE_NAME
-              value: {{ .Values.vault.dotenvFileName | quote }}
-            - name: PORT
-              value: {{ .Values.service.api.targetPort | quote }}
-            - name: RIVET_API_PROFILE
-              value: control
-            - name: RIVET_STORAGE_MODE
-              value: {{ .Values.workflowStorage.backend | quote }}
-            - name: RIVET_DATABASE_MODE
-              value: {{ .Values.postgres.mode | quote }}
-            - name: RIVET_DATABASE_SSL_MODE
-              value: {{ .Values.postgres.sslMode | quote }}
-            - name: RIVET_WORKSPACE_ROOT
-              value: /workspace
-            - name: RIVET_WORKFLOWS_ROOT
-              value: /workflows
-            - name: RIVET_APP_DATA_ROOT
-              value: /data/rivet-app
-            - name: RIVET_RUNTIME_LIBRARIES_ROOT
-              value: /data/runtime-libraries
-            - name: RIVET_RUNTIME_PROCESS_ROLE
-              value: api
-            - name: RIVET_RUNTIME_LIBRARIES_REPLICA_TIER
-              value: none
-            - name: RIVET_RUNTIME_LIBRARIES_JOB_WORKER_ENABLED
-              value: "true"
-            - name: RIVET_STORAGE_BUCKET
-              value: {{ .Values.objectStorage.bucket | quote }}
-            - name: RIVET_STORAGE_REGION
-              value: {{ .Values.objectStorage.region | quote }}
-            - name: RIVET_STORAGE_ENDPOINT
-              value: {{ .Values.objectStorage.endpoint | quote }}
-            - name: RIVET_STORAGE_PREFIX
-              value: {{ .Values.objectStorage.prefix | quote }}
-            - name: RIVET_STORAGE_FORCE_PATH_STYLE
-              value: {{ .Values.objectStorage.forcePathStyle | quote }}
-            {{- if .Values.postgres.connectionStringSecretName }}
-            - name: RIVET_DATABASE_CONNECTION_STRING
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.postgres.connectionStringSecretName }}
-                  key: {{ .Values.postgres.connectionStringSecretKey }}
-            {{- else }}
-            - name: RIVET_DATABASE_HOST
-              value: {{ .Values.postgres.host | quote }}
-            - name: RIVET_DATABASE_PORT
-              value: {{ .Values.postgres.port | quote }}
-            - name: RIVET_DATABASE_NAME
-              value: {{ .Values.postgres.database | quote }}
-            - name: RIVET_DATABASE_USERNAME
-              value: {{ .Values.postgres.username | quote }}
-            {{- if .Values.postgres.passwordSecretName }}
-            - name: RIVET_DATABASE_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.postgres.passwordSecretName }}
-                  key: {{ .Values.postgres.passwordSecretKey }}
-            {{- end }}
-            {{- end }}
-            {{- if .Values.objectStorage.accessKeySecretName }}
-            - name: RIVET_STORAGE_ACCESS_KEY_ID
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.objectStorage.accessKeySecretName }}
-                  key: {{ .Values.objectStorage.accessKeySecretKey }}
-            {{- end }}
-            {{- if .Values.objectStorage.secretKeySecretName }}
-            - name: RIVET_STORAGE_ACCESS_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.objectStorage.secretKeySecretName }}
-                  key: {{ .Values.objectStorage.secretKeySecretKey }}
-            {{- end }}
-            {{- if .Values.auth.keySecretName }}
-            - name: RIVET_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.auth.keySecretName }}
-                  key: {{ .Values.auth.keySecretKey }}
-            {{- end }}
-            {{- range $key, $value := .Values.env }}
-            - name: {{ $key }}
-              value: {{ tpl (printf "%v" $value) $ | quote }}
-            {{- end }}
+{{ include "rivet.env.apiWorkload" (dict "root" . "port" .Values.service.api.targetPort "profile" "control" "storageBackend" .Values.workflowStorage.backend "replicaTier" "none" "jobWorkerEnabled" "true") | nindent 12 }}
           volumeMounts:
-            - name: workspace
-              mountPath: /workspace
-            - name: workflows
-              mountPath: /workflows
-            - name: app-data
-              mountPath: /data/rivet-app
-            - name: runtime-libraries
-              mountPath: /data/runtime-libraries
-            {{- if .Values.tmpVolume.enabled }}
-            - name: {{ .Values.tmpVolume.name }}
-              mountPath: {{ .Values.tmpVolume.path }}
-            {{- end }}
+{{ include "rivet.pod.apiVolumeMounts" . | nindent 12 }}
           resources:
 {{ toYaml .Values.resources.api | nindent 12 }}
         - name: executor
           image: {{ include "rivet.image" (dict "root" . "image" .Values.images.executor) }}
           imagePullPolicy: {{ .Values.images.executor.pullPolicy }}
-          securityContext:
-            runAsNonRoot: true
-            runAsUser: 10001
-            runAsGroup: 10001
-            allowPrivilegeEscalation: false
+          {{- include "rivet.pod.containerSecurityContext" . | nindent 10 }}
           ports:
             - name: executor-http
               containerPort: {{ .Values.service.executor.targetPort }}
@@ -177,91 +68,9 @@ spec:
             initialDelaySeconds: 5
             periodSeconds: 10
           env:
-            - name: RIVET_VAULT_DOTENV_FILE_NAME
-              value: {{ .Values.vault.dotenvFileName | quote }}
-            - name: PORT
-              value: {{ .Values.service.executor.targetPort | quote }}
-            - name: HOME
-              value: /home/rivet
-            - name: RIVET_STORAGE_MODE
-              value: {{ .Values.runtimeLibraries.backend | quote }}
-            - name: RIVET_DATABASE_MODE
-              value: {{ .Values.postgres.mode | quote }}
-            - name: RIVET_DATABASE_SSL_MODE
-              value: {{ .Values.postgres.sslMode | quote }}
-            - name: RIVET_RUNTIME_LIBRARIES_ROOT
-              value: /data/runtime-libraries
-            - name: RIVET_RUNTIME_PROCESS_ROLE
-              value: executor
-            - name: RIVET_RUNTIME_LIBRARIES_REPLICA_TIER
-              value: editor
-            - name: RIVET_STORAGE_BUCKET
-              value: {{ .Values.objectStorage.bucket | quote }}
-            - name: RIVET_STORAGE_REGION
-              value: {{ .Values.objectStorage.region | quote }}
-            - name: RIVET_STORAGE_ENDPOINT
-              value: {{ .Values.objectStorage.endpoint | quote }}
-            - name: RIVET_STORAGE_FORCE_PATH_STYLE
-              value: {{ .Values.objectStorage.forcePathStyle | quote }}
-            {{- if .Values.postgres.connectionStringSecretName }}
-            - name: RIVET_DATABASE_CONNECTION_STRING
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.postgres.connectionStringSecretName }}
-                  key: {{ .Values.postgres.connectionStringSecretKey }}
-            {{- else }}
-            - name: RIVET_DATABASE_HOST
-              value: {{ .Values.postgres.host | quote }}
-            - name: RIVET_DATABASE_PORT
-              value: {{ .Values.postgres.port | quote }}
-            - name: RIVET_DATABASE_NAME
-              value: {{ .Values.postgres.database | quote }}
-            - name: RIVET_DATABASE_USERNAME
-              value: {{ .Values.postgres.username | quote }}
-            {{- if .Values.postgres.passwordSecretName }}
-            - name: RIVET_DATABASE_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.postgres.passwordSecretName }}
-                  key: {{ .Values.postgres.passwordSecretKey }}
-            {{- end }}
-            {{- end }}
-            {{- if .Values.objectStorage.accessKeySecretName }}
-            - name: RIVET_STORAGE_ACCESS_KEY_ID
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.objectStorage.accessKeySecretName }}
-                  key: {{ .Values.objectStorage.accessKeySecretKey }}
-            {{- end }}
-            {{- if .Values.objectStorage.secretKeySecretName }}
-            - name: RIVET_STORAGE_ACCESS_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.objectStorage.secretKeySecretName }}
-                  key: {{ .Values.objectStorage.secretKeySecretKey }}
-            {{- end }}
-            {{- if .Values.auth.keySecretName }}
-            - name: RIVET_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.auth.keySecretName }}
-                  key: {{ .Values.auth.keySecretKey }}
-            {{- end }}
-            {{- range $key, $value := .Values.env }}
-            - name: {{ $key }}
-              value: {{ tpl (printf "%v" $value) $ | quote }}
-            {{- end }}
+{{ include "rivet.env.executorWorkload" (dict "root" . "port" .Values.service.executor.targetPort "storageBackend" .Values.runtimeLibraries.backend) | nindent 12 }}
           volumeMounts:
-            - name: app-data
-              mountPath: /home/rivet/.local/share/com.ironcladapp.rivet
-            - name: runtime-libraries
-              mountPath: /data/runtime-libraries
-            - name: workspace
-              mountPath: /workspace
-            {{- if .Values.tmpVolume.enabled }}
-            - name: {{ .Values.tmpVolume.name }}
-              mountPath: {{ .Values.tmpVolume.path }}
-            {{- end }}
+{{ include "rivet.pod.executorVolumeMounts" . | nindent 12 }}
           resources:
 {{ toYaml .Values.resources.executor | nindent 12 }}
       volumes:
@@ -295,11 +104,7 @@ spec:
         - name: runtime-libraries
           emptyDir: {}
         {{- end }}
-        {{- if .Values.tmpVolume.enabled }}
-        - name: {{ .Values.tmpVolume.name }}
-          emptyDir:
-            sizeLimit: {{ .Values.tmpVolume.sizeLimit }}
-        {{- end }}
+{{ include "rivet.pod.tmpVolume" . | nindent 8 }}
   {{- if or (and .Values.storage.appData.enabled (not .Values.storage.appData.existingClaimName)) (and (eq .Values.runtimeLibraries.backend "managed") .Values.runtimeLibraries.cache.enabled (not .Values.runtimeLibraries.cache.existingClaimName)) }}
   volumeClaimTemplates:
     {{- if and .Values.storage.appData.enabled (not .Values.storage.appData.existingClaimName) }}

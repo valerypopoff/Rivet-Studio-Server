@@ -1,9 +1,24 @@
+import { execFileSync } from 'node:child_process';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import test from 'node:test';
+import { fileURLToPath } from 'node:url';
+
+const repoRoot = fileURLToPath(new URL('../../../../', import.meta.url));
 
 function readRepoFile(relativePath: string): string {
   return fs.readFileSync(new URL(`../../../../${relativePath}`, import.meta.url), 'utf8');
+}
+
+function renderLocalKubernetesChart(): string {
+  return execFileSync(
+    'helm',
+    ['template', 'rivet', 'charts', '-f', 'charts/overlays/local-kubernetes.yaml'],
+    {
+      cwd: repoRoot,
+      encoding: 'utf8',
+    },
+  );
 }
 
 test('proxy template keeps published traffic on execution upstream, latest debugger traffic on the control-plane API, and hides internal published routes from nginx', () => {
@@ -29,19 +44,63 @@ test('chart templates keep control-plane and execution-plane API env contracts d
   const executionDeployment = readRepoFile('charts/templates/execution-deployment.yaml');
   const proxyDeployment = readRepoFile('charts/templates/proxy-deployment.yaml');
   const helpers = readRepoFile('charts/templates/_helpers.tpl');
+  const envPartials = readRepoFile('charts/templates/_env.tpl');
 
-  assert.match(backendStatefulSet, /name: RIVET_API_PROFILE\s+value: control/);
-  assert.match(backendStatefulSet, /name: RIVET_RUNTIME_LIBRARIES_REPLICA_TIER\s+value: none/);
-  assert.match(backendStatefulSet, /name: RIVET_RUNTIME_LIBRARIES_JOB_WORKER_ENABLED\s+value: "true"/);
-
-  assert.match(executionDeployment, /name: RIVET_API_PROFILE\s+value: execution/);
-  assert.match(executionDeployment, /name: RIVET_RUNTIME_LIBRARIES_REPLICA_TIER\s+value: endpoint/);
-  assert.match(executionDeployment, /name: RIVET_RUNTIME_LIBRARIES_JOB_WORKER_ENABLED\s+value: "false"/);
+  assert.match(backendStatefulSet, /include "rivet\.env\.apiWorkload".*"profile" "control".*"replicaTier" "none".*"jobWorkerEnabled" "true"/);
+  assert.match(executionDeployment, /include "rivet\.env\.apiWorkload".*"profile" "execution".*"replicaTier" "endpoint".*"jobWorkerEnabled" "false"/);
+  assert.match(envPartials, /define "rivet\.env\.apiWorkload"/);
+  assert.match(envPartials, /name: RIVET_API_PROFILE/);
+  assert.match(envPartials, /name: RIVET_RUNTIME_LIBRARIES_REPLICA_TIER/);
+  assert.match(envPartials, /name: RIVET_RUNTIME_LIBRARIES_JOB_WORKER_ENABLED/);
   assert.match(helpers, /define "rivet\.serviceFqdn"/);
   assert.match(proxyDeployment, /name: RIVET_WEB_UPSTREAM_HOST[\s\S]*include "rivet\.serviceFqdn"/);
   assert.match(proxyDeployment, /name: RIVET_API_UPSTREAM_HOST[\s\S]*include "rivet\.serviceFqdn"/);
   assert.match(proxyDeployment, /name: RIVET_EXECUTION_UPSTREAM_HOST[\s\S]*include "rivet\.serviceFqdn"/);
   assert.match(proxyDeployment, /name: RIVET_EXECUTOR_UPSTREAM_HOST[\s\S]*include "rivet\.serviceFqdn"/);
+});
+
+test('helm env and pod helpers keep env entries split cleanly and preserve the executor app-data path note', () => {
+  let renderedChart: string | null = null;
+  try {
+    renderedChart = renderLocalKubernetesChart();
+  } catch (error) {
+    if (!(typeof error === 'object' && error != null && 'code' in error && (error as { code?: unknown }).code === 'ENOENT')) {
+      throw error;
+    }
+  }
+
+  const envPartials = readRepoFile('charts/templates/_env.tpl');
+  const podPartials = readRepoFile('charts/templates/_pod.tpl');
+
+  if (renderedChart) {
+    assert.match(
+      renderedChart,
+      /name: RIVET_API_PROFILE\s*\n\s*value: "control"\s*\n\s*- name: RIVET_RUNTIME_LIBRARIES_REPLICA_TIER/,
+    );
+    assert.match(
+      renderedChart,
+      /name: RIVET_API_PROFILE\s*\n\s*value: "execution"\s*\n\s*- name: RIVET_RUNTIME_LIBRARIES_REPLICA_TIER/,
+    );
+  } else {
+    assert.match(
+      envPartials,
+      /- name: RIVET_API_PROFILE\s*\n\s*value: \{\{ \.profile \| quote \}\}\s*\n- name: RIVET_STORAGE_MODE/,
+    );
+    assert.match(
+      envPartials,
+      /\{\{ include "rivet\.env\.objectStorage" \(dict "root" \$root "includePrefix" true\) \}\}\s*\n\{\{ include "rivet\.env\.postgres" \$root \}\}/,
+    );
+    assert.match(
+      envPartials,
+      /\{\{ include "rivet\.env\.objectStorage" \(dict "root" \$root "includePrefix" false\) \}\}\s*\n\{\{ include "rivet\.env\.postgres" \$root \}\}/,
+    );
+  }
+
+  assert.match(
+    podPartials,
+    /The executor keeps the Rivet desktop-app storage layout on purpose\.\s*\n# Do not unify this mount path with the API app-data mount\./,
+  );
+  assert.match(podPartials, /mountPath: \/home\/rivet\/\.local\/share\/com\.ironcladapp\.rivet/);
 });
 
 test('chart validation keeps the first Phase 4 split managed-only', () => {

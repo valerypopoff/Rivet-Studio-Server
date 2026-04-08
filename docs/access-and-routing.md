@@ -40,6 +40,18 @@ Important local-Docker wiring note:
 - nginx therefore proxies both `${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH}` and `${RIVET_LATEST_WORKFLOWS_BASE_PATH}` to that same container there
 - the control-plane vs execution-plane labels in the table describe the intended split topology and the route ownership enforced by `RIVET_API_PROFILE`, not a guarantee that local Docker physically runs two API services
 
+## Browser-side websocket ownership
+
+The browser transport seams now match the backend route split more explicitly:
+
+- `/?editor` prefers `/ws/executor/internal` for the hosted executor websocket and keeps `/ws/executor` only for upstream-compatible clients
+- `useRemoteExecutor.ts` delegates websocket message dispatch to `remoteExecutorProtocol.ts`
+- hosted remote execution is still explicitly single-run; `remoteExecutionSession.ts` rejects the previous unresolved session if a new run begins
+- `useRemoteDebugger.ts` is a thin subscriber to the module-level singleton in `remoteDebuggerClient.ts`
+- `remoteDebuggerClient.ts` keeps one `/ws/latest-debugger` websocket per page and forwards dataset RPCs to `remoteDebuggerDatasets.ts`
+
+Those websocket modules are separate from the dashboard/editor `window.postMessage` bridge. The bridge coordinates project-open/save/delete/path-move behavior between browsing contexts; the websocket transports talk to executor/debugger routes.
+
 ## `/api/*` route families
 
 The wrapper API currently exposes these groups behind `/api`:
@@ -215,6 +227,14 @@ In `RIVET_STORAGE_MODE=managed`, workflow execution stays authoritative through 
 - repeated requests for the same unchanged workflow reuse the warm local cache path instead of repeating remote shared-state reads
 - pointer-cache invalidation comes from same-process post-commit clearing plus Postgres `LISTEN/NOTIFY`
 - if the invalidation listener is degraded, pointer caches are cleared and bypassed until listener health is restored
+
+The refactor work kept that route and cache contract intact while making the ownership boundaries clearer: control-plane versus execution-plane routing still stays explicit at the API layer, and the browser-side remote debugger / remote executor hooks now sit on top of dedicated transport client/protocol modules instead of owning those state machines inline.
+
+Managed runtime-library sync is part of that execution path too:
+
+- `ManagedCodeRunner` calls `prepareRuntimeLibrariesForExecution()` before `Code` node resolution
+- API replicas therefore reconcile the active managed runtime-library release through the same backend contract that the runtime-library admin surface exposes
+- that keeps published/latest route behavior aligned with runtime-library activation without making endpoint execution depend on a shared mounted `node_modules` tree
 
 ## Workflow execution auth
 

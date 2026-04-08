@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { withArgv, withScopedEnv } from './helpers/runtime-library-harness.js';
 
 const cleanup = await import('../runtime-libraries/managed/cleanup.js');
 const managedState = await import('../runtime-libraries/managed/state.js');
@@ -57,42 +58,7 @@ async function withManagedEnv(
   overrides: Partial<Record<(typeof managedEnvKeys)[number], string | undefined>>,
   run: () => Promise<void> | void,
 ) {
-  const previous = new Map<string, string | undefined>();
-
-  for (const key of managedEnvKeys) {
-    previous.set(key, process.env[key]);
-    delete process.env[key];
-  }
-
-  for (const [key, value] of Object.entries(overrides)) {
-    if (value != null) {
-      process.env[key] = value;
-    }
-  }
-
-  try {
-    await run();
-  } finally {
-    for (const key of managedEnvKeys) {
-      const value = previous.get(key);
-      if (value == null) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
-      }
-    }
-  }
-}
-
-async function withArgv(argv: string[], run: () => Promise<void> | void) {
-  const previous = process.argv;
-  process.argv = argv;
-
-  try {
-    await run();
-  } finally {
-    process.argv = previous;
-  }
+  await withScopedEnv(managedEnvKeys, overrides, run);
 }
 
 function isoDaysBefore(now: Date, days: number): string {

@@ -1,46 +1,46 @@
 import { expect, test, type Page } from '@playwright/test';
 import { authenticateIfNeeded, waitForDashboardReady } from './helpers/hostedEditorObserve';
-import {
-  apiJson,
-  createWorkflowProject,
-  deleteWorkflowProject,
-  type WorkflowProjectItem,
-} from './helpers/workflowLibraryObserve';
 
-type LoadedHostedProject = {
-  contents: string;
-  datasetsContents: string | null;
-  revisionId: string | null;
+type MockWorkflowProjectItem = {
+  id: string;
+  name: string;
+  fileName: string;
+  relativePath: string;
+  absolutePath: string;
+  updatedAt: string;
+  settings: {
+    status: 'unpublished' | 'published' | 'unpublished_changes';
+    endpointName: string;
+    lastPublishedAt: string | null;
+  };
 };
 
-async function publishWorkflowProject(page: Page, relativePath: string, endpointName: string): Promise<void> {
-  await apiJson<{ project: WorkflowProjectItem }>(page, '/api/workflows/projects/publish', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      relativePath,
-      settings: { endpointName },
-    }),
-  });
+function createVersionChooserFixture(name: string): MockWorkflowProjectItem {
+  return {
+    id: 'workflow-version-modal-fixture',
+    name,
+    fileName: `${name}.rivet-project`,
+    relativePath: `${name}.rivet-project`,
+    absolutePath: `/managed/workflows/${name}.rivet-project`,
+    updatedAt: '2026-04-08T11:00:00.000Z',
+    settings: {
+      status: 'unpublished_changes',
+      endpointName: 'codex-version-modal-endpoint',
+      lastPublishedAt: '2026-04-08T10:15:00.000Z',
+    },
+  };
 }
 
-async function loadHostedProject(page: Page, projectPath: string): Promise<LoadedHostedProject> {
-  return apiJson<LoadedHostedProject>(page, '/api/projects/load', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path: projectPath }),
-  });
-}
-
-async function saveHostedProject(page: Page, projectPath: string, contents: string, datasetsContents: string | null): Promise<void> {
-  await apiJson(page, '/api/projects/save', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      path: projectPath,
-      contents,
-      datasetsContents,
-    }),
+async function installVersionChooserRoutes(page: Page, project: MockWorkflowProjectItem): Promise<void> {
+  await page.route('**/api/workflows/tree', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        folders: [],
+        projects: [project],
+      }),
+    });
   });
 }
 
@@ -48,49 +48,33 @@ test.describe('Workflow project version chooser', () => {
   test('unpublished_changes uses one chooser component for download and duplicate', async ({ page }) => {
     test.slow();
 
-    const unique = `codex-version-modal-${Date.now()}`;
-    const endpointName = `codex-version-modal-${Date.now()}`;
-    let project: WorkflowProjectItem | null = null;
+    const unique = 'codex-version-modal-fixture';
+    const project = createVersionChooserFixture(unique);
+    await installVersionChooserRoutes(page, project);
 
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     await authenticateIfNeeded(page);
     await waitForDashboardReady(page);
 
-    try {
-      project = await createWorkflowProject(page, '', unique);
-      await publishWorkflowProject(page, project.relativePath, endpointName);
+    const projectRow = page.locator('.project-row', { hasText: unique });
+    const chooserModal = page.getByTestId('workflow-project-download-modal');
 
-      const loaded = await loadHostedProject(page, project.absolutePath);
-      await saveHostedProject(page, project.absolutePath, `${loaded.contents}\n`, loaded.datasetsContents);
+    await projectRow.click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Download' }).click();
+    await expect(chooserModal).toHaveCount(1);
+    await expect(chooserModal).toBeVisible();
+    await expect(chooserModal.locator('.project-settings-modal-title')).toHaveText('Download');
+    await expect(page.getByRole('button', { name: 'Download "Published"' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Download "Unpublished changes"' })).toBeVisible();
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await expect(chooserModal).toHaveCount(0);
 
-      await page.reload({ waitUntil: 'domcontentloaded' });
-      await authenticateIfNeeded(page);
-      await waitForDashboardReady(page);
-
-      const projectRow = page.locator('.project-row', { hasText: unique });
-      const chooserModal = page.getByTestId('workflow-project-download-modal');
-
-      await projectRow.click({ button: 'right' });
-      await page.getByRole('menuitem', { name: 'Download' }).click();
-      await expect(chooserModal).toHaveCount(1);
-      await expect(chooserModal).toBeVisible();
-      await expect(chooserModal.locator('.project-settings-modal-title')).toHaveText('Download');
-      await expect(page.getByRole('button', { name: 'Download "Published"' })).toBeVisible();
-      await expect(page.getByRole('button', { name: 'Download "Unpublished changes"' })).toBeVisible();
-      await page.getByRole('button', { name: 'Cancel' }).click();
-      await expect(chooserModal).toHaveCount(0);
-
-      await projectRow.click({ button: 'right' });
-      await page.getByRole('menuitem', { name: 'Duplicate' }).click();
-      await expect(chooserModal).toHaveCount(1);
-      await expect(chooserModal).toBeVisible();
-      await expect(chooserModal.locator('.project-settings-modal-title')).toHaveText('Duplicate');
-      await expect(page.getByRole('button', { name: 'Duplicate "Published"' })).toBeVisible();
-      await expect(page.getByRole('button', { name: 'Duplicate "Unpublished changes"' })).toBeVisible();
-    } finally {
-      if (project) {
-        await deleteWorkflowProject(page, project.relativePath).catch(() => {});
-      }
-    }
+    await projectRow.click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Duplicate' }).click();
+    await expect(chooserModal).toHaveCount(1);
+    await expect(chooserModal).toBeVisible();
+    await expect(chooserModal.locator('.project-settings-modal-title')).toHaveText('Duplicate');
+    await expect(page.getByRole('button', { name: 'Duplicate "Published"' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Duplicate "Unpublished changes"' })).toBeVisible();
   });
 });

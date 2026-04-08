@@ -11,6 +11,8 @@ import {
   normalizeManagedWorkflowRelativePath,
   parseManagedWorkflowProjectVirtualPath,
 } from '../virtual-paths.js';
+import type { ManagedWorkflowContext } from './context.js';
+import { resolveManagedHostedProjectSaveTarget } from './revision-factory.js';
 import type {
   ImportManagedWorkflowOptions,
   LoadHostedProjectResult,
@@ -22,45 +24,29 @@ import type {
 } from './types.js';
 
 type ManagedWorkflowRevisionServiceDependencies = {
-  pool: Pool;
-  initialize(): Promise<void>;
-  withTransaction<T>(run: (client: PoolClient, hooks: TransactionHooks) => Promise<T>): Promise<T>;
-  ensureFolderChain(client: PoolClient, folderRelativePath: string): Promise<void>;
-  getWorkflowByRelativePath(
-    client: PoolClient | Pool,
-    relativePath: string,
-    options?: { forUpdate?: boolean },
-  ): Promise<WorkflowRow | null>;
-  getWorkflowById(client: PoolClient | Pool, workflowId: string): Promise<WorkflowRow | null>;
-  getRevision(client: PoolClient | Pool, revisionId: string | null | undefined): Promise<RevisionRow | null>;
-  getCurrentDraftWorkflowRevision(
-    client: PoolClient | Pool,
-    relativePath: string,
-  ): Promise<{ workflow: WorkflowRow; revision: RevisionRow } | null>;
-  readRevisionContents(revision: RevisionRow): Promise<ManagedRevisionContents>;
-  createRevision(workflowId: string, contents: string, datasetsContents: string | null): Promise<RevisionRow>;
-  scheduleRevisionBlobCleanup(
-    hooks: TransactionHooks,
-    revision: Pick<RevisionRow, 'project_blob_key' | 'dataset_blob_key'>,
-  ): void;
-  insertRevision(client: PoolClient, revision: RevisionRow): Promise<void>;
-  syncWorkflowEndpointRows(
-    client: PoolClient,
-    workflow: WorkflowRow,
-    endpoints: { draftEndpointName: string; publishedEndpointName: string },
-  ): Promise<void>;
-  mapWorkflowRowToProjectItem(row: WorkflowRow): SaveHostedProjectResult['project'];
-  resolveManagedHostedProjectSaveTarget(options: {
-    nextContents: ManagedRevisionContents;
-    currentDraftContents: ManagedRevisionContents;
-    publishedContents: ManagedRevisionContents | null;
-    draftEndpointName: string;
-    publishedEndpointName: string;
-  }): 'current-draft' | 'published-revision' | 'create-revision';
-  queueWorkflowInvalidation(client: PoolClient, hooks: TransactionHooks, workflowId: string): Promise<void>;
+  context: ManagedWorkflowContext;
 };
 
-export function createManagedWorkflowRevisionService(deps: ManagedWorkflowRevisionServiceDependencies) {
+export function createManagedWorkflowRevisionService(options: ManagedWorkflowRevisionServiceDependencies) {
+  const deps = {
+    pool: options.context.pool,
+    initialize: options.context.initialize,
+    withTransaction: options.context.withTransaction,
+    ensureFolderChain: options.context.queries.ensureFolderChain,
+    getWorkflowByRelativePath: options.context.queries.getWorkflowByRelativePath,
+    getWorkflowById: options.context.queries.getWorkflowById,
+    getRevision: options.context.queries.getRevision,
+    getCurrentDraftWorkflowRevision: options.context.queries.getCurrentDraftWorkflowRevision,
+    readRevisionContents: options.context.revisions.readRevisionContents,
+    createRevision: options.context.revisions.createRevision,
+    scheduleRevisionBlobCleanup: options.context.revisions.scheduleRevisionBlobCleanup,
+    insertRevision: options.context.revisions.insertRevision,
+    syncWorkflowEndpointRows: options.context.endpointSync.syncWorkflowEndpointRows,
+    mapWorkflowRowToProjectItem: options.context.mappers.mapWorkflowRowToProjectItem,
+    resolveManagedHostedProjectSaveTarget,
+    queueWorkflowInvalidation: options.context.executionInvalidationController.queueWorkflowInvalidation.bind(options.context.executionInvalidationController),
+  };
+
   return {
     async loadHostedProject(projectPath: string): Promise<LoadHostedProjectResult> {
       await deps.initialize();

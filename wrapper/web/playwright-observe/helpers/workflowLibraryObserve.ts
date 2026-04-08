@@ -11,6 +11,29 @@ export type WorkflowProjectItem = {
   name: string;
 };
 
+function resolveApiUrl(page: Page, input: string): string {
+  const baseUrl = process.env.PLAYWRIGHT_BASE_URL?.trim() || page.url() || 'http://127.0.0.1:8080';
+  return new URL(input, baseUrl).toString();
+}
+
+function normalizeRequestHeaders(headers?: HeadersInit): Record<string, string> | undefined {
+  if (!headers) {
+    return undefined;
+  }
+
+  if (Array.isArray(headers)) {
+    return Object.fromEntries(headers.map(([key, value]) => [key, String(value)]));
+  }
+
+  if (headers instanceof Headers) {
+    return Object.fromEntries(headers.entries());
+  }
+
+  return Object.fromEntries(
+    Object.entries(headers).map(([key, value]) => [key, String(value)]),
+  );
+}
+
 function getStorageModeFromEnv(): 'filesystem' | 'managed' {
   const value = process.env.RIVET_STORAGE_MODE ?? 'filesystem';
 
@@ -25,18 +48,20 @@ export function requireManagedMutationOptIn(): void {
 }
 
 export async function apiJson<T>(page: Page, input: string, init?: RequestInit): Promise<T> {
-  return page.evaluate(async ({ input, init }) => {
-    const response = await fetch(input, init);
-    const text = await response.text();
-    const body = text ? JSON.parse(text) : null;
+  const response = await page.request.fetch(resolveApiUrl(page, input), {
+    method: init?.method,
+    headers: normalizeRequestHeaders(init?.headers),
+    data: init?.body as string | Buffer | undefined,
+  });
+  const text = await response.text();
+  const body = text ? JSON.parse(text) : null;
 
-    if (!response.ok) {
-      const message = body && typeof body === 'object' && 'error' in body ? String(body.error) : response.statusText;
-      throw new Error(`${response.status} ${message}`);
-    }
+  if (!response.ok()) {
+    const message = body && typeof body === 'object' && 'error' in body ? String(body.error) : response.statusText();
+    throw new Error(`${response.status()} ${message}`);
+  }
 
-    return body as T;
-  }, { input, init });
+  return body as T;
 }
 
 export async function createWorkflowFolder(page: Page, name: string): Promise<WorkflowFolderItem> {
@@ -68,6 +93,21 @@ export async function deleteWorkflowProject(page: Page, relativePath: string): P
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ relativePath }),
+  });
+}
+
+export async function unpublishWorkflowProject(page: Page, relativePath: string): Promise<void> {
+  await apiJson<{ project: WorkflowProjectItem }>(page, '/api/workflows/projects/unpublish', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ relativePath }),
+  });
+}
+
+export async function cleanupWorkflowProject(page: Page, relativePath: string): Promise<void> {
+  await deleteWorkflowProject(page, relativePath).catch(async () => {
+    await unpublishWorkflowProject(page, relativePath).catch(() => {});
+    await deleteWorkflowProject(page, relativePath).catch(() => {});
   });
 }
 

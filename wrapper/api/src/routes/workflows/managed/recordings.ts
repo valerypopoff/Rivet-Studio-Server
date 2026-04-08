@@ -12,6 +12,7 @@ import type {
 import { WORKFLOW_PROJECT_EXTENSION } from '../../../../../shared/workflow-types.js';
 import { createHttpError } from '../../../utils/httpError.js';
 import { parseManagedWorkflowProjectVirtualPath } from '../virtual-paths.js';
+import type { ManagedWorkflowContext } from './context.js';
 import type {
   ImportManagedWorkflowRecordingOptions,
   PersistWorkflowExecutionRecordingOptions,
@@ -25,39 +26,27 @@ import type {
 } from './types.js';
 
 type ManagedWorkflowRecordingServiceDependencies = {
-  pool: Pool;
-  initialize(): Promise<void>;
-  withTransaction<T>(run: (client: PoolClient, hooks: TransactionHooks) => Promise<T>): Promise<T>;
-  uploadRecordingBlobs(
-    workflowId: string,
-    recordingId: string,
-    artifacts: RecordingBlobArtifacts,
-    cleanupContext: string,
-  ): Promise<RecordingBlobKeys>;
-  insertRecordingRow(
-    client: PoolClient | Pool,
-    row: RecordingInsertRowData,
-    options: {
-      timestampMode: 'provided' | 'now';
-      createdAt?: string;
-      onConflict: 'ignore' | 'fail';
-      cleanupContext: string;
-    },
-  ): Promise<void>;
-  queryOne<T extends QueryResultRow>(client: PoolClient | Pool, sql: string, params?: unknown[]): Promise<T | null>;
-  queryRows<T extends QueryResultRow>(client: PoolClient | Pool, sql: string, params?: unknown[]): Promise<T[]>;
-  blobStore: {
-    getText(key: string): Promise<string>;
-  };
-  deleteBlobKeysBestEffort(context: string, keys: Array<string | null | undefined>): Promise<void>;
-  getWorkflowStatus(row: WorkflowRow): 'unpublished' | 'published' | 'unpublished_changes';
-  mapWorkflowRowToProjectItem(row: WorkflowRow): WorkflowRecordingWorkflowListResponse['workflows'][number]['project'];
-  toIsoString(value: string | Date | null | undefined): string | null;
-  workflowColumnsQualified: string;
-  recordingColumns: string;
+  context: ManagedWorkflowContext;
 };
 
-export function createManagedWorkflowRecordingService(deps: ManagedWorkflowRecordingServiceDependencies) {
+export function createManagedWorkflowRecordingService(options: ManagedWorkflowRecordingServiceDependencies) {
+  const deps = {
+    pool: options.context.pool,
+    initialize: options.context.initialize,
+    withTransaction: options.context.withTransaction,
+    uploadRecordingBlobs: options.context.revisions.uploadRecordingBlobs,
+    insertRecordingRow: options.context.revisions.insertRecordingRow,
+    queryOne: options.context.db.queryOne,
+    queryRows: options.context.db.queryRows,
+    blobStore: options.context.blobStore,
+    deleteBlobKeysBestEffort: options.context.revisions.deleteBlobKeysBestEffort,
+    getWorkflowStatus: options.context.mappers.getWorkflowStatus,
+    mapWorkflowRowToProjectItem: options.context.mappers.mapWorkflowRowToProjectItem,
+    toIsoString: options.context.mappers.toIsoString,
+    workflowColumnsQualified: options.context.mappers.WORKFLOW_COLUMNS_QUALIFIED,
+    recordingColumns: options.context.mappers.RECORDING_COLUMNS,
+  };
+
   return {
     async importWorkflowRecording(options: ImportManagedWorkflowRecordingOptions): Promise<void> {
       await deps.initialize();

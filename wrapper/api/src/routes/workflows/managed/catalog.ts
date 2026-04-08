@@ -28,6 +28,7 @@ import {
   parseManagedWorkflowProjectVirtualPath,
   resolveManagedWorkflowRelativeReference,
 } from '../virtual-paths.js';
+import type { ManagedWorkflowContext } from './context.js';
 import type {
   FolderMoveRow,
   FolderRow,
@@ -39,45 +40,41 @@ import type {
 } from './types.js';
 
 type ManagedWorkflowCatalogServiceDependencies = {
-  pool: Pool;
-  initialize(): Promise<void>;
-  withTransaction<T>(run: (client: PoolClient, hooks: TransactionHooks) => Promise<T>): Promise<T>;
-  queryOne<T extends QueryResultRow>(client: PoolClient | Pool, sql: string, params?: unknown[]): Promise<T | null>;
-  queryRows<T extends QueryResultRow>(client: PoolClient | Pool, sql: string, params?: unknown[]): Promise<T[]>;
-  listFolderRows(client?: PoolClient | Pool): Promise<FolderRow[]>;
-  listWorkflowRows(client?: PoolClient | Pool): Promise<WorkflowRow[]>;
-  getWorkflowByRelativePath(
-    client: PoolClient | Pool,
-    relativePath: string,
-    options?: { forUpdate?: boolean },
-  ): Promise<WorkflowRow | null>;
-  getCurrentDraftWorkflowRevision(
-    client: PoolClient | Pool,
-    relativePath: string,
-  ): Promise<{ workflow: WorkflowRow; revision: RevisionRow } | null>;
-  getRevision(client: PoolClient | Pool, revisionId: string | null | undefined): Promise<RevisionRow | null>;
-  readRevisionContents(revision: RevisionRow): Promise<{ contents: string; datasetsContents: string | null }>;
-  assertFolderExists(client: PoolClient | Pool, folderRelativePath: string): Promise<void>;
+  context: ManagedWorkflowContext;
   saveHostedProject(options: {
     projectPath: string;
     contents: string;
     datasetsContents: string | null;
     expectedRevisionId?: string | null;
   }): Promise<SaveHostedProjectResult>;
-  mapWorkflowRowToProjectItem(row: WorkflowRow): WorkflowProjectItem;
-  mapFolderRowToFolderItem(row: FolderRow): WorkflowFolderItem;
-  getWorkflowStatus(row: WorkflowRow): 'unpublished' | 'published' | 'unpublished_changes';
-  blobStore: {
-    getText(key: string): Promise<string>;
-  };
-  queueWorkflowInvalidation(client: PoolClient, hooks: TransactionHooks, workflowId: string): Promise<void>;
-  queueGlobalInvalidation(client: PoolClient, hooks: TransactionHooks): Promise<void>;
-  deleteBlobKeysBestEffort(context: string, keys: Array<string | null | undefined>): Promise<void>;
-  isUniqueViolation(error: unknown): boolean;
-  recordingColumns: string;
 };
 
-export function createManagedWorkflowCatalogService(deps: ManagedWorkflowCatalogServiceDependencies) {
+export function createManagedWorkflowCatalogService(options: ManagedWorkflowCatalogServiceDependencies) {
+  const deps = {
+    pool: options.context.pool,
+    initialize: options.context.initialize,
+    withTransaction: options.context.withTransaction,
+    queryOne: options.context.db.queryOne,
+    queryRows: options.context.db.queryRows,
+    listFolderRows: options.context.queries.listFolderRows,
+    listWorkflowRows: options.context.queries.listWorkflowRows,
+    getWorkflowByRelativePath: options.context.queries.getWorkflowByRelativePath,
+    getCurrentDraftWorkflowRevision: options.context.queries.getCurrentDraftWorkflowRevision,
+    getRevision: options.context.queries.getRevision,
+    readRevisionContents: options.context.revisions.readRevisionContents,
+    assertFolderExists: options.context.queries.assertFolderExists,
+    saveHostedProject: options.saveHostedProject,
+    mapWorkflowRowToProjectItem: options.context.mappers.mapWorkflowRowToProjectItem,
+    mapFolderRowToFolderItem: options.context.mappers.mapFolderRowToFolderItem,
+    getWorkflowStatus: options.context.mappers.getWorkflowStatus,
+    blobStore: options.context.blobStore,
+    queueWorkflowInvalidation: options.context.executionInvalidationController.queueWorkflowInvalidation.bind(options.context.executionInvalidationController),
+    queueGlobalInvalidation: options.context.executionInvalidationController.queueGlobalInvalidation.bind(options.context.executionInvalidationController),
+    deleteBlobKeysBestEffort: options.context.revisions.deleteBlobKeysBestEffort,
+    isUniqueViolation: options.context.db.isUniqueViolation,
+    recordingColumns: options.context.mappers.RECORDING_COLUMNS,
+  };
+
   const moveFolderRelativePath = async (
     sourceRelativePath: string,
     targetRelativePath: string,

@@ -20,6 +20,7 @@ See also: [Mistakes and Misconceptions](./mistakes-and-misconceptions.md)
 |---|---|---|
 | `npm run dev` | Starts the Docker dev stack | Closest-to-production browser testing |
 | `npm run dev:recreate` | Rebuilds and recreates the Docker dev stack | Pick up Dockerfile/env/runtime changes |
+| `npm run dev:docker:recreate` | Rebuilds and recreates the Docker dev stack without going through the alias | Useful when you want the exact script name that repo instructions refer to |
 | `npm run dev:docker:config` | Renders the merged Docker dev Compose config without starting containers | Verify launcher/env/Compose wiring |
 | `npm run dev:down` | Stops the Docker dev stack | Cleanup |
 | `npm run dev:docker:ps` | Shows Docker dev container status | Diagnostics |
@@ -38,11 +39,13 @@ See also: [Mistakes and Misconceptions](./mistakes-and-misconceptions.md)
 | `npm run prod:prebuilt` | Pulls prebuilt images and starts without building | Fast deploy verification |
 | `npm run prod:prebuilt:recreate` | Recreates the prebuilt-image production stack from scratch | Verify the published artifact path cleanly |
 | `npm run prod:local-build` | Forces a local production image build | Test custom image changes |
+| `npm run prod:docker:recreate` | Rebuilds and recreates the production-style Docker stack without going through the alias | Useful when you want the exact script name that repo instructions refer to |
 | `npm run prod:docker:config` | Renders the merged production-style Docker Compose config without starting containers | Verify launcher/env/Compose wiring |
 | `npm run verify:filesystem` | Runs the repo-local compatibility baseline for single-host filesystem mode | Check that filesystem mode still has build/test and launcher-contract coverage |
 | `npm run verify:filesystem:docker` | Verifies the filesystem Docker launcher shape with a disposable env/fixture root | Check that Docker launcher config still supports filesystem mode without managed services |
 | `npm run verify:local-docker` | Verifies managed-storage local-Docker launcher shape with a disposable env/fixture root | Check that `managed + local-docker` still enables the expected Postgres/MinIO rehearsal path |
 | `npm run verify:local-docker:split` | Runs split-topology repo-local checks plus local-Docker launcher validation | Check that split-era control/execution contracts still fit the local-Docker managed rehearsal model |
+| `npm run verify:web-pure` | Runs the pure web helper tests with `tsx --test` | Catch regressions in extracted non-React dashboard/protocol helpers quickly |
 | `npm run verify:kubernetes` | Runs the Kubernetes static-contract tests, renders the local rehearsal values path, and lint-renders the production overlay | Catch local/prod chart drift before handing the repo to operators |
 | `npm --prefix wrapper/api run workflow-execution:measure -- --base-url http://localhost:8080 --endpoint hello-world --kind published --runs 5 --warmups 1` | Calls one published/latest workflow endpoint repeatedly and prints timing headers | Measure managed cold-hit vs warm-hit behavior safely |
 | `npm run runtime-libraries:managed:audit` | Audits managed runtime-library release/job/object state and writes a JSON snapshot | Inspect live managed runtime-library state safely |
@@ -181,6 +184,13 @@ Current behavior:
 - the current observable spec opens the first project in the first workflow folder, then visibly exercises the hosted editor focus/clipboard recovery path
 - trace, video, screenshots, and the HTML report are written under `artifacts/playwright/`
 
+Managed-state safety:
+
+- most browser-visible specs should stay non-mutating and prefer mocked API responses when the behavior under test is modal/controller/UI wiring rather than storage persistence
+- mutating workflow specs are blocked against `RIVET_STORAGE_MODE=managed` unless `PLAYWRIGHT_ALLOW_MANAGED_MUTATIONS=1` is set explicitly
+- shared Playwright workflow helpers use Playwright's request context for setup and cleanup, not `page.evaluate(fetch(...))`, so they go through the same proxy-auth path as the real browser shell
+- if a mutating spec creates real workflow state in managed mode, it is responsible for explicit cleanup before the run finishes
+
 Typical usage:
 
 1. start the app you want to watch, for example `npm run dev` or `npm run prod:local-build`
@@ -256,6 +266,43 @@ For host-based API execution, filesystem-mode recording persistence still requir
 - `rivet/` is upstream source that can be replaced or refreshed and should be treated as read-only input for this repo
 - generated build output should not be treated as authored source
 
+## Internal ownership boundaries
+
+When adding new code, keep the post-refactor ownership seams explicit instead of rebuilding large mixed-responsibility files:
+
+- workflow-managed backend code goes under `wrapper/api/src/routes/workflows/managed/`
+  - `backend.ts` is the facade/composition root
+  - DB retry/query helpers stay in `db.ts`
+  - transaction sequencing stays in `transactions.ts`
+  - row mapping stays in `mappers.ts`
+- filesystem recording compatibility code stays under `wrapper/api/src/routes/workflows/`
+  - keep `recordings.ts` as the public orchestrator
+  - keep artifact IO in `recordings-artifacts.ts`
+  - keep metadata normalization in `recordings-metadata.ts`
+  - keep index/cleanup/delete maintenance in `recordings-maintenance.ts`
+  - keep queue/readiness state in `recordings-store.ts`
+- managed runtime-library orchestration goes under `wrapper/api/src/runtime-libraries/managed/`
+  - keep `backend.ts` as the facade
+  - keep job persistence, SSE streaming, worker flow, process tracking, and replica cleanup in their focused modules
+- workflow/filesystem compatibility code should stay obvious in `wrapper/api/src/routes/workflows/storage-backend.ts`
+  - do not hide `filesystem` versus `managed` behavior behind a generic abstraction layer
+- dashboard controllers belong in `wrapper/web/dashboard/`
+  - `useWorkflowLibraryController.ts`, `useRunRecordingsController.ts`, `useProjectSettingsActions.ts`, `useDashboardSidebar.ts`, and `useEditorBridgeEvents.ts` should own orchestration
+  - keep project-settings validation and labels in `projectSettingsForm.ts`
+  - keep run-recordings modal shell logic in `RunRecordingsModal.tsx` and its focused UI slices in `RecordingWorkflowSelect.tsx` and `RecordingRunsTable.tsx`
+  - keep `RuntimeLibrariesModal.tsx` as the shell, `useRuntimeLibrariesModalState.ts` as the public controller, and `runtimeLibrariesJobStream.ts` as the SSE/log-state helper layer
+  - page/components should stay mostly render wiring
+- dashboard/editor bridge wiring should stay explicit
+  - `DashboardPage.tsx` is the composition root
+  - `useEditorCommandQueue.ts` owns pre-ready command buffering
+  - `useEditorBridgeEvents.ts` owns dashboard-side message listeners and cross-iframe save shortcut capture
+  - `EditorMessageBridge.tsx` owns editor-side message handling
+- remote debugger/executor transport code belongs in `wrapper/web/overrides/hooks/`
+  - keep exported hooks thin over `remoteDebuggerClient.ts`, `remoteDebuggerDatasets.ts`, `remoteExecutorProtocol.ts`, and `remoteExecutionSession.ts`
+- Kubernetes template reuse should stay shallow
+  - use `_env.tpl` and `_pod.tpl` for genuinely repeated backend/execution blocks
+  - keep `proxy` and `web` explicit unless extraction clearly improves readability
+
 ## Safe verification workflow
 
 For wrapper/API changes:
@@ -275,8 +322,10 @@ Current repo-local baseline:
 For wrapper/web changes:
 
 1. `npm --prefix wrapper/web run build`
-2. if the change affects editor focus, keyboard shortcuts, or iframe interaction, run `PLAYWRIGHT_HEADLESS=1`, `PLAYWRIGHT_SLOW_MO=0`, then `node scripts/playwright-observe.mjs test`
-3. if the change lives under `wrapper/web/overrides/` or affects hosted editor save/hotkey behavior, also verify with `npm run prod:local-build`; `npm run prod` may pull already-published images instead of using your local workspace changes
+2. if the change adds or changes pure helper logic under `wrapper/web/dashboard/` or `wrapper/web/overrides/hooks/`, run `npm run verify:web-pure`
+3. if the change affects browser-visible behavior, run `PLAYWRIGHT_HEADLESS=1`, `PLAYWRIGHT_SLOW_MO=0`, then `node scripts/playwright-observe.mjs test`
+4. if the Playwright coverage needs real workflow mutations in `RIVET_STORAGE_MODE=managed`, set `PLAYWRIGHT_ALLOW_MANAGED_MUTATIONS=1` deliberately and keep cleanup explicit; prefer mocked API/browser tests for modal and controller coverage when storage mutation is not the point
+5. if the change lives under `wrapper/web/overrides/` or affects hosted editor save/hotkey behavior, also verify with `npm run prod:local-build`; `npm run prod` may pull already-published images instead of using your local workspace changes
 
 For workflow-library mutations that change on-disk project state:
 

@@ -47,7 +47,9 @@ test.describe('Runtime library job cancellation', () => {
     await page.waitForTimeout(1_500);
     await modal.getByRole('button', { name: 'Cancel job' }).click();
 
-    const failedStatus = modal.locator('.runtime-libraries-status.failed');
+    const failedStatus = modal.locator('.runtime-libraries-status.failed', {
+      hasText: 'Cancelled by user',
+    });
     await expect(failedStatus).toBeVisible({ timeout: 30_000 });
     await expect(failedStatus).toContainText('Cancelled by user');
 

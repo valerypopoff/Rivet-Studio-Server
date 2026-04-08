@@ -1,10 +1,17 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import http from 'node:http';
-import os from 'node:os';
-import path from 'node:path';
 import test from 'node:test';
 import WebSocket from 'ws';
+import { listenTestServer } from './helpers/http-server-harness.js';
+import { createWorkflowTestRoots, resetWorkflowTestRoots } from './helpers/workflow-fixtures.js';
+import {
+  closeWebSocket,
+  connectWebSocket,
+  expectWebSocketConnectionFailure,
+  parseJsonWebSocketMessage,
+  waitForWebSocketMessages,
+} from './helpers/websocket-harness.js';
 
 const envKeys = [
   'RIVET_WORKSPACE_ROOT',
@@ -23,10 +30,7 @@ for (const key of envKeys) {
   previousEnv.set(key, process.env[key]);
 }
 
-const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'rivet-latest-debugger-'));
-const workflowsRoot = path.join(tempRoot, 'workflows');
-const appDataRoot = path.join(tempRoot, 'app-data');
-const runtimeLibrariesRoot = path.join(tempRoot, 'runtime-libraries');
+const { tempRoot, workflowsRoot, appDataRoot, runtimeLibrariesRoot } = await createWorkflowTestRoots('rivet-latest-debugger-');
 
 process.env.RIVET_WORKSPACE_ROOT = tempRoot;
 process.env.RIVET_WORKFLOWS_ROOT = workflowsRoot;
@@ -49,16 +53,6 @@ const workflowMutations = await import('../routes/workflows/workflow-mutations.j
 
 type ApiProfile = 'combined' | 'control' | 'execution';
 
-type DebuggerMessage = {
-  message: string;
-  data: unknown;
-};
-
-type DebuggerConnectionFailure = {
-  statusCode?: number;
-  error?: Error;
-};
-
 function trustedProxyHeaders(): Record<string, string> {
   return {
     'x-rivet-proxy-auth': getExpectedProxyAuthToken(),
@@ -69,32 +63,10 @@ function toWebSocketUrl(baseUrl: string): string {
   return baseUrl.replace(/^http/, 'ws') + '/ws/latest-debugger';
 }
 
-function parseDebuggerMessage(raw: WebSocket.RawData): DebuggerMessage {
-  const parsed = JSON.parse(raw.toString()) as {
-    message?: string;
-    type?: string;
-    data?: unknown;
-  };
-  const message = parsed.message ?? parsed.type;
-  if (!message) {
-    throw new Error(`Debugger message missing message/type field: ${raw.toString()}`);
-  }
-
-  return {
-    message,
-    data: parsed.data,
-  };
-}
-
 async function resetFilesystemState(): Promise<void> {
   await resetLatestWorkflowRemoteDebuggerForTests();
   process.env.RIVET_ENABLE_LATEST_REMOTE_DEBUGGER = 'false';
-
-  for (const dirPath of [workflowsRoot, appDataRoot, runtimeLibrariesRoot]) {
-    await fs.rm(dirPath, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
-    await fs.mkdir(dirPath, { recursive: true });
-  }
-
+  await resetWorkflowTestRoots({ workflowsRoot, appDataRoot, runtimeLibrariesRoot });
   await workflowFs.ensureWorkflowsRoot();
 }
 
@@ -120,180 +92,33 @@ async function startApiServer(
     initializeLatestWorkflowRemoteDebugger(server);
   }
 
-  await new Promise<void>((resolve) => {
-    server.listen(0, '127.0.0.1', () => resolve());
-  });
-
-  const address = server.address();
-  if (!address || typeof address === 'string') {
-    throw new Error('Failed to bind latest debugger test server');
-  }
+  const listener = await listenTestServer(server);
 
   return {
-    baseUrl: `http://127.0.0.1:${address.port}`,
+    baseUrl: listener.baseUrl,
     async close() {
       await resetLatestWorkflowRemoteDebuggerForTests();
-      await new Promise<void>((resolve, reject) => {
-        server.close((error) => {
-          if (error) {
-            reject(error);
-            return;
-          }
-
-          resolve();
-        });
-        server.closeAllConnections?.();
-      });
+      await listener.close();
     },
   };
 }
 
 async function connectDebuggerSocket(baseUrl: string, trusted = true): Promise<WebSocket> {
-  const socket = new WebSocket(toWebSocketUrl(baseUrl), {
+  return connectWebSocket(toWebSocketUrl(baseUrl), {
     headers: trusted ? trustedProxyHeaders() : {},
   });
-
-  const connection = await new Promise<{ socket?: WebSocket; failure?: DebuggerConnectionFailure }>((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      cleanup();
-      closeDebuggerSocket(socket);
-      reject(new Error('Timed out connecting to /ws/latest-debugger'));
-    }, 3000);
-    timeout.unref?.();
-
-    const cleanup = () => {
-      clearTimeout(timeout);
-      socket.off('open', handleOpen);
-      socket.off('unexpected-response', handleUnexpectedResponse);
-      socket.off('error', handleError);
-    };
-
-    const handleOpen = () => {
-      cleanup();
-      resolve({ socket });
-    };
-
-    const handleUnexpectedResponse = (_request: http.ClientRequest, response: http.IncomingMessage) => {
-      cleanup();
-      response.resume();
-      resolve({ failure: { statusCode: response.statusCode } });
-    };
-
-    const handleError = (error: Error) => {
-      cleanup();
-      resolve({ failure: { error } });
-    };
-
-    socket.once('open', handleOpen);
-    socket.once('unexpected-response', handleUnexpectedResponse);
-    socket.once('error', handleError);
-  });
-
-  if (!connection.socket) {
-    throw new Error(`Expected debugger websocket to connect, got ${JSON.stringify(connection.failure)}`);
-  }
-
-  return connection.socket;
 }
 
-async function expectDebuggerConnectionFailure(
-  baseUrl: string,
-  trusted = true,
-): Promise<DebuggerConnectionFailure> {
-  const socket = new WebSocket(toWebSocketUrl(baseUrl), {
+async function expectDebuggerConnectionFailure(baseUrl: string, trusted = true) {
+  return expectWebSocketConnectionFailure(toWebSocketUrl(baseUrl), {
     headers: trusted ? trustedProxyHeaders() : {},
   });
-
-  const failure = await new Promise<DebuggerConnectionFailure | null>((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      cleanup();
-      closeDebuggerSocket(socket);
-      reject(new Error('Timed out waiting for debugger websocket failure'));
-    }, 3000);
-    timeout.unref?.();
-
-    const cleanup = () => {
-      clearTimeout(timeout);
-      socket.off('open', handleOpen);
-      socket.off('unexpected-response', handleUnexpectedResponse);
-      socket.off('error', handleError);
-    };
-
-    const handleOpen = () => {
-      cleanup();
-      resolve(null);
-    };
-
-    const handleUnexpectedResponse = (_request: http.ClientRequest, response: http.IncomingMessage) => {
-      cleanup();
-      response.resume();
-      resolve({ statusCode: response.statusCode });
-    };
-
-    const handleError = (error: Error) => {
-      cleanup();
-      resolve({ error });
-    };
-
-    socket.once('open', handleOpen);
-    socket.once('unexpected-response', handleUnexpectedResponse);
-    socket.once('error', handleError);
-  });
-
-  if (failure == null) {
-    closeDebuggerSocket(socket);
-    throw new Error('Expected debugger websocket connection to fail, but it opened successfully');
-  }
-
-  closeDebuggerSocket(socket);
-  return failure;
 }
 
-async function waitForDebuggerMessages(
-  socket: WebSocket,
-  expectedMessages: string[],
-  timeoutMs = 5000,
-): Promise<DebuggerMessage[]> {
-  const seen = new Set<string>();
-  const messages: DebuggerMessage[] = [];
-
-  return await new Promise<DebuggerMessage[]>((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      cleanup();
-      reject(new Error(`Timed out waiting for debugger messages: ${expectedMessages.join(', ')}`));
-    }, timeoutMs);
-    timeout.unref?.();
-
-    const cleanup = () => {
-      clearTimeout(timeout);
-      socket.off('message', handleMessage);
-      socket.off('close', handleClose);
-      socket.off('error', handleError);
-    };
-
-    const handleMessage = (raw: WebSocket.RawData) => {
-      const message = parseDebuggerMessage(raw);
-      messages.push(message);
-      seen.add(message.message);
-      if (expectedMessages.every((expected) => seen.has(expected))) {
-        cleanup();
-        resolve(messages);
-      }
-    };
-
-    const handleClose = () => {
-      cleanup();
-      reject(new Error('Debugger websocket closed before all expected messages arrived'));
-    };
-
-    const handleError = (error: Error) => {
-      cleanup();
-      reject(error);
-    };
-
-    socket.on('message', handleMessage);
-    socket.once('close', handleClose);
-    socket.once('error', handleError);
+async function waitForDebuggerMessages(socket: WebSocket, expectedMessages: string[], timeoutMs = 5000) {
+  return waitForWebSocketMessages(socket, expectedMessages, {
+    timeoutMs,
+    parser: parseJsonWebSocketMessage,
   });
 }
 
@@ -332,9 +157,7 @@ function closeDebuggerSocket(socket: WebSocket | null | undefined): void {
   }
 
   socket.removeAllListeners();
-  if (socket.readyState === WebSocket.OPEN) {
-    socket.terminate();
-  }
+  closeWebSocket(socket);
 }
 
 async function assertSuccessfulBlankWorkflowResponse(response: Response): Promise<void> {

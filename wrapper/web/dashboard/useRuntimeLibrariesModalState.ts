@@ -13,12 +13,16 @@ import {
   fetchRuntimeLibraries,
   installPackages,
   removePackages,
-  streamJobLogs,
   type JobState,
   type RuntimeLibrariesState,
   type RuntimeLibraryJobLogEntry,
-  type SSEEvent,
 } from './runtimeLibrariesApi';
+import {
+  mergeRuntimeLibraryLogEntries,
+  openRuntimeLibrariesJobStream,
+  patchRuntimeLibrariesJobLogState,
+  patchRuntimeLibrariesJobStatusState,
+} from './runtimeLibrariesJobStream';
 
 export function useRuntimeLibrariesModalState(isOpen: boolean) {
   const STALLED_THRESHOLD_MS = 45_000;
@@ -43,29 +47,12 @@ export function useRuntimeLibrariesModalState(isOpen: boolean) {
   const wasOpenRef = useRef(false);
   const trackedJobIdRef = useRef<string | null>(null);
   const retainedJobRef = useRef<JobState | null>(null);
+  const refreshRef = useRef<() => Promise<void>>(async () => {});
+  const refreshActiveStateSilentlyRef = useRef<(jobId?: string) => Promise<void>>(async () => {});
 
-  const mergeLogEntries = useCallback((
-    previous: RuntimeLibraryJobLogEntry[],
-    incoming: RuntimeLibraryJobLogEntry[],
-  ) => {
-    if (incoming.length === 0) {
-      return previous;
-    }
-
-    const seen = new Set(previous.map((entry) => `${entry.createdAt}\u0000${entry.source}\u0000${entry.message}`));
-    const merged = [...previous];
-
-    for (const entry of incoming) {
-      const key = `${entry.createdAt}\u0000${entry.source}\u0000${entry.message}`;
-      if (seen.has(key)) {
-        continue;
-      }
-
-      seen.add(key);
-      merged.push(entry);
-    }
-
-    return merged;
+  const closeStream = useCallback(() => {
+    eventSourceRef.current?.close();
+    eventSourceRef.current = null;
   }, []);
 
   const applyJobState = useCallback((job: JobState | null) => {
@@ -73,18 +60,65 @@ export function useRuntimeLibrariesModalState(isOpen: boolean) {
     retainedJobRef.current = job;
     if (job) {
       trackedJobIdRef.current = job.id;
-      setLogEntries((prev) => mergeLogEntries([], job.logEntries ?? prev));
+      setLogEntries((prev) => mergeRuntimeLibraryLogEntries([], job.logEntries ?? prev));
       return;
     }
 
     trackedJobIdRef.current = null;
     setLogEntries([]);
-  }, [mergeLogEntries]);
+  }, []);
 
-  const displayedJob = activeJob ?? retainedJobRef.current;
-  const isJobActive = displayedJob != null &&
-    displayedJob.status !== 'succeeded' &&
-    displayedJob.status !== 'failed';
+  const updateDisplayedJob = useCallback((transform: (base: JobState) => JobState) => {
+    setActiveJob((prev) => {
+      const base = prev ?? retainedJobRef.current;
+      if (!base) {
+        return prev;
+      }
+
+      const next = transform(base);
+      retainedJobRef.current = next;
+      return next;
+    });
+  }, []);
+
+  const startStreaming = useCallback((jobId: string) => {
+    closeStream();
+
+    eventSourceRef.current = openRuntimeLibrariesJobStream(
+      jobId,
+      {
+        onLog: (entry) => {
+          setLogEntries((prev) => {
+            const mergedEntries = mergeRuntimeLibraryLogEntries(prev, [entry]);
+            updateDisplayedJob((base) => patchRuntimeLibrariesJobLogState(base, mergedEntries, entry.createdAt));
+            return mergedEntries;
+          });
+        },
+        onStatus: (event) => {
+          updateDisplayedJob((base) => patchRuntimeLibrariesJobStatusState(base, {
+            status: event.status,
+            createdAt: event.createdAt,
+            cancelRequestedAt: event.cancelRequestedAt,
+          }));
+        },
+        onDone: (event) => {
+          setJobResult({ status: event.status as 'succeeded' | 'failed', error: event.error });
+          setCancellingJob(false);
+          trackedJobIdRef.current = jobId;
+          updateDisplayedJob((base) => patchRuntimeLibrariesJobStatusState(base, {
+            status: event.status as 'succeeded' | 'failed',
+            error: event.error,
+            createdAt: event.createdAt,
+            cancelRequestedAt: event.cancelRequestedAt,
+          }));
+          void refreshRef.current();
+        },
+        onError: () => {
+          void refreshActiveStateSilentlyRef.current(jobId);
+        },
+      },
+    );
+  }, [closeStream, updateDisplayedJob]);
 
   const refresh = useCallback(async () => {
     try {
@@ -97,6 +131,7 @@ export function useRuntimeLibrariesModalState(isOpen: boolean) {
         applyJobState(data.activeJob);
         startStreaming(data.activeJob.id);
       } else {
+        closeStream();
         applyJobState(data.activeJob ?? retainedJobRef.current ?? null);
       }
     } catch (err) {
@@ -104,7 +139,7 @@ export function useRuntimeLibrariesModalState(isOpen: boolean) {
     } finally {
       setLoading(false);
     }
-  }, [applyJobState]);
+  }, [applyJobState, closeStream, startStreaming]);
 
   const refreshActiveStateSilently = useCallback(async (jobId?: string) => {
     try {
@@ -113,111 +148,50 @@ export function useRuntimeLibrariesModalState(isOpen: boolean) {
         fetchRuntimeLibraries(),
         trackedJobId ? fetchJob(trackedJobId).catch(() => null) : Promise.resolve(null),
       ]);
+
       setState(data);
+
       if (currentJob) {
         applyJobState(currentJob);
         if (currentJob.status === 'succeeded' || currentJob.status === 'failed') {
           setJobResult({ status: currentJob.status, error: currentJob.error });
           setCancellingJob(false);
           if (!data.activeJob) {
-            eventSourceRef.current?.close();
+            closeStream();
           }
+        } else if (trackedJobIdRef.current !== currentJob.id || eventSourceRef.current == null) {
+          startStreaming(currentJob.id);
         }
       } else if (data.activeJob) {
         applyJobState(data.activeJob);
+        if (data.activeJob.status !== 'succeeded' && data.activeJob.status !== 'failed' && eventSourceRef.current == null) {
+          startStreaming(data.activeJob.id);
+        }
       } else {
+        closeStream();
         applyJobState(retainedJobRef.current ?? null);
       }
+
       setError(null);
     } catch {
       // keep existing UI state on background refresh failures
     }
-  }, [applyJobState]);
+  }, [applyJobState, closeStream, startStreaming]);
 
-  const startStreaming = useCallback((jobId: string) => {
-    eventSourceRef.current?.close();
+  refreshRef.current = refresh;
+  refreshActiveStateSilentlyRef.current = refreshActiveStateSilently;
 
-    const source = streamJobLogs(
-      jobId,
-      (event: SSEEvent) => {
-        if (event.type === 'log' && event.message) {
-          const entry: RuntimeLibraryJobLogEntry = {
-            message: event.message,
-            createdAt: event.createdAt ?? new Date().toISOString(),
-            source: event.source ?? 'system',
-          };
-          setLogEntries((prev) => mergeLogEntries(prev, [entry]));
-          setActiveJob((prev) => {
-            if (!prev && !retainedJobRef.current) {
-              return prev;
-            }
-
-            const base = prev ?? retainedJobRef.current!;
-            const mergedEntries = mergeLogEntries(base.logEntries, [entry]);
-            const next = {
-              ...base,
-              logs: mergedEntries.map((logEntry) => logEntry.message),
-              logEntries: mergedEntries,
-              lastProgressAt: entry.createdAt,
-            };
-            retainedJobRef.current = next;
-            return next;
-          });
-        }
-        if (event.type === 'status' && event.status) {
-          setActiveJob((prev) => {
-            if (!prev && !retainedJobRef.current) {
-              return prev;
-            }
-
-            const base = prev ?? retainedJobRef.current!;
-            const next = {
-              ...base,
-              status: event.status,
-              lastProgressAt: event.createdAt ?? base.lastProgressAt,
-              cancelRequestedAt: event.cancelRequestedAt ?? base.cancelRequestedAt,
-            };
-            retainedJobRef.current = next;
-            return next;
-          });
-        }
-        if (event.type === 'done') {
-          setJobResult({ status: event.status as 'succeeded' | 'failed', error: event.error });
-          setCancellingJob(false);
-          trackedJobIdRef.current = jobId;
-          setActiveJob((prev) => {
-            if (!prev && !retainedJobRef.current) {
-              return prev;
-            }
-
-            const base = prev ?? retainedJobRef.current!;
-            const next = {
-              ...base,
-              status: event.status as 'succeeded' | 'failed',
-              error: event.error ?? base.error,
-              lastProgressAt: event.createdAt ?? base.lastProgressAt,
-              cancelRequestedAt: event.cancelRequestedAt ?? base.cancelRequestedAt,
-            };
-            retainedJobRef.current = next;
-            return next;
-          });
-          void refresh();
-        }
-      },
-      () => {
-        void refreshActiveStateSilently(jobId);
-      },
-    );
-
-    eventSourceRef.current = source;
-  }, [mergeLogEntries, refresh, refreshActiveStateSilently]);
+  const displayedJob = activeJob ?? retainedJobRef.current;
+  const isJobActive = displayedJob != null &&
+    displayedJob.status !== 'succeeded' &&
+    displayedJob.status !== 'failed';
 
   useEffect(() => {
     if (isOpen) {
       wasOpenRef.current = true;
       void refresh();
     } else if (wasOpenRef.current) {
-      eventSourceRef.current?.close();
+      closeStream();
       setActiveJob(null);
       setLogEntries([]);
       setJobResult(null);
@@ -230,9 +204,9 @@ export function useRuntimeLibrariesModalState(isOpen: boolean) {
     }
 
     return () => {
-      eventSourceRef.current?.close();
+      closeStream();
     };
-  }, [isOpen, refresh]);
+  }, [closeStream, isOpen, refresh]);
 
   useEffect(() => {
     if (logPanelRef.current) {

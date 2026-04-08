@@ -76,15 +76,34 @@ Node copy/paste shortcuts do not cross the editor bridge.
 - The hosted wrapper keeps the iframe and canvas focusable for keyboard reliability but suppresses their visible browser focus outline, so the editor does not show a white perimeter when focused.
 - Save is still special: it crosses the bridge when initiated outside the iframe, but copy/paste/duplicate stay editor-local and iframe-focused save is handled directly inside the editor context.
 
+## Adjacent hosted execution transport
+
+The editor bridge is not the same thing as the executor/debugger websocket transport, but the hosted shell now keeps those seams explicit too:
+
+- `useRemoteExecutor.ts` no longer owns the raw message switch or the unresolved "current run" promise inline
+- `remoteExecutorProtocol.ts` owns remote-executor message dispatch and trace logging
+- `remoteExecutionSession.ts` owns the explicit one-run-at-a-time session contract; starting a new hosted run supersedes the previous unresolved session instead of pretending the protocol is concurrent
+- `useRemoteDebugger.ts` is now a thin hook over the module-level singleton in `remoteDebuggerClient.ts`
+- `remoteDebuggerClient.ts` keeps the one-websocket-per-page guarantee, reconnect timer, send helpers, and shared debugger state
+- `remoteDebuggerDatasets.ts` owns dataset RPC forwarding over that same websocket
+
+Those transport modules are separate from the dashboard/editor `window.postMessage` bridge. The bridge moves open/save/delete/path-move intent between browsing contexts; the websocket modules talk to `/ws/executor*` and `/ws/latest-debugger`.
+
 ## Key files
 
 - `wrapper/shared/editor-bridge.ts` - shared message types, guards, and helpers
 - `wrapper/shared/workflow-recording-types.ts` - recording IDs and virtual replay path helpers
-- `wrapper/web/dashboard/DashboardPage.tsx` - dashboard-side bridge owner
-- `wrapper/web/dashboard/EditorMessageBridge.tsx` - editor-side message handling
+- `wrapper/web/dashboard/DashboardPage.tsx` - dashboard composition root that wires the bridge, sidebar, and editor iframe together
+- `wrapper/web/dashboard/useEditorBridgeEvents.ts` - dashboard-side message listeners and outer-page save shortcut capture
 - `wrapper/web/dashboard/useEditorCommandQueue.ts` - pre-ready command buffering
+- `wrapper/web/dashboard/editorBridgeFocus.ts` - iframe/canvas focus helpers and save-shortcut detection
+- `wrapper/web/dashboard/EditorMessageBridge.tsx` - editor-side message handling
 - `wrapper/web/dashboard/useOpenWorkflowProject.ts` - open/replace-current behavior inside the editor
 - `wrapper/web/io/HostedIOProvider.ts` - API-backed project loading/saving plus replay-project loading
+- `wrapper/web/overrides/hooks/remoteExecutorProtocol.ts` - hosted executor websocket message dispatch
+- `wrapper/web/overrides/hooks/remoteExecutionSession.ts` - one-run-at-a-time hosted execution promise bookkeeping
+- `wrapper/web/overrides/hooks/remoteDebuggerClient.ts` - module-level latest-debugger websocket singleton
+- `wrapper/web/overrides/hooks/remoteDebuggerDatasets.ts` - dataset RPC forwarding over the debugger websocket
 - `wrapper/web/overrides/hooks/useCopyNodesHotkeys.ts` - hosted clipboard hotkey override that reads the latest node state synchronously
 - `wrapper/web/overrides/hooks/useContextMenu.ts` - hosted context-menu override that clears stale focused menu inputs
 - `wrapper/web/overrides/hooks/useSaveProject.ts` - hosted save hook override that dispatches `rivet-project-saved`

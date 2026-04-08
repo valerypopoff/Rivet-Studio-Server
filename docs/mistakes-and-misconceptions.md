@@ -160,6 +160,41 @@ For UI changes that affect focus, shortcuts, mouse interactions, or iframe behav
 - encode exact failure sequences in the spec instead of relying on memory
 - if a regression only appears in production-style behavior, run the test against `prod:local-build` or published images rather than only against dev
 
+## 5. Managed Playwright runs are not disposable by default
+
+### Wrong assumption
+
+Browser automation against a managed stack is automatically a disposable test fixture, so it is safe for UI specs to create real workflows and clean them up however is convenient.
+
+### Reality
+
+- `RIVET_STORAGE_MODE=managed` means workflow state is authoritative in Postgres plus object storage
+- a Playwright spec that hits the real workflow routes is mutating that authoritative state unless it explicitly mocks the API
+- cleanup done through ad hoc browser-page `fetch()` calls is brittle because it depends on page state and can fail without going through the same trusted proxy path as the normal browser shell
+- UI/controller coverage for modals and tree state often does not need real managed mutations at all
+
+### What this broke
+
+- managed Playwright runs leaked real workflow projects into the shared workflow tree after failed specs
+
+### Correct rule
+
+Default browser-visible specs to non-mutating mocked flows when storage mutation is not the behavior under test.
+
+If a spec really must mutate managed workflow state:
+
+- gate it behind an explicit opt-in such as `PLAYWRIGHT_ALLOW_MANAGED_MUTATIONS=1`
+- use shared setup/cleanup helpers that go through Playwright's request context
+- keep cleanup explicit and deterministic
+
+### Prevention
+
+- treat managed Playwright runs as real writes unless the spec proves otherwise
+- use `requireManagedMutationOptIn()` for mutating workflow specs
+- prefer mocked `/api/workflows/*` responses for project-settings, version-modal, and similar controller/UI tests
+- keep cleanup helpers on top of `page.request` rather than `page.evaluate(fetch(...))`
+- when debugging leaked state, query the workflow tree directly after the spec run instead of assuming teardown succeeded
+
 ## Adding a new entry
 
 Use this structure:

@@ -2,12 +2,9 @@
 // Uses env-driven WebSocket URL in onDisconnect reconnect
 
 import {
-  type GraphOutputs,
   type NodeId,
-  type ProcessEvents,
   type StringArrayDataValue,
   globalRivetNodeRegistry,
-  serializeDatasets,
   type GraphId,
   type DataValue,
   GraphProcessor,
@@ -25,21 +22,12 @@ import { trivetState } from '../../../../rivet/packages/app/src/state/trivet';
 import { runTrivet } from '@ironclad/trivet';
 import { produce } from 'immer';
 import { userInputModalQuestionsState, userInputModalSubmitState } from '../../../../rivet/packages/app/src/state/userInput';
-import { pluginsState } from '../../../../rivet/packages/app/src/state/plugins';
 import { entries } from '../../../../rivet/packages/core/src/utils/typeSafety';
-import { datasetProvider } from '../../../../rivet/packages/app/src/utils/globals/datasetProvider';
 import { type RunDataByNodeId, lastRunDataByNodeState } from '../../../../rivet/packages/app/src/state/dataFlow';
 import { useAtomValue, useSetAtom, useAtom } from 'jotai';
-import { logHostedDebug } from '../../../shared/hosted-env';
-
-// TODO: This allows us to retrieve the GraphOutputs from the remote debugger.
-// If the remote debugger events had a unique ID for each run, this would feel a lot less hacky.
-// For now, it will be impossible to support parallel processing in remote debugger mode.
-let graphExecutionPromise: {
-  promise: Promise<GraphOutputs> | undefined;
-  resolve: ((value: GraphOutputs) => void) | undefined;
-  reject: ((reason?: any) => void) | undefined;
-};
+import { useEffect } from 'react';
+import { createRemoteExecutorMessageHandler } from './remoteExecutorProtocol';
+import { beginRemoteExecutionSession } from './remoteExecutionSession';
 
 export function useRemoteExecutor() {
   const project = useAtomValue(projectState);
@@ -97,85 +85,12 @@ export function useRemoteExecutor() {
     );
   }
 
-  const logRemoteTrace = (data: unknown) => {
-    if (typeof data === 'object' && data !== null && 'message' in data) {
-      const traceData = data as { level?: 'log' | 'info' | 'warn' | 'error' | 'debug'; message: unknown; source?: string };
-      const tracePrefix = traceData.level === 'error' ? 'sidecar stderr' : 'sidecar stdout';
-      const traceMessage = String(traceData.message);
-
-      switch (traceData.level) {
-        case 'error':
-          console.error(tracePrefix, traceMessage);
-          break;
-        case 'warn':
-          console.warn(tracePrefix, traceMessage);
-          break;
-        case 'info':
-          console.info(tracePrefix, traceMessage);
-          break;
-        case 'debug':
-          console.debug(tracePrefix, traceMessage);
-          break;
-        default:
-          console.log(tracePrefix, traceMessage);
-          break;
-      }
-
-      return;
-    }
-
-    console.log('sidecar stdout', data);
-  };
-
-  const simpleMessageHandlers: Partial<Record<string, (data: unknown) => void>> = {
-    nodeStart: (data) => currentExecution.onNodeStart(data as ProcessEvents['nodeStart']),
-    nodeFinish: (data) => currentExecution.onNodeFinish(data as ProcessEvents['nodeFinish']),
-    nodeError: (data) => currentExecution.onNodeError(data as ProcessEvents['nodeError']),
-    userInput: (data) => currentExecution.onUserInput(data as ProcessEvents['userInput']),
-    start: (data) => currentExecution.onStart(data as ProcessEvents['start']),
-    graphAbort: (data) => currentExecution.onGraphAbort(data as ProcessEvents['graphAbort']),
-    partialOutput: (data) => currentExecution.onPartialOutput(data as ProcessEvents['partialOutput']),
-    graphStart: (data) => currentExecution.onGraphStart(data as ProcessEvents['graphStart']),
-    graphFinish: (data) => currentExecution.onGraphFinish(data as ProcessEvents['graphFinish']),
-    nodeOutputsCleared: (data) => currentExecution.onNodeOutputsCleared(data as ProcessEvents['nodeOutputsCleared']),
-    nodeExcluded: (data) => currentExecution.onNodeExcluded(data as ProcessEvents['nodeExcluded']),
-  };
-
-  setCurrentDebuggerMessageHandler((message, data) => {
-    const simpleHandler = simpleMessageHandlers[message];
-    if (simpleHandler) {
-      simpleHandler(data);
-      return;
-    }
-
-    switch (message) {
-      case 'done':
-        const doneData = data as ProcessEvents['done'];
-        graphExecutionPromise?.resolve?.(doneData.results);
-        currentExecution.onDone(doneData);
-        break;
-      case 'abort':
-        graphExecutionPromise?.reject?.(new Error('graph execution aborted'));
-        currentExecution.onAbort(data as ProcessEvents['abort']);
-        break;
-      case 'trace':
-        logRemoteTrace(data);
-        break;
-      case 'pause':
-        currentExecution.onPause();
-        break;
-      case 'resume':
-        currentExecution.onResume();
-        break;
-      case 'error':
-        const errorData = data as ProcessEvents['error'];
-        graphExecutionPromise?.reject?.(errorData.error);
-        currentExecution.onError(errorData);
-        break;
-      default:
-        console.warn('Unhandled remote debugger message', message, data);
-    }
-  });
+  useEffect(() => {
+    setCurrentDebuggerMessageHandler(createRemoteExecutorMessageHandler(currentExecution));
+    return () => {
+      setCurrentDebuggerMessageHandler(null);
+    };
+  }, [currentExecution]);
 
   const tryRunGraph = async (options: { to?: NodeId[]; from?: NodeId; graphId?: GraphId } = {}) => {
     if (!isExecutorConnected()) {
@@ -197,11 +112,6 @@ export function useRemoteExecutor() {
     });
 
     const graphToRun = options.graphId ?? graph.metadata!.id!;
-
-    // !! DEBUG: dump graph data being sent
-    logHostedDebug('log', '[tryRunGraph] graphToRun=%s, graph.metadata.id=%s, options.graphId=%s', graphToRun, graph.metadata?.id, options.graphId);
-    logHostedDebug('log', '[tryRunGraph] project.graphs keys=%s', Object.keys(project.graphs ?? {}).join(', '));
-    logHostedDebug('log', '[tryRunGraph] project.metadata.mainGraphId=%s', project.metadata?.mainGraphId);
 
     try {
       await uploadProjectToExecutor(project);
@@ -265,26 +175,13 @@ export function useRemoteExecutor() {
           },
           runGraph: async (project, graphId, inputs) => {
             await uploadProjectToExecutor(project);
-
-            {
-              let resolve: (value: GraphOutputs) => void;
-              let reject: (err: string) => void;
-              const promise = new Promise<GraphOutputs>((res, rej) => {
-                resolve = res;
-                reject = rej;
-              });
-              graphExecutionPromise = {
-                promise,
-                resolve: resolve!,
-                reject: reject!,
-              };
-            }
+            const resultsPromise = beginRemoteExecutionSession();
 
             const contextValues = buildContextValues();
 
             remoteDebugger.send('run', { graphId, inputs, contextValues, projectPath: loadedProject.path });
 
-            const results = await graphExecutionPromise.promise!;
+            const results = await resultsPromise;
             return results;
           },
         });

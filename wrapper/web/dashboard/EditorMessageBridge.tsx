@@ -22,68 +22,11 @@ import { clearOpenedProjectSession, remapOpenedProjectSessionPaths } from '../io
 import { clearHostedProjectRevisionPath, remapHostedProjectRevisionPaths } from '../io/HostedIOProvider';
 import { useLoadProject } from '../overrides/hooks/useLoadProject';
 import { useSaveProject } from '../overrides/hooks/useSaveProject';
-
-const isSaveShortcutEvent = (event: KeyboardEvent) =>
-  (event.ctrlKey || event.metaKey) &&
-  !event.altKey &&
-  !event.shiftKey &&
-  (event.code === 'KeyS' || event.key.toLowerCase() === 's');
-
-const EDITOR_CANVAS_SELECTOR = '.node-canvas';
-const CANVAS_FOCUS_PRESERVE_SELECTOR = 'input, textarea, select, button, [contenteditable="true"], [contenteditable=""], [role="textbox"]';
-
-const focusElement = (element: HTMLElement | HTMLIFrameElement | null) => {
-  if (!element) {
-    return;
-  }
-
-  try {
-    element.focus({ preventScroll: true });
-  } catch {
-    element.focus();
-  }
-};
-
-const focusHostedEditorFrame = () => {
-  const frameElement = window.frameElement;
-
-  if (!(frameElement instanceof HTMLIFrameElement)) {
-    return;
-  }
-
-  focusElement(frameElement);
-};
-
-const isEditableElement = (element: Element | null | undefined): element is HTMLElement => {
-  if (!(element instanceof HTMLElement)) {
-    return false;
-  }
-
-  if (element.isContentEditable) {
-    return true;
-  }
-
-  return ['input', 'textarea', 'select'].includes(element.tagName.toLowerCase());
-};
-
-const shouldPreserveCanvasFocusTarget = (target: Element) =>
-  target.closest(CANVAS_FOCUS_PRESERVE_SELECTOR) !== null || (target instanceof HTMLElement && target.isContentEditable);
-
-const focusHostedEditorCanvas = (target: Element) => {
-  const canvasElement = target.closest(EDITOR_CANVAS_SELECTOR);
-
-  if (!(canvasElement instanceof HTMLElement) || shouldPreserveCanvasFocusTarget(target)) {
-    return;
-  }
-
-  const activeElement = document.activeElement;
-  if (isEditableElement(activeElement)) {
-    activeElement.blur();
-  }
-
-  canvasElement.tabIndex = -1;
-  focusElement(canvasElement);
-};
+import {
+  focusHostedEditorCanvas,
+  focusHostedEditorFrame,
+  isSaveShortcutEvent,
+} from './editorBridgeFocus';
 
 function getRecordingStartGraphId(recorder: ExecutionRecorder): string | undefined {
   for (const event of recorder.events) {
@@ -168,7 +111,7 @@ export const EditorMessageBridge: FC = () => {
         return;
       }
 
-      if (!event.target.closest(EDITOR_CANVAS_SELECTOR)) {
+      if (!event.target.closest('.node-canvas')) {
         return;
       }
 

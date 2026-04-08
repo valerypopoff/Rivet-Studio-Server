@@ -38,6 +38,51 @@ Three compatibility boundaries must remain explicit throughout the refactor:
 2. control-plane backend vs execution-plane backend
 3. runtime-library job-worker mode vs sync-only mode
 
+## Post-Implementation Audit `DONE`
+
+This follow-up audit pass hardened the gaps that remained after the original refactor landed. It kept the accepted architecture intact, avoided reopening stable seams, and focused only on the concrete issues confirmed by code inspection.
+
+### P0 hardening
+
+- `ManagedWorkflowExecutionService` is now context-only; the legacy constructor/testing escape hatch was removed.
+- filesystem recordings were finished as an explicit split across orchestration, artifact IO, metadata normalization, and maintenance helpers.
+- runtime-library modal lifecycle wiring was flattened so streaming and refresh paths are easier to reason about.
+- hosted remote execution session overlap now rejects the previous unresolved run deterministically instead of silently replacing it.
+- the `_env.tpl` render/newline regression is now covered by a tighter dedicated test in addition to the broader Kubernetes verification pass.
+
+### P1 finish-cleanup
+
+- `projectSettingsForm.ts` now owns project-settings validation and formatting helpers.
+- `RunRecordingsModal.tsx` now delegates workflow selection and run-list rendering to focused components.
+- direct tests were added for `endpoint-sync.ts`, `apiRequest.ts`, `remoteExecutionSession.ts`, and `remoteExecutorProtocol.ts`.
+- `verify:web-pure` now runs the pure web helper tests with `npx tsx --test`.
+- the Playwright coverage set now includes dedicated project-settings and run-recordings modal specs.
+
+### P2 optional polish
+
+- keep `storage-backend.ts` as the readable compatibility seam; do not abstract it further without a concrete failure.
+- do not add a separate frontend test framework in this repo.
+- do not reopen `NavigationBar.tsx` or `EditorMessageBridge.tsx` unless a concrete bug forces it.
+- do not change Kubernetes topology or present hosted remote execution as multi-run capable.
+
+### Follow-up checklist
+
+- [x] Execution service constructor cleanup
+- [x] Filesystem recordings final split
+- [x] Project settings form extraction
+- [x] Run recordings component split
+- [x] Runtime libraries modal lifecycle hardening
+- [x] Remote execution session semantics + tests
+- [x] Pure helper coverage completion
+- [x] Kubernetes helper render regression lock
+
+### Do not reopen
+
+- do not further abstract `storage-backend.ts`
+- do not add a frontend test framework
+- do not change Kubernetes topology
+- do not pretend remote execution is multi-run capable
+
 ## Anti-Complexity Guardrails
 
 These rules apply to every workstream. The refactor is only successful if it removes complexity instead of redistributing it.
@@ -116,7 +161,7 @@ No new public types should leak outside these internals.
 
 ## Refactor Workstreams
 
-### 1. Managed workflow backend: finish the split around real infrastructure seams
+### 1. Managed workflow backend: finish the split around real infrastructure seams `DONE`
 
 **Target files**
 
@@ -210,7 +255,7 @@ No new public types should leak outside these internals.
 - context objects can become hidden service locators if they grow without discipline
 - merging revision and recording blob helpers too aggressively can create a new mixed-purpose module instead of reducing complexity
 
-### 2. Managed runtime libraries: split the next backend monster without inventing a new platform layer
+### 2. Managed runtime libraries: split the next backend monster without inventing a new platform layer `DONE`
 
 **Target files**
 
@@ -297,7 +342,7 @@ No new public types should leak outside these internals.
 - hiding `jobWorkerEnabled` behind too much structure would make the supported runtime modes less obvious
 - SSE stream behavior is externally visible; even small framing changes would be a functional regression
 
-### 3. Backend compatibility boundaries and filesystem recording-state cleanup
+### 3. Backend compatibility boundaries and filesystem recording-state cleanup `DONE`
 
 **Target files**
 
@@ -364,7 +409,7 @@ No new public types should leak outside these internals.
 - over-abstracting `storage-backend.ts` would remove one of the most important readability seams in the codebase
 - `native-io.ts` exposes managed virtual-path behavior that is subtly different from filesystem semantics; collapsing them too aggressively could introduce edge-case regressions
 
-### 4. Frontend dashboard, modal, and client decomposition
+### 4. Frontend dashboard, modal, and client decomposition `DONE`
 
 **Target files**
 
@@ -452,7 +497,7 @@ No new public types should leak outside these internals.
 - the current `graphExecutionPromise` behavior is intentionally limited; refactoring it must preserve that limitation without implying new concurrency support
 - dashboard focus/iframe behavior is browser-visible and easy to regress
 
-### 5. Kubernetes and ops transparency refactor
+### 5. Kubernetes and ops transparency refactor `DONE`
 
 **Target files**
 
@@ -519,7 +564,7 @@ No new public types should leak outside these internals.
 - backend and execution look similar but are not identical; excessive helper extraction can erase important differences
 - launcher script dedup can reduce clarity if it hides actual command flow behind generic wrappers
 
-### 6. Test harness consolidation and extracted-module coverage
+### 6. Test harness consolidation and extracted-module coverage `DONE`
 
 **Target files**
 
@@ -589,7 +634,7 @@ No new public types should leak outside these internals.
 - table-driven conversions can reduce readability if the scenarios are only superficially similar
 - adding too many helper layers to tests can reproduce the same complexity problem seen in production code
 
-### 7. Documentation and architecture map refresh
+### 7. Documentation and architecture map refresh `DONE`
 
 **Target files**
 

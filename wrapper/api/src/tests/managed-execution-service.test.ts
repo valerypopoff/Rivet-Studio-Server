@@ -7,51 +7,12 @@ import { ManagedWorkflowExecutionCache } from '../routes/workflows/managed/execu
 import { ManagedWorkflowExecutionInvalidationController } from '../routes/workflows/managed/execution-invalidation.js';
 import { ManagedWorkflowExecutionService } from '../routes/workflows/managed/execution-service.js';
 import { getManagedWorkflowProjectVirtualPath } from '../routes/workflows/virtual-paths.js';
+import { createDeferred, FakeListener } from './helpers/managed-backend-harness.js';
 import type {
   ManagedExecutionPointerLookupResult,
   ManagedExecutionRevisionRecord,
   ManagedExecutionWorkflowRecord,
 } from '../routes/workflows/managed/execution-types.js';
-
-class FakeListener {
-  notificationHandler: ((message: { channel: string; payload?: string | null }) => void) | null = null;
-  errorHandler: ((error: unknown) => void) | null = null;
-  endHandler: (() => void) | null = null;
-
-  async connect(): Promise<this> {
-    return this;
-  }
-
-  async query(): Promise<void> {
-  }
-
-  async end(): Promise<void> {
-  }
-
-  on(event: 'notification' | 'error' | 'end', handler: (...args: any[]) => void): void {
-    if (event === 'notification') {
-      this.notificationHandler = handler as (message: { channel: string; payload?: string | null }) => void;
-      return;
-    }
-
-    if (event === 'error') {
-      this.errorHandler = handler as (error: unknown) => void;
-      return;
-    }
-
-    this.endHandler = handler as () => void;
-  }
-
-  removeAllListeners(): void {
-    this.notificationHandler = null;
-    this.errorHandler = null;
-    this.endHandler = null;
-  }
-
-  emitError(error: unknown): void {
-    this.errorHandler?.(error);
-  }
-}
 
 function createControllerFixture() {
   const listener = new FakeListener();
@@ -97,8 +58,7 @@ function createExecutionServiceFixture(options: {
   let readRevisionContentsCount = 0;
   let getWorkflowByRelativePathCount = 0;
   let getWorkflowByIdCount = 0;
-
-  const service = new ManagedWorkflowExecutionService({
+  const context: ManagedWorkflowExecutionContextFixture = {
     pool: {} as Pool,
     blobStore: {
       async getText() {
@@ -106,46 +66,54 @@ function createExecutionServiceFixture(options: {
       },
     },
     executionCache: cache,
-    invalidationController: controller,
-    getWorkflowByRelativePath: async (_client, relativePath) => {
-      getWorkflowByRelativePathCount += 1;
-      return options.getWorkflowByRelativePath
-        ? options.getWorkflowByRelativePath(relativePath)
-        : relativePath === workflow.relative_path
-          ? workflow
-          : null;
+    executionInvalidationController: controller,
+    queries: {
+      getWorkflowByRelativePath: async (_client, relativePath) => {
+        getWorkflowByRelativePathCount += 1;
+        return options.getWorkflowByRelativePath
+          ? options.getWorkflowByRelativePath(relativePath)
+          : relativePath === workflow.relative_path
+            ? workflow
+            : null;
+      },
+      getWorkflowById: async (_client, workflowId) => {
+        getWorkflowByIdCount += 1;
+        return options.getWorkflowById
+          ? options.getWorkflowById(workflowId)
+          : workflowId === workflow.workflow_id
+            ? workflow
+            : null;
+      },
+      getRevision: async (_client, revisionId) => options.getRevision ? options.getRevision(revisionId) : revisionId === revision.revision_id ? revision : null,
+      resolveExecutionPointerFromDatabase: async (_client, _runKind, lookupName) => {
+        resolveCount += 1;
+        return options.resolveExecutionPointerFromDatabase
+          ? options.resolveExecutionPointerFromDatabase(lookupName)
+          : {
+              pointer: {
+                workflowId: workflow.workflow_id,
+                relativePath: workflow.relative_path,
+                revisionId: revision.revision_id,
+              },
+              revision,
+            };
+      },
     },
-    getWorkflowById: async (_client, workflowId) => {
-      getWorkflowByIdCount += 1;
-      return options.getWorkflowById
-        ? options.getWorkflowById(workflowId)
-        : workflowId === workflow.workflow_id
-          ? workflow
-          : null;
+    revisions: {
+      readRevisionContents: async (loadedRevision) => {
+        readRevisionContentsCount += 1;
+        return options.readRevisionContents
+          ? options.readRevisionContents(loadedRevision)
+          : {
+              contents: projectContents,
+              datasetsContents: null,
+            };
+      },
     },
-    getRevision: async (_client, revisionId) => options.getRevision ? options.getRevision(revisionId) : revisionId === revision.revision_id ? revision : null,
-    readRevisionContents: async (loadedRevision) => {
-      readRevisionContentsCount += 1;
-      return options.readRevisionContents
-        ? options.readRevisionContents(loadedRevision)
-        : {
-            contents: projectContents,
-            datasetsContents: null,
-          };
-    },
-    resolveExecutionPointerFromDatabase: async (_client, _runKind, lookupName) => {
-      resolveCount += 1;
-      return options.resolveExecutionPointerFromDatabase
-        ? options.resolveExecutionPointerFromDatabase(lookupName)
-        : {
-            pointer: {
-              workflowId: workflow.workflow_id,
-              relativePath: workflow.relative_path,
-              revisionId: revision.revision_id,
-            },
-            revision,
-          };
-    },
+  };
+
+  const service = new ManagedWorkflowExecutionService({
+    context,
   });
 
   return {
@@ -171,17 +139,33 @@ function createExecutionServiceFixture(options: {
   };
 }
 
-function createDeferred<T>() {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((innerResolve) => {
-    resolve = innerResolve;
-  });
-
-  return {
-    promise,
-    resolve,
+type ManagedWorkflowExecutionContextFixture = Pick<
+  {
+    pool: Pool;
+    blobStore: {
+      getText(key: string): Promise<string>;
+    };
+    executionCache: ManagedWorkflowExecutionCache;
+    executionInvalidationController: ManagedWorkflowExecutionInvalidationController;
+  },
+  'pool' | 'blobStore' | 'executionCache' | 'executionInvalidationController'
+> & {
+  queries: {
+    getWorkflowByRelativePath(client: Pool, relativePath: string): Promise<ManagedExecutionWorkflowRecord | null>;
+    getWorkflowById(client: Pool, workflowId: string): Promise<ManagedExecutionWorkflowRecord | null>;
+    getRevision(client: Pool, revisionId: string | null | undefined): Promise<ManagedExecutionRevisionRecord | null>;
+    resolveExecutionPointerFromDatabase(
+      client: Pool,
+      runKind: 'published' | 'latest',
+      lookupName: string,
+    ): Promise<ManagedExecutionPointerLookupResult | null>;
   };
-}
+  revisions: {
+    readRevisionContents(
+      revision: ManagedExecutionRevisionRecord,
+    ): Promise<{ contents: string; datasetsContents: string | null }>;
+  };
+};
 
 test('warm pointer hit does not re-run joined DB resolution', async () => {
   const fixture = createExecutionServiceFixture({});

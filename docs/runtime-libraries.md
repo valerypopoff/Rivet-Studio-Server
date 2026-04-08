@@ -25,6 +25,26 @@ managed workflow storage and uses the fixed object key prefix `runtime-libraries
 That means `RIVET_STORAGE_MODE=managed` switches both workflows and runtime libraries
 to the managed backend together.
 
+## Backend wiring
+
+The runtime-library backend is still selected once per process in
+`wrapper/api/src/runtime-libraries/backend.ts`:
+
+- `filesystem` creates the legacy single-host backend
+- `managed` creates `ManagedRuntimeLibrariesBackend`
+
+That managed facade keeps the supported runtime modes visible instead of hiding them:
+
+- `managed/backend.ts` owns lifecycle, chooses whether this process is worker-enabled or sync-only, and preserves the public API surface
+- `managed/context.ts` owns the shared Postgres/blob-store/local-cache/process identity dependencies
+- `managed/job-store.ts` owns job persistence, job-log appends, heartbeats, and cancellation flags
+- `managed/job-stream.ts` owns SSE framing and termination semantics
+- `managed/job-worker.ts` owns claim/heartbeat/recovery loops for worker-enabled processes
+- `managed/artifact-activation.ts` owns build-upload-activate-finalize sequencing
+- `managed/process-registry.ts` owns in-flight child-process tracking and termination
+- `managed/replica-status.ts` owns stale-replica cleanup helpers
+- `managed/cleanup.ts` remains the separate audit/prune orchestrator for historical releases, jobs, and orphaned artifacts
+
 Canonical managed config:
 
 - `RIVET_STORAGE_MODE=managed`
@@ -114,6 +134,16 @@ of truth is:
 
 - Postgres for release metadata, activation state, and job state
 - object storage for immutable `runtime-libraries/releases/<releaseId>/release.tar` artifacts
+
+## Execution bootstrap
+
+Runtime-library sync is part of execution wiring, not only the admin UI:
+
+- `prepareRuntimeLibrariesForExecution()` goes through the root runtime-library backend singleton
+- API-side `Code` node execution reaches that path through `ManagedCodeRunner`
+- `ManagedRuntimeLibrariesBackend.prepareForExecution()` forces the managed backend to initialize and reconcile the local `current/` cache before code execution continues
+- in managed mode, `managed/context.ts` prefers the process-local `globalThis.__RIVET_PREPARE_RUNTIME_LIBRARIES__` hook when one exists, then falls back to `localCache.sync(force)`
+- that keeps API processes and executor processes on the same "prepare then resolve `current/node_modules`" contract even though they are different runtimes
 
 ## API surface
 
@@ -284,9 +314,27 @@ The current wrapper UI exposes a simple single-package workflow:
 - while the modal is open in `managed` mode, poll `/api/runtime-libraries` every 5 seconds even when no job is active
 - keep replica details collapsed by default, with expandable per-replica sync/error detail for debugging partial convergence
 - when stale rows exist, show a `Clear stale replicas` action that calls the cleanup route and refreshes readiness state
+- `RuntimeLibrariesModal.tsx` remains the shell, `useRuntimeLibrariesModalState.ts` remains the public controller, and `runtimeLibrariesJobStream.ts` owns SSE connection helpers plus log/status patching so those state transitions are not duplicated inside the hook
 
 The underlying API accepts arrays for install/remove requests, so bulk operations are possible programmatically even though the dashboard currently uses one-at-a-time actions.
 
 ## Related feature
 
 The adjacent `Run recordings` action is separate. It browses stored workflow execution recordings, opens replay bundles back into the editor by `recordingId`, and can delete individual runs; see [workflow-publication.md](workflow-publication.md).
+
+## Key files
+
+- `wrapper/api/src/runtime-libraries/backend.ts` - root backend singleton chooser and public `prepareForExecution()` entrypoint
+- `wrapper/api/src/runtime-libraries/managed/backend.ts` - managed facade that keeps job-worker-enabled versus sync-only ownership explicit
+- `wrapper/api/src/runtime-libraries/managed/context.ts` - managed Postgres/blob-store/local-cache context plus global prepare-hook fallback
+- `wrapper/api/src/runtime-libraries/managed/job-store.ts` - managed job persistence, logs, cancellation, and heartbeats
+- `wrapper/api/src/runtime-libraries/managed/job-stream.ts` - SSE framing and done/error termination
+- `wrapper/api/src/runtime-libraries/managed/job-worker.ts` - worker loop, job claiming, and stale-job recovery
+- `wrapper/api/src/runtime-libraries/managed/artifact-activation.ts` - build-upload-activate-finalize flow
+- `wrapper/api/src/runtime-libraries/managed/process-registry.ts` - running-process tracking and termination
+- `wrapper/api/src/runtime-libraries/managed/replica-status.ts` - stale-replica cleanup helpers
+- `wrapper/api/src/runtime-libraries/managed/cleanup.ts` - audit/prune tooling for historical managed state
+- `wrapper/api/src/runtime-libraries/managed-code-runner.ts` - API-side `Code` node resolution path that prepares runtime libraries before execution
+- `wrapper/web/dashboard/RuntimeLibrariesModal.tsx` - modal shell
+- `wrapper/web/dashboard/useRuntimeLibrariesModalState.ts` - public dashboard controller for runtime-library admin flows
+- `wrapper/web/dashboard/runtimeLibrariesJobStream.ts` - browser-side SSE/log/status helper layer

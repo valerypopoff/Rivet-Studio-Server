@@ -22,20 +22,28 @@ type ManagedWorkflowExecutionBlobStore = {
   getText(key: string): Promise<string>;
 };
 
-type ManagedWorkflowExecutionServiceDependencies = {
+type ManagedWorkflowExecutionContext = {
   pool: Pool;
   blobStore: ManagedWorkflowExecutionBlobStore;
   executionCache: ManagedWorkflowExecutionCache;
-  invalidationController: ManagedWorkflowExecutionInvalidationController;
-  getWorkflowByRelativePath(client: Pool, relativePath: string): Promise<ManagedExecutionWorkflowRecord | null>;
-  getWorkflowById(client: Pool, workflowId: string): Promise<ManagedExecutionWorkflowRecord | null>;
-  getRevision(client: Pool, revisionId: string | null | undefined): Promise<ManagedExecutionRevisionRecord | null>;
-  readRevisionContents?(revision: ManagedExecutionRevisionRecord): Promise<{ contents: string; datasetsContents: string | null }>;
-  resolveExecutionPointerFromDatabase(
-    client: Pool,
-    runKind: ManagedWorkflowRunKind,
-    lookupName: string,
-  ): Promise<ManagedExecutionPointerLookupResult | null>;
+  executionInvalidationController: ManagedWorkflowExecutionInvalidationController;
+  queries: {
+    getWorkflowByRelativePath(client: Pool, relativePath: string): Promise<ManagedExecutionWorkflowRecord | null>;
+    getWorkflowById(client: Pool, workflowId: string): Promise<ManagedExecutionWorkflowRecord | null>;
+    getRevision(client: Pool, revisionId: string | null | undefined): Promise<ManagedExecutionRevisionRecord | null>;
+    resolveExecutionPointerFromDatabase(
+      client: Pool,
+      runKind: ManagedWorkflowRunKind,
+      lookupName: string,
+    ): Promise<ManagedExecutionPointerLookupResult | null>;
+  };
+  revisions: {
+    readRevisionContents(revision: ManagedExecutionRevisionRecord): Promise<{ contents: string; datasetsContents: string | null }>;
+  };
+};
+
+type ManagedWorkflowExecutionServiceDependencies = {
+  context: ManagedWorkflowExecutionContext;
 };
 
 export class ManagedWorkflowExecutionService {
@@ -43,24 +51,28 @@ export class ManagedWorkflowExecutionService {
   readonly #blobStore: ManagedWorkflowExecutionBlobStore;
   readonly #executionCache: ManagedWorkflowExecutionCache;
   readonly #invalidationController: ManagedWorkflowExecutionInvalidationController;
-  readonly #getWorkflowByRelativePath: ManagedWorkflowExecutionServiceDependencies['getWorkflowByRelativePath'];
-  readonly #getWorkflowById: ManagedWorkflowExecutionServiceDependencies['getWorkflowById'];
-  readonly #getRevision: ManagedWorkflowExecutionServiceDependencies['getRevision'];
-  readonly #readRevisionContents: NonNullable<ManagedWorkflowExecutionServiceDependencies['readRevisionContents']>;
-  readonly #resolveExecutionPointerFromDatabase: ManagedWorkflowExecutionServiceDependencies['resolveExecutionPointerFromDatabase'];
+  readonly #getWorkflowByRelativePath: (client: Pool, relativePath: string) => Promise<ManagedExecutionWorkflowRecord | null>;
+  readonly #getWorkflowById: (client: Pool, workflowId: string) => Promise<ManagedExecutionWorkflowRecord | null>;
+  readonly #getRevision: (client: Pool, revisionId: string | null | undefined) => Promise<ManagedExecutionRevisionRecord | null>;
+  readonly #readRevisionContents: (revision: ManagedExecutionRevisionRecord) => Promise<{ contents: string; datasetsContents: string | null }>;
+  readonly #resolveExecutionPointerFromDatabase: (
+    client: Pool,
+    runKind: ManagedWorkflowRunKind,
+    lookupName: string,
+  ) => Promise<ManagedExecutionPointerLookupResult | null>;
   readonly #endpointLoadInflight = new Map<string, Promise<ManagedExecutionProjectResult | null>>();
   readonly #revisionMaterializationInflight = new Map<string, Promise<ManagedRevisionMaterializationCacheEntry>>();
 
   constructor(dependencies: ManagedWorkflowExecutionServiceDependencies) {
-    this.#pool = dependencies.pool;
-    this.#blobStore = dependencies.blobStore;
-    this.#executionCache = dependencies.executionCache;
-    this.#invalidationController = dependencies.invalidationController;
-    this.#getWorkflowByRelativePath = dependencies.getWorkflowByRelativePath;
-    this.#getWorkflowById = dependencies.getWorkflowById;
-    this.#getRevision = dependencies.getRevision;
-    this.#readRevisionContents = dependencies.readRevisionContents ?? ((revision) => this.#readRevisionContentsFromBlobStore(revision));
-    this.#resolveExecutionPointerFromDatabase = dependencies.resolveExecutionPointerFromDatabase;
+    this.#pool = dependencies.context.pool;
+    this.#blobStore = dependencies.context.blobStore as ManagedWorkflowExecutionBlobStore;
+    this.#executionCache = dependencies.context.executionCache;
+    this.#invalidationController = dependencies.context.executionInvalidationController;
+    this.#getWorkflowByRelativePath = dependencies.context.queries.getWorkflowByRelativePath;
+    this.#getWorkflowById = dependencies.context.queries.getWorkflowById;
+    this.#getRevision = dependencies.context.queries.getRevision;
+    this.#readRevisionContents = (revision) => dependencies.context.revisions.readRevisionContents(revision);
+    this.#resolveExecutionPointerFromDatabase = dependencies.context.queries.resolveExecutionPointerFromDatabase;
   }
 
   async loadPublishedExecutionProject(endpointName: string): Promise<ManagedExecutionProjectResult | null> {

@@ -128,9 +128,19 @@ For the real chart contract, local Kubernetes rehearsal, and production handoff 
 ```text
 Browser -> nginx (proxy)
            |- / -> web
-           |- /api/* -> api
+           |- /api/* -> control-plane api
+           |- /workflows/* -> execution-plane api
+           |- /workflows-latest/* -> control-plane api
+           |- /ws/latest-debugger -> control-plane api
            `- /ws/executor* -> executor
 ```
+
+Internally, the wrapper now keeps the major ownership seams explicit:
+
+- workflow-managed backend code is split into a thin facade plus focused modules under `wrapper/api/src/routes/workflows/managed/`
+- managed runtime-library orchestration is split into focused modules under `wrapper/api/src/runtime-libraries/managed/`
+- dashboard-heavy UI state now lives in controller/helpers under `wrapper/web/dashboard/`
+- remote debugger and remote executor transport state now live in dedicated client/protocol/session modules under `wrapper/web/overrides/hooks/`
 
 ## Security
 

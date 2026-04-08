@@ -1,10 +1,10 @@
 import { expect, test, type Request } from '@playwright/test';
 import { authenticateIfNeeded, waitForDashboardReady } from './helpers/hostedEditorObserve';
 import {
+  cleanupWorkflowProject,
   createWorkflowFolder,
   createWorkflowProject,
   deleteWorkflowFolder,
-  deleteWorkflowProject,
   ensureFolderExpanded,
   requireManagedMutationOptIn,
 } from './helpers/workflowLibraryObserve';
@@ -93,7 +93,7 @@ test.describe('Managed special workflow paths', () => {
       await expect(page.locator('.active-project-save-button')).toHaveText('Save', { timeout: 120_000 });
     } finally {
       if (projectRelativePath) {
-        await deleteWorkflowProject(page, projectRelativePath).catch(() => {});
+        await cleanupWorkflowProject(page, projectRelativePath).catch(() => {});
       }
       if (folderRelativePath) {
         await deleteWorkflowFolder(page, folderRelativePath).catch(() => {});

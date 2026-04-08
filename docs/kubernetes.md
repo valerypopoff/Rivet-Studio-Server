@@ -125,8 +125,18 @@ The production contract today is:
 - `env.RIVET_LATEST_WORKFLOWS_BASE_PATH=/workflows-latest`
 - `clusterDomain=cluster.local` unless the cluster DNS suffix is different
 - `env.RIVET_PROXY_RESOLVER` must be set for in-cluster nginx DNS resolution
+- control-plane runtime-library reporting should stay at `RIVET_RUNTIME_LIBRARIES_REPLICA_TIER=none` with the job worker enabled there
+- execution-plane runtime-library reporting should stay at `RIVET_RUNTIME_LIBRARIES_REPLICA_TIER=endpoint` with `RIVET_RUNTIME_LIBRARIES_JOB_WORKER_ENABLED=false`
+- executor runtime-library reporting should stay at `RIVET_RUNTIME_LIBRARIES_REPLICA_TIER=editor`
 - `proxy` and `execution` scale independently; they are not a tied pair
 - production resource requests should be defined before relying on CPU-based HPA decisions
+
+Chart-maintainer note:
+
+- backend/execution chart reuse is intentionally shallow
+- shared env and pod fragments live in `_env.tpl` and `_pod.tpl`
+- API containers mount app-data at `/data/rivet-app`, while the executor keeps its app-data mount at `/home/rivet/.local/share/com.ironcladapp.rivet` because it still expects the Rivet desktop storage layout
+- `proxy` and `web` remain mostly explicit so rendered pod shape stays operator-readable
 
 ## Repo-local verification
 
@@ -166,4 +176,5 @@ Then validate:
 - keep the same `RIVET_KEY` available to both `proxy` and the API workloads
 - route `${RIVET_LATEST_WORKFLOWS_BASE_PATH}` and `/ws/latest-debugger` to the singleton control plane
 - route `${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH}` to the execution plane
+- keep runtime-library job ownership on the singleton control plane and keep execution replicas in sync-only mode
 - treat the local launcher as a rehearsal wrapper around the real chart, not a separate deployment contract

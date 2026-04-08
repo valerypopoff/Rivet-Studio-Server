@@ -10,6 +10,7 @@ import type {
   RuntimeLibraryReplicaStatus,
   RuntimeLibraryReplicaTierState,
 } from '../../shared/runtime-library-types';
+import { parseJsonResponse } from './apiRequest';
 
 export type {
   RuntimeLibrariesState,
@@ -37,13 +38,7 @@ export interface SSEEvent {
   cancelRequestedAt?: string | null;
 }
 
-async function jsonResponse<T>(response: Response): Promise<T> {
-  if (!response.ok) {
-    const data = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(data.error || response.statusText);
-  }
-  return response.json() as Promise<T>;
-}
+const jsonResponse = <T,>(response: Response) => parseJsonResponse<T>(response);
 
 export async function fetchRuntimeLibraries(): Promise<RuntimeLibrariesState> {
   const response = await fetch(API);

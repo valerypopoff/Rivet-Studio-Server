@@ -1,10 +1,10 @@
 import { expect, test } from '@playwright/test';
 import { authenticateIfNeeded, waitForDashboardReady } from './helpers/hostedEditorObserve';
 import {
+  cleanupWorkflowProject,
   createWorkflowFolder,
   createWorkflowProject,
   deleteWorkflowFolder,
-  deleteWorkflowProject,
   ensureFolderExpanded,
   requireManagedMutationOptIn,
 } from './helpers/workflowLibraryObserve';
@@ -85,10 +85,10 @@ test.describe('Hosted open-project cache after rename', () => {
       expect(loadRequestCount).toBe(0);
     } finally {
       if (rootProjectRelativePath) {
-        await deleteWorkflowProject(page, rootProjectRelativePath).catch(() => {});
+        await cleanupWorkflowProject(page, rootProjectRelativePath).catch(() => {});
       }
       if (nestedProjectRelativePath) {
-        await deleteWorkflowProject(page, nestedProjectRelativePath).catch(() => {});
+        await cleanupWorkflowProject(page, nestedProjectRelativePath).catch(() => {});
       }
       if (folderRelativePath) {
         await deleteWorkflowFolder(page, folderRelativePath).catch(() => {});

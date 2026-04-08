@@ -1,8 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { promisify } from 'node:util';
-import { gunzip, gzip } from 'node:zlib';
 import {
   loadProjectFromFile,
   serializeDatasets,
@@ -13,30 +11,24 @@ import {
 } from '@ironclad/rivet-node';
 
 import type {
-  WorkflowRecordingBlobEncoding,
   WorkflowRecordingFilterStatus,
   WorkflowRecordingRunsPageResponse,
-  WorkflowRecordingRunSummary,
   WorkflowRecordingRunKind,
+  WorkflowRecordingRunSummary,
   WorkflowRecordingStatus,
   WorkflowRecordingWorkflowListResponse,
   WorkflowRecordingWorkflowSummary,
 } from '../../../../shared/workflow-recording-types.js';
 import { createHttpError } from '../../utils/httpError.js';
 import {
-  clearWorkflowRecordingIndex,
   countWorkflowRecordingRuns,
   deleteEmptyWorkflowRecordingWorkflows,
-  deleteWorkflowRecordingRunRow,
   deleteWorkflowRecordingWorkflowRow,
   getWorkflowRecordingRunRow,
   getWorkflowRecordingStorageState,
-  getWorkflowRecordingTotalCompressedBytes,
   getWorkflowRecordingWorkflowRowsBySourceProjectPath,
   listWorkflowRecordingRunRowsByWorkflowId,
   listWorkflowRecordingRunRowsForWorkflow,
-  listWorkflowRecordingRunsOlderThan,
-  listWorkflowRecordingRunsOldestFirst,
   listWorkflowRecordingWorkflowStatsRows,
   resetWorkflowRecordingDatabaseForTests,
   setWorkflowRecordingStorageState,
@@ -44,23 +36,29 @@ import {
   upsertWorkflowRecordingWorkflow,
   type WorkflowRecordingRunRow,
 } from './recordings-db.js';
+import { createWorkflowRecordingStore } from './recordings-store.js';
 import { getWorkflowRecordingConfig, isWorkflowRecordingEnabled } from './recordings-config.js';
 import {
-  getWorkflowProjectRecordingsRoot,
-  getWorkflowRecordingsRoot,
   getWorkflowRecordingBundlePath,
   getWorkflowRecordingMetadataPath,
-  getWorkflowRecordingPath,
-  getWorkflowRecordingReplayDatasetPath,
-  getWorkflowRecordingReplayProjectPath,
   listProjectPathsRecursive,
   pathExists,
   PROJECT_EXTENSION,
 } from './fs-helpers.js';
+import {
+  getRecordingArtifactPath,
+  readArtifactText,
+  serializeArtifact,
+  type WorkflowRecordingArtifactKind,
+} from './recordings-artifacts.js';
+import {
+  cleanupWorkflowRecordingStorage,
+  deleteRecordingRun,
+  rebuildWorkflowRecordingIndex,
+  removeEmptyWorkflowProjectRecordingsRoot,
+} from './recordings-maintenance.js';
+import { type StoredWorkflowRecordingMetadataV2 } from './recordings-metadata.js';
 import { getWorkflowProject } from './workflow-query.js';
-
-const gzipAsync = promisify(gzip);
-const gunzipAsync = promisify(gunzip);
 
 type PersistWorkflowExecutionRecordingOptions = {
   root: string;
@@ -77,587 +75,15 @@ type PersistWorkflowExecutionRecordingOptions = {
   errorMessage?: string;
 };
 
-type WorkflowRecordingArtifactKind = 'recording' | 'replay-project' | 'replay-dataset';
-type WorkflowRecordingPersistenceTask = () => Promise<void>;
-
-type StoredWorkflowRecordingMetadataV2 = {
-  version: 2;
-  id: string;
-  workflowId: string;
-  sourceProjectMetadataId: string;
-  sourceProjectName: string;
-  sourceProjectPath: string;
-  sourceProjectRelativePath: string;
-  endpointNameAtExecution: string;
-  createdAt: string;
-  runKind: WorkflowRecordingRunKind;
-  status: WorkflowRecordingStatus;
-  durationMs: number;
-  encoding: WorkflowRecordingBlobEncoding;
-  hasReplayDataset: boolean;
-  recordingCompressedBytes: number;
-  recordingUncompressedBytes: number;
-  projectCompressedBytes: number;
-  projectUncompressedBytes: number;
-  datasetCompressedBytes: number;
-  datasetUncompressedBytes: number;
-  errorMessage?: string;
-};
-
-type StoredWorkflowRecordingMetadataV1 = {
-  version: 1;
-  id: string;
-  sourceProjectMetadataId: string;
-  sourceProjectName: string;
-  sourceProjectPath: string;
-  sourceProjectRelativePath: string;
-  endpointNameAtExecution: string;
-  createdAt: string;
-  runKind: WorkflowRecordingRunKind;
-  status: WorkflowRecordingStatus;
-  durationMs: number;
-  recordingPath: string;
-  replayProjectPath: string;
-  errorMessage?: string;
-};
-
-type NormalizedStoredWorkflowRecording = {
-  workflowId: string;
-  sourceProjectMetadataId: string;
-  sourceProjectName: string;
-  sourceProjectPath: string;
-  sourceProjectRelativePath: string;
-  run: WorkflowRecordingRunRow;
-};
-
-type NormalizedStoredWorkflowRecordingFields = {
-  id: string;
-  workflowId: string;
-  sourceProjectMetadataId: string;
-  sourceProjectName: string;
-  sourceProjectPath: string;
-  sourceProjectRelativePath: string;
-  endpointNameAtExecution: string;
-  createdAt: string;
-  runKind: WorkflowRecordingRunKind;
-  status: WorkflowRecordingStatus;
-  durationMs: number;
-  errorMessage?: string;
-};
-
-let storageReadyPromise: Promise<void> | null = null;
-let storageReadyRoot = '';
-let cleanupPromise: Promise<void> | null = null;
-let cleanupRequested = false;
-let persistenceQueue: WorkflowRecordingPersistenceTask[] = [];
-let persistenceQueuePromise: Promise<void> | null = null;
-let lastDroppedPersistenceLogAt = 0;
-let resettingWorkflowRecordingStorageForTests = false;
-
-const PERSISTENCE_DROP_LOG_INTERVAL_MS = 60_000;
-
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === 'string' && value.trim().length > 0;
-}
-
-function normalizeNumber(value: unknown): number | null {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    return null;
-  }
-
-  return Math.max(0, Math.round(value));
-}
-
-function normalizeRunKind(value: unknown): WorkflowRecordingRunKind | null {
-  return value === 'published' || value === 'latest' ? value : null;
-}
-
-function normalizeStatus(value: unknown): WorkflowRecordingStatus | null {
-  return value === 'succeeded' || value === 'failed' || value === 'suspicious' ? value : null;
-}
-
-function normalizeEncoding(value: unknown): WorkflowRecordingBlobEncoding {
-  return value === 'identity' ? 'identity' : 'gzip';
-}
-
-function getEndpointRetentionKey(endpointName: string): string {
-  return endpointName.trim().toLowerCase();
-}
-
-function getRecordingArtifactPath(
-  bundlePath: string,
-  artifact: WorkflowRecordingArtifactKind,
-  encoding: WorkflowRecordingBlobEncoding,
-): string {
-  switch (artifact) {
-    case 'recording':
-      return getWorkflowRecordingPath(bundlePath, encoding);
-    case 'replay-project':
-      return getWorkflowRecordingReplayProjectPath(bundlePath, encoding);
-    case 'replay-dataset':
-      return getWorkflowRecordingReplayDatasetPath(bundlePath, encoding);
-  }
-}
-
-function getCompressedBundleSize(run: Pick<
-  WorkflowRecordingRunRow,
-  'recordingCompressedBytes' | 'projectCompressedBytes' | 'datasetCompressedBytes'
->): number {
-  return run.recordingCompressedBytes + run.projectCompressedBytes + run.datasetCompressedBytes;
-}
-
-async function readArtifactBuffer(
-  filePath: string,
-  encoding: WorkflowRecordingBlobEncoding,
-): Promise<{ compressed: Buffer; uncompressed: Buffer }> {
-  const compressed = await fs.readFile(filePath);
-  return {
-    compressed,
-    uncompressed: encoding === 'gzip' ? await gunzipAsync(compressed) : compressed,
-  };
-}
-
-async function readArtifactBytes(filePath: string, encoding: WorkflowRecordingBlobEncoding): Promise<{ compressedBytes: number; uncompressedBytes: number }> {
-  const { compressed, uncompressed } = await readArtifactBuffer(filePath, encoding);
-  return {
-    compressedBytes: compressed.byteLength,
-    uncompressedBytes: uncompressed.byteLength,
-  };
-}
-
-async function serializeArtifact(
-  text: string,
-  encoding: WorkflowRecordingBlobEncoding,
-  gzipLevel: number,
-): Promise<{ buffer: Buffer; compressedBytes: number; uncompressedBytes: number }> {
-  const uncompressed = Buffer.from(text, 'utf8');
-  if (encoding === 'identity') {
-    return {
-      buffer: uncompressed,
-      compressedBytes: uncompressed.byteLength,
-      uncompressedBytes: uncompressed.byteLength,
-    };
-  }
-
-  const compressed = await gzipAsync(uncompressed, { level: gzipLevel });
-  return {
-    buffer: compressed,
-    compressedBytes: compressed.byteLength,
-    uncompressedBytes: uncompressed.byteLength,
-  };
-}
-
-async function readArtifactText(filePath: string, encoding: WorkflowRecordingBlobEncoding): Promise<string> {
-  const { uncompressed } = await readArtifactBuffer(filePath, encoding);
-  return uncompressed.toString('utf8');
-}
-
-function normalizeOptionalErrorMessage(value: unknown): string | undefined {
-  return typeof value === 'string' && value.trim() ? value : undefined;
-}
-
-function normalizeStoredWorkflowRecordingFields(
-  raw: Record<string, unknown>,
-  workflowIdValue: unknown,
-): NormalizedStoredWorkflowRecordingFields | null {
-  const id = raw.id;
-  const workflowId = workflowIdValue;
-  const sourceProjectMetadataId = raw.sourceProjectMetadataId;
-  const sourceProjectName = raw.sourceProjectName;
-  const sourceProjectPath = raw.sourceProjectPath;
-  const sourceProjectRelativePath = raw.sourceProjectRelativePath;
-  const endpointNameAtExecution = raw.endpointNameAtExecution;
-  const createdAt = raw.createdAt;
-  const durationMs = normalizeNumber(raw.durationMs);
-  const runKind = normalizeRunKind(raw.runKind);
-  const status = normalizeStatus(raw.status);
-
-  if (
-    !isNonEmptyString(id) ||
-    !isNonEmptyString(workflowId) ||
-    !isNonEmptyString(sourceProjectMetadataId) ||
-    !isNonEmptyString(sourceProjectName) ||
-    !isNonEmptyString(sourceProjectPath) ||
-    !isNonEmptyString(sourceProjectRelativePath) ||
-    !isNonEmptyString(endpointNameAtExecution) ||
-    !isNonEmptyString(createdAt) ||
-    durationMs == null ||
-    runKind == null ||
-    status == null
-  ) {
-    return null;
-  }
-
-  return {
-    id,
-    workflowId,
-    sourceProjectMetadataId,
-    sourceProjectName,
-    sourceProjectPath,
-    sourceProjectRelativePath,
-    endpointNameAtExecution,
-    createdAt,
-    durationMs,
-    runKind,
-    status,
-    errorMessage: normalizeOptionalErrorMessage(raw.errorMessage),
-  };
-}
-
-async function normalizeStoredWorkflowRecording(
-  bundlePath: string,
-  value: unknown,
-): Promise<NormalizedStoredWorkflowRecording | null> {
-  if (value == null || typeof value !== 'object' || Array.isArray(value)) {
-    return null;
-  }
-
-  const raw = value as Record<string, unknown>;
-
-  if (raw.version === 2) {
-    const normalized = normalizeStoredWorkflowRecordingFields(raw, raw.workflowId);
-    if (!normalized) {
-      return null;
-    }
-
-    return {
-      workflowId: normalized.workflowId,
-      sourceProjectMetadataId: normalized.sourceProjectMetadataId,
-      sourceProjectName: normalized.sourceProjectName,
-      sourceProjectPath: normalized.sourceProjectPath,
-      sourceProjectRelativePath: normalized.sourceProjectRelativePath,
-      run: {
-        id: normalized.id,
-        workflowId: normalized.workflowId,
-        createdAt: normalized.createdAt,
-        runKind: normalized.runKind,
-        status: normalized.status,
-        durationMs: normalized.durationMs,
-        endpointNameAtExecution: normalized.endpointNameAtExecution,
-        errorMessage: normalized.errorMessage,
-        bundlePath,
-        encoding: normalizeEncoding(raw.encoding),
-        hasReplayDataset: raw.hasReplayDataset === true,
-        recordingCompressedBytes: normalizeNumber(raw.recordingCompressedBytes) ?? 0,
-        recordingUncompressedBytes: normalizeNumber(raw.recordingUncompressedBytes) ?? 0,
-        projectCompressedBytes: normalizeNumber(raw.projectCompressedBytes) ?? 0,
-        projectUncompressedBytes: normalizeNumber(raw.projectUncompressedBytes) ?? 0,
-        datasetCompressedBytes: normalizeNumber(raw.datasetCompressedBytes) ?? 0,
-        datasetUncompressedBytes: normalizeNumber(raw.datasetUncompressedBytes) ?? 0,
-      },
-    };
-  }
-
-  if (raw.version === 1) {
-    const normalized = normalizeStoredWorkflowRecordingFields(raw, raw.sourceProjectMetadataId);
-    if (!normalized) {
-      return null;
-    }
-
-    const gzipRecordingPath = getWorkflowRecordingPath(bundlePath, 'gzip');
-    const identityRecordingPath = getWorkflowRecordingPath(bundlePath, 'identity');
-    const encoding: WorkflowRecordingBlobEncoding = await pathExists(gzipRecordingPath) ? 'gzip' : 'identity';
-    const recordingPath = await pathExists(getWorkflowRecordingPath(bundlePath, encoding))
-      ? getWorkflowRecordingPath(bundlePath, encoding)
-      : await pathExists(identityRecordingPath)
-        ? identityRecordingPath
-        : gzipRecordingPath;
-    const projectPath = await pathExists(getWorkflowRecordingReplayProjectPath(bundlePath, encoding))
-      ? getWorkflowRecordingReplayProjectPath(bundlePath, encoding)
-      : getWorkflowRecordingReplayProjectPath(bundlePath, 'identity');
-    const datasetPath = await pathExists(getWorkflowRecordingReplayDatasetPath(bundlePath, encoding))
-      ? getWorkflowRecordingReplayDatasetPath(bundlePath, encoding)
-      : getWorkflowRecordingReplayDatasetPath(bundlePath, 'identity');
-
-    const recordingBytes = await readArtifactBytes(recordingPath, encoding).catch(() => ({ compressedBytes: 0, uncompressedBytes: 0 }));
-    const projectBytes = await readArtifactBytes(projectPath, encoding).catch(() => ({ compressedBytes: 0, uncompressedBytes: 0 }));
-    const datasetExists = await pathExists(datasetPath);
-    const datasetBytes = datasetExists
-      ? await readArtifactBytes(datasetPath, encoding).catch(() => ({ compressedBytes: 0, uncompressedBytes: 0 }))
-      : { compressedBytes: 0, uncompressedBytes: 0 };
-
-    return {
-      workflowId: normalized.workflowId,
-      sourceProjectMetadataId: normalized.sourceProjectMetadataId,
-      sourceProjectName: normalized.sourceProjectName,
-      sourceProjectPath: normalized.sourceProjectPath,
-      sourceProjectRelativePath: normalized.sourceProjectRelativePath,
-      run: {
-        id: normalized.id,
-        workflowId: normalized.workflowId,
-        createdAt: normalized.createdAt,
-        runKind: normalized.runKind,
-        status: normalized.status,
-        durationMs: normalized.durationMs,
-        endpointNameAtExecution: normalized.endpointNameAtExecution,
-        errorMessage: normalized.errorMessage,
-        bundlePath,
-        encoding,
-        hasReplayDataset: datasetExists,
-        recordingCompressedBytes: recordingBytes.compressedBytes,
-        recordingUncompressedBytes: recordingBytes.uncompressedBytes,
-        projectCompressedBytes: projectBytes.compressedBytes,
-        projectUncompressedBytes: projectBytes.uncompressedBytes,
-        datasetCompressedBytes: datasetBytes.compressedBytes,
-        datasetUncompressedBytes: datasetBytes.uncompressedBytes,
-      },
-    };
-  }
-
-  return null;
-}
-
-async function readStoredWorkflowRecordingMetadata(bundlePath: string): Promise<NormalizedStoredWorkflowRecording | null> {
-  try {
-    const metadataPath = getWorkflowRecordingMetadataPath(bundlePath);
-    const contents = await fs.readFile(metadataPath, 'utf8');
-    return await normalizeStoredWorkflowRecording(bundlePath, JSON.parse(contents) as unknown);
-  } catch (error) {
-    console.warn(`Failed to read workflow recording metadata from ${bundlePath}:`, error);
-    return null;
-  }
-}
-
-async function rebuildWorkflowRecordingIndex(root: string): Promise<void> {
-  const recordingsRoot = getWorkflowRecordingsRoot(root);
-  await clearWorkflowRecordingIndex();
-
-  if (!await pathExists(recordingsRoot)) {
-    return;
-  }
-
-  const workflowDirectories = await fs.readdir(recordingsRoot, { withFileTypes: true });
-  for (const workflowDirectory of workflowDirectories) {
-    if (!workflowDirectory.isDirectory() || workflowDirectory.name.startsWith('.')) {
-      continue;
-    }
-
-    const workflowRecordingRoot = path.join(recordingsRoot, workflowDirectory.name);
-    const bundleDirectories = await fs.readdir(workflowRecordingRoot, { withFileTypes: true });
-
-    for (const bundleDirectory of bundleDirectories) {
-      if (!bundleDirectory.isDirectory() || bundleDirectory.name.startsWith('.')) {
-        continue;
-      }
-
-      const bundlePath = path.join(workflowRecordingRoot, bundleDirectory.name);
-      const metadata = await readStoredWorkflowRecordingMetadata(bundlePath);
-      if (!metadata) {
-        continue;
-      }
-
-      await upsertWorkflowRecordingWorkflow({
-        workflowId: metadata.workflowId,
-        sourceProjectMetadataId: metadata.sourceProjectMetadataId,
-        sourceProjectPath: metadata.sourceProjectPath,
-        sourceProjectRelativePath: metadata.sourceProjectRelativePath,
-        sourceProjectName: metadata.sourceProjectName,
-        updatedAt: metadata.run.createdAt,
-      });
-      await upsertWorkflowRecordingRun(metadata.run);
-    }
-  }
-}
-
-async function deleteRecordingRun(row: WorkflowRecordingRunRow): Promise<void> {
-  if (row.bundlePath && await pathExists(row.bundlePath)) {
-    await fs.rm(row.bundlePath, { recursive: true, force: true });
-  }
-
-  await deleteWorkflowRecordingRunRow(row.id);
-}
-
-async function removeEmptyWorkflowProjectRecordingsRoot(root: string, workflowId: string): Promise<void> {
-  const recordingsRoot = getWorkflowProjectRecordingsRoot(root, workflowId);
-  if (!await pathExists(recordingsRoot)) {
-    return;
-  }
-
-  const remainingEntries = await fs.readdir(recordingsRoot, { withFileTypes: true });
-  const hasVisibleBundles = remainingEntries.some((entry) => entry.isDirectory() && !entry.name.startsWith('.'));
-  if (!hasVisibleBundles) {
-    await fs.rm(recordingsRoot, { recursive: true, force: true });
-  }
-}
-
-async function cleanupWorkflowRecordingStorage(): Promise<void> {
-  const config = getWorkflowRecordingConfig();
-  const rowsToDelete = new Map<string, WorkflowRecordingRunRow>();
-  const oldestRows = config.maxRunsPerEndpoint > 0 || config.maxTotalBytes > 0
-    ? await listWorkflowRecordingRunsOldestFirst()
-    : [];
-
-  if (config.retentionDays > 0) {
-    const cutoff = new Date(Date.now() - config.retentionDays * 24 * 60 * 60 * 1000).toISOString();
-    for (const row of await listWorkflowRecordingRunsOlderThan(cutoff)) {
-      rowsToDelete.set(row.id, row);
-    }
-  }
-
-  if (config.maxRunsPerEndpoint > 0) {
-    const rowsByEndpoint = new Map<string, WorkflowRecordingRunRow[]>();
-
-    for (const row of oldestRows) {
-      if (rowsToDelete.has(row.id)) {
-        continue;
-      }
-
-      const endpointKey = getEndpointRetentionKey(row.endpointNameAtExecution);
-      const existingRows = rowsByEndpoint.get(endpointKey);
-      if (existingRows) {
-        existingRows.push(row);
-      } else {
-        rowsByEndpoint.set(endpointKey, [row]);
-      }
-    }
-
-    for (const endpointRows of rowsByEndpoint.values()) {
-      const excessCount = endpointRows.length - config.maxRunsPerEndpoint;
-      if (excessCount <= 0) {
-        continue;
-      }
-
-      for (const row of endpointRows.slice(0, excessCount)) {
-        rowsToDelete.set(row.id, row);
-      }
-    }
-  }
-
-  if (config.maxTotalBytes > 0) {
-    let totalBytes = await getWorkflowRecordingTotalCompressedBytes();
-    if (totalBytes > config.maxTotalBytes) {
-      for (const row of rowsToDelete.values()) {
-        totalBytes -= getCompressedBundleSize(row);
-      }
-
-      if (totalBytes > config.maxTotalBytes) {
-        for (const row of oldestRows) {
-          if (rowsToDelete.has(row.id)) {
-            continue;
-          }
-
-          rowsToDelete.set(row.id, row);
-          totalBytes -= getCompressedBundleSize(row);
-          if (totalBytes <= config.maxTotalBytes) {
-            break;
-          }
-        }
-      }
-    }
-  }
-
-  for (const row of rowsToDelete.values()) {
-    await deleteRecordingRun(row);
-  }
-
-  await deleteEmptyWorkflowRecordingWorkflows();
-}
-
-function scheduleWorkflowRecordingCleanup(): void {
-  if (resettingWorkflowRecordingStorageForTests) {
-    return;
-  }
-
-  cleanupRequested = true;
-
-  if (cleanupPromise) {
-    return;
-  }
-
-  cleanupPromise = (async () => {
-    while (cleanupRequested) {
-      cleanupRequested = false;
-      await cleanupWorkflowRecordingStorage();
-    }
-  })()
-    .catch((error) => {
-      console.error('[workflow-recordings] Cleanup failed:', error);
-    })
-    .finally(() => {
-      const shouldRunAgain = cleanupRequested;
-      cleanupPromise = null;
-
-      if (shouldRunAgain) {
-        scheduleWorkflowRecordingCleanup();
-      }
-    });
-}
-
-function logDroppedWorkflowRecordingPersistence(maxPendingWrites: number): void {
-  const now = Date.now();
-  if (now - lastDroppedPersistenceLogAt < PERSISTENCE_DROP_LOG_INTERVAL_MS) {
-    return;
-  }
-
-  lastDroppedPersistenceLogAt = now;
-  console.warn(
-    `[workflow-recordings] Dropping recording persistence because the queue is full (${maxPendingWrites} pending writes). ` +
-      'Workflow execution continues normally.',
-  );
-}
-
-function scheduleWorkflowRecordingPersistenceQueue(): void {
-  if (persistenceQueuePromise) {
-    return;
-  }
-
-  persistenceQueuePromise = (async () => {
-    while (persistenceQueue.length > 0) {
-      const task = persistenceQueue.shift();
-      if (!task) {
-        continue;
-      }
-
-      try {
-        await task();
-      } catch (error) {
-        console.error('[workflow-recordings] Failed to persist queued recording:', error);
-      }
-    }
-  })().finally(() => {
-    persistenceQueuePromise = null;
-
-    if (persistenceQueue.length > 0) {
-      scheduleWorkflowRecordingPersistenceQueue();
-    }
-  });
-}
-
-export function enqueueWorkflowExecutionRecordingPersistence(task: WorkflowRecordingPersistenceTask): boolean {
-  if (!isWorkflowRecordingEnabled() || resettingWorkflowRecordingStorageForTests) {
-    return false;
-  }
-
-  const { maxPendingWrites } = getWorkflowRecordingConfig();
-  if (maxPendingWrites > 0 && persistenceQueue.length >= maxPendingWrites) {
-    logDroppedWorkflowRecordingPersistence(maxPendingWrites);
-    return false;
-  }
-
-  persistenceQueue.push(task);
-  scheduleWorkflowRecordingPersistenceQueue();
-  return true;
-}
-
-async function ensureWorkflowRecordingStorage(root: string): Promise<void> {
-  if (storageReadyPromise && storageReadyRoot === root) {
-    return storageReadyPromise;
-  }
-
-  storageReadyRoot = root;
-  storageReadyPromise = (async () => {
-    await rebuildWorkflowRecordingIndex(root);
-    await cleanupWorkflowRecordingStorage();
-    await setWorkflowRecordingStorageState('schema-version', '2');
-  })();
-
-  try {
-    await storageReadyPromise;
-  } catch (error) {
-    storageReadyPromise = null;
-    storageReadyRoot = '';
-    throw error;
-  }
+const workflowRecordingStore = createWorkflowRecordingStore({
+  rebuildIndex: rebuildWorkflowRecordingIndex,
+  cleanupStorage: cleanupWorkflowRecordingStorage,
+  setSchemaVersion: (version) => setWorkflowRecordingStorageState('schema-version', version),
+  resetDatabaseForTests: resetWorkflowRecordingDatabaseForTests,
+});
+
+export function enqueueWorkflowExecutionRecordingPersistence(task: () => Promise<void>): boolean {
+  return workflowRecordingStore.enqueuePersistence(task);
 }
 
 function toWorkflowRecordingRunSummary(row: WorkflowRecordingRunRow): WorkflowRecordingRunSummary {
@@ -681,11 +107,11 @@ function toWorkflowRecordingRunSummary(row: WorkflowRecordingRunRow): WorkflowRe
 }
 
 export async function initializeWorkflowRecordingStorage(root: string): Promise<void> {
-  await ensureWorkflowRecordingStorage(root);
+  await workflowRecordingStore.ensureStorage(root);
 }
 
 export async function listWorkflowRecordingWorkflows(root: string): Promise<WorkflowRecordingWorkflowListResponse> {
-  await ensureWorkflowRecordingStorage(root);
+  await workflowRecordingStore.ensureStorage(root);
 
   const recordingWorkflows = await listWorkflowRecordingWorkflowStatsRows();
   const recordingWorkflowByPath = new Map(recordingWorkflows.map((workflow) => [workflow.sourceProjectPath, workflow]));
@@ -753,7 +179,7 @@ export async function listWorkflowRecordingRunsPage(
   pageSize: number,
   statusFilter: WorkflowRecordingFilterStatus,
 ): Promise<WorkflowRecordingRunsPageResponse> {
-  await ensureWorkflowRecordingStorage(root);
+  await workflowRecordingStore.ensureStorage(root);
 
   const normalizedPage = Math.max(1, Math.floor(page));
   const normalizedPageSize = Math.min(100, Math.max(1, Math.floor(pageSize)));
@@ -779,7 +205,7 @@ export async function readWorkflowRecordingArtifact(
   recordingId: string,
   artifact: WorkflowRecordingArtifactKind,
 ): Promise<string> {
-  await ensureWorkflowRecordingStorage(root);
+  await workflowRecordingStore.ensureStorage(root);
 
   const row = await getWorkflowRecordingRunRow(recordingId);
   if (!row) {
@@ -799,7 +225,7 @@ export async function readWorkflowRecordingArtifact(
 }
 
 export async function deleteWorkflowRecording(root: string, recordingId: string): Promise<void> {
-  await ensureWorkflowRecordingStorage(root);
+  await workflowRecordingStore.ensureStorage(root);
 
   const row = await getWorkflowRecordingRunRow(recordingId);
   if (!row) {
@@ -830,7 +256,7 @@ export async function persistWorkflowExecutionRecording(
     return;
   }
 
-  await ensureWorkflowRecordingStorage(options.root);
+  await workflowRecordingStore.ensureStorage(options.root);
 
   const config = getWorkflowRecordingConfig();
   const recordingId = `${Date.now()}-${randomUUID()}`;
@@ -865,8 +291,8 @@ export async function persistWorkflowExecutionRecording(
       config.gzipLevel,
     );
 
-    const recordingPath = getWorkflowRecordingPath(bundlePath, config.compression);
-    const replayProjectPath = getWorkflowRecordingReplayProjectPath(bundlePath, config.compression);
+    const recordingPath = getRecordingArtifactPath(bundlePath, 'recording', config.compression);
+    const replayProjectPath = getRecordingArtifactPath(bundlePath, 'replay-project', config.compression);
 
     await fs.writeFile(recordingPath, recordingArtifact.buffer);
     await fs.writeFile(replayProjectPath, replayProjectArtifact.buffer);
@@ -882,7 +308,7 @@ export async function persistWorkflowExecutionRecording(
         config.compression,
         config.gzipLevel,
       );
-      await fs.writeFile(getWorkflowRecordingReplayDatasetPath(bundlePath, config.compression), datasetArtifact.buffer);
+      await fs.writeFile(getRecordingArtifactPath(bundlePath, 'replay-dataset', config.compression), datasetArtifact.buffer);
       hasReplayDataset = true;
     }
 
@@ -944,7 +370,7 @@ export async function persistWorkflowExecutionRecording(
       datasetUncompressedBytes: datasetArtifact?.uncompressedBytes ?? 0,
     });
 
-    scheduleWorkflowRecordingCleanup();
+    workflowRecordingStore.scheduleCleanup();
   } catch (error) {
     await fs.rm(bundlePath, { recursive: true, force: true }).catch(() => {});
     throw error;
@@ -952,7 +378,7 @@ export async function persistWorkflowExecutionRecording(
 }
 
 export async function deleteWorkflowRecordingsBySourceProjectPath(root: string, projectPath: string): Promise<void> {
-  await ensureWorkflowRecordingStorage(root);
+  await workflowRecordingStore.ensureStorage(root);
 
   const relativePath = path.relative(root, projectPath).replace(/\\/g, '/');
   const workflows = await getWorkflowRecordingWorkflowRowsBySourceProjectPath(projectPath, relativePath);
@@ -965,10 +391,7 @@ export async function deleteWorkflowRecordingsBySourceProjectPath(root: string, 
 
     await deleteWorkflowRecordingWorkflowRow(workflow.workflowId);
 
-    const recordingsRoot = getWorkflowProjectRecordingsRoot(root, workflow.workflowId);
-    if (await pathExists(recordingsRoot)) {
-      await fs.rm(recordingsRoot, { recursive: true, force: true });
-    }
+    await removeEmptyWorkflowProjectRecordingsRoot(root, workflow.workflowId);
   }
 
   await deleteEmptyWorkflowRecordingWorkflows();
@@ -982,7 +405,7 @@ export async function deleteWorkflowRecordingsByWorkflowId(
     return;
   }
 
-  await ensureWorkflowRecordingStorage(root);
+  await workflowRecordingStore.ensureStorage(root);
 
   const runs = await listWorkflowRecordingRunRowsForWorkflow(workflowId);
   for (const run of runs) {
@@ -991,33 +414,11 @@ export async function deleteWorkflowRecordingsByWorkflowId(
 
   await deleteWorkflowRecordingWorkflowRow(workflowId);
 
-  const recordingsRoot = getWorkflowProjectRecordingsRoot(root, workflowId);
-  if (await pathExists(recordingsRoot)) {
-    await fs.rm(recordingsRoot, { recursive: true, force: true });
-  }
+  await removeEmptyWorkflowProjectRecordingsRoot(root, workflowId);
 }
 
 export async function resetWorkflowRecordingStorageForTests(): Promise<void> {
-  resettingWorkflowRecordingStorageForTests = true;
-
-  const pendingPersistence = persistenceQueuePromise;
-  const pendingCleanup = cleanupPromise;
-
-  storageReadyPromise = null;
-  storageReadyRoot = '';
-  cleanupPromise = null;
-  cleanupRequested = false;
-  persistenceQueuePromise = null;
-  persistenceQueue = [];
-  lastDroppedPersistenceLogAt = 0;
-
-  try {
-    await pendingPersistence?.catch(() => {});
-    await pendingCleanup?.catch(() => {});
-    await resetWorkflowRecordingDatabaseForTests();
-  } finally {
-    resettingWorkflowRecordingStorageForTests = false;
-  }
+  await workflowRecordingStore.resetForTests();
 }
 
 export async function getWorkflowRecordingStorageSchemaVersion(): Promise<string | null> {
