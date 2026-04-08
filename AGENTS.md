@@ -20,3 +20,6 @@
 When adding new features or making significant changes, make sure you loaded into your context the .md docs in the `docs/` folder.
 
 After the feature is implemented or changes are made and tested, make sure you update the relevant .md docs in the `docs/` folder.
+
+## Kubernetes
+Don't use the Kubernetes rehearsal for small UI changes and keep verification lighter unless the change is actually Kubernetes-related

@@ -79,42 +79,46 @@ export const RuntimeLibrariesModal: FC<RuntimeLibrariesModalProps> = ({
                 <div className="project-settings-error runtime-libraries-status failed">{error}</div>
               ) : null}
 
-              {!loading ? (
-                <RuntimeLibrariesPackagesPanel
-                  packages={packages}
-                  showInstallForm={showInstallForm}
-                  addName={addName}
-                  addVersion={addVersion}
-                  isJobActive={isJobActive}
-                  onAddNameChange={setAddName}
-                  onAddVersionChange={setAddVersion}
-                  onShowInstallForm={setShowInstallForm}
-                  onInstall={() => void handleInstall()}
-                  onRemove={(packageName) => void handleRemove(packageName)}
-                  onKeyDown={handleKeyDown}
-                  displayedJobType={displayedJob?.type}
-                />
-              ) : null}
+              {loading ? (
+                <div className="runtime-libraries-empty-state">Loading runtime libraries...</div>
+              ) : (
+                <>
+                  <RuntimeLibrariesPackagesPanel
+                    packages={packages}
+                    showInstallForm={showInstallForm}
+                    addName={addName}
+                    addVersion={addVersion}
+                    isJobActive={isJobActive}
+                    onAddNameChange={setAddName}
+                    onAddVersionChange={setAddVersion}
+                    onShowInstallForm={setShowInstallForm}
+                    onInstall={() => void handleInstall()}
+                    onRemove={(packageName) => void handleRemove(packageName)}
+                    onKeyDown={handleKeyDown}
+                    displayedJobType={displayedJob?.type}
+                  />
 
-              <RuntimeLibrariesReplicaReadinessPanel
-                readiness={replicaReadiness}
-                isJobActive={isJobActive}
-                clearingStaleReplicas={clearingStaleReplicas}
-                nowMs={nowMs}
-                onClearStaleReplicas={() => void handleClearStaleReplicas()}
-              />
+                  <RuntimeLibrariesReplicaReadinessPanel
+                    readiness={replicaReadiness}
+                    isJobActive={isJobActive}
+                    clearingStaleReplicas={clearingStaleReplicas}
+                    nowMs={nowMs}
+                    onClearStaleReplicas={() => void handleClearStaleReplicas()}
+                  />
 
-              <RuntimeLibrariesJobPanel
-                displayedJob={displayedJob}
-                logEntries={logEntries}
-                jobResult={jobResult}
-                isJobActive={isJobActive}
-                isStalled={isStalled}
-                nowMs={nowMs}
-                cancellingJob={cancellingJob}
-                logPanelRef={logPanelRef}
-                onCancel={() => void handleCancel()}
-              />
+                  <RuntimeLibrariesJobPanel
+                    displayedJob={displayedJob}
+                    logEntries={logEntries}
+                    jobResult={jobResult}
+                    isJobActive={isJobActive}
+                    isStalled={isStalled}
+                    nowMs={nowMs}
+                    cancellingJob={cancellingJob}
+                    logPanelRef={logPanelRef}
+                    onCancel={() => void handleCancel()}
+                  />
+                </>
+              )}
             </div>
           </div>
         </ModalBody>
