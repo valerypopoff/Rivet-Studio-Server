@@ -265,6 +265,10 @@ export async function readStoredWorkflowRecordingMetadata(bundlePath: string): P
     const contents = await fs.readFile(metadataPath, 'utf8');
     return await normalizeStoredWorkflowRecording(bundlePath, JSON.parse(contents) as unknown);
   } catch (error) {
+    if ((error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT') {
+      return null;
+    }
+
     console.warn(`Failed to read workflow recording metadata from ${bundlePath}:`, error);
     return null;
   }

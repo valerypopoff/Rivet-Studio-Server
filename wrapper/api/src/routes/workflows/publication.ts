@@ -338,15 +338,15 @@ function coerceNullableString(value: unknown, fallback: string | null): string |
   return value === null ? null : fallback;
 }
 
+export async function loadPublishedOrLiveProjectFromFilesystem(root: string, resolvedProjectPath: string) {
+  const projectName = path.basename(resolvedProjectPath, PROJECT_EXTENSION);
+  const settings = await readStoredWorkflowProjectSettings(resolvedProjectPath, projectName);
+  const publishedProjectPath = await resolvePublishedWorkflowProjectPath(root, resolvedProjectPath, settings);
+  return loadProjectFromFile(publishedProjectPath ?? resolvedProjectPath);
+}
+
 export function createPublishedWorkflowProjectReferenceLoader(root: string, rootProjectPath: string) {
   const projectPathByIdPromises = new Map<string, Promise<string | null>>();
-
-  const loadPublishedOrLiveProject = async (resolvedProjectPath: string) => {
-    const projectName = path.basename(resolvedProjectPath, PROJECT_EXTENSION);
-    const settings = await readStoredWorkflowProjectSettings(resolvedProjectPath, projectName);
-    const publishedProjectPath = await resolvePublishedWorkflowProjectPath(root, resolvedProjectPath, settings);
-    return loadProjectFromFile(publishedProjectPath ?? resolvedProjectPath);
-  };
 
   const findProjectPathByProjectId = async (projectId: string): Promise<string | null> => {
     let pendingResolution = projectPathByIdPromises.get(projectId);
@@ -383,14 +383,14 @@ export function createPublishedWorkflowProjectReferenceLoader(root: string, root
             continue;
           }
 
-          return await loadPublishedOrLiveProject(resolvedProjectPath);
+          return await loadPublishedOrLiveProjectFromFilesystem(root, resolvedProjectPath);
         } catch {
         }
       }
 
       const resolvedProjectPathById = await findProjectPathByProjectId(reference.id);
       if (resolvedProjectPathById) {
-        return loadPublishedOrLiveProject(resolvedProjectPathById);
+        return loadPublishedOrLiveProjectFromFilesystem(root, resolvedProjectPathById);
       }
 
       throw new Error(

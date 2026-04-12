@@ -52,7 +52,7 @@ See also: [Repo structure](./repo-structure.md)
 | `npm run verify:repo-structure` | Verifies the intended authored repo layout and blocks legacy path drift | Catch misplaced runtime/deployment/tooling files before they spread |
 | `npm run verify:web-pure` | Runs the pure web helper tests with `tsx --test` | Catch regressions in extracted non-React dashboard/protocol helpers quickly |
 | `npm run verify:kubernetes` | Runs the Kubernetes static-contract tests, renders the local rehearsal values path, and lint-renders the production overlay | Catch local/prod chart drift before handing the repo to operators |
-| `npm --prefix wrapper/api run workflow-execution:measure -- --base-url http://localhost:8080 --endpoint hello-world --kind published --runs 5 --warmups 1` | Calls one published/latest workflow endpoint repeatedly and prints timing headers | Measure managed cold-hit vs warm-hit behavior safely |
+| `npm --prefix wrapper/api run workflow-execution:measure -- --base-url http://localhost:8080 --endpoint hello-world --kind published --runs 5 --warmups 1` | Calls one published/latest workflow endpoint repeatedly and prints timing headers | Measure filesystem or managed execution behavior safely |
 | `npm run runtime-libraries:managed:audit` | Audits managed runtime-library release/job/object state and writes a JSON snapshot | Inspect live managed runtime-library state safely |
 | `npm run runtime-libraries:managed:prune` | Builds a dry-run prune plan for managed runtime-library state | Review cleanup impact before applying it |
 | `npm run ui:observe:install` | Installs Playwright Chromium for observable frontend runs | First-time browser setup |
@@ -75,14 +75,15 @@ Current behavior:
   - `RIVET_RUNTIME_LIBRARIES_ROOT`
 - if `RIVET_ARTIFACTS_HOST_PATH` is present, the launcher resolves it to an absolute host path and derives:
   - `RIVET_WORKFLOWS_HOST_PATH=<artifactsRoot>/workflows`
+  - `RIVET_WORKFLOW_RECORDINGS_HOST_PATH=<artifactsRoot>/workflow-recordings`
   - `RIVET_RUNTIME_LIBS_HOST_PATH=<artifactsRoot>/runtime-libraries`
-- if `RIVET_WORKFLOWS_HOST_PATH` or `RIVET_RUNTIME_LIBS_HOST_PATH` is present, the launcher resolves it to an absolute host path before invoking Docker Compose
-- explicit `RIVET_WORKFLOWS_HOST_PATH` and `RIVET_RUNTIME_LIBS_HOST_PATH` values override the derived paths from `RIVET_ARTIFACTS_HOST_PATH`
+- if `RIVET_WORKFLOWS_HOST_PATH`, `RIVET_WORKFLOW_RECORDINGS_HOST_PATH`, or `RIVET_RUNTIME_LIBS_HOST_PATH` is present, the launcher resolves it to an absolute host path before invoking Docker Compose
+- explicit `RIVET_WORKFLOWS_HOST_PATH`, `RIVET_WORKFLOW_RECORDINGS_HOST_PATH`, and `RIVET_RUNTIME_LIBS_HOST_PATH` values override the derived paths from `RIVET_ARTIFACTS_HOST_PATH`
 
 Operational note:
 
 - `RIVET_ARTIFACTS_HOST_PATH` is the primary public filesystem-mode contract
-- `RIVET_WORKFLOWS_HOST_PATH` and `RIVET_RUNTIME_LIBS_HOST_PATH` remain compatibility overrides for the launcher
+- `RIVET_WORKFLOWS_HOST_PATH`, `RIVET_WORKFLOW_RECORDINGS_HOST_PATH`, and `RIVET_RUNTIME_LIBS_HOST_PATH` remain compatibility overrides for the launcher
 - `RIVET_STORAGE_MODE=managed` switches both workflows and runtime libraries to managed Postgres plus object storage; in that mode `RIVET_RUNTIME_LIBRARIES_ROOT` remains only a local cache/workspace
 - optional managed runtime-library readiness tuning uses:
   - `RIVET_RUNTIME_LIBRARIES_SYNC_POLL_INTERVAL_MS`
@@ -260,7 +261,7 @@ Current behavior:
 - a later cleanup pass did not change that behavior; it extracted the managed execution invalidation/service code, replaced brittle source assertions with behavioral tests, added a measurement tool, and hardened listener startup/shutdown plus same-process self-notify handling without changing the public execution contract
 - if `RIVET_DATABASE_MODE=managed`, runtime-library replica-status rows also live in the shared Postgres database, so stale rows from older containers can survive a Docker recreate until retention cleanup runs or you clear them explicitly
 - when the Runtime Libraries modal shows stale rows that are only historical dev noise, use the `Clear stale replicas` action or call `POST /api/runtime-libraries/replicas/cleanup`
-- set `RIVET_WORKFLOW_EXECUTION_DEBUG_HEADERS=true` when you want additive managed execution timing headers for local diagnosis of endpoint resolve/materialize/execute stages
+- set `RIVET_WORKFLOW_EXECUTION_DEBUG_HEADERS=true` when you want additive execution timing headers for local diagnosis of endpoint resolve/materialize/execute stages
 - local Docker still does not prove multi-backend latest-debugger support; the supported Kubernetes contract is a singleton control-plane backend plus independently scalable execution replicas
 
 ## Recording-storage notes
@@ -268,11 +269,24 @@ Current behavior:
 Workflow recordings use two persistence locations:
 
 - in `filesystem` mode:
-  - compressed replay artifacts under the workflow root: `.recordings/`
+  - compressed replay artifacts under `RIVET_WORKFLOW_RECORDINGS_ROOT`
   - a SQLite index under `RIVET_APP_DATA_ROOT`: `recordings.sqlite`
 - in `managed` mode:
   - recording metadata rows in Postgres
   - recording and replay artifacts in managed object storage
+
+Filesystem-mode Docker topology now splits the hot paths intentionally:
+
+- `RIVET_WORKFLOWS_HOST_PATH` backs `/workflows` for live projects and `.published/`
+- `RIVET_WORKFLOW_RECORDINGS_HOST_PATH` backs `/workflow-recordings` for replay bundles
+- this keeps high-churn recording writes off the workflow-source bind mount on Windows/Docker Desktop
+
+Migration note for existing local Docker setups:
+
+1. stop the stack
+2. move `D:\Programming\workflows\.recordings` to `D:\Programming\workflow-recordings`
+3. keep `RIVET_ARTIFACTS_HOST_PATH=../` so the launcher derives `D:\Programming\workflow-recordings` automatically
+4. recreate the stack
 
 For host-based API execution, filesystem-mode recording persistence still requires `node:sqlite` (Node 24+). If your host Node version is older, use the Docker dev stack instead of `npm run dev:local`.
 
@@ -504,14 +518,18 @@ For managed endpoint latency and cache behavior:
 4. expect the second request for the same unchanged workflow to drop onto the warm local path
 5. if you enabled `RIVET_WORKFLOW_EXECUTION_DEBUG_HEADERS=true`, confirm `x-workflow-cache` moves from `miss` to `hit` and inspect `x-workflow-resolve-ms` / `x-workflow-materialize-ms`
 
-For managed endpoint measurement with the dedicated script:
+For endpoint measurement with the dedicated script:
 
-1. run the app in `RIVET_STORAGE_MODE=managed`
+1. run the app in either `RIVET_STORAGE_MODE=filesystem` or `RIVET_STORAGE_MODE=managed`
 2. optionally set `RIVET_WORKFLOW_EXECUTION_DEBUG_HEADERS=true` so the route emits stage timings
 3. run `npm --prefix wrapper/api run workflow-execution:measure -- --base-url http://localhost:8080 --endpoint hello-world --kind published --runs 5 --warmups 1`
 4. expect one output line per request with HTTP status, client duration, `x-duration-ms`, `x-workflow-resolve-ms`, `x-workflow-materialize-ms`, `x-workflow-execute-ms`, and `x-workflow-cache`
 5. if debug headers are disabled, expect those per-stage fields to print as `n/a` rather than failing
-6. use the transition from `x-workflow-cache=miss` to `x-workflow-cache=hit` to verify cold-first-hit then warm-hit behavior
+6. in `managed` mode, use the transition from `x-workflow-cache=miss` to `x-workflow-cache=hit` to verify cold-first-hit then warm-hit behavior
+7. in `filesystem` mode, the startup-warmed path should normally report `x-workflow-cache=hit`; after a project-affecting mutation or other tracked filesystem-tree change, expect one rebuild `miss` and then a return to `hit`
+8. in `filesystem` mode, `x-workflow-resolve-ms` covers endpoint-index freshness validation plus endpoint lookup, while `x-workflow-materialize-ms` covers materialization-cache validation plus any needed project/dataset reload, one-time project reparsing, and per-request dataset-provider reconstruction
+9. in `filesystem` mode, `x-workflow-cache=bypass` means the cache deliberately fell back to uncached filesystem resolution because cached routing/materialization state was uncertain; that slower degraded path is the guardrail against stale cache execution
+10. in local Docker on Windows, filesystem mode still reads `/workflows` through a host bind mount, so fixed filesystem overhead can remain materially higher than a direct local-process run even when the endpoint index and materialization path are warm
 
 For the current execution-plane split specifically:
 

@@ -18,6 +18,10 @@ function printUsage(): void {
     '--base-url http://localhost:8080 --endpoint hello-world --kind published|latest ' +
     '[--runs 5] [--warmups 1] [--body \'{}\'] [--bearer token]',
   );
+  console.error(
+    'Works in both filesystem and managed storage modes. ' +
+    'Set RIVET_WORKFLOW_EXECUTION_DEBUG_HEADERS=true on the API process when you want per-stage timing headers.',
+  );
 }
 
 function parseIntegerOption(value: string, optionName: string, fallback: number): number {

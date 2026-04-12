@@ -15,7 +15,6 @@ import {
 import { getWorkflowRecordingConfig } from './recordings-config.js';
 import {
   getWorkflowProjectRecordingsRoot,
-  getWorkflowRecordingsRoot,
   pathExists,
 } from './fs-helpers.js';
 import { readStoredWorkflowRecordingMetadata } from './recordings-metadata.js';
@@ -31,8 +30,7 @@ function getCompressedBundleSize(run: Pick<
   return run.recordingCompressedBytes + run.projectCompressedBytes + run.datasetCompressedBytes;
 }
 
-export async function rebuildWorkflowRecordingIndex(root: string): Promise<void> {
-  const recordingsRoot = getWorkflowRecordingsRoot(root);
+export async function rebuildWorkflowRecordingIndex(recordingsRoot: string): Promise<void> {
   await clearWorkflowRecordingIndex();
 
   if (!await pathExists(recordingsRoot)) {
@@ -80,16 +78,16 @@ export async function deleteRecordingRun(row: WorkflowRecordingRunRow): Promise<
   await deleteWorkflowRecordingRunRow(row.id);
 }
 
-export async function removeEmptyWorkflowProjectRecordingsRoot(root: string, workflowId: string): Promise<void> {
-  const recordingsRoot = getWorkflowProjectRecordingsRoot(root, workflowId);
-  if (!await pathExists(recordingsRoot)) {
+export async function removeEmptyWorkflowProjectRecordingsRoot(recordingsRoot: string, workflowId: string): Promise<void> {
+  const workflowRecordingsRoot = getWorkflowProjectRecordingsRoot(recordingsRoot, workflowId);
+  if (!await pathExists(workflowRecordingsRoot)) {
     return;
   }
 
-  const remainingEntries = await fs.readdir(recordingsRoot, { withFileTypes: true });
+  const remainingEntries = await fs.readdir(workflowRecordingsRoot, { withFileTypes: true });
   const hasVisibleBundles = remainingEntries.some((entry) => entry.isDirectory() && !entry.name.startsWith('.'));
   if (!hasVisibleBundles) {
-    await fs.rm(recordingsRoot, { recursive: true, force: true });
+    await fs.rm(workflowRecordingsRoot, { recursive: true, force: true });
   }
 }
 

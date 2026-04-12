@@ -50,6 +50,7 @@ const {
 } = await import('../latestWorkflowRemoteDebugger.js');
 const workflowFs = await import('../routes/workflows/fs-helpers.js');
 const workflowMutations = await import('../routes/workflows/workflow-mutations.js');
+const filesystemExecutionCache = await import('../routes/workflows/filesystem-execution-cache.js');
 
 type ApiProfile = 'combined' | 'control' | 'execution';
 
@@ -64,6 +65,7 @@ function toWebSocketUrl(baseUrl: string): string {
 }
 
 async function resetFilesystemState(): Promise<void> {
+  filesystemExecutionCache.resetFilesystemExecutionCacheForTests();
   await resetLatestWorkflowRemoteDebuggerForTests();
   process.env.RIVET_ENABLE_LATEST_REMOTE_DEBUGGER = 'false';
   await resetWorkflowTestRoots({ workflowsRoot, appDataRoot, runtimeLibrariesRoot });

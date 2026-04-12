@@ -7,8 +7,9 @@ import express from 'express';
 import { listenTestServer } from './helpers/http-server-harness.js';
 import { createWorkflowTestRoots, resetWorkflowTestRoots } from './helpers/workflow-fixtures.js';
 
-const { workflowsRoot, appDataRoot } = await createWorkflowTestRoots('rivet-workflows-');
+const { workflowsRoot, recordingsRoot, appDataRoot } = await createWorkflowTestRoots('rivet-workflows-');
 process.env.RIVET_WORKFLOWS_ROOT = workflowsRoot;
+process.env.RIVET_WORKFLOW_RECORDINGS_ROOT = recordingsRoot;
 process.env.RIVET_APP_DATA_ROOT = appDataRoot;
 
 const workflowMutations = await import('../routes/workflows/workflow-mutations.js');
@@ -20,11 +21,37 @@ const workflowRecordings = await import('../routes/workflows/recordings.js');
 const workflowExecution = await import('../routes/workflows/execution.js');
 const workflowRoutes = await import('../routes/workflows/index.js');
 const workflowStorageBackend = await import('../routes/workflows/storage-backend.js');
+const filesystemExecutionCache = await import('../routes/workflows/filesystem-execution-cache.js');
 const rivetNode = await import('@ironclad/rivet-node');
 
 async function resetWorkflowsRoot() {
+  filesystemExecutionCache.resetFilesystemExecutionCacheForTests();
   await workflowRecordings.resetWorkflowRecordingStorageForTests();
-  await resetWorkflowTestRoots({ workflowsRoot, appDataRoot });
+  await resetWorkflowTestRoots({ workflowsRoot, recordingsRoot, appDataRoot });
+}
+
+async function withEnvOverride(
+  name: string,
+  value: string | undefined,
+  run: () => Promise<void>,
+) {
+  const previousValue = process.env[name];
+
+  if (value == null) {
+    delete process.env[name];
+  } else {
+    process.env[name] = value;
+  }
+
+  try {
+    await run();
+  } finally {
+    if (previousValue == null) {
+      delete process.env[name];
+    } else {
+      process.env[name] = previousValue;
+    }
+  }
 }
 
 test.beforeEach(async () => {
@@ -33,6 +60,8 @@ test.beforeEach(async () => {
 });
 
 async function withWorkflowApiServer(run: (baseUrl: string) => Promise<void>) {
+  await workflowStorageBackend.initializeWorkflowStorage();
+
   const app = express();
   app.use(express.json({ strict: false }));
   app.use('/workflows', workflowRoutes.workflowsRouter);
@@ -56,6 +85,8 @@ async function withWorkflowApiServer(run: (baseUrl: string) => Promise<void>) {
 async function withWorkflowExecutionServer(
   run: (urls: { apiBaseUrl: string; publishedBaseUrl: string; latestBaseUrl: string }) => Promise<void>,
 ) {
+  await workflowStorageBackend.initializeWorkflowStorage();
+
   const app = express();
   app.use(express.json({ strict: false }));
   app.use('/api/workflows', workflowRoutes.workflowsRouter);
@@ -1287,7 +1318,7 @@ test('published and latest workflow execution create replayable recordings that 
     );
 
     const sourceProject = await rivetNode.loadProjectFromFile(created.absolutePath);
-    const recordingsRoot = workflowFs.getWorkflowProjectRecordingsRoot(workflowsRoot, sourceProject.metadata.id);
+    const recordingsRoot = workflowFs.getWorkflowProjectRecordingsRoot(workflowFs.getWorkflowRecordingsRoot(workflowsRoot), sourceProject.metadata.id);
 
     for (const recording of runsResponse.runs) {
       const bundlePath = path.join(recordingsRoot, recording.id);
@@ -1308,6 +1339,327 @@ test('published and latest workflow execution create replayable recordings that 
       assert.ok(recorder.events.length > 0);
     }
   });
+});
+
+test('filesystem execution emits per-stage debug headers only when explicitly enabled', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'Measured');
+  await workflowMutations.publishWorkflowProjectItem(created.relativePath, {
+    endpointName: 'measured-endpoint',
+  });
+
+  await withWorkflowExecutionServer(async ({ publishedBaseUrl, latestBaseUrl }) => {
+    const debugDisabledResponse = await fetch(`${publishedBaseUrl}/measured-endpoint`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'off' }),
+    });
+
+    assert.equal(debugDisabledResponse.ok, true);
+    assert.equal(debugDisabledResponse.headers.get('x-workflow-resolve-ms'), null);
+    assert.equal(debugDisabledResponse.headers.get('x-workflow-materialize-ms'), null);
+    assert.equal(debugDisabledResponse.headers.get('x-workflow-execute-ms'), null);
+    assert.equal(debugDisabledResponse.headers.get('x-workflow-cache'), null);
+
+    await withEnvOverride('RIVET_WORKFLOW_EXECUTION_DEBUG_HEADERS', 'true', async () => {
+      const publishedResponse = await fetch(`${publishedBaseUrl}/measured-endpoint`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'published' }),
+      });
+      assert.equal(publishedResponse.ok, true);
+      assert.match(publishedResponse.headers.get('x-workflow-resolve-ms') ?? '', /^\d+$/);
+      assert.match(publishedResponse.headers.get('x-workflow-materialize-ms') ?? '', /^\d+$/);
+      assert.match(publishedResponse.headers.get('x-workflow-execute-ms') ?? '', /^\d+$/);
+      assert.equal(publishedResponse.headers.get('x-workflow-cache'), 'hit');
+
+      const latestResponse = await fetch(`${latestBaseUrl}/measured-endpoint`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'latest' }),
+      });
+      assert.equal(latestResponse.ok, true);
+      assert.match(latestResponse.headers.get('x-workflow-resolve-ms') ?? '', /^\d+$/);
+      assert.match(latestResponse.headers.get('x-workflow-materialize-ms') ?? '', /^\d+$/);
+      assert.match(latestResponse.headers.get('x-workflow-execute-ms') ?? '', /^\d+$/);
+      assert.equal(latestResponse.headers.get('x-workflow-cache'), 'hit');
+    });
+  });
+});
+
+test('filesystem execution cache rebuilds lazily after project-affecting mutations', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'WarmFilesystemExecution');
+  await workflowMutations.publishWorkflowProjectItem(created.relativePath, {
+    endpointName: 'warm-filesystem-endpoint',
+  });
+
+  await withEnvOverride('RIVET_WORKFLOW_EXECUTION_DEBUG_HEADERS', 'true', async () => {
+    await withWorkflowExecutionServer(async ({ apiBaseUrl, publishedBaseUrl, latestBaseUrl }) => {
+      const firstPublishedResponse = await fetch(`${publishedBaseUrl}/warm-filesystem-endpoint`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'published-warm' }),
+      });
+      assert.equal(firstPublishedResponse.ok, true);
+      assert.equal(firstPublishedResponse.headers.get('x-workflow-cache'), 'hit');
+
+      const firstLatestResponse = await fetch(`${latestBaseUrl}/warm-filesystem-endpoint`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'latest-warm' }),
+      });
+      assert.equal(firstLatestResponse.ok, true);
+      assert.equal(firstLatestResponse.headers.get('x-workflow-cache'), 'hit');
+
+      const createdProject = await readJson<{ project: { relativePath: string } }>(await fetch(`${apiBaseUrl}/projects`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: 'Filesystem Mutation One' }),
+      }));
+      assert.equal(typeof createdProject.project.relativePath, 'string');
+
+      const publishedMissResponse = await fetch(`${publishedBaseUrl}/warm-filesystem-endpoint`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'published-miss' }),
+      });
+      assert.equal(publishedMissResponse.ok, true);
+      assert.equal(publishedMissResponse.headers.get('x-workflow-cache'), 'miss');
+
+      const publishedHitResponse = await fetch(`${publishedBaseUrl}/warm-filesystem-endpoint`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'published-hit' }),
+      });
+      assert.equal(publishedHitResponse.ok, true);
+      assert.equal(publishedHitResponse.headers.get('x-workflow-cache'), 'hit');
+
+      const uploadedProject = await readJson<{ project: { relativePath: string } }>(await fetch(`${apiBaseUrl}/projects/upload`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          folderRelativePath: '',
+          fileName: 'filesystem-mutation-two.rivet-project',
+          contents: await fs.readFile(created.absolutePath, 'utf8'),
+        }),
+      }));
+      assert.equal(typeof uploadedProject.project.relativePath, 'string');
+
+      const latestMissResponse = await fetch(`${latestBaseUrl}/warm-filesystem-endpoint`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'latest-miss' }),
+      });
+      assert.equal(latestMissResponse.ok, true);
+      assert.equal(latestMissResponse.headers.get('x-workflow-cache'), 'miss');
+
+      const latestHitResponse = await fetch(`${latestBaseUrl}/warm-filesystem-endpoint`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: 'latest-hit' }),
+      });
+      assert.equal(latestHitResponse.ok, true);
+      assert.equal(latestHitResponse.headers.get('x-workflow-cache'), 'hit');
+    });
+  });
+});
+
+test('filesystem saveHostedProject refreshes latest materialization without dirtying the endpoint index', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'LatestSaveRefresh');
+  await workflowMutations.publishWorkflowProjectItem(created.relativePath, {
+    endpointName: 'latest-save-refresh-endpoint',
+  });
+
+  await withEnvOverride('RIVET_WORKFLOW_EXECUTION_DEBUG_HEADERS', 'true', async () => {
+    await workflowStorageBackend.initializeWorkflowStorage();
+
+    const beforeProject = await workflowStorageBackend.resolveLatestExecutionProject('latest-save-refresh-endpoint');
+    assert.ok(beforeProject);
+    assert.equal(beforeProject.debug?.cacheStatus, 'hit');
+    assert.equal(beforeProject.project.metadata.title, 'LatestSaveRefresh');
+
+    const loaded = await workflowStorageBackend.loadHostedProject(created.absolutePath);
+    await workflowStorageBackend.saveHostedProject({
+      projectPath: created.absolutePath,
+      contents: loaded.contents.replace('title: "LatestSaveRefresh"', 'title: "LatestSaveRefresh Updated"'),
+      datasetsContents: loaded.datasetsContents,
+    });
+
+    const afterProject = await workflowStorageBackend.resolveLatestExecutionProject('latest-save-refresh-endpoint');
+    assert.ok(afterProject);
+    assert.equal(afterProject.debug?.cacheStatus, 'hit');
+    assert.equal(afterProject.project.metadata.title, 'LatestSaveRefresh Updated');
+
+    const followupProject = await workflowStorageBackend.resolveLatestExecutionProject('latest-save-refresh-endpoint');
+    assert.ok(followupProject);
+    assert.equal(followupProject.debug?.cacheStatus, 'hit');
+    assert.equal(followupProject.project.metadata.title, 'LatestSaveRefresh Updated');
+  });
+});
+
+test('filesystem latest execution follows the draft endpoint after publish settings diverge', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'DraftLatestBackend');
+  await workflowMutations.publishWorkflowProjectItem(created.relativePath, {
+    endpointName: 'draft-latest-backend-published',
+  });
+
+  await withEnvOverride('RIVET_WORKFLOW_EXECUTION_DEBUG_HEADERS', 'true', async () => {
+    await workflowStorageBackend.initializeWorkflowStorage();
+
+    const settingsPath = workflowFs.getWorkflowProjectSettingsPath(created.absolutePath);
+    const settings = await workflowPublication.readStoredWorkflowProjectSettings(created.absolutePath, created.name);
+    await fs.writeFile(
+      settingsPath,
+      `${JSON.stringify({
+        ...settings,
+        endpointName: 'draft-latest-backend-current',
+      }, null, 2)}\n`,
+      'utf8',
+    );
+
+    const latestProject = await workflowStorageBackend.resolveLatestExecutionProject('draft-latest-backend-current');
+    assert.ok(latestProject);
+    assert.equal(latestProject.projectVirtualPath, created.absolutePath);
+    assert.equal(latestProject.debug?.cacheStatus, 'miss');
+
+    const staleLatestProject = await workflowStorageBackend.resolveLatestExecutionProject('draft-latest-backend-published');
+    assert.equal(staleLatestProject, null);
+
+    const publishedProject = await workflowStorageBackend.resolvePublishedExecutionProject('draft-latest-backend-published');
+    assert.ok(publishedProject);
+    assert.equal(publishedProject.projectVirtualPath, created.absolutePath);
+  });
+});
+
+test('filesystem published execution bypasses cold when a stale live-backed candidate becomes healthy', async () => {
+  const staleCandidate = await workflowMutations.createWorkflowProjectItem('', 'ExecutionStaleCandidate');
+  const staleOriginalContents = await fs.readFile(staleCandidate.absolutePath, 'utf8');
+  const sharedEndpoint = 'execution-shared-published-endpoint';
+  const publishedStateHash = await workflowPublication.createWorkflowPublicationStateHash(
+    staleCandidate.absolutePath,
+    sharedEndpoint,
+  );
+
+  await workflowMutations.createWorkflowFolderItem('Nested', '');
+  const healthyCandidate = await workflowMutations.createWorkflowProjectItem('Nested', 'ExecutionHealthyCandidate');
+  await workflowMutations.publishWorkflowProjectItem(healthyCandidate.relativePath, {
+    endpointName: sharedEndpoint,
+  });
+
+  await fs.writeFile(staleCandidate.absolutePath, `${staleOriginalContents}\n# stale\n`, 'utf8');
+  await fs.writeFile(
+    workflowFs.getProjectSidecarPaths(staleCandidate.absolutePath).settings,
+    `${JSON.stringify({
+      endpointName: sharedEndpoint,
+      publishedEndpointName: sharedEndpoint,
+      publishedSnapshotId: null,
+      publishedStateHash,
+      lastPublishedAt: '2025-01-01T00:00:00.000Z',
+    }, null, 2)}\n`,
+    'utf8',
+  );
+
+  await withEnvOverride('RIVET_WORKFLOW_EXECUTION_DEBUG_HEADERS', 'true', async () => {
+    await workflowStorageBackend.initializeWorkflowStorage();
+
+    const initialProject = await workflowStorageBackend.resolvePublishedExecutionProject(sharedEndpoint);
+    assert.ok(initialProject);
+    assert.equal(initialProject.projectVirtualPath, healthyCandidate.absolutePath);
+    assert.equal(initialProject.debug?.cacheStatus, 'hit');
+
+    await fs.writeFile(staleCandidate.absolutePath, staleOriginalContents, 'utf8');
+
+    const bypassProject = await workflowStorageBackend.resolvePublishedExecutionProject(sharedEndpoint);
+    assert.ok(bypassProject);
+    assert.equal(bypassProject.projectVirtualPath, staleCandidate.absolutePath);
+    assert.equal(bypassProject.debug?.cacheStatus, 'bypass');
+
+    const rebuiltProject = await workflowStorageBackend.resolvePublishedExecutionProject(sharedEndpoint);
+    assert.ok(rebuiltProject);
+    assert.equal(rebuiltProject.projectVirtualPath, staleCandidate.absolutePath);
+    assert.equal(rebuiltProject.debug?.cacheStatus, 'miss');
+
+    const warmProject = await workflowStorageBackend.resolvePublishedExecutionProject(sharedEndpoint);
+    assert.ok(warmProject);
+    assert.equal(warmProject.projectVirtualPath, staleCandidate.absolutePath);
+    assert.equal(warmProject.debug?.cacheStatus, 'hit');
+  });
+});
+
+test('filesystem execution helpers do not recreate the workflows root on the warm path', async (t) => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'WarmExecutionRoot');
+  await workflowMutations.publishWorkflowProjectItem(created.relativePath, {
+    endpointName: 'warm-execution-root-endpoint',
+  });
+
+  await workflowStorageBackend.initializeWorkflowStorage();
+
+  const originalMkdir = fs.mkdir.bind(fs);
+  const mkdirTargets: string[] = [];
+
+  t.mock.method(fs, 'mkdir', async (dirPath: any, options?: any) => {
+    mkdirTargets.push(String(dirPath));
+    return originalMkdir(dirPath, options);
+  });
+
+  const publishedProject = await workflowStorageBackend.resolvePublishedExecutionProject('warm-execution-root-endpoint');
+  assert.ok(publishedProject);
+  assert.equal(publishedProject.debug?.cacheStatus, 'hit');
+
+  const latestProject = await workflowStorageBackend.resolveLatestExecutionProject('warm-execution-root-endpoint');
+  assert.ok(latestProject);
+  assert.equal(latestProject.debug?.cacheStatus, 'hit');
+
+  const referenceLoader = await workflowStorageBackend.createExecutionProjectReferenceLoader(created.absolutePath);
+  assert.equal(typeof referenceLoader.loadProject, 'function');
+
+  const [loadedProject, attachedData] = await rivetNode.loadProjectAndAttachedDataFromFile(created.absolutePath);
+  await workflowStorageBackend.persistWorkflowExecutionRecordingWithBackend({
+    sourceProject: loadedProject,
+    sourceProjectPath: created.absolutePath,
+    executedProject: loadedProject,
+    executedAttachedData: attachedData,
+    executedDatasets: [],
+    endpointName: 'warm-execution-root-endpoint',
+    recordingSerialized: JSON.stringify({
+      version: 1,
+      recording: {
+        recordingId: 'warm-execution-root-recording',
+        events: [],
+        startTs: 1,
+        finishTs: 1,
+      },
+      assets: {},
+      strings: {},
+    }),
+    runKind: 'published',
+    status: 'succeeded',
+    durationMs: 1,
+  });
+
+  assert.deepEqual(
+    mkdirTargets.filter((target) => target === workflowsRoot || target === workflowFs.getPublishedSnapshotsRoot(workflowsRoot)),
+    [],
+  );
+});
+
+test('filesystem execution resolution recreates a missing workflows root once and preserves not-found semantics', async () => {
+  await workflowStorageBackend.initializeWorkflowStorage();
+
+  await fs.rm(workflowsRoot, { recursive: true, force: true });
+  filesystemExecutionCache.resetFilesystemExecutionCacheForTests();
+
+  const publishedProject = await workflowStorageBackend.resolvePublishedExecutionProject('missing-endpoint');
+  assert.equal(publishedProject, null);
+  assert.equal(await workflowFs.pathExists(workflowsRoot), true);
+  assert.equal(await workflowFs.pathExists(workflowFs.getPublishedSnapshotsRoot(workflowsRoot)), true);
+
+  await fs.rm(workflowsRoot, { recursive: true, force: true });
+  filesystemExecutionCache.resetFilesystemExecutionCacheForTests();
+
+  const latestProject = await workflowStorageBackend.resolveLatestExecutionProject('missing-endpoint');
+  assert.equal(latestProject, null);
+  assert.equal(await workflowFs.pathExists(workflowsRoot), true);
+  assert.equal(await workflowFs.pathExists(workflowFs.getPublishedSnapshotsRoot(workflowsRoot)), true);
 });
 
 test('published workflow responds with any outputs and records the run asynchronously', async () => {
@@ -1517,7 +1869,7 @@ test('workflow recording failed filter includes suspicious runs', async () => {
   const workflowId = loadedProject.metadata.id!;
 
   await workflowRecordings.persistWorkflowExecutionRecording({
-    root: workflowsRoot,
+    workflowsRoot,
     sourceProject: loadedProject,
     sourceProjectPath: created.absolutePath,
     executedProject: loadedProject,
@@ -1541,7 +1893,7 @@ test('workflow recording failed filter includes suspicious runs', async () => {
   });
 
   await workflowRecordings.persistWorkflowExecutionRecording({
-    root: workflowsRoot,
+    workflowsRoot,
     sourceProject: loadedProject,
     sourceProjectPath: created.absolutePath,
     executedProject: loadedProject,
@@ -1614,7 +1966,7 @@ test('workflow recording delete route removes a single recording and updates tot
     assert.equal(runsResponse.totalRuns, 2);
     assert.equal(runsResponse.runs.length, 2);
     const deletedRecordingId = runsResponse.runs[0]!.id;
-    const recordingsRoot = workflowFs.getWorkflowProjectRecordingsRoot(workflowsRoot, workflowId);
+    const recordingsRoot = workflowFs.getWorkflowProjectRecordingsRoot(workflowFs.getWorkflowRecordingsRoot(workflowsRoot), workflowId);
     const deletedBundlePath = path.join(recordingsRoot, deletedRecordingId);
     assert.equal(await workflowFs.pathExists(deletedBundlePath), true);
 
@@ -1677,7 +2029,7 @@ test('workflow recording delete route removes the last unpublished recording fro
 
     assert.equal(runsResponse.totalRuns, 1);
     const deletedRecordingId = runsResponse.runs[0]!.id;
-    const workflowRecordingsRoot = workflowFs.getWorkflowProjectRecordingsRoot(workflowsRoot, workflowId);
+    const workflowRecordingsRoot = workflowFs.getWorkflowProjectRecordingsRoot(workflowFs.getWorkflowRecordingsRoot(workflowsRoot), workflowId);
     const deletedBundlePath = path.join(workflowRecordingsRoot, deletedRecordingId);
 
     assert.equal(await workflowFs.pathExists(deletedBundlePath), true);
@@ -1717,7 +2069,7 @@ test('workflow recording persistence snapshots the executed in-memory project st
   await fs.writeFile(created.absolutePath, mutatedContents, 'utf8');
 
   await workflowRecordings.persistWorkflowExecutionRecording({
-    root: workflowsRoot,
+    workflowsRoot,
     sourceProject: loadedProject,
     sourceProjectPath: created.absolutePath,
     executedProject: loadedProject,
@@ -1740,7 +2092,7 @@ test('workflow recording persistence snapshots the executed in-memory project st
     durationMs: 1,
   });
 
-  const recordingsRoot = workflowFs.getWorkflowProjectRecordingsRoot(workflowsRoot, loadedProject.metadata.id);
+  const recordingsRoot = workflowFs.getWorkflowProjectRecordingsRoot(workflowFs.getWorkflowRecordingsRoot(workflowsRoot), loadedProject.metadata.id);
   const bundles = await fs.readdir(recordingsRoot);
   assert.equal(bundles.length, 1);
 
@@ -1764,7 +2116,7 @@ test('workflow recording cleanup keeps only the newest configured runs per endpo
 
     for (const index of [1, 2, 3]) {
       await workflowRecordings.persistWorkflowExecutionRecording({
-        root: workflowsRoot,
+        workflowsRoot,
         sourceProject: loadedProject,
         sourceProjectPath: created.absolutePath,
         executedProject: loadedProject,
@@ -1796,7 +2148,7 @@ test('workflow recording cleanup keeps only the newest configured runs per endpo
       [3, 2],
     );
 
-    const recordingsRoot = workflowFs.getWorkflowProjectRecordingsRoot(workflowsRoot, workflowId);
+    const recordingsRoot = workflowFs.getWorkflowProjectRecordingsRoot(workflowFs.getWorkflowRecordingsRoot(workflowsRoot), workflowId);
     const bundles = (await fs.readdir(recordingsRoot, { withFileTypes: true }))
       .filter((entry) => entry.isDirectory())
       .map((entry) => entry.name)

@@ -17,7 +17,7 @@ In `RIVET_API_PROFILE=combined`, the same API process serves both surfaces. In s
 - **Published snapshot** (`.published/<snapshotId>.rivet-project`): frozen copy of the project at publish time
 - **Dataset sidecar** (`*.rivet-data`): optional data associated with a project, published alongside it
 - **Execution recording artifacts**
-  - in `filesystem` mode: replayable bundles under `.recordings/<workflowId>/<recordingId>/`
+  - in `filesystem` mode: replayable bundles under `<RIVET_WORKFLOW_RECORDINGS_ROOT>/<workflowId>/<recordingId>/`
   - in `managed` mode: replayable blobs in managed object storage, keyed from Postgres metadata
 - **Recording metadata index**
   - in `filesystem` mode: SQLite metadata index under `<RIVET_APP_DATA_ROOT>/recordings.sqlite`
@@ -27,7 +27,7 @@ Projects live under the workflow root configured by `RIVET_WORKFLOWS_ROOT` in th
 
 Published snapshots always belong to workflow storage, but recording storage is backend-specific:
 
-- in `filesystem` mode, recording bundles live in that same workflow tree and the metadata index lives under `RIVET_APP_DATA_ROOT` as `recordings.sqlite`
+- in `filesystem` mode, recording bundles live under `RIVET_WORKFLOW_RECORDINGS_ROOT` and the metadata index lives under `RIVET_APP_DATA_ROOT` as `recordings.sqlite`
 - in `managed` mode, recording metadata lives in Postgres and recording artifacts live in managed object storage
 
 ## Stored settings model
@@ -301,11 +301,50 @@ Current request/response behavior for all execution routes:
 - every response sets `x-duration-ms`
 - when `RIVET_WORKFLOW_EXECUTION_DEBUG_HEADERS=true`, execution responses also emit additive debug headers:
   - `x-workflow-resolve-ms`
+    - in `filesystem` mode: endpoint-index freshness validation, possible lazy rebuild, and endpoint lookup
+    - in `managed` mode: endpoint pointer resolution
   - `x-workflow-materialize-ms`
+    - in `filesystem` mode: materialization-cache validation, possible raw file reload plus one-time reparsing, and per-request dataset-provider reconstruction
+    - in `managed` mode: immutable revision materialization
   - `x-workflow-execute-ms`
-  - `x-workflow-cache` with `hit`, `miss`, or `bypass`
+  - `x-workflow-cache`
+    - in `filesystem` mode: `hit`, `miss`, or degraded `bypass`
+    - in `managed` mode: `hit` or `miss`
 - successful object responses get `durationMs` injected unless already present
 - failures return JSON with `error.name`/`error.message` plus `durationMs`
+
+## Filesystem hot path
+
+In `filesystem` mode, the published/latest routes now keep a local derived warm path while staying compatibility-first:
+
+- the API warms a local endpoint index at startup for published/latest endpoint pointers
+- the cache facade now sits on top of an authoritative uncached filesystem execution source, so uncertain cache state can fall back to the real filesystem rules instead of guessing
+- raw project and dataset contents are materialized lazily and validated by file stat before reuse
+- the materialization cache now also keeps the parsed `Project` plus attached data for the current file signature, so warm hits avoid reparsing the YAML project file on every request
+- the API still rebuilds a fresh `NodeDatasetProvider` per request, so dataset mutations do not leak across runs
+
+Freshness rules stay explicit:
+
+- the filesystem tree remains authoritative
+- out-of-band on-disk edits are still honored without restart
+- freshness comes from validation against the filesystem, not from a watcher
+- global cache validation tracks the workflow tree shape through directories plus workflow settings sidecars
+- the selected published endpoint pointer also validates the live inputs that can change published eligibility without a settings-file edit
+- project-affecting mutations dirty the endpoint index and the next request can be a one-time rebuild `miss`
+- plain hosted saves only invalidate the live-project materialization; they do not need to dirty the endpoint index
+- referenced-project loading still stays on the older compatibility path in this pass; the filesystem cache only accelerates published/latest endpoint execution
+
+Filesystem `x-workflow-cache` semantics are now:
+
+- `hit`
+  - the startup-warmed endpoint index stayed fresh and served the pointer directly
+- `miss`
+  - the index had to rebuild because tracked workflow-tree state changed or startup warmup had not happened yet
+- `bypass`
+  - the cache deliberately fell back to the uncached filesystem source because the cached routing/materialization state was uncertain
+  - slower degraded execution is preferred over knowingly serving a stale cached endpoint target
+
+In local Docker, `/workflows` is usually a host bind mount. On Windows/Docker Desktop that bind-mounted filesystem path can still add fixed per-request overhead, but steady-state trivial requests no longer pay the old full recursive endpoint scan and full project/dataset reload every time.
 
 ## Managed hot path
 
@@ -383,7 +422,7 @@ Recording capture is intentionally best-effort observability:
 Each bundle stores:
 
 ```text
-.recordings/
+<RIVET_WORKFLOW_RECORDINGS_ROOT>/
   <workflowId>/
     <recordingId>/
       metadata.json
@@ -435,9 +474,9 @@ Operational defaults are intentionally conservative:
 
 ## Recording index and API shape
 
-The browser does not scan `.recordings/` directly. The API serves recording lists and artifact lookup from the active backend:
+The browser does not scan recording bundles directly. The API serves recording lists and artifact lookup from the active backend:
 
-- in `filesystem` mode, from `recordings.sqlite` plus `.recordings/`
+- in `filesystem` mode, from `recordings.sqlite` plus `RIVET_WORKFLOW_RECORDINGS_ROOT`
 - in `managed` mode, from Postgres `workflow_recordings` plus recording/replay blobs in object storage
 
 That backend data serves:
@@ -477,7 +516,7 @@ Current browser behavior:
 Deleting a run removes both:
 
 - in `filesystem` mode:
-  - the bundle under `.recordings/`
+  - the bundle under `RIVET_WORKFLOW_RECORDINGS_ROOT`
   - the corresponding SQLite row
 - in `managed` mode:
   - the recording/replay blobs in object storage
@@ -527,7 +566,7 @@ When a project or folder is renamed, moved, duplicated, uploaded, downloaded, or
   - deletes the project file and sidecars
   - deletes the published snapshot if one exists
   - deletes recording history by workflow ID and by legacy source-path lookup
-  - in `filesystem` mode, that means `.recordings/` bundles plus SQLite index rows
+  - in `filesystem` mode, that means recording bundles under `RIVET_WORKFLOW_RECORDINGS_ROOT` plus SQLite index rows
   - in `managed` mode, that means recording/replay blobs plus Postgres `workflow_recordings` rows
 
 ## Dashboard wiring
@@ -570,7 +609,7 @@ The workflow-publication UI now follows the same controller-versus-view split as
 - `wrapper/api/src/routes/workflows/workflow-download.ts` - project-download resolution and attachment filename generation
 - `wrapper/api/src/routes/workflows/workflow-query.ts` - workflow tree and hosted-project query helpers
 - `wrapper/api/src/routes/workflows/managed-virtual-io.ts` - managed virtual-path helpers used by hosted native IO
-- `wrapper/api/src/scripts/measure-workflow-execution.ts` - read-only managed endpoint measurement helper for cold-hit versus warm-hit diagnosis
+- `wrapper/api/src/scripts/measure-workflow-execution.ts` - read-only filesystem/managed endpoint measurement helper for route-timing diagnosis
 - `wrapper/web/dashboard/useWorkflowLibraryController.ts` - workflow-tree controller
 - `wrapper/web/dashboard/useProjectSettingsActions.ts` - project-settings mutations
 - `wrapper/web/dashboard/projectSettingsForm.ts` - project-settings validation and label helpers

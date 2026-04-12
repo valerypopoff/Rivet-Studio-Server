@@ -120,14 +120,16 @@ The important operational detail is that these tiers scale independently. A new 
 | Area | Purpose | Local direct-process default | Docker default |
 |---|---|---|---|
 | `RIVET_WORKSPACE_ROOT` | Allowed workspace root for general hosted file operations | repo root | `/workspace` |
-| `RIVET_WORKFLOWS_ROOT` | Filesystem-mode workflow tree plus filesystem-mode `.published/` and `.recordings/` artifacts | `<repo>/workflows` | `/workflows` |
+| `RIVET_WORKFLOWS_ROOT` | Filesystem-mode workflow tree plus filesystem-mode `.published/` snapshots | `<repo>/workflows` | `/workflows` |
+| `RIVET_WORKFLOW_RECORDINGS_ROOT` | Filesystem-mode recording bundles | `<repo>/workflows/.recordings` by default, or a separate configured root | `/workflow-recordings` in Docker when split |
 | `RIVET_APP_DATA_ROOT` | App-level state such as plugins, logs, and filesystem-mode `recordings.sqlite` | `<repo>/.data/rivet-app` | `/data/rivet-app` |
 | `RIVET_RUNTIME_LIBRARIES_ROOT` | Runtime-library local cache, manifest, and job workspace | `<repo>/.data/runtime-libraries` | `/data/runtime-libraries` |
 
 In Docker-based modes:
 
-- `RIVET_ARTIFACTS_HOST_PATH` can act as a shared host root for filesystem-backed artifacts; the launcher derives `workflows/` and `runtime-libraries/` subfolders from it unless the per-path envs are set explicitly.
-- `RIVET_WORKFLOWS_HOST_PATH` backs `/workflows`, so in `filesystem` mode it stores live projects, published snapshots, and recording bundles.
+- `RIVET_ARTIFACTS_HOST_PATH` is the normal shared host root for filesystem-backed artifacts; the launcher derives `workflows/`, `workflow-recordings/`, and `runtime-libraries/` from it unless the per-path envs are set explicitly.
+- `RIVET_WORKFLOWS_HOST_PATH` backs `/workflows`, so in `filesystem` mode it stores live projects and published snapshots.
+- `RIVET_WORKFLOW_RECORDINGS_HOST_PATH` backs `/workflow-recordings`, so filesystem-mode recording writes no longer contend with workflow-source reads on the same Windows bind mount.
 - `RIVET_RUNTIME_LIBS_HOST_PATH` backs `/data/runtime-libraries`.
 - the app-data directory is a separate volume and in `filesystem` mode holds `recordings.sqlite`, plugin files, and app logs.
 
@@ -136,6 +138,11 @@ Storage mode decides which of those paths are authoritative:
 - `RIVET_STORAGE_MODE=filesystem`
   - workflows are authoritative under `RIVET_WORKFLOWS_ROOT`
   - runtime libraries are authoritative under `RIVET_RUNTIME_LIBRARIES_ROOT`
+  - published/latest workflow execution now keeps a local startup-warmed endpoint index plus a lazy materialization cache on the API process
+  - the cache facade delegates uncached resolution/materialization to a dedicated filesystem execution source, so degraded requests can bypass the cache without inventing separate publication rules
+  - that materialization cache keeps the parsed project for the current file signature, so warm hits do not reparse the YAML workflow file on every request
+  - those filesystem caches are derived accelerators only; stat-validated filesystem contents remain authoritative and out-of-band edits are still honored without restart
+  - cache freshness is split between global workflow-tree validation and selected-pointer routing validation, and uncertainty degrades to cold bypass rather than stale execution
 - `RIVET_STORAGE_MODE=managed`
   - workflow metadata lives in Postgres and workflow blobs live in object storage
   - workflow recording metadata lives in Postgres `workflow_recordings`
@@ -183,7 +190,8 @@ Interpretation rules:
 - `RIVET_DATABASE_MODE`, `RIVET_DATABASE_CONNECTION_STRING`, and `RIVET_DATABASE_SSL_MODE` define the shared managed Postgres connection used by workflow storage and managed runtime libraries.
 - `RIVET_STORAGE_URL` is the recommended object-storage config entrypoint; alternatively use the explicit tuple of `RIVET_STORAGE_BUCKET`, `RIVET_STORAGE_REGION`, `RIVET_STORAGE_ENDPOINT`, `RIVET_STORAGE_ACCESS_KEY_ID`, `RIVET_STORAGE_ACCESS_KEY`, and `RIVET_STORAGE_FORCE_PATH_STYLE`.
 - `RIVET_ARTIFACTS_HOST_PATH` is the primary public filesystem-mode host root. The per-path host envs remain launcher-level compatibility overrides rather than the preferred contract.
-- `RIVET_WORKFLOW_EXECUTION_DEBUG_HEADERS` enables additive managed execution timing headers for endpoint resolve/materialize/execute stages.
+- `RIVET_WORKFLOW_RECORDINGS_ROOT` controls only where filesystem recording bundles live; if it is unset outside Docker, the app falls back to `<RIVET_WORKFLOWS_ROOT>/.recordings`.
+- `RIVET_WORKFLOW_EXECUTION_DEBUG_HEADERS` enables additive execution timing headers for endpoint resolve/materialize/execute stages in both filesystem and managed modes.
 - `RIVET_RUNTIME_LIBRARIES_SYNC_POLL_INTERVAL_MS` tunes managed runtime-library background reconciliation for API and executor processes.
 - `RIVET_RUNTIME_LIBRARIES_REPLICA_STATUS_RETENTION_MS` and `RIVET_RUNTIME_LIBRARIES_REPLICA_STATUS_CLEANUP_INTERVAL_MS` tune how long stale managed replica-status rows are kept and how often background cleanup runs.
 - `RIVET_RUNTIME_PROCESS_ROLE=api|executor` tells managed runtime-library readiness reporting which process role the current runtime represents.
@@ -193,7 +201,7 @@ Interpretation rules:
 Development-only execution measurement is available through:
 
 - `npm --prefix wrapper/api run workflow-execution:measure -- --base-url http://localhost:8080 --endpoint hello-world --kind published --runs 5 --warmups 1`
-- this tool is read-only and meant for cold-hit vs warm-hit diagnosis; it does not change server behavior or introduce a new public API surface
+- this tool is read-only and meant for route-timing diagnosis; in managed mode it helps compare cold-hit versus warm-hit behavior, while in filesystem mode it exposes the fixed resolve/materialize cost directly without changing server behavior
 
 ### Safety and compatibility
 

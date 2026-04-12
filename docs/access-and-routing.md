@@ -217,11 +217,53 @@ Current request/response behavior:
 - every execution response sets `x-duration-ms`
 - when `RIVET_WORKFLOW_EXECUTION_DEBUG_HEADERS=true`, execution responses also emit:
   - `x-workflow-resolve-ms`
+    - in `filesystem` mode: endpoint-index freshness validation, possible lazy rebuild, and endpoint lookup
+    - in `managed` mode: endpoint pointer resolution
   - `x-workflow-materialize-ms`
+    - in `filesystem` mode: materialization-cache validation, possible project/dataset reload plus one-time reparsing, and per-request dataset-provider reconstruction
+    - in `managed` mode: immutable revision materialization
   - `x-workflow-execute-ms`
   - `x-workflow-cache`
+    - `hit`, `miss`, or degraded `bypass` in `filesystem` mode
+    - `miss` or `hit` in `managed` mode
 - if the success payload is an object and does not already include `durationMs`, the API injects `durationMs` into the JSON body
 - failures return JSON shaped like `{ "error": { "name"?: string, "message": string }, "durationMs": number }`
+
+## Filesystem execution hot path
+
+In `RIVET_STORAGE_MODE=filesystem`, the published/latest routes now keep a local derived warm path on the API process:
+
+- a startup-warmed endpoint index for published/latest endpoint pointers
+- an authoritative uncached filesystem execution source behind that cache, so degraded requests can still resolve through the real publication rules
+- a lazy materialization cache for raw project and dataset contents plus the parsed `Project` and attached data for the current file signature
+- per-request reconstruction of `NodeDatasetProvider`, while warm hits reuse the cached parsed workflow instead of reparsing YAML every time
+
+Those caches are accelerators only:
+
+- the filesystem tree remains authoritative
+- out-of-band edits are still honored without restart
+- freshness comes from validation against the filesystem rather than from a watcher
+- global validation covers workflow-tree directories and workflow settings sidecars
+- selected published endpoint pointers also validate the live-backed inputs that can change published eligibility without a settings edit
+
+Current filesystem debug-header semantics are:
+
+- `x-workflow-cache=hit`
+  - the warmed endpoint index was still fresh and served the endpoint pointer directly
+- `x-workflow-cache=miss`
+  - the index had to rebuild because startup warmup had not happened yet or tracked filesystem state changed
+- `x-workflow-cache=bypass`
+  - the cache intentionally fell back to uncached filesystem resolution/materialization because cached state was uncertain
+  - correctness wins over latency in that degraded mode, so the request should stay correct even though it is colder and slower
+
+Operationally:
+
+- the API warms endpoint pointers at startup, so the first request after a clean API start should already avoid the full recursive workflow-tree scan
+- after a project-affecting mutation or an out-of-band tree-shape change, the next request can be a single rebuild `miss`, and the following request should be warm again
+- latest-route saves that only change live project contents refresh materialization without needing to dirty the endpoint index
+- referenced-project loading for published references still uses the existing compatibility path; this filesystem cache pass only accelerates published/latest endpoint execution
+
+In local Docker, those reads still happen against `/workflows`, which is normally a bind mount of the host workflows directory. On Windows/Docker Desktop, that bind-mounted filesystem path can still add noticeable fixed overhead, but the warmed endpoint/materialization path removes the old full-scan-plus-full-reload cost from steady-state trivial requests.
 
 ## Managed execution hot path
 
@@ -283,7 +325,7 @@ Latest-workflow remote debugging is opt-in and separate from the executor websoc
 
 Endpoint recording persistence is unaffected by debugger state. Latest-workflow runs still persist normal recording history when recordings are enabled:
 
-- in `filesystem` mode, as recording bundles plus SQLite index rows
+- in `filesystem` mode, as recording bundles under `RIVET_WORKFLOW_RECORDINGS_ROOT` plus SQLite index rows
 - in `managed` mode, as Postgres metadata plus recording/replay blobs in object storage
 
 Kubernetes support note:

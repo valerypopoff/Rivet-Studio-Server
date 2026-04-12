@@ -89,6 +89,35 @@ test('loadDevEnv honors explicit RIVET_ENV_FILE overrides and still derives file
     assert.equal(loaded.hasEnvFile, true);
     assert.equal(loaded.fileEnv.RIVET_STORAGE_MODE, 'filesystem');
     assert.equal(loaded.mergedEnv.RIVET_WORKFLOWS_HOST_PATH, path.join(tempRoot, 'artifacts', 'workflows'));
+    assert.equal(loaded.mergedEnv.RIVET_WORKFLOW_RECORDINGS_HOST_PATH, path.join(tempRoot, 'artifacts', 'workflow-recordings'));
+    assert.equal(loaded.mergedEnv.RIVET_RUNTIME_LIBS_HOST_PATH, path.join(tempRoot, 'artifacts', 'runtime-libraries'));
+  } finally {
+    if (previousEnvFile == null) {
+      delete process.env.RIVET_ENV_FILE;
+    } else {
+      process.env.RIVET_ENV_FILE = previousEnvFile;
+    }
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('loadDevEnv preserves an explicit workflow recordings host path override', () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'rivet-dev-env-recordings-'));
+  const envPath = path.join(tempRoot, 'compat.env');
+  fs.writeFileSync(envPath, [
+    'RIVET_STORAGE_MODE=filesystem',
+    'RIVET_ARTIFACTS_HOST_PATH=./artifacts',
+    'RIVET_WORKFLOW_RECORDINGS_HOST_PATH=./custom-recordings',
+  ].join('\n'));
+
+  const previousEnvFile = process.env.RIVET_ENV_FILE;
+  process.env.RIVET_ENV_FILE = envPath;
+
+  try {
+    const loaded = devEnv.loadDevEnv(tempRoot);
+
+    assert.equal(loaded.mergedEnv.RIVET_WORKFLOWS_HOST_PATH, path.join(tempRoot, 'artifacts', 'workflows'));
+    assert.equal(loaded.mergedEnv.RIVET_WORKFLOW_RECORDINGS_HOST_PATH, path.join(tempRoot, 'custom-recordings'));
     assert.equal(loaded.mergedEnv.RIVET_RUNTIME_LIBS_HOST_PATH, path.join(tempRoot, 'artifacts', 'runtime-libraries'));
   } finally {
     if (previousEnvFile == null) {

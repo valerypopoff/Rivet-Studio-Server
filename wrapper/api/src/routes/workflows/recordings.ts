@@ -39,8 +39,10 @@ import {
 import { createWorkflowRecordingStore } from './recordings-store.js';
 import { getWorkflowRecordingConfig, isWorkflowRecordingEnabled } from './recordings-config.js';
 import {
+  ensureWorkflowRecordingsRoot,
   getWorkflowRecordingBundlePath,
   getWorkflowRecordingMetadataPath,
+  getWorkflowRecordingsRoot,
   listProjectPathsRecursive,
   pathExists,
   PROJECT_EXTENSION,
@@ -61,7 +63,7 @@ import { type StoredWorkflowRecordingMetadataV2 } from './recordings-metadata.js
 import { getWorkflowProject } from './workflow-query.js';
 
 type PersistWorkflowExecutionRecordingOptions = {
-  root: string;
+  workflowsRoot: string;
   sourceProject: Project;
   sourceProjectPath: string;
   executedProject: Project;
@@ -106,12 +108,64 @@ function toWorkflowRecordingRunSummary(row: WorkflowRecordingRunRow): WorkflowRe
   };
 }
 
-export async function initializeWorkflowRecordingStorage(root: string): Promise<void> {
-  await workflowRecordingStore.ensureStorage(root);
+async function ensureWorkflowRecordingStorage(root?: string): Promise<string> {
+  const recordingsRoot = getWorkflowRecordingsRoot(root);
+  await workflowRecordingStore.ensureStorage(recordingsRoot);
+  return recordingsRoot;
+}
+
+async function countRecordingBundlesOnDisk(recordingsRoot: string): Promise<{ workflowCount: number; runCount: number }> {
+  if (!await pathExists(recordingsRoot)) {
+    return { workflowCount: 0, runCount: 0 };
+  }
+
+  const workflowDirectories = (await fs.readdir(recordingsRoot, { withFileTypes: true }))
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'));
+  const runCounts = await Promise.all(
+    workflowDirectories.map(async (workflowDirectory) => {
+      const workflowRoot = path.join(recordingsRoot, workflowDirectory.name);
+      const bundleDirectories = await fs.readdir(workflowRoot, { withFileTypes: true });
+      const completedBundleFlags = await Promise.all(
+        bundleDirectories
+          .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+          .map((entry) => pathExists(getWorkflowRecordingMetadataPath(path.join(workflowRoot, entry.name)))),
+      );
+      return completedBundleFlags.filter(Boolean).length;
+    }),
+  );
+
+  return {
+    workflowCount: workflowDirectories.length,
+    runCount: runCounts.reduce((total, count) => total + count, 0),
+  };
+}
+
+async function repairWorkflowRecordingIndexIfDrifted(recordingsRoot: string): Promise<void> {
+  const indexedWorkflows = await listWorkflowRecordingWorkflowStatsRows();
+  const indexedCounts = {
+    workflowCount: indexedWorkflows.length,
+    runCount: indexedWorkflows.reduce((total, workflow) => total + workflow.totalRuns, 0),
+  };
+  const diskCounts = await countRecordingBundlesOnDisk(recordingsRoot);
+
+  if (
+    indexedCounts.workflowCount === diskCounts.workflowCount &&
+    indexedCounts.runCount === diskCounts.runCount
+  ) {
+    return;
+  }
+
+  await rebuildWorkflowRecordingIndex(recordingsRoot);
+}
+
+export async function initializeWorkflowRecordingStorage(root?: string): Promise<void> {
+  const recordingsRoot = await ensureWorkflowRecordingsRoot(root);
+  await workflowRecordingStore.ensureStorage(recordingsRoot);
 }
 
 export async function listWorkflowRecordingWorkflows(root: string): Promise<WorkflowRecordingWorkflowListResponse> {
-  await workflowRecordingStore.ensureStorage(root);
+  const recordingsRoot = await ensureWorkflowRecordingStorage(root);
+  await repairWorkflowRecordingIndexIfDrifted(recordingsRoot);
 
   const recordingWorkflows = await listWorkflowRecordingWorkflowStatsRows();
   const recordingWorkflowByPath = new Map(recordingWorkflows.map((workflow) => [workflow.sourceProjectPath, workflow]));
@@ -179,7 +233,8 @@ export async function listWorkflowRecordingRunsPage(
   pageSize: number,
   statusFilter: WorkflowRecordingFilterStatus,
 ): Promise<WorkflowRecordingRunsPageResponse> {
-  await workflowRecordingStore.ensureStorage(root);
+  const recordingsRoot = await ensureWorkflowRecordingStorage(root);
+  await repairWorkflowRecordingIndexIfDrifted(recordingsRoot);
 
   const normalizedPage = Math.max(1, Math.floor(page));
   const normalizedPageSize = Math.min(100, Math.max(1, Math.floor(pageSize)));
@@ -205,7 +260,8 @@ export async function readWorkflowRecordingArtifact(
   recordingId: string,
   artifact: WorkflowRecordingArtifactKind,
 ): Promise<string> {
-  await workflowRecordingStore.ensureStorage(root);
+  const recordingsRoot = await ensureWorkflowRecordingStorage(root);
+  await repairWorkflowRecordingIndexIfDrifted(recordingsRoot);
 
   const row = await getWorkflowRecordingRunRow(recordingId);
   if (!row) {
@@ -225,7 +281,8 @@ export async function readWorkflowRecordingArtifact(
 }
 
 export async function deleteWorkflowRecording(root: string, recordingId: string): Promise<void> {
-  await workflowRecordingStore.ensureStorage(root);
+  const recordingsRoot = await ensureWorkflowRecordingStorage(root);
+  await repairWorkflowRecordingIndexIfDrifted(recordingsRoot);
 
   const row = await getWorkflowRecordingRunRow(recordingId);
   if (!row) {
@@ -237,7 +294,7 @@ export async function deleteWorkflowRecording(root: string, recordingId: string)
   const remainingRuns = await listWorkflowRecordingRunRowsForWorkflow(row.workflowId);
   if (remainingRuns.length === 0) {
     await deleteWorkflowRecordingWorkflowRow(row.workflowId);
-    await removeEmptyWorkflowProjectRecordingsRoot(root, row.workflowId);
+    await removeEmptyWorkflowProjectRecordingsRoot(recordingsRoot, row.workflowId);
     return;
   }
 
@@ -256,13 +313,14 @@ export async function persistWorkflowExecutionRecording(
     return;
   }
 
-  await workflowRecordingStore.ensureStorage(options.root);
+  const recordingsRoot = getWorkflowRecordingsRoot(options.workflowsRoot);
+  await workflowRecordingStore.ensureStorage(recordingsRoot);
 
   const config = getWorkflowRecordingConfig();
   const recordingId = `${Date.now()}-${randomUUID()}`;
-  const bundlePath = getWorkflowRecordingBundlePath(options.root, workflowId, recordingId);
+  const bundlePath = getWorkflowRecordingBundlePath(recordingsRoot, workflowId, recordingId);
   const sourceProjectName = path.basename(options.sourceProjectPath, PROJECT_EXTENSION);
-  const sourceProjectRelativePath = path.relative(options.root, options.sourceProjectPath).replace(/\\/g, '/');
+  const sourceProjectRelativePath = path.relative(options.workflowsRoot, options.sourceProjectPath).replace(/\\/g, '/');
   const createdAt = new Date().toISOString();
   const replayProject: Project = {
     ...options.executedProject,
@@ -378,7 +436,7 @@ export async function persistWorkflowExecutionRecording(
 }
 
 export async function deleteWorkflowRecordingsBySourceProjectPath(root: string, projectPath: string): Promise<void> {
-  await workflowRecordingStore.ensureStorage(root);
+  const recordingsRoot = await ensureWorkflowRecordingStorage(root);
 
   const relativePath = path.relative(root, projectPath).replace(/\\/g, '/');
   const workflows = await getWorkflowRecordingWorkflowRowsBySourceProjectPath(projectPath, relativePath);
@@ -391,7 +449,7 @@ export async function deleteWorkflowRecordingsBySourceProjectPath(root: string, 
 
     await deleteWorkflowRecordingWorkflowRow(workflow.workflowId);
 
-    await removeEmptyWorkflowProjectRecordingsRoot(root, workflow.workflowId);
+    await removeEmptyWorkflowProjectRecordingsRoot(recordingsRoot, workflow.workflowId);
   }
 
   await deleteEmptyWorkflowRecordingWorkflows();
@@ -405,7 +463,7 @@ export async function deleteWorkflowRecordingsByWorkflowId(
     return;
   }
 
-  await workflowRecordingStore.ensureStorage(root);
+  const recordingsRoot = await ensureWorkflowRecordingStorage(root);
 
   const runs = await listWorkflowRecordingRunRowsForWorkflow(workflowId);
   for (const run of runs) {
@@ -414,7 +472,7 @@ export async function deleteWorkflowRecordingsByWorkflowId(
 
   await deleteWorkflowRecordingWorkflowRow(workflowId);
 
-  await removeEmptyWorkflowProjectRecordingsRoot(root, workflowId);
+  await removeEmptyWorkflowProjectRecordingsRoot(recordingsRoot, workflowId);
 }
 
 export async function resetWorkflowRecordingStorageForTests(): Promise<void> {
