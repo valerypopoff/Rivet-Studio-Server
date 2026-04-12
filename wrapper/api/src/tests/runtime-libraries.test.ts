@@ -11,6 +11,7 @@ const manifest = await import('../runtime-libraries/manifest.js');
 const startup = await import('../runtime-libraries/startup.js');
 const filesystemBackend = await import('../runtime-libraries/filesystem-backend.js');
 const runtimeLibrariesConfig = await import('../runtime-libraries/config.js');
+const { jobRunner } = await import('../runtime-libraries/job-runner.js');
 
 async function resetRuntimeLibrariesRoot() {
   await fs.rm(runtimeLibrariesRoot, { recursive: true, force: true });
@@ -185,6 +186,30 @@ test('filesystem backend reports no active libraries for an empty active release
   assert.equal(state.hasActiveLibraries, false);
   assert.deepEqual(state.packages, {});
   assert.equal(state.replicaReadiness, null);
+});
+
+test('filesystem backend hides finished jobs from modal state but keeps them addressable by job id', async () => {
+  const backend = filesystemBackend.createFilesystemRuntimeLibrariesBackend();
+  const finishedJob = jobRunner.startRemove(['left-pad']);
+
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const currentJob = jobRunner.getJob(finishedJob.id);
+    if (currentJob?.status === 'succeeded' || currentJob?.status === 'failed') {
+      break;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+
+  const state = await backend.getState();
+  assert.equal(state.backend, 'filesystem');
+  assert.equal(state.activeJob, null);
+
+  const job = await backend.getJob(finishedJob.id);
+  assert.ok(job);
+  assert.equal(job.id, finishedJob.id);
+  assert.equal(job.status, 'succeeded');
+  assert.ok(job.logEntries.length > 0);
 });
 
 test('runtime-library mode follows the shared storage mode env', () => {

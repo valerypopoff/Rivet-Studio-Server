@@ -164,6 +164,13 @@ In `managed` mode that exclusivity is enforced in Postgres, not only in process 
 In the current split, install/remove job ownership stays on the control-plane API while execution-plane API replicas run in sync-only mode.
 In combined local modes, the single API process owns both the admin flow and any published-execution-side reconciliation it still performs.
 
+Current `activeJob` semantics are intentionally mode-specific:
+
+- in `filesystem` mode, `GET /api/runtime-libraries` exposes only a currently running job
+- once a filesystem job reaches `succeeded` or `failed`, it is no longer returned as modal state on later refreshes or reopen
+- `GET /api/runtime-libraries/jobs/:jobId` still returns that finished filesystem job by id so an already-open modal session can keep its terminal view
+- in `managed` mode, job state and logs remain persisted in Postgres and continue to survive refreshes and process restarts
+
 Managed `replicaReadiness` is observational only:
 
 - `endpoint` readiness reflects execution-plane API replicas
@@ -263,6 +270,7 @@ Current persistence rules:
 - if `manifest.json` says packages are installed but `current/node_modules` is missing, startup clears the stale manifest state and starts clean
 - in `managed` mode, startup reconciles the local `current/` cache from the active managed release before execution uses it
 - in `managed` mode, job logs and status survive refreshes and API restarts because they are stored in Postgres
+- in `filesystem` mode, finished install/remove jobs are intentionally not re-exposed through `GET /api/runtime-libraries` after the modal session ends; the durable success signal is the installed package set in the manifest/current release
 - in `managed` mode, executor processes run the same reconciliation logic through the bootstrap layer before code execution
 - in `managed` mode, replica-status rows also live in Postgres, so stale rows can survive process restarts until background cleanup or explicit stale-row cleanup removes them
 
@@ -308,10 +316,12 @@ The current wrapper UI exposes a simple single-package workflow:
 - remove installed packages one at a time
 - cancel a queued or running job from the modal
 - show the live job log inline in the modal
+- in `filesystem` mode, closing the modal clears the transient terminal view; reopening the modal shows the installed libraries list and only resumes job logs/status if another job is still actively running
 - in `managed` mode, show `Replica readiness` for:
   - `Endpoint execution replicas`
   - `Editor execution replicas`
 - while the modal is open in `managed` mode, poll `/api/runtime-libraries` every 5 seconds even when no job is active
+- in `managed` mode, persisted job state can still be rehydrated across refreshes/reopen because the backend stores logs and status durably
 - keep replica details collapsed by default, with expandable per-replica sync/error detail for debugging partial convergence
 - when stale rows exist, show a `Clear stale replicas` action that calls the cleanup route and refreshes readiness state
 - `RuntimeLibrariesModal.tsx` remains the shell, `useRuntimeLibrariesModalState.ts` remains the public controller, and `runtimeLibrariesJobStream.ts` owns SSE connection helpers plus log/status patching so those state transitions are not duplicated inside the hook

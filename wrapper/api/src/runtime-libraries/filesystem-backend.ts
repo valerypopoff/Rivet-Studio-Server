@@ -64,13 +64,14 @@ class FilesystemRuntimeLibrariesBackend implements RuntimeLibrariesBackend {
   async getState(): Promise<RuntimeLibrariesState> {
     ensureDirectories();
     const manifest = readManifest();
+    const activeJob = jobRunner.getActiveJob();
 
     return {
       backend: 'filesystem',
       packages: manifest.packages,
       hasActiveLibraries: Object.keys(manifest.packages).length > 0,
       updatedAt: manifest.updatedAt,
-      activeJob: mapJob(jobRunner.getActiveJob()),
+      activeJob: jobRunner.isRunning() ? mapJob(activeJob) : null,
       activeReleaseId: manifest.activeReleaseId ?? null,
       replicaReadiness: null,
     };
