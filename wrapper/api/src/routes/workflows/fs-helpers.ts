@@ -2,7 +2,11 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 
-import { getWorkflowsRoot, validatePath } from '../../security.js';
+import {
+  getWorkflowRecordingsRoot as getConfiguredWorkflowRecordingsRoot,
+  getWorkflowsRoot,
+  validatePath,
+} from '../../security.js';
 import { badRequest, conflict } from '../../utils/httpError.js';
 
 export const PROJECT_EXTENSION = '.rivet-project';
@@ -20,8 +24,13 @@ export async function ensureWorkflowsRoot(): Promise<string> {
   const root = getWorkflowsRoot();
   await fs.mkdir(root, { recursive: true });
   await fs.mkdir(getPublishedSnapshotsRoot(root), { recursive: true });
-  await fs.mkdir(getWorkflowRecordingsRoot(root), { recursive: true });
   return root;
+}
+
+export async function ensureWorkflowRecordingsRoot(root?: string): Promise<string> {
+  const recordingsRoot = getWorkflowRecordingsRoot(root);
+  await fs.mkdir(recordingsRoot, { recursive: true });
+  return recordingsRoot;
 }
 
 export function sanitizeWorkflowName(value: unknown, label: string): string {
@@ -133,8 +142,13 @@ export function getPublishedSnapshotsRoot(root: string): string {
   return validatePath(path.join(root, PUBLISHED_SNAPSHOTS_DIR));
 }
 
-export function getWorkflowRecordingsRoot(root: string): string {
-  return validatePath(path.join(root, WORKFLOW_RECORDINGS_DIR));
+export function getWorkflowRecordingsRoot(root?: string): string {
+  if (process.env.RIVET_WORKFLOW_RECORDINGS_ROOT?.trim()) {
+    return getConfiguredWorkflowRecordingsRoot();
+  }
+
+  const workflowsRoot = root ? validatePath(root) : getWorkflowsRoot();
+  return validatePath(path.join(workflowsRoot, WORKFLOW_RECORDINGS_DIR));
 }
 
 export function getWorkflowProjectRecordingsRoot(root: string, projectMetadataId: string): string {

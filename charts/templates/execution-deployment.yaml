@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "rivet.executionName" . }}
+  labels:
+    {{- include "rivet.labels" . | nindent 4 }}
+    app.kubernetes.io/component: execution
+spec:
+  replicas: {{ .Values.replicaCount.execution }}
+  selector:
+    matchLabels:
+      {{- include "rivet.componentLabels" (dict "root" . "component" "execution") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "rivet.componentLabels" (dict "root" . "component" "execution") | nindent 8 }}
+      annotations:
+        {{- with .Values.podAnnotations.execution }}
+{{ toYaml . | nindent 8 }}
+        {{- end }}
+        {{- include "rivet.vaultAnnotations" . | nindent 8 }}
+    spec:
+      {{- include "rivet.pod.imagePullSecrets" . | nindent 6 }}
+      {{- include "rivet.pod.workloadSecurityContext" . | nindent 6 }}
+      containers:
+        - name: api
+          image: {{ include "rivet.image" (dict "root" . "image" .Values.images.api) }}
+          imagePullPolicy: {{ .Values.images.api.pullPolicy }}
+          {{- include "rivet.pod.containerSecurityContext" . | nindent 10 }}
+          ports:
+            - name: api-http
+              containerPort: {{ .Values.service.execution.targetPort }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: api-http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: api-http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          env:
+{{ include "rivet.env.apiWorkload" (dict "root" . "port" .Values.service.execution.targetPort "profile" "execution" "storageBackend" .Values.workflowStorage.backend "replicaTier" "endpoint" "jobWorkerEnabled" "false") | nindent 12 }}
+          volumeMounts:
+{{ include "rivet.pod.apiVolumeMounts" . | nindent 12 }}
+          resources:
+{{ toYaml .Values.resources.execution | nindent 12 }}
+      volumes:
+        - name: workspace
+          emptyDir: {}
+        - name: workflows
+          emptyDir: {}
+        {{- if .Values.storage.appData.existingClaimName }}
+        - name: app-data
+          persistentVolumeClaim:
+            claimName: {{ .Values.storage.appData.existingClaimName }}
+        {{- else }}
+        - name: app-data
+          emptyDir: {}
+        {{- end }}
+        {{- if .Values.runtimeLibraries.cache.existingClaimName }}
+        - name: runtime-libraries
+          persistentVolumeClaim:
+            claimName: {{ .Values.runtimeLibraries.cache.existingClaimName }}
+        {{- else }}
+        - name: runtime-libraries
+          emptyDir: {}
+        {{- end }}
+{{ include "rivet.pod.tmpVolume" . | nindent 8 }}

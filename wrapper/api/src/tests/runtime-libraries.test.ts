@@ -9,6 +9,9 @@ process.env.RIVET_RUNTIME_LIBRARIES_ROOT = runtimeLibrariesRoot;
 
 const manifest = await import('../runtime-libraries/manifest.js');
 const startup = await import('../runtime-libraries/startup.js');
+const filesystemBackend = await import('../runtime-libraries/filesystem-backend.js');
+const runtimeLibrariesConfig = await import('../runtime-libraries/config.js');
+const { jobRunner } = await import('../runtime-libraries/job-runner.js');
 
 async function resetRuntimeLibrariesRoot() {
   await fs.rm(runtimeLibrariesRoot, { recursive: true, force: true });
@@ -29,6 +32,7 @@ test('readManifest normalizes invalid manifest content', async () => {
         arrayEntry: [],
       },
       updatedAt: '2026-02-02T00:00:00.000Z',
+      activeReleaseId: 'release-123',
     }),
     'utf8',
   );
@@ -42,6 +46,7 @@ test('readManifest normalizes invalid manifest content', async () => {
       },
     },
     updatedAt: '2026-02-02T00:00:00.000Z',
+    activeReleaseId: 'release-123',
   });
 });
 
@@ -113,11 +118,27 @@ test('writeManifest writes atomically and can be read back', () => {
     express: { name: 'express', version: '^4.18.0', installedAt: '2026-01-01T00:00:00.000Z' },
   };
 
-  manifest.writeManifest({ packages, updatedAt: '' });
+  manifest.writeManifest({ packages, updatedAt: '', activeReleaseId: 'release-456' });
 
   const result = manifest.readManifest();
   assert.deepEqual(result.packages, packages);
+  assert.equal(result.activeReleaseId, 'release-456');
   assert.ok(result.updatedAt, 'updatedAt should be set by writeManifest');
+});
+
+test('writeManifest recreates missing runtime-library directories before writing', async () => {
+  await fs.rm(runtimeLibrariesRoot, { recursive: true, force: true });
+
+  manifest.writeManifest({
+    packages: {},
+    updatedAt: '',
+    activeReleaseId: 'release-recreated',
+  });
+
+  const result = manifest.readManifest();
+  assert.equal(result.activeReleaseId, 'release-recreated');
+  const rootStat = await fs.stat(runtimeLibrariesRoot);
+  assert.ok(rootStat.isDirectory());
 });
 
 test('normalizeManifest strips entries with empty version strings', () => {
@@ -153,4 +174,76 @@ test('currentNodeModulesPath returns path when node_modules exists', async () =>
   const result = manifest.currentNodeModulesPath();
   assert.ok(result);
   assert.ok(result.endsWith('node_modules'));
+});
+
+test('filesystem backend reports no active libraries for an empty active release', async () => {
+  const currentPath = path.join(runtimeLibrariesRoot, 'current');
+  await fs.mkdir(path.join(currentPath, 'node_modules'), { recursive: true });
+
+  const backend = filesystemBackend.createFilesystemRuntimeLibrariesBackend();
+  const state = await backend.getState();
+
+  assert.equal(state.hasActiveLibraries, false);
+  assert.deepEqual(state.packages, {});
+  assert.equal(state.replicaReadiness, null);
+});
+
+test('filesystem backend hides finished jobs from modal state but keeps them addressable by job id', async () => {
+  const backend = filesystemBackend.createFilesystemRuntimeLibrariesBackend();
+  const finishedJob = jobRunner.startRemove(['left-pad']);
+
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const currentJob = jobRunner.getJob(finishedJob.id);
+    if (currentJob?.status === 'succeeded' || currentJob?.status === 'failed') {
+      break;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+
+  const state = await backend.getState();
+  assert.equal(state.backend, 'filesystem');
+  assert.equal(state.activeJob, null);
+
+  const job = await backend.getJob(finishedJob.id);
+  assert.ok(job);
+  assert.equal(job.id, finishedJob.id);
+  assert.equal(job.status, 'succeeded');
+  assert.ok(job.logEntries.length > 0);
+});
+
+test('runtime-library mode follows the shared storage mode env', () => {
+  const originalStorageMode = process.env.RIVET_STORAGE_MODE;
+
+  try {
+    process.env.RIVET_STORAGE_MODE = 'managed';
+    assert.equal(runtimeLibrariesConfig.getRuntimeLibrariesBackendMode(), 'managed');
+
+    delete process.env.RIVET_STORAGE_MODE;
+    assert.equal(runtimeLibrariesConfig.getRuntimeLibrariesBackendMode(), 'filesystem');
+  } finally {
+    if (originalStorageMode === undefined) {
+      delete process.env.RIVET_STORAGE_MODE;
+    } else {
+      process.env.RIVET_STORAGE_MODE = originalStorageMode;
+    }
+  }
+});
+
+test('runtime-library config rejects retired alias env names', () => {
+  const originalStorageBackend = process.env.RIVET_STORAGE_BACKEND;
+
+  try {
+    process.env.RIVET_STORAGE_BACKEND = 'managed';
+    assert.throws(
+      () => runtimeLibrariesConfig.getRuntimeLibrariesBackendMode(),
+      /Retired environment variable/,
+    );
+  } finally {
+    if (originalStorageBackend === undefined) {
+      delete process.env.RIVET_STORAGE_BACKEND;
+    } else {
+      process.env.RIVET_STORAGE_BACKEND = originalStorageBackend;
+    }
+  }
 });

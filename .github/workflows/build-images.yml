@@ -19,16 +19,20 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - service: proxy
+            dockerfile: image/proxy/Dockerfile
+            image: ghcr.io/valerypopoff/cloud-hosted-rivet-wrapper/proxy
+            platforms: linux/amd64,linux/arm64
           - service: web
-            dockerfile: ops/Dockerfile.web
+            dockerfile: image/web/Dockerfile
             image: ghcr.io/valerypopoff/cloud-hosted-rivet-wrapper/web
             platforms: linux/amd64,linux/arm64
           - service: api
-            dockerfile: ops/Dockerfile.api
+            dockerfile: image/api/Dockerfile
             image: ghcr.io/valerypopoff/cloud-hosted-rivet-wrapper/api
             platforms: linux/amd64,linux/arm64
           - service: executor
-            dockerfile: ops/Dockerfile.executor
+            dockerfile: image/executor/Dockerfile
             image: ghcr.io/valerypopoff/cloud-hosted-rivet-wrapper/executor
             platforms: linux/amd64
 
@@ -41,8 +45,14 @@ jobs:
         with:
           node-version: 20
 
+      - name: Verify Repo Structure
+        run: npm run verify:repo-structure
+
       - name: Bootstrap Upstream Rivet
-        run: npm run setup:rivet
+        run: |
+          if [ ! -d rivet ] || [ -z "$(ls -A rivet 2>/dev/null)" ]; then
+            npm run setup:rivet
+          fi
 
       - name: Set Up QEMU
         uses: docker/setup-qemu-action@v3

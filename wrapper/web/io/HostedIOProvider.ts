@@ -7,27 +7,63 @@ import {
   ExecutionRecorder,
   deserializeDatasets,
   deserializeGraph,
-  deserializeProject,
   serializeGraph,
   serializeProject,
 } from '@ironclad/rivet-core';
 import { type IOProvider } from '../../../rivet/packages/app/src/io/IOProvider.js';
 import {
-  type SerializedTrivetData,
   type TrivetData,
   deserializeTrivetData,
   serializeTrivetData,
 } from '@ironclad/trivet';
 import { getDefaultStore } from 'jotai';
 import { RIVET_API_BASE_URL } from '../../shared/hosted-env';
-import { apiReadText, apiWriteText, apiReadBinary } from '../../shared/api';
+import { apiReadBinary, apiReadText } from '../../shared/api';
+import { MANAGED_WORKFLOW_VIRTUAL_ROOT } from '../../shared/workflow-types';
 import { getWorkflowRecordingIdFromVirtualProjectPath } from '../../shared/workflow-recording-types';
 import { loadedProjectState } from '../../../rivet/packages/app/src/state/savedGraphs.js';
 import { datasetProvider } from '../../../rivet/packages/app/src/utils/globals/datasetProvider.js';
 import { fetchWorkflowRecordingArtifactText } from '../dashboard/workflowApi';
+import { getEnvVar } from '../overrides/utils/tauri';
+import { deserializeHostedProjectPayloadAsync } from '../overrides/utils/deserializeProject';
 
 const API = RIVET_API_BASE_URL;
 const jotaiStore = getDefaultStore();
+const projectRevisionIdByPath = new Map<string, string | null>();
+let workflowStorageBackendPromise: Promise<'filesystem' | 'managed'> | null = null;
+
+export function clearHostedProjectRevisionPath(path: string | null | undefined): void {
+  if (!path) {
+    return;
+  }
+
+  projectRevisionIdByPath.delete(path);
+}
+
+export function remapHostedProjectRevisionPaths(moves: Iterable<{
+  fromAbsolutePath: string;
+  toAbsolutePath: string;
+}>): void {
+  const moveMap = new Map<string, string>();
+
+  for (const move of moves) {
+    moveMap.set(move.fromAbsolutePath, move.toAbsolutePath);
+  }
+
+  if (moveMap.size === 0) {
+    return;
+  }
+
+  for (const [path, revisionId] of Array.from(projectRevisionIdByPath.entries())) {
+    const nextPath = moveMap.get(path);
+    if (!nextPath) {
+      continue;
+    }
+
+    projectRevisionIdByPath.delete(path);
+    projectRevisionIdByPath.set(nextPath, revisionId);
+  }
+}
 
 async function apiListProjects(): Promise<string[]> {
   const resp = await fetch(`${API}/projects/list`);
@@ -36,7 +72,64 @@ async function apiListProjects(): Promise<string[]> {
   return data.files;
 }
 
-function getSuggestedProjectPath(defaultName: string): string {
+async function apiLoadProject(path: string): Promise<{
+  contents: string;
+  datasetsContents: string | null;
+  revisionId: string | null;
+}> {
+  const response = await fetch(`${API}/projects/load`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Failed to load project: ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
+async function apiSaveProject(options: {
+  path: string;
+  contents: string;
+  datasetsContents: string | null;
+  expectedRevisionId: string | null;
+}): Promise<{
+  path: string;
+  revisionId: string | null;
+}> {
+  const response = await fetch(`${API}/projects/save`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(options),
+  });
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({ error: response.statusText }));
+    const error = new Error(data.error || response.statusText) as Error & { status?: number };
+    error.status = response.status;
+    throw error;
+  }
+
+  return response.json();
+}
+
+async function getWorkflowStorageBackend(): Promise<'filesystem' | 'managed'> {
+  if (!workflowStorageBackendPromise) {
+    workflowStorageBackendPromise = (async () => {
+      const value = (await getEnvVar('RIVET_STORAGE_MODE'))?.trim().toLowerCase();
+      return value === 'managed' ? 'managed' : 'filesystem';
+    })().catch((error) => {
+      workflowStorageBackendPromise = null;
+      throw error;
+    });
+  }
+
+  return workflowStorageBackendPromise;
+}
+
+async function getSuggestedProjectPath(defaultName: string): Promise<string> {
   const loadedProject = jotaiStore.get(loadedProjectState) as {
     loaded: boolean;
     path: string | null;
@@ -44,7 +137,9 @@ function getSuggestedProjectPath(defaultName: string): string {
   const currentPath = loadedProject.path?.trim();
 
   if (!currentPath || getWorkflowRecordingIdFromVirtualProjectPath(currentPath)) {
-    return `/workflows/${defaultName}`;
+    return (await getWorkflowStorageBackend()) === 'managed'
+      ? `${MANAGED_WORKFLOW_VIRTUAL_ROOT}/${defaultName}`
+      : `/workflows/${defaultName}`;
   }
 
   const lastSeparatorIndex = Math.max(currentPath.lastIndexOf('/'), currentPath.lastIndexOf('\\'));
@@ -98,6 +193,20 @@ async function pickSingleFile(options: { accept?: string } = {}): Promise<File |
   });
 }
 
+async function deserializeHostedProjectPayload(
+  contents: string,
+  path: string,
+): Promise<{ project: Project; testData: TrivetData }> {
+  const { project, serializedTrivetData } = await deserializeHostedProjectPayloadAsync(contents, path);
+
+  return {
+    project,
+    testData: serializedTrivetData
+      ? deserializeTrivetData(serializedTrivetData)
+      : { testSuites: [] },
+  };
+}
+
 export class HostedIOProvider implements IOProvider {
   static isSupported(): boolean {
     return true;
@@ -133,21 +242,24 @@ export class HostedIOProvider implements IOProvider {
   async saveProjectData(project: Project, testData: TrivetData): Promise<string | undefined> {
     // Show a simple prompt for server path
     const defaultName = `${project.metadata?.title ?? 'project'}.rivet-project`;
-    const filePath = prompt('Save project to server path:', getSuggestedProjectPath(defaultName));
+    const filePath = prompt('Save project to server path:', await getSuggestedProjectPath(defaultName));
 
     if (!filePath) return undefined;
 
     const data = serializeProject(project, {
       trivet: serializeTrivetData(testData),
     }) as string;
+    const datasets = await datasetProvider.exportDatasetsForProject(project.metadata.id);
+    const saved = await apiSaveProject({
+      path: filePath,
+      contents: data,
+      datasetsContents: datasets.length > 0 ? serializeDatasets(datasets) : null,
+      expectedRevisionId: projectRevisionIdByPath.get(filePath) ?? null,
+    });
 
-    await apiWriteText(filePath, data);
-
-    // Save datasets alongside
-    const { saveDatasetsFile } = await import('../overrides/io/datasets.js');
-    await saveDatasetsFile(filePath, project);
-
-    return filePath;
+    projectRevisionIdByPath.delete(filePath);
+    projectRevisionIdByPath.set(saved.path, saved.revisionId ?? null);
+    return saved.path;
   }
 
   async saveProjectDataNoPrompt(project: Project, testData: TrivetData, path: string): Promise<void> {
@@ -158,11 +270,15 @@ export class HostedIOProvider implements IOProvider {
     const data = serializeProject(project, {
       trivet: serializeTrivetData(testData),
     }) as string;
+    const datasets = await datasetProvider.exportDatasetsForProject(project.metadata.id);
+    const saved = await apiSaveProject({
+      path,
+      contents: data,
+      datasetsContents: datasets.length > 0 ? serializeDatasets(datasets) : null,
+      expectedRevisionId: projectRevisionIdByPath.get(path) ?? null,
+    });
 
-    await apiWriteText(path, data);
-
-    const { saveDatasetsFile } = await import('../overrides/io/datasets.js');
-    await saveDatasetsFile(path, project);
+    projectRevisionIdByPath.set(saved.path, saved.revisionId ?? null);
   }
 
   async loadGraphData(callback: (graphData: NodeGraph) => void): Promise<void> {
@@ -230,44 +346,48 @@ export class HostedIOProvider implements IOProvider {
   async loadProjectDataNoPrompt(path: string): Promise<{ project: Project; testData: TrivetData }> {
     const recordingId = getWorkflowRecordingIdFromVirtualProjectPath(path);
     if (recordingId) {
-      const data = await fetchWorkflowRecordingArtifactText(recordingId, 'replay-project');
-      const [projectData, attachedData] = deserializeProject(data, path);
+      const [data, replayDatasetResult] = await Promise.all([
+        fetchWorkflowRecordingArtifactText(recordingId, 'replay-project'),
+        fetchWorkflowRecordingArtifactText(recordingId, 'replay-dataset')
+          .then((datasetsText) => ({ datasetsText }))
+          .catch((error) => {
+            const status = typeof error === 'object' &&
+              error != null &&
+              'status' in error &&
+              typeof (error as { status?: unknown }).status === 'number'
+              ? (error as { status: number }).status
+              : undefined;
 
-      const trivetData = attachedData.trivet
-        ? deserializeTrivetData(attachedData.trivet as SerializedTrivetData)
-        : { testSuites: [] };
+            if (status === 404) {
+              return { datasetsText: null };
+            }
 
-      try {
-        const datasetsText = await fetchWorkflowRecordingArtifactText(recordingId, 'replay-dataset');
-        const datasets = deserializeDatasets(datasetsText);
+            throw error;
+          }),
+      ]);
+      const { project: projectData, testData: trivetData } = await deserializeHostedProjectPayload(data, path);
+
+      if (replayDatasetResult.datasetsText) {
+        const datasets = deserializeDatasets(replayDatasetResult.datasetsText);
         await datasetProvider.importDatasetsForProject(projectData.metadata.id, datasets);
-      } catch (error) {
-        const status = typeof error === 'object' &&
-          error != null &&
-          'status' in error &&
-          typeof (error as { status?: unknown }).status === 'number'
-          ? (error as { status: number }).status
-          : undefined;
-
-        if (status !== 404) {
-          throw error;
-        }
-
+      } else {
         await datasetProvider.importDatasetsForProject(projectData.metadata.id, []);
       }
 
       return { project: projectData, testData: trivetData };
     }
 
-    const data = await apiReadText(path);
-    const [projectData, attachedData] = deserializeProject(data, path);
+    const loaded = await apiLoadProject(path);
+    projectRevisionIdByPath.set(path, loaded.revisionId ?? null);
+    const data = loaded.contents;
+    const { project: projectData, testData: trivetData } = await deserializeHostedProjectPayload(data, path);
 
-    const trivetData = attachedData.trivet
-      ? deserializeTrivetData(attachedData.trivet as SerializedTrivetData)
-      : { testSuites: [] };
-
-    const { loadDatasetsFile } = await import('../overrides/io/datasets.js');
-    await loadDatasetsFile(path, projectData);
+    if (loaded.datasetsContents) {
+      const datasets = deserializeDatasets(loaded.datasetsContents);
+      await datasetProvider.importDatasetsForProject(projectData.metadata.id, datasets);
+    } else {
+      await datasetProvider.importDatasetsForProject(projectData.metadata.id, []);
+    }
 
     return { project: projectData, testData: trivetData };
   }
@@ -371,6 +491,10 @@ export class HostedIOProvider implements IOProvider {
   }
 
   async readPathAsString(path: string): Promise<string> {
+    if (path.endsWith('.rivet-project')) {
+      return (await apiLoadProject(path)).contents;
+    }
+
     return apiReadText(path);
   }
 

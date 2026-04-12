@@ -20,9 +20,51 @@ Rivet Studio Server is a self-hosted personal Rivet platform with a UI that you 
 - [Architecture](./docs/architecture.md)
 - [Access and routing](./docs/access-and-routing.md)
 - [Development](./docs/development.md)
+- [Kubernetes](./docs/kubernetes.md)
+- [Repo structure](./docs/repo-structure.md)
 - [Editor bridge](./docs/editor-bridge.md)
 - [Workflow publication](./docs/workflow-publication.md)
 - [Runtime libraries](./docs/runtime-libraries.md)
+
+## Repository Map
+
+- `wrapper/`
+  - application code, hosted overrides, shared browser/server contracts, executor packaging, and runtime bootstrap under `wrapper/bootstrap/`
+- `image/`
+  - canonical image build definitions and shared proxy-image assets
+- `ops/`
+  - deployment-only assets:
+    - `ops/compose/` for Docker Compose stacks
+    - `ops/docker/` for Compose-only Dockerfiles
+    - `ops/nginx/` for Compose-only proxy templates
+- `charts/`
+  - the Helm chart and overlays
+- `scripts/`
+  - root launcher, verification, and bootstrap commands
+- `docs/`
+  - contributor and operator documentation
+- `.github/`
+  - CI workflows
+- `rivet/`
+  - upstream input, treated as read-only in this repo
+
+## Root Working Docs
+
+The repo root stays intentionally small. Root Markdown is reserved for:
+
+- `README.md`
+- `AGENTS.md`
+- the current tracked working-doc baseline: `backlog.md` and `repo-rearrangement.md`
+
+Reference documentation lives under `docs/`, not at the repo root.
+
+## Tooling Notes
+
+- the root repo uses `npm run ...` as the supported command surface
+- upstream `rivet/` still uses Yarn internally where the wrapper needs it
+- `npm run setup:k8s-tools` installs the pinned cached Helm binary under `.data/tools/helm/`
+- `RIVET_K8S_HELM_BIN` overrides Helm resolution for the Kubernetes launchers and verification scripts
+- ordinary launcher and verification flows do not silently download Helm; they use an existing override, system install, or cached copy and otherwise fail with setup instructions
 
 ## Quick Start
 
@@ -64,7 +106,7 @@ To pin a specific image tag, set `RIVET_IMAGE_TAG` or override the individual im
 
 | Command | Behaviour |
 |---|---|
-| `npm run prod` | Auto — pull prebuilt images, fall back to local build |
+| `npm run prod` | Auto - pull prebuilt images, fall back to local build |
 | `npm run prod:prebuilt` | Always pull prebuilt images (no build) |
 | `npm run prod:local-build` | Always build locally from source |
 
@@ -104,14 +146,42 @@ npm run dev:docker:logs
 npm run dev:down
 ```
 
+### Kubernetes shape
+
+The supported Kubernetes topology today is:
+
+- `proxy`: scalable
+- `execution`: scalable
+- `web`: fixed at `1` by default
+- `backend`: fixed at `1`
+
+That is intentional:
+
+- published workflow endpoint traffic is meant to scale on `execution`
+- `proxy` remains a separate ingress tier and does not need to scale one-for-one with `execution`
+- `web` only serves the dashboard/editor shell and can stay single-replica when UI traffic is just one operator
+- `backend` stays singleton because latest execution and `/ws/latest-debugger` are still process-local control-plane features
+
+For the real chart contract, local Kubernetes rehearsal, and production handoff checklist, see [docs/kubernetes.md](./docs/kubernetes.md).
+
 ## Runtime shape
 
 ```text
 Browser -> nginx (proxy)
            |- / -> web
-           |- /api/* -> api
+           |- /api/* -> control-plane api
+           |- /workflows/* -> execution-plane api
+           |- /workflows-latest/* -> control-plane api
+           |- /ws/latest-debugger -> control-plane api
            `- /ws/executor* -> executor
 ```
+
+Internally, the wrapper now keeps the major ownership seams explicit:
+
+- workflow-managed backend code is split into a thin facade plus focused modules under `wrapper/api/src/routes/workflows/managed/`
+- managed runtime-library orchestration is split into focused modules under `wrapper/api/src/runtime-libraries/managed/`
+- dashboard-heavy UI state now lives in controller/helpers under `wrapper/web/dashboard/`
+- remote debugger and remote executor transport state now live in dedicated client/protocol/session modules under `wrapper/web/overrides/hooks/`
 
 ## Security
 

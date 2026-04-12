@@ -1,8 +1,6 @@
 import { type FC, useEffect, useRef } from 'react';
 import { useOpenWorkflowProject } from './useOpenWorkflowProject';
 import { ExecutionRecorder, getError } from '@ironclad/rivet-core';
-import { useLoadProject } from '../../../rivet/packages/app/src/hooks/useLoadProject';
-import { useSaveProject } from '../../../rivet/packages/app/src/hooks/useSaveProject';
 import { useAtom, useAtomValue, useSetAtom } from 'jotai';
 import {
   loadedProjectState,
@@ -20,68 +18,15 @@ import {
 } from '../../shared/editor-bridge';
 import { getWorkflowRecordingVirtualProjectPath } from '../../shared/workflow-recording-types';
 import { fetchWorkflowRecordingArtifactText } from './workflowApi';
-
-const isSaveShortcutEvent = (event: KeyboardEvent) =>
-  (event.ctrlKey || event.metaKey) &&
-  !event.altKey &&
-  !event.shiftKey &&
-  (event.code === 'KeyS' || event.key.toLowerCase() === 's');
-
-const EDITOR_CANVAS_SELECTOR = '.node-canvas';
-const CANVAS_FOCUS_PRESERVE_SELECTOR = 'input, textarea, select, button, [contenteditable="true"], [contenteditable=""], [role="textbox"]';
-
-const focusElement = (element: HTMLElement | HTMLIFrameElement | null) => {
-  if (!element) {
-    return;
-  }
-
-  try {
-    element.focus({ preventScroll: true });
-  } catch {
-    element.focus();
-  }
-};
-
-const focusHostedEditorFrame = () => {
-  const frameElement = window.frameElement;
-
-  if (!(frameElement instanceof HTMLIFrameElement)) {
-    return;
-  }
-
-  focusElement(frameElement);
-};
-
-const isEditableElement = (element: Element | null | undefined): element is HTMLElement => {
-  if (!(element instanceof HTMLElement)) {
-    return false;
-  }
-
-  if (element.isContentEditable) {
-    return true;
-  }
-
-  return ['input', 'textarea', 'select'].includes(element.tagName.toLowerCase());
-};
-
-const shouldPreserveCanvasFocusTarget = (target: Element) =>
-  target.closest(CANVAS_FOCUS_PRESERVE_SELECTOR) !== null || (target instanceof HTMLElement && target.isContentEditable);
-
-const focusHostedEditorCanvas = (target: Element) => {
-  const canvasElement = target.closest(EDITOR_CANVAS_SELECTOR);
-
-  if (!(canvasElement instanceof HTMLElement) || shouldPreserveCanvasFocusTarget(target)) {
-    return;
-  }
-
-  const activeElement = document.activeElement;
-  if (isEditableElement(activeElement)) {
-    activeElement.blur();
-  }
-
-  canvasElement.tabIndex = -1;
-  focusElement(canvasElement);
-};
+import { clearOpenedProjectSession, remapOpenedProjectSessionPaths } from '../io/openedProjectSessionCache';
+import { clearHostedProjectRevisionPath, remapHostedProjectRevisionPaths } from '../io/HostedIOProvider';
+import { useLoadProject } from '../overrides/hooks/useLoadProject';
+import { useSaveProject } from '../overrides/hooks/useSaveProject';
+import {
+  focusHostedEditorCanvas,
+  focusHostedEditorFrame,
+  isSaveShortcutEvent,
+} from './editorBridgeFocus';
 
 function getRecordingStartGraphId(recorder: ExecutionRecorder): string | undefined {
   for (const event of recorder.events) {
@@ -166,7 +111,7 @@ export const EditorMessageBridge: FC = () => {
         return;
       }
 
-      if (!event.target.closest(EDITOR_CANVAS_SELECTOR)) {
+      if (!event.target.closest('.node-canvas')) {
         return;
       }
 
@@ -199,6 +144,7 @@ export const EditorMessageBridge: FC = () => {
         case 'delete-workflow-project': {
           const deletedPath = event.data.path;
           const deletedProjectId = openedProjectIds.find((projectId) => openedProjects[projectId]?.fsPath === deletedPath);
+          clearHostedProjectRevisionPath(deletedPath);
 
           if (!deletedProjectId) {
             if (loadedProject.path === deletedPath) {
@@ -212,6 +158,7 @@ export const EditorMessageBridge: FC = () => {
           const remainingProjects = Object.fromEntries(
             Object.entries(openedProjects).filter(([projectId]) => projectId !== deletedProjectId),
           ) as Record<string, OpenedProjectInfo>;
+          clearOpenedProjectSession(deletedProjectId);
 
           setProjects({
             openedProjects: remainingProjects,
@@ -244,6 +191,8 @@ export const EditorMessageBridge: FC = () => {
           }
 
           const moveMap = new Map(moves.map((move) => [move.fromAbsolutePath, move.toAbsolutePath]));
+          remapOpenedProjectSessionPaths(moves);
+          remapHostedProjectRevisionPaths(moves);
           const openedProjectsRecord = openedProjects as Record<string, OpenedProjectInfo>;
           const nextOpenedProjects = Object.fromEntries(
             Object.entries(openedProjectsRecord).map(([projectId, projectInfo]) => [

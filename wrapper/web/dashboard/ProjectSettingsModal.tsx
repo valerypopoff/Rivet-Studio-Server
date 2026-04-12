@@ -2,54 +2,22 @@ import Button, { LoadingButton } from '@atlaskit/button';
 import EditIcon from '@atlaskit/icon/glyph/editor/edit';
 import ModalDialog, { ModalBody, ModalTransition } from '@atlaskit/modal-dialog';
 import TextField from '@atlaskit/textfield';
-import { type ChangeEvent, type FC, type KeyboardEvent as ReactKeyboardEvent, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { toast } from 'react-toastify';
+import { type FC, useMemo, type ReactNode } from 'react';
 
 import {
   RIVET_LATEST_WORKFLOWS_BASE_PATH,
   RIVET_PUBLISHED_WORKFLOWS_BASE_PATH,
 } from '../../shared/hosted-env';
 import {
-  deleteWorkflowProject,
-  publishWorkflowProject,
-  renameWorkflowProject,
-  unpublishWorkflowProject,
-} from './workflowApi';
+  formatLastPublishedAtLabel,
+  getWorkflowProjectStatusLabel,
+} from './projectSettingsForm';
 import type {
   WorkflowProjectItem,
   WorkflowProjectPathMove,
-  WorkflowProjectSettingsDraft,
   WorkflowProjectStatus,
 } from './types';
-import { getParentRelativePath } from './workflowLibraryHelpers';
-
-const PROJECT_FILE_EXTENSION = '.rivet-project';
-const ENDPOINT_NAME_PATTERN = /^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$/;
-
-const STATUS_LABELS: Record<WorkflowProjectStatus, string> = {
-  unpublished: 'Unpublished',
-  published: 'Published',
-  unpublished_changes: 'Unpublished changes',
-};
-
-const formatLastPublishedAtLabel = (
-  status: WorkflowProjectStatus,
-  lastPublishedAt: string | null | undefined,
-): string | null => {
-  if (status === 'unpublished' || !lastPublishedAt) {
-    return null;
-  }
-
-  const publishedAtDate = new Date(lastPublishedAt);
-  if (Number.isNaN(publishedAtDate.getTime())) {
-    return null;
-  }
-
-  return `Last published on ${new Intl.DateTimeFormat(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  }).format(publishedAtDate)}`;
-};
+import { useProjectSettingsActions } from './useProjectSettingsActions';
 
 const renderStatusExplanation = (status: WorkflowProjectStatus, endpointName: string): ReactNode => {
   switch (status) {
@@ -113,101 +81,34 @@ export const ProjectSettingsModal: FC<ProjectSettingsModalProps> = ({
   onDeleteProject,
   onWorkflowPathsMoved,
 }) => {
-  const [settingsDraft, setSettingsDraft] = useState<WorkflowProjectSettingsDraft>({ endpointName: '' });
-  const [projectNameDraft, setProjectNameDraft] = useState('');
-  const [editingProjectName, setEditingProjectName] = useState(false);
-  const [showPublishSettings, setShowPublishSettings] = useState(false);
-  const [renamingProject, setRenamingProject] = useState(false);
-  const [savingSettings, setSavingSettings] = useState(false);
-  const [deletingProject, setDeletingProject] = useState(false);
-
-  useEffect(() => {
-    setSettingsDraft({ endpointName: activeProject.settings.endpointName });
-    setProjectNameDraft(activeProject.name);
-    setEditingProjectName(false);
-    setShowPublishSettings(false);
-  }, [activeProject, isOpen]);
-
-  const trimmedDraftEndpointName = useMemo(() => settingsDraft.endpointName.trim(), [settingsDraft.endpointName]);
-  const endpointLookupName = useMemo(() => trimmedDraftEndpointName.toLowerCase(), [trimmedDraftEndpointName]);
-
-  const endpointDuplicateProject = useMemo(() => {
-    if (!endpointLookupName) {
-      return null;
-    }
-
-    return allProjects.find(
-      (project) =>
-        project.absolutePath !== activeProject.absolutePath &&
-        project.settings.endpointName.trim().toLowerCase() === endpointLookupName,
-    ) ?? null;
-  }, [activeProject.absolutePath, allProjects, endpointLookupName]);
-
-  const normalizedProjectNameDraft = useMemo(() => {
-    const trimmed = projectNameDraft.trim();
-    return trimmed.toLowerCase().endsWith(PROJECT_FILE_EXTENSION)
-      ? trimmed.slice(0, -PROJECT_FILE_EXTENSION.length).trim()
-      : trimmed;
-  }, [projectNameDraft]);
-
-  const duplicateProjectNameInFolder = useMemo(() => {
-    if (!normalizedProjectNameDraft) {
-      return null;
-    }
-
-    const activeParentRelativePath = getParentRelativePath(activeProject.relativePath);
-
-    return allProjects.find((project) => {
-      if (project.absolutePath === activeProject.absolutePath) {
-        return false;
-      }
-
-      return (
-        getParentRelativePath(project.relativePath) === activeParentRelativePath &&
-        project.name.toLowerCase() === normalizedProjectNameDraft.toLowerCase()
-      );
-    }) ?? null;
-  }, [activeProject, allProjects, normalizedProjectNameDraft]);
-
-  const projectNameValidationError = useMemo(() => {
-    if (!editingProjectName) {
-      return null;
-    }
-
-    if (!normalizedProjectNameDraft) {
-      return 'Project name is required.';
-    }
-
-    if (/[\\/]/.test(normalizedProjectNameDraft)) {
-      return 'Project name must not contain path separators.';
-    }
-
-    if (/[<>:"|?*]/.test(normalizedProjectNameDraft)) {
-      return 'Project name contains invalid filesystem characters.';
-    }
-
-    if (duplicateProjectNameInFolder) {
-      return `A project named ${duplicateProjectNameInFolder.fileName} already exists in this folder.`;
-    }
-
-    return null;
-  }, [duplicateProjectNameInFolder, editingProjectName, normalizedProjectNameDraft]);
-
-  const endpointValidationError = useMemo(() => {
-    if (!trimmedDraftEndpointName) {
-      return 'Endpoint name is required to publish.';
-    }
-
-    if (!ENDPOINT_NAME_PATTERN.test(trimmedDraftEndpointName)) {
-      return 'Endpoint name must contain only letters, numbers, and hyphens.';
-    }
-
-    if (endpointDuplicateProject) {
-      return `Endpoint name is already used by ${endpointDuplicateProject.fileName}.`;
-    }
-
-    return null;
-  }, [endpointDuplicateProject, trimmedDraftEndpointName]);
+  const {
+    settingsDraft,
+    projectNameDraft,
+    editingProjectName,
+    showPublishSettings,
+    renamingProject,
+    savingSettings,
+    deletingProject,
+    handleSettingsDraftChange,
+    handleProjectNameDraftChange,
+    handleStartProjectRename,
+    handleCommitProjectRename,
+    handleProjectNameKeyDown,
+    handleShowPublishSettings,
+    handlePublishProject,
+    handleUnpublishProject,
+    handleDeleteActiveProject,
+    projectNameValidationError,
+    endpointValidationError,
+  } = useProjectSettingsActions({
+    activeProject,
+    allProjects,
+    isOpen,
+    onClose,
+    onDeleteProject,
+    onRefresh,
+    onWorkflowPathsMoved,
+  });
 
   const displayedProjectStatus: WorkflowProjectStatus = activeProject.settings.status;
   const baseFileName = useMemo(() => activeProject.fileName.replace(/\.[^.]+$/, ''), [activeProject.fileName]);
@@ -228,126 +129,6 @@ export const ProjectSettingsModal: FC<ProjectSettingsModalProps> = ({
   const disablePublishChangesAction = savingSettings || deletingProject;
   const disableUnpublishAction = savingSettings || deletingProject;
   const disableDeleteProjectAction = savingSettings || deletingProject || !isUnpublishedProject;
-
-  const handleSettingsDraftChange =
-    <K extends keyof WorkflowProjectSettingsDraft>(key: K) =>
-    (event: ChangeEvent<HTMLInputElement>) => {
-      const value = event.target.value as WorkflowProjectSettingsDraft[K];
-      setSettingsDraft((prev) => ({
-        ...prev,
-        [key]: value,
-      }));
-    };
-
-  const handleProjectNameDraftChange = (event: ChangeEvent<HTMLInputElement>) => {
-    setProjectNameDraft(event.target.value);
-  };
-
-  const handleStartProjectRename = () => {
-    if (savingSettings || deletingProject || renamingProject) {
-      return;
-    }
-
-    setProjectNameDraft(activeProject.name);
-    setEditingProjectName(true);
-  };
-
-  const handleCommitProjectRename = async () => {
-    const normalizedName = normalizedProjectNameDraft;
-    if (!normalizedName || projectNameValidationError) {
-      return;
-    }
-
-    if (normalizedName === activeProject.name) {
-      setEditingProjectName(false);
-      setProjectNameDraft(activeProject.name);
-      return;
-    }
-
-    setRenamingProject(true);
-
-    try {
-      const result = await renameWorkflowProject(activeProject.relativePath, normalizedName);
-      if (result.movedProjectPaths.length > 0) {
-        onWorkflowPathsMoved(result.movedProjectPaths);
-      }
-      await onRefresh();
-      setEditingProjectName(false);
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to rename project');
-    } finally {
-      setRenamingProject(false);
-    }
-  };
-
-  const handleProjectNameKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      void handleCommitProjectRename();
-    }
-  };
-
-  const handleShowPublishSettings = () => {
-    if (savingSettings || deletingProject) {
-      return;
-    }
-
-    setShowPublishSettings(true);
-  };
-
-  const handlePublishProject = async (publishChanges = false) => {
-    setSavingSettings(true);
-
-    try {
-      await publishWorkflowProject(activeProject.relativePath, {
-        endpointName: publishChanges ? activeProject.settings.endpointName : settingsDraft.endpointName,
-      });
-      await onRefresh();
-      setShowPublishSettings(false);
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to update project publication state');
-    } finally {
-      setSavingSettings(false);
-    }
-  };
-
-  const handleUnpublishProject = async () => {
-    const shouldProceed = window.confirm(`Unpublish project "${activeProject.fileName}"?`);
-    if (!shouldProceed) {
-      return;
-    }
-
-    setSavingSettings(true);
-
-    try {
-      await unpublishWorkflowProject(activeProject.relativePath);
-      await onRefresh();
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to update project publication state');
-    } finally {
-      setSavingSettings(false);
-    }
-  };
-
-  const handleDeleteActiveProject = async () => {
-    const shouldDelete = window.confirm(`Delete project "${activeProject.name}"? This cannot be undone.`);
-    if (!shouldDelete) {
-      return;
-    }
-
-    setDeletingProject(true);
-
-    try {
-      await deleteWorkflowProject(activeProject.relativePath);
-      onDeleteProject(activeProject.absolutePath);
-      onClose();
-      await onRefresh();
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to delete project');
-    } finally {
-      setDeletingProject(false);
-    }
-  };
 
   return (
     <ModalTransition>
@@ -415,7 +196,7 @@ export const ProjectSettingsModal: FC<ProjectSettingsModalProps> = ({
                 <div className="project-settings-status-block">
                   <div className="active-project-status-row">
                     <span className={`project-status-badge ${displayedProjectStatus}`}>
-                      {STATUS_LABELS[displayedProjectStatus]}
+                      {getWorkflowProjectStatusLabel(displayedProjectStatus)}
                     </span>
                     {lastPublishedAtLabel ? (
                       <span className="project-settings-last-published-at">{lastPublishedAtLabel}</span>

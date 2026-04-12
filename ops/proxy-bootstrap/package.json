@@ -1,8 +1,0 @@
-{
-  "name": "@self-hosted/proxy-bootstrap",
-  "private": true,
-  "type": "module",
-  "dependencies": {
-    "undici": "^6.21.1"
-  }
-}

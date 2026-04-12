@@ -5,6 +5,16 @@ import { minimatch } from 'minimatch';
 
 import { getAppDataRoot, validatePath } from '../security.js';
 import { badRequest } from '../utils/httpError.js';
+import {
+  readManagedHostedRelativeProject,
+  readManagedHostedText,
+} from './workflows/storage-backend.js';
+import {
+  isManagedRelativeVirtualPath,
+  isManagedVirtualPath,
+  listManagedVirtualDirectory,
+  managedVirtualPathExists,
+} from './workflows/managed-virtual-io.js';
 
 export const SUPPORTED_NATIVE_BASE_DIRS = [
   'app',
@@ -47,6 +57,20 @@ type DirEntry = {
   isDirectory: boolean;
 };
 
+export function applyReadDirFilters(paths: string[], options: Pick<ReadDirOptions, 'filterGlobs' | 'ignores'>): string[] {
+  let results = paths;
+
+  for (const glob of options.filterGlobs) {
+    results = results.filter((candidate) => minimatch(candidate, glob, { dot: true }));
+  }
+
+  for (const ignore of options.ignores) {
+    results = results.filter((candidate) => !minimatch(candidate, ignore, { dot: true }));
+  }
+
+  return results;
+}
+
 export function resolveNativePath(inputPath: string, baseDir?: NativeBaseDir): string {
   if (!baseDir) {
     return validatePath(inputPath);
@@ -61,6 +85,10 @@ export function resolveNativePath(inputPath: string, baseDir?: NativeBaseDir): s
 }
 
 export async function listNativeDirectory(dirPath: string, baseDir: NativeBaseDir | undefined, options: ReadDirOptions): Promise<string[]> {
+  if (isManagedVirtualPath(dirPath, baseDir)) {
+    return listManagedVirtualDirectory(dirPath, options);
+  }
+
   const safePath = resolveNativePath(dirPath, baseDir);
   const entries = await readDirRecursive(safePath, options.recursive);
 
@@ -68,13 +96,7 @@ export async function listNativeDirectory(dirPath: string, baseDir: NativeBaseDi
     .filter((entry) => options.includeDirectories ? true : !entry.isDirectory)
     .map((entry) => entry.path);
 
-  for (const glob of options.filterGlobs) {
-    results = results.filter((candidate) => minimatch(candidate, glob, { dot: true }));
-  }
-
-  for (const ignore of options.ignores) {
-    results = results.filter((candidate) => !minimatch(candidate, ignore, { dot: true }));
-  }
+  results = applyReadDirFilters(results, options);
 
   if (options.relative) {
     results = results.map((candidate) => path.relative(safePath, candidate));
@@ -84,27 +106,48 @@ export async function listNativeDirectory(dirPath: string, baseDir: NativeBaseDi
 }
 
 export async function readNativeText(filePath: string, baseDir?: NativeBaseDir): Promise<string> {
+  if (isManagedVirtualPath(filePath, baseDir)) {
+    return readManagedHostedText(filePath);
+  }
+
   return fs.readFile(resolveNativePath(filePath, baseDir), 'utf-8');
 }
 
 export async function readNativeBinary(filePath: string, baseDir?: NativeBaseDir): Promise<string> {
+  if (isManagedVirtualPath(filePath, baseDir)) {
+    const contents = await readManagedHostedText(filePath);
+    return Buffer.from(contents, 'utf8').toString('base64');
+  }
+
   const buffer = await fs.readFile(resolveNativePath(filePath, baseDir));
   return buffer.toString('base64');
 }
 
 export async function writeNativeText(filePath: string, contents: string, baseDir?: NativeBaseDir): Promise<void> {
+  if (isManagedVirtualPath(filePath, baseDir)) {
+    throw badRequest('Managed workflow projects must be saved via the project save API');
+  }
+
   const safePath = resolveNativePath(filePath, baseDir);
   await fs.mkdir(path.dirname(safePath), { recursive: true });
   await fs.writeFile(safePath, contents, 'utf-8');
 }
 
 export async function writeNativeBinary(filePath: string, contents: string, baseDir?: NativeBaseDir): Promise<void> {
+  if (isManagedVirtualPath(filePath, baseDir)) {
+    throw badRequest('Managed workflow projects must be saved via the project save API');
+  }
+
   const safePath = resolveNativePath(filePath, baseDir);
   await fs.mkdir(path.dirname(safePath), { recursive: true });
   await fs.writeFile(safePath, Buffer.from(contents, 'base64'));
 }
 
 export async function nativePathExists(filePath: string, baseDir?: NativeBaseDir): Promise<boolean> {
+  if (isManagedVirtualPath(filePath, baseDir)) {
+    return managedVirtualPathExists(filePath);
+  }
+
   try {
     await fs.access(resolveNativePath(filePath, baseDir));
     return true;
@@ -126,10 +169,18 @@ export async function removeNativeDirectory(dirPath: string, recursive: boolean)
 }
 
 export async function removeNativeFile(filePath: string, baseDir?: NativeBaseDir): Promise<void> {
+  if (isManagedVirtualPath(filePath, baseDir)) {
+    throw badRequest('Managed workflow files cannot be removed through native IO');
+  }
+
   await fs.unlink(resolveNativePath(filePath, baseDir));
 }
 
 export async function readNativeRelative(relativeFrom: string, projectFilePath: string): Promise<string> {
+  if (isManagedRelativeVirtualPath(relativeFrom)) {
+    return readManagedHostedRelativeProject(relativeFrom, projectFilePath);
+  }
+
   const fullPath = path.resolve(path.dirname(relativeFrom), projectFilePath);
   return fs.readFile(validatePath(fullPath), 'utf-8');
 }

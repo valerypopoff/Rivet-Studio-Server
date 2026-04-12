@@ -1,42 +1,44 @@
 import { RIVET_API_BASE_URL } from '../../shared/hosted-env';
-import type { RuntimeLibraryEntry, JobStatus } from '../../shared/runtime-library-types';
+import type {
+  JobStatus,
+  RuntimeLibrariesState,
+  RuntimeLibraryReplicaCleanupResult,
+  RuntimeLibraryEntry,
+  RuntimeLibraryLogSource,
+  RuntimeLibraryJobState,
+  RuntimeLibraryReplicaReadinessState,
+  RuntimeLibraryReplicaStatus,
+  RuntimeLibraryReplicaTierState,
+} from '../../shared/runtime-library-types';
+import { parseJsonResponse } from './apiRequest';
 
-export type { RuntimeLibraryEntry, JobStatus };
+export type {
+  RuntimeLibrariesState,
+  RuntimeLibraryReplicaCleanupResult,
+  RuntimeLibraryEntry,
+  RuntimeLibraryJobState,
+  JobStatus,
+  RuntimeLibraryLogSource,
+  RuntimeLibraryReplicaReadinessState,
+  RuntimeLibraryReplicaStatus,
+  RuntimeLibraryReplicaTierState,
+} from '../../shared/runtime-library-types';
 
 const API = `${RIVET_API_BASE_URL}/runtime-libraries`;
 
-export interface RuntimeLibrariesState {
-  packages: Record<string, RuntimeLibraryEntry>;
-  hasActiveLibraries: boolean;
-  updatedAt: string;
-  activeJob: JobState | null;
-}
-
-export interface JobState {
-  id: string;
-  type: 'install' | 'remove';
-  status: JobStatus;
-  packages: Array<{ name: string; version: string }>;
-  logs: string[];
-  error?: string;
-  createdAt: string;
-  finishedAt?: string;
-}
+export type JobState = RuntimeLibraryJobState;
 
 export interface SSEEvent {
   type: 'log' | 'status' | 'done';
   message?: string;
   status?: JobStatus;
   error?: string;
+  createdAt?: string;
+  source?: RuntimeLibraryLogSource;
+  cancelRequestedAt?: string | null;
 }
 
-async function jsonResponse<T>(response: Response): Promise<T> {
-  if (!response.ok) {
-    const data = await response.json().catch(() => ({ error: response.statusText }));
-    throw new Error(data.error || response.statusText);
-  }
-  return response.json() as Promise<T>;
-}
+const jsonResponse = <T,>(response: Response) => parseJsonResponse<T>(response);
 
 export async function fetchRuntimeLibraries(): Promise<RuntimeLibrariesState> {
   const response = await fetch(API);
@@ -63,8 +65,22 @@ export async function removePackages(packages: string[]): Promise<JobState> {
   return jsonResponse<JobState>(response);
 }
 
+export async function clearStaleReplicaStatuses(): Promise<RuntimeLibraryReplicaCleanupResult> {
+  const response = await fetch(`${API}/replicas/cleanup`, {
+    method: 'POST',
+  });
+  return jsonResponse<RuntimeLibraryReplicaCleanupResult>(response);
+}
+
 export async function fetchJob(jobId: string): Promise<JobState> {
   const response = await fetch(`${API}/jobs/${jobId}`);
+  return jsonResponse<JobState>(response);
+}
+
+export async function cancelJob(jobId: string): Promise<JobState> {
+  const response = await fetch(`${API}/jobs/${jobId}/cancel`, {
+    method: 'POST',
+  });
   return jsonResponse<JobState>(response);
 }
 

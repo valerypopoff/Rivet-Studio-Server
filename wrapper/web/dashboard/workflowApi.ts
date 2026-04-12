@@ -10,55 +10,14 @@ import type {
   WorkflowRecordingWorkflowListResponse,
   WorkflowTreeResponse,
 } from './types';
+import { createResponseError, parseJsonResponse, parseTextResponse } from './apiRequest';
 
 const API = RIVET_API_BASE_URL;
 
-type ResponseError = Error & {
-  status?: number;
-};
-
-function createResponseError(status: number, message: string): ResponseError {
-  const error = new Error(message) as ResponseError;
-  error.status = status;
-  return error;
-}
-
-async function parseJsonResponse<T>(response: Response): Promise<T> {
-  const contentType = response.headers.get('content-type') ?? '';
-
-  if (!contentType.includes('application/json')) {
-    const text = await response.text();
-
-    if (text.trim().startsWith('<!doctype') || text.trim().startsWith('<html')) {
-      throw new Error(
-        'Workflow API returned HTML instead of JSON. Make sure you are accessing the app through the proxy and that /api/workflows is routed to the API service.',
-      );
-    }
-
-    throw new Error(`Workflow API returned an unexpected response type (${contentType || 'unknown'}).`);
-  }
-
-  if (!response.ok) {
-    const data = await response.json().catch(() => ({ error: response.statusText }));
-    throw createResponseError(response.status, data.error || response.statusText);
-  }
-
-  return response.json() as Promise<T>;
-}
-
-async function parseTextResponse(response: Response): Promise<string> {
-  if (!response.ok) {
-    const contentType = response.headers.get('content-type') ?? '';
-    if (contentType.includes('application/json')) {
-      const data = await response.json().catch(() => ({ error: response.statusText }));
-      throw createResponseError(response.status, data.error || response.statusText);
-    }
-
-    throw createResponseError(response.status, response.statusText);
-  }
-
-  return response.text();
-}
+const workflowJsonResponse = <T,>(response: Response) => parseJsonResponse<T>(response, {
+  nonJsonErrorMessage:
+    'Workflow API returned HTML instead of JSON. Make sure you are accessing the app through the proxy and that /api/workflows is routed to the API service.',
+});
 
 async function parseBlobResponse(response: Response): Promise<{ blob: Blob; fileName: string | null }> {
   const contentType = response.headers.get('content-type') ?? '';
@@ -126,14 +85,14 @@ export async function fetchWorkflowTree(): Promise<WorkflowTreeResponse> {
   const response = await fetch(`${API}/workflows/tree`, {
     cache: 'no-store',
   });
-  return parseJsonResponse<WorkflowTreeResponse>(response);
+  return workflowJsonResponse<WorkflowTreeResponse>(response);
 }
 
 export async function fetchWorkflowRecordingWorkflows(): Promise<WorkflowRecordingWorkflowListResponse> {
   const response = await fetch(`${API}/workflows/recordings/workflows`, {
     cache: 'no-store',
   });
-  return parseJsonResponse<WorkflowRecordingWorkflowListResponse>(response);
+  return workflowJsonResponse<WorkflowRecordingWorkflowListResponse>(response);
 }
 
 export async function fetchWorkflowRecordingRuns(
@@ -152,7 +111,7 @@ export async function fetchWorkflowRecordingRuns(
   const response = await fetch(`${API}/workflows/recordings/workflows/${encodeURIComponent(workflowId)}/runs?${query}`, {
     cache: 'no-store',
   });
-  return parseJsonResponse<WorkflowRecordingRunsPageResponse>(response);
+  return workflowJsonResponse<WorkflowRecordingRunsPageResponse>(response);
 }
 
 export async function fetchWorkflowRecordingArtifactText(
@@ -169,7 +128,7 @@ export async function deleteWorkflowRecording(recordingId: string): Promise<void
   const response = await fetch(`${API}/workflows/recordings/${encodeURIComponent(recordingId)}`, {
     method: 'DELETE',
   });
-  await parseJsonResponse<{ deleted: true }>(response);
+  await workflowJsonResponse<{ deleted: true }>(response);
 }
 
 export async function createWorkflowFolder(name: string): Promise<WorkflowFolderItem> {
@@ -179,7 +138,7 @@ export async function createWorkflowFolder(name: string): Promise<WorkflowFolder
     body: JSON.stringify({ name }),
   });
 
-  const data = await parseJsonResponse<{ folder: WorkflowFolderItem }>(response);
+  const data = await workflowJsonResponse<{ folder: WorkflowFolderItem }>(response);
   return data.folder;
 }
 
@@ -193,7 +152,7 @@ export async function renameWorkflowFolder(
     body: JSON.stringify({ relativePath, newName }),
   });
 
-  return parseJsonResponse<{ folder: WorkflowFolderItem; movedProjectPaths: WorkflowMoveResponse['movedProjectPaths'] }>(
+  return workflowJsonResponse<{ folder: WorkflowFolderItem; movedProjectPaths: WorkflowMoveResponse['movedProjectPaths'] }>(
     response,
   );
 }
@@ -205,7 +164,7 @@ export async function deleteWorkflowFolder(relativePath: string): Promise<void> 
     body: JSON.stringify({ relativePath }),
   });
 
-  await parseJsonResponse<{ deleted: true }>(response);
+  await workflowJsonResponse<{ deleted: true }>(response);
 }
 
 export async function createWorkflowProject(
@@ -218,7 +177,7 @@ export async function createWorkflowProject(
     body: JSON.stringify({ folderRelativePath, name }),
   });
 
-  const data = await parseJsonResponse<{ project: WorkflowProjectItem }>(response);
+  const data = await workflowJsonResponse<{ project: WorkflowProjectItem }>(response);
   return data.project;
 }
 
@@ -233,7 +192,7 @@ export async function uploadWorkflowProject(
     body: JSON.stringify({ folderRelativePath, fileName, contents }),
   });
 
-  const data = await parseJsonResponse<{ project: WorkflowProjectItem }>(response);
+  const data = await workflowJsonResponse<{ project: WorkflowProjectItem }>(response);
   return data.project;
 }
 
@@ -247,7 +206,7 @@ export async function renameWorkflowProject(
     body: JSON.stringify({ relativePath, newName }),
   });
 
-  return parseJsonResponse<{ project: WorkflowProjectItem; movedProjectPaths: WorkflowMoveResponse['movedProjectPaths'] }>(response);
+  return workflowJsonResponse<{ project: WorkflowProjectItem; movedProjectPaths: WorkflowMoveResponse['movedProjectPaths'] }>(response);
 }
 
 export async function duplicateWorkflowProjectVersion(
@@ -260,7 +219,7 @@ export async function duplicateWorkflowProjectVersion(
     body: JSON.stringify({ relativePath, version }),
   });
 
-  const data = await parseJsonResponse<{ project: WorkflowProjectItem }>(response);
+  const data = await workflowJsonResponse<{ project: WorkflowProjectItem }>(response);
   return data.project;
 }
 
@@ -293,7 +252,7 @@ export async function moveWorkflowItem(
     }),
   });
 
-  return parseJsonResponse<WorkflowMoveResponse>(response);
+  return workflowJsonResponse<WorkflowMoveResponse>(response);
 }
 
 export async function publishWorkflowProject(
@@ -306,7 +265,7 @@ export async function publishWorkflowProject(
     body: JSON.stringify({ relativePath, settings }),
   });
 
-  const data = await parseJsonResponse<{ project: WorkflowProjectItem }>(response);
+  const data = await workflowJsonResponse<{ project: WorkflowProjectItem }>(response);
   return data.project;
 }
 
@@ -317,7 +276,7 @@ export async function unpublishWorkflowProject(relativePath: string): Promise<Wo
     body: JSON.stringify({ relativePath }),
   });
 
-  const data = await parseJsonResponse<{ project: WorkflowProjectItem }>(response);
+  const data = await workflowJsonResponse<{ project: WorkflowProjectItem }>(response);
   return data.project;
 }
 
@@ -328,5 +287,5 @@ export async function deleteWorkflowProject(relativePath: string): Promise<void>
     body: JSON.stringify({ relativePath }),
   });
 
-  await parseJsonResponse<{ deleted: true }>(response);
+  await workflowJsonResponse<{ deleted: true }>(response);
 }

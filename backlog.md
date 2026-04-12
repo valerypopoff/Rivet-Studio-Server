@@ -1,9 +1,29 @@
+
+- In filesystem mode, after a library is installed, the popup shows the install job logs and shows the "Completed successfully" status. But when I close the popup and open it again, it keeps showing the logs from the previous setup and generates the "Completed successfully" status again. It shouldn't. It should only show the logs and the status while the popup is open during the installation. When I close the popup, the logs should be wiped out. The indicator that the library was installed successfully at some point, is that the installed library i son the list if installed libraries now. Fix it without touching how the libraries popup works for managed mode.
+
+- Do we need /health enpoint for k8s?
+
+- Убедиться, что RIVET_RECORDINGS_MAX_PENDING_WRITES работает правильно — на каждую реплику
+
+- Убедиться, что filesystem mode не сломался
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 - Как-то помнить используемые библиотеки чтобы предупреждать что в лайве форкфлоу с такой-то библиотекой а ты собираешься удалить ее?
 
-
-- Сделать внешний вызов, чтобы через него легко запускать другие воркфлоу внутри сети без конструирования боди и запары с портами и внутренними урлами? Наверное нет потому что параметры передавтаь так же заебно. Но зато не нужно указывать рла и заголовков.
-
-- Приготовить сетап для запуска в проде в докере
+- Сделать внешний вызов, чтобы через него легко запускать другие воркфлоу внутри сети без конструирования боди и запары с портами и внутренними урлами? Наверное нет потому что параметры передавтаь так же заебно. Но зато не нужно указывать url и заголовков.
 
 - Pass a webhook for a workflow right in the URL parameters like:
 host/workflows/name?webhook1=https://example.com/api/v1/webhook1&webhook2=https://example.com/api/v1/webhook2

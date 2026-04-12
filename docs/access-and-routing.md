@@ -1,6 +1,20 @@
 # Access And Routing
 
-This document describes the current external route families, the nginx gate, and the trust boundary between `proxy`, `api`, and `executor`.
+This document describes the current external route families, the nginx gate, and the trust boundary between `proxy`, the control-plane API, the execution-plane API, and `executor`.
+
+The current runtime split keeps:
+
+- `control plane`
+  - `/api/*`
+  - `/ui-auth`
+  - latest-workflow execution
+  - latest debugger websocket
+  - runtime-library and plugin admin flows
+- `execution plane`
+  - published workflow execution
+  - internal published-only execution for trusted in-cluster callers
+
+Those labels describe logical ownership. In `RIVET_API_PROFILE=combined`, the same API process serves both surfaces. In split deployments, `RIVET_API_PROFILE=control` and `RIVET_API_PROFILE=execution` separate them.
 
 ## Proxy-exposed routes
 
@@ -10,15 +24,33 @@ The Docker dev and production stacks expose these route families through nginx:
 |---|---|---|
 | `/` | `web` | Wrapper dashboard shell |
 | `/?editor` | `web` | Hosted Rivet editor iframe |
-| `POST /__rivet_auth` | `api` (`/ui-auth`) | UI gate form exchange |
-| `/api/*` | `api` | Wrapper API surface |
-| `${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH:-/workflows}/:endpointName` | `api` | Execute frozen published workflow snapshot |
-| `${RIVET_LATEST_WORKFLOWS_BASE_PATH:-/workflows-latest}/:endpointName` | `api` | Execute latest live file for a published workflow |
-| `/ws/latest-debugger` | `api` | Latest-workflow remote debugger websocket |
+| `POST /__rivet_auth` | control-plane `api` (`/ui-auth`) | UI gate form exchange |
+| `/api/*` | control-plane `api` | Wrapper API surface |
+| `${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH:-/workflows}/:endpointName` | execution-plane `api` | Execute frozen published workflow snapshot |
+| `${RIVET_LATEST_WORKFLOWS_BASE_PATH:-/workflows-latest}/:endpointName` | control-plane `api` | Execute latest live file for a published workflow |
+| `/ws/latest-debugger` | control-plane `api` | Latest-workflow remote debugger websocket |
 | `/ws/executor/internal` | `executor` | Hosted editor execution websocket |
 | `/ws/executor` | `executor` | Upstream-compatible executor websocket path |
 
 The nginx configs also set `client_max_body_size 100m`, so large API/editor payloads are allowed up to that limit.
+
+Important local-Docker wiring note:
+
+- the repo-local Docker stacks still run a single `api` container in `combined` mode
+- nginx therefore proxies both `${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH}` and `${RIVET_LATEST_WORKFLOWS_BASE_PATH}` to that same container there
+- the control-plane vs execution-plane labels in the table describe the intended split topology and the route ownership enforced by `RIVET_API_PROFILE`, not a guarantee that local Docker physically runs two API services
+
+## Browser-side websocket ownership
+
+The browser transport seams now match the backend route split more explicitly:
+
+- `/?editor` prefers `/ws/executor/internal` for the hosted executor websocket and keeps `/ws/executor` only for upstream-compatible clients
+- `useRemoteExecutor.ts` delegates websocket message dispatch to `remoteExecutorProtocol.ts`
+- hosted remote execution is still explicitly single-run; `remoteExecutionSession.ts` rejects the previous unresolved session if a new run begins
+- `useRemoteDebugger.ts` is a thin subscriber to the module-level singleton in `remoteDebuggerClient.ts`
+- `remoteDebuggerClient.ts` keeps one `/ws/latest-debugger` websocket per page and forwards dataset RPCs to `remoteDebuggerDatasets.ts`
+
+Those websocket modules are separate from the dashboard/editor `window.postMessage` bridge. The bridge coordinates project-open/save/delete/path-move behavior between browsing contexts; the websocket transports talk to executor/debugger routes.
 
 ## `/api/*` route families
 
@@ -26,6 +58,7 @@ The wrapper API currently exposes these groups behind `/api`:
 
 - `/api/workflows/*`
   - `GET /api/workflows/tree`
+  - `GET /api/workflows/recordings` (compatibility alias for the workflow-list response)
   - `POST /api/workflows/move`
   - `POST|PATCH|DELETE /api/workflows/folders`
   - `POST|PATCH|DELETE /api/workflows/projects`
@@ -44,13 +77,18 @@ The wrapper API currently exposes these groups behind `/api`:
   - `GET /api/runtime-libraries/`
   - `POST /api/runtime-libraries/install`
   - `POST /api/runtime-libraries/remove`
+  - `POST /api/runtime-libraries/replicas/cleanup`
   - `GET /api/runtime-libraries/jobs/:jobId`
+  - `POST /api/runtime-libraries/jobs/:jobId/cancel`
   - `GET /api/runtime-libraries/jobs/:jobId/stream`
 - `/api/native/*`
   - hosted filesystem read/write/list/remove helpers used by the editor
 - `/api/projects/*`
   - `GET /api/projects/list`
   - `POST /api/projects/open-dialog`
+  - `POST /api/projects/load`
+  - `POST /api/projects/save`
+  - `GET /api/projects/workspace-root`
 - `/api/plugins/*`
   - `POST /api/plugins/install-package`
   - `POST /api/plugins/load-package-main`
@@ -59,7 +97,21 @@ The wrapper API currently exposes these groups behind `/api`:
 - `/api/config`, `/api/path/app-local-data-dir`, `/api/path/app-log-dir`, `/api/config/env/:name`
   - hosted env/config helpers
 
+Current tree-response note:
+
+- `GET /api/workflows/tree` is the dashboard's main workflow-library metadata source
+- each `WorkflowProjectItem` in that response carries the API-derived publication status used by the sidebar and Project Settings flows
+- that same project item also carries per-project `stats` (`graphCount`, `totalNodeCount`), which drive the active project summary shown in the dashboard
+
 `GET /healthz` lives on the API service itself and is used by the Docker healthchecks.
+
+Current move-route behavior:
+
+- `POST /api/workflows/move` accepts `{ "itemType": "project" | "folder", "sourceRelativePath": string, "destinationFolderRelativePath"?: string }`
+- omitting or emptying `destinationFolderRelativePath` moves the item back to the workflow root
+- it returns the moved `project` or `folder` plus `movedProjectPaths` for any affected open project references
+- moving a folder into itself or one of its descendants is rejected
+- the dashboard uses this route for workflow-library drag/drop and then applies `movedProjectPaths` through the editor bridge retargeting flow
 
 Current duplicate-route behavior:
 
@@ -84,7 +136,7 @@ Current create-project route behavior:
 
 Current upload-route behavior:
 
-- `POST /api/workflows/projects/upload` accepts `{ "folderRelativePath": string, "fileName": string, "contents": string }`
+- `POST /api/workflows/projects/upload` accepts `{ "folderRelativePath"?: string, "fileName": string, "contents": string }`
 - it returns `201 { "project": WorkflowProjectItem }`
 - it parses the uploaded `.rivet-project`, assigns a fresh workflow metadata ID, updates the stored title to the final saved filename base, and writes only a new project file into the selected folder
 - name collisions are resolved as `Name`, then `Name 1`, `Name 2`, and so on
@@ -114,7 +166,7 @@ The browser/editor surface can be protected at the nginx layer:
 
 When the gate is enabled for a host that is not exempt:
 
-- `GET /` serves the prompt page from `ops/ui-gate-prompt.html`
+- `GET /` serves the prompt page from `image/proxy/ui-gate-prompt.html`
 - `POST /__rivet_auth` forwards to the API's internal `/ui-auth` route
 - the API validates the submitted `key` or `token` form field
 - on success the response sets an HTTP-only `rivet_ui_token` cookie
@@ -127,7 +179,7 @@ If the gate is enabled but `RIVET_KEY` is empty, nginx/API do not fall back to o
 The intended access path is:
 
 ```text
-browser -> nginx -> api / executor
+browser -> nginx -> control-plane api / execution-plane api / executor
 ```
 
 The API independently enforces that boundary:
@@ -138,6 +190,13 @@ The API independently enforces that boundary:
 
 nginx injects `X-Rivet-Proxy-Auth`, derived from `RIVET_KEY`, for those requests.
 Direct access to the API container for `/api/*`, `/ui-auth`, or `/ws/latest-debugger` bypasses that header and is rejected.
+
+Operationally, that means `RIVET_KEY` is still mandatory anywhere nginx fronts the API, even if:
+
+- `RIVET_REQUIRE_WORKFLOW_KEY=false`
+- `RIVET_REQUIRE_UI_GATE_KEY=false`
+
+Those two flags disable optional browser/public-workflow checks. They do not disable the proxy-to-API trust channel.
 
 The public workflow execution routes are mounted outside `/api`, so they do not use the `requireAuth` middleware. They still rely on nginx to mediate access and, for token-free hosts, inject the token-free-host hint.
 
@@ -156,8 +215,74 @@ Current request/response behavior:
 - if the workflow's final `output` port is typed as `any`, the HTTP response body is that raw value
 - otherwise the response body is the full outputs object
 - every execution response sets `x-duration-ms`
+- when `RIVET_WORKFLOW_EXECUTION_DEBUG_HEADERS=true`, execution responses also emit:
+  - `x-workflow-resolve-ms`
+    - in `filesystem` mode: endpoint-index freshness validation, possible lazy rebuild, and endpoint lookup
+    - in `managed` mode: endpoint pointer resolution
+  - `x-workflow-materialize-ms`
+    - in `filesystem` mode: materialization-cache validation, possible project/dataset reload plus one-time reparsing, and per-request dataset-provider reconstruction
+    - in `managed` mode: immutable revision materialization
+  - `x-workflow-execute-ms`
+  - `x-workflow-cache`
+    - `hit`, `miss`, or degraded `bypass` in `filesystem` mode
+    - `miss` or `hit` in `managed` mode
 - if the success payload is an object and does not already include `durationMs`, the API injects `durationMs` into the JSON body
 - failures return JSON shaped like `{ "error": { "name"?: string, "message": string }, "durationMs": number }`
+
+## Filesystem execution hot path
+
+In `RIVET_STORAGE_MODE=filesystem`, the published/latest routes now keep a local derived warm path on the API process:
+
+- a startup-warmed endpoint index for published/latest endpoint pointers
+- an authoritative uncached filesystem execution source behind that cache, so degraded requests can still resolve through the real publication rules
+- a lazy materialization cache for raw project and dataset contents plus the parsed `Project` and attached data for the current file signature
+- per-request reconstruction of `NodeDatasetProvider`, while warm hits reuse the cached parsed workflow instead of reparsing YAML every time
+
+Those caches are accelerators only:
+
+- the filesystem tree remains authoritative
+- out-of-band edits are still honored without restart
+- freshness comes from validation against the filesystem rather than from a watcher
+- global validation covers workflow-tree directories and workflow settings sidecars
+- selected published endpoint pointers also validate the live-backed inputs that can change published eligibility without a settings edit
+
+Current filesystem debug-header semantics are:
+
+- `x-workflow-cache=hit`
+  - the warmed endpoint index was still fresh and served the endpoint pointer directly
+- `x-workflow-cache=miss`
+  - the index had to rebuild because startup warmup had not happened yet or tracked filesystem state changed
+- `x-workflow-cache=bypass`
+  - the cache intentionally fell back to uncached filesystem resolution/materialization because cached state was uncertain
+  - correctness wins over latency in that degraded mode, so the request should stay correct even though it is colder and slower
+
+Operationally:
+
+- the API warms endpoint pointers at startup, so the first request after a clean API start should already avoid the full recursive workflow-tree scan
+- after a project-affecting mutation or an out-of-band tree-shape change, the next request can be a single rebuild `miss`, and the following request should be warm again
+- latest-route saves that only change live project contents refresh materialization without needing to dirty the endpoint index
+- referenced-project loading for published references still uses the existing compatibility path; this filesystem cache pass only accelerates published/latest endpoint execution
+
+In local Docker, those reads still happen against `/workflows`, which is normally a bind mount of the host workflows directory. On Windows/Docker Desktop, that bind-mounted filesystem path can still add noticeable fixed overhead, but the warmed endpoint/materialization path removes the old full-scan-plus-full-reload cost from steady-state trivial requests.
+
+## Managed execution hot path
+
+In `RIVET_STORAGE_MODE=managed`, workflow execution stays authoritative through Postgres plus object storage, but each API replica keeps local derived execution caches for the warm path:
+
+- endpoint-pointer cache entries map `runKind + endpointName` to workflow identity, relative path, and revision id
+- revision-materialization cache entries store immutable raw project and dataset contents by revision id
+- the first request after startup or after an invalidating mutation can still be a cold miss that reads Postgres/object storage
+- repeated requests for the same unchanged workflow reuse the warm local cache path instead of repeating remote shared-state reads
+- pointer-cache invalidation comes from same-process post-commit clearing plus Postgres `LISTEN/NOTIFY`
+- if the invalidation listener is degraded, pointer caches are cleared and bypassed until listener health is restored
+
+The refactor work kept that route and cache contract intact while making the ownership boundaries clearer: control-plane versus execution-plane routing still stays explicit at the API layer, and the browser-side remote debugger / remote executor hooks now sit on top of dedicated transport client/protocol modules instead of owning those state machines inline.
+
+Managed runtime-library sync is part of that execution path too:
+
+- `ManagedCodeRunner` calls `prepareRuntimeLibrariesForExecution()` before `Code` node resolution
+- API replicas therefore reconcile the active managed runtime-library release through the same backend contract that the runtime-library admin surface exposes
+- that keeps published/latest route behavior aligned with runtime-library activation without making endpoint execution depend on a shared mounted `node_modules` tree
 
 ## Workflow execution auth
 
@@ -168,11 +293,25 @@ Workflow execution auth is separate from the UI gate:
 - if the flag is enabled but `RIVET_KEY` is empty, public execution fails with `500`
 - hosts listed in `RIVET_UI_TOKEN_FREE_HOSTS` bypass public workflow bearer auth because nginx forwards `X-Rivet-Token-Free-Host: 1`
 
-The internal API-only route:
+The internal published-only route:
 
 - `POST /internal/workflows/:endpointName`
 
-is mounted directly on the API service, is not exposed through nginx, and intentionally skips bearer auth for trusted intra-stack callers.
+is mounted on the execution-plane API service, is not exposed through nginx, and intentionally skips bearer auth for trusted intra-stack callers.
+
+## Execution-plane storage note
+
+The current runtime split does not make `RIVET_APP_DATA_ROOT` authoritative for published execution:
+
+- workflow truth remains Postgres plus object storage
+- `Code` node package resolution comes from the managed runtime-library cache under `RIVET_RUNTIME_LIBRARIES_ROOT`
+- execution-plane `app-data` may remain ephemeral in the current supported topology
+
+Important limitation:
+
+- API-hosted published/latest execution does not currently register package plugins from local app-data
+- package-plugin install/load remains a control-plane and editor/executor concern
+- the execution-plane `app-data` contract is therefore intentionally minimal today; plugin-backed published endpoint execution is not something the current split newly enables
 
 ## Latest debugger model
 
@@ -184,10 +323,30 @@ Latest-workflow remote debugging is opt-in and separate from the executor websoc
 - the browser-facing websocket path is `/ws/latest-debugger`
 - when disabled, websocket upgrades on `/ws/latest-debugger` are rejected with `404`
 
-Endpoint recording persistence is unaffected by debugger state. Latest-workflow runs still write normal recording bundles when recordings are enabled.
+Endpoint recording persistence is unaffected by debugger state. Latest-workflow runs still persist normal recording history when recordings are enabled:
+
+- in `filesystem` mode, as recording bundles under `RIVET_WORKFLOW_RECORDINGS_ROOT` plus SQLite index rows
+- in `managed` mode, as Postgres metadata plus recording/replay blobs in object storage
+
+Kubernetes support note:
+
+- the supported Kubernetes topology keeps `/ws/latest-debugger` and `${RIVET_LATEST_WORKFLOWS_BASE_PATH:-/workflows-latest}` on the singleton control-plane backend
+- execution-plane API replicas may scale independently for `${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH:-/workflows}`
+- latest endpoint runs remain debuggable in that topology because both the latest execution route and `/ws/latest-debugger` stay on the same backend process boundary
+- published endpoint runs remain non-debuggable
+- manually scaling the backend outside the chart guardrails is unsupported for latest debugging because the current debugger is still process-local, not a distributed cross-replica debugger
 
 ## Local dev note
 
 `npm run dev` preserves the nginx routing and auth model described above.
 
-`npm run dev:local` does not recreate that proxy boundary. It starts the services directly and serves the web app from Vite on `http://localhost:5174`, so Docker dev remains the authoritative path for validating proxy-injected auth, the UI gate, and production-like routing behavior.
+`npm run dev:local` does not recreate that proxy boundary. It starts the services directly and serves the web app from Vite on `http://localhost:5174`.
+
+Current Vite wiring in that mode:
+
+- `/api/*` is proxied directly to `http://localhost:3100`
+- `/ws/executor` and `/ws/executor/internal` are proxied directly to the local executor websocket service
+- published/latest workflow endpoints, `/ui-auth`, and `/ws/latest-debugger` are not recreated through a trusted proxy layer
+- Vite does not inject nginx's trusted proxy headers when it proxies `/api/*`
+
+That means browser-driven control-plane routes that depend on proxy trust, including `/api/*`, `/ui-auth`, and `/ws/latest-debugger`, are not representative in `dev:local` unless you add your own trusted proxy in front. Use Docker dev for full hosted-shell routing and auth validation.

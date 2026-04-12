@@ -1,0 +1,68 @@
+images:
+  proxy:
+    repository: rivet-local/proxy
+    tag: dev
+    pullPolicy: Never
+  web:
+    repository: rivet-local/web
+    tag: dev
+    pullPolicy: Never
+  api:
+    repository: rivet-local/api
+    tag: dev
+    pullPolicy: Never
+  executor:
+    repository: rivet-local/executor
+    tag: dev
+    pullPolicy: Never
+
+replicaCount:
+  proxy: 2
+  web: 1
+  backend: 1
+  execution: 2
+
+autoscaling:
+  proxy:
+    enabled: false
+  web:
+    enabled: false
+  backend:
+    enabled: false
+  execution:
+    enabled: false
+
+vault:
+  enabled: false
+
+auth:
+  keySecretName: rivet-auth
+
+workflowStorage:
+  backend: managed
+
+runtimeLibraries:
+  backend: managed
+
+postgres:
+  mode: managed
+  connectionStringSecretName: rivet-postgres-conn
+  connectionStringSecretKey: connectionString
+  sslMode: require
+
+objectStorage:
+  endpoint: ""
+  bucket: ""
+  region: us-east-1
+  prefix: workflows/
+  accessKeySecretName: rivet-object-storage
+  secretKeySecretName: rivet-object-storage
+  forcePathStyle: false
+
+env:
+  RIVET_PUBLISHED_WORKFLOWS_BASE_PATH: /workflows
+  RIVET_LATEST_WORKFLOWS_BASE_PATH: /workflows-latest
+  RIVET_PROXY_RESOLVER: kube-dns.kube-system.svc.cluster.local
+  RIVET_ENABLE_LATEST_REMOTE_DEBUGGER: "true"
+  RIVET_REQUIRE_WORKFLOW_KEY: "false"
+  RIVET_REQUIRE_UI_GATE_KEY: "false"

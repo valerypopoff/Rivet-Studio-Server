@@ -3,24 +3,22 @@ import { Router, type Request, type Response } from 'express';
 import {
   createProcessor,
   ExecutionRecorder,
-  loadProjectAndAttachedDataFromFile,
-  NodeDatasetProvider,
 } from '@ironclad/rivet-node';
 
 import { getLatestWorkflowRemoteDebugger, isLatestWorkflowRemoteDebuggerEnabled } from '../../latestWorkflowRemoteDebugger.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { badRequest, createHttpError } from '../../utils/httpError.js';
-import { ensureWorkflowsRoot } from './fs-helpers.js';
-import {
-  createPublishedWorkflowProjectReferenceLoader,
-  findLatestWorkflowByEndpoint,
-  findPublishedWorkflowByEndpoint,
-  normalizeStoredEndpointName,
-} from './publication.js';
+import { normalizeStoredEndpointName } from './publication.js';
 import { ManagedCodeRunner } from '../../runtime-libraries/managed-code-runner.js';
 import { getRootPath } from '../../runtime-libraries/manifest.js';
 import { isTrustedTokenFreeHostRequest } from '../../auth.js';
-import { enqueueWorkflowExecutionRecordingPersistence, persistWorkflowExecutionRecording } from './recordings.js';
+import { enqueueWorkflowExecutionRecordingPersistence } from './recordings.js';
+import {
+  createExecutionProjectReferenceLoader,
+  persistWorkflowExecutionRecordingWithBackend,
+  resolveLatestExecutionProject,
+  resolvePublishedExecutionProject,
+} from './storage-backend.js';
 import {
   getWorkflowExecutionRecorderOptions,
   isWorkflowRecordingEnabled,
@@ -138,6 +136,27 @@ function getWorkflowErrorMessage(error: unknown): string {
   return String(error);
 }
 
+function shouldEmitWorkflowExecutionDebugHeaders(): boolean {
+  return isEnvFlagEnabled(process.env.RIVET_WORKFLOW_EXECUTION_DEBUG_HEADERS, false);
+}
+
+function setWorkflowExecutionDebugHeaders(
+  res: Response,
+  executionProject: Awaited<ReturnType<typeof resolvePublishedExecutionProject>> extends infer T
+    ? Exclude<T, null>
+    : never,
+  executionMs: number,
+): void {
+  if (!shouldEmitWorkflowExecutionDebugHeaders() || !executionProject.debug) {
+    return;
+  }
+
+  res.set('x-workflow-resolve-ms', String(executionProject.debug.resolveMs));
+  res.set('x-workflow-materialize-ms', String(executionProject.debug.materializeMs));
+  res.set('x-workflow-execute-ms', String(Math.max(0, Math.round(executionMs))));
+  res.set('x-workflow-cache', executionProject.debug.cacheStatus);
+}
+
 function requirePublishedWorkflowApiKey(req: Request): void {
   const isWorkflowKeyRequired = isEnvFlagEnabled(process.env.RIVET_REQUIRE_WORKFLOW_KEY, false);
   if (!isWorkflowKeyRequired) {
@@ -160,9 +179,9 @@ function requirePublishedWorkflowApiKey(req: Request): void {
 }
 
 async function executeWorkflowEndpoint(
-  loadPath: string,
-  referencePath: string,
-  root: string,
+  executionProject: Awaited<ReturnType<typeof resolvePublishedExecutionProject>> extends infer T
+    ? Exclude<T, null>
+    : never,
   requestStartedAt: number,
   req: Request,
   res: Response,
@@ -172,15 +191,14 @@ async function executeWorkflowEndpoint(
     runKind: 'published' | 'latest';
   },
 ): Promise<void> {
-  const [project, attachedData] = await loadProjectAndAttachedDataFromFile(loadPath);
-  const datasetProvider = await NodeDatasetProvider.fromProjectFile(loadPath);
-  const projectReferenceLoader = createPublishedWorkflowProjectReferenceLoader(root, referencePath);
+  const { project, attachedData, datasetProvider, projectVirtualPath } = executionProject;
+  const projectReferenceLoader = await createExecutionProjectReferenceLoader(projectVirtualPath);
   const remoteDebugger = options?.enableRemoteDebugger && isLatestWorkflowRemoteDebuggerEnabled()
     ? getLatestWorkflowRemoteDebugger()
     : undefined;
   const processor = createProcessor(project, {
     codeRunner: new ManagedCodeRunner(getRootPath()) as any,
-    projectPath: referencePath,
+    projectPath: projectVirtualPath,
     datasetProvider,
     projectReferenceLoader,
     remoteDebugger,
@@ -201,6 +219,7 @@ async function executeWorkflowEndpoint(
   let responsePayload: unknown;
   let executionError: unknown;
   let executionDurationMs = 0;
+  const executionStartedAt = performance.now();
 
   try {
     const outputs = await processor.run();
@@ -224,10 +243,9 @@ async function executeWorkflowEndpoint(
           })
         : [];
 
-      await persistWorkflowExecutionRecording({
-        root,
+      await persistWorkflowExecutionRecordingWithBackend({
         sourceProject: project,
-        sourceProjectPath: referencePath,
+        sourceProjectPath: projectVirtualPath,
         executedProject: project,
         executedAttachedData: attachedData,
         executedDatasets,
@@ -242,9 +260,11 @@ async function executeWorkflowEndpoint(
   }
 
   if (executionError) {
+    setWorkflowExecutionDebugHeaders(res, executionProject, performance.now() - executionStartedAt);
     throw executionError;
   }
 
+  setWorkflowExecutionDebugHeaders(res, executionProject, performance.now() - executionStartedAt);
   sendJsonWithDuration(res, 200, responsePayload, requestStartedAt);
 }
 
@@ -260,22 +280,19 @@ async function handlePublishedWorkflowRequest(
       requirePublishedWorkflowApiKey(req);
     }
 
-    const root = await ensureWorkflowsRoot();
     const endpointName = normalizeStoredEndpointName(String(req.params.endpointName ?? ''));
     if (!endpointName) {
       throw badRequest('Endpoint name is required');
     }
 
-    const publishedWorkflow = await findPublishedWorkflowByEndpoint(root, endpointName);
-    if (!publishedWorkflow) {
+    const executionProject = await resolvePublishedExecutionProject(endpointName);
+    if (!executionProject) {
       sendJsonWithDuration(res, 404, { error: 'Published workflow not found' }, requestStartedAt);
       return;
     }
 
     await executeWorkflowEndpoint(
-      publishedWorkflow.publishedProjectPath,
-      publishedWorkflow.projectPath,
-      root,
+      executionProject,
       requestStartedAt,
       req,
       res,
@@ -304,22 +321,19 @@ latestWorkflowsRouter.post('/:endpointName', asyncHandler(async (req, res) => {
   try {
     requirePublishedWorkflowApiKey(req);
 
-    const root = await ensureWorkflowsRoot();
     const endpointName = normalizeStoredEndpointName(String(req.params.endpointName ?? ''));
     if (!endpointName) {
       throw badRequest('Endpoint name is required');
     }
 
-    const latestWorkflow = await findLatestWorkflowByEndpoint(root, endpointName);
-    if (!latestWorkflow) {
+    const executionProject = await resolveLatestExecutionProject(endpointName);
+    if (!executionProject) {
       sendJsonWithDuration(res, 404, { error: 'Latest workflow not found' }, requestStartedAt);
       return;
     }
 
     await executeWorkflowEndpoint(
-      latestWorkflow.projectPath,
-      latestWorkflow.projectPath,
-      root,
+      executionProject,
       requestStartedAt,
       req,
       res,

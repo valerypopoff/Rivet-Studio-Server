@@ -44,6 +44,73 @@ export interface FileEntry {
   children?: FileEntry[];
 }
 
+function normalizeRelativeEntryPath(filePath: string): string {
+  return filePath.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+}
+
+function joinEntryPath(basePath: string, relativePath: string): string {
+  const normalizedBasePath = basePath.replace(/\\/g, '/').replace(/\/+$/, '');
+  const normalizedRelativePath = normalizeRelativeEntryPath(relativePath);
+
+  if (!normalizedRelativePath) {
+    return normalizedBasePath;
+  }
+
+  if (!normalizedBasePath) {
+    return normalizedRelativePath;
+  }
+
+  return `${normalizedBasePath}/${normalizedRelativePath}`;
+}
+
+function buildFileEntries(basePath: string, relativeEntries: string[]): FileEntry[] {
+  const normalizedEntries = Array.from(new Set(
+    relativeEntries
+      .map((entry) => normalizeRelativeEntryPath(entry))
+      .filter(Boolean),
+  ));
+  const hasDescendants = new Set<string>();
+
+  for (const entry of normalizedEntries) {
+    const segments = entry.split('/');
+    let currentPath = '';
+    for (let index = 0; index < segments.length - 1; index += 1) {
+      currentPath = currentPath ? `${currentPath}/${segments[index]}` : segments[index]!;
+      hasDescendants.add(currentPath);
+    }
+  }
+
+  const rootEntries: FileEntry[] = [];
+  const entriesByRelativePath = new Map<string, FileEntry>();
+
+  for (const entry of normalizedEntries.sort((left, right) => left.localeCompare(right))) {
+    const segments = entry.split('/');
+    let currentPath = '';
+    let siblingEntries = rootEntries;
+
+    for (let index = 0; index < segments.length; index += 1) {
+      currentPath = currentPath ? `${currentPath}/${segments[index]}` : segments[index]!;
+
+      let currentEntry = entriesByRelativePath.get(currentPath);
+      if (!currentEntry) {
+        currentEntry = {
+          path: joinEntryPath(basePath, currentPath),
+          name: segments[index],
+        };
+        siblingEntries.push(currentEntry);
+        entriesByRelativePath.set(currentPath, currentEntry);
+      }
+
+      if (index < segments.length - 1 || hasDescendants.has(currentPath)) {
+        currentEntry.children ??= [];
+        siblingEntries = currentEntry.children;
+      }
+    }
+  }
+
+  return rootEntries;
+}
+
 function baseDirName(dir?: BaseDirectory): string | undefined {
   if (dir === undefined) return undefined;
   const map: Record<number, string> = {
@@ -86,11 +153,16 @@ export async function readDir(
     body: JSON.stringify({
       path,
       baseDir: baseDirName(options?.dir),
-      options: { recursive: options?.recursive ?? false },
+      options: {
+        recursive: options?.recursive ?? false,
+        includeDirectories: true,
+        relative: true,
+      },
     }),
   });
   if (!resp.ok) throw new Error(`readDir failed: ${resp.statusText}`);
-  return resp.json();
+  const entries = await resp.json() as string[];
+  return buildFileEntries(path, entries);
 }
 
 export async function readTextFile(

@@ -7,6 +7,7 @@ rivet/.git/**
 **/.git/**
 
 # Dependencies
+# Excludes moved runtime/bootstrap package state such as wrapper/bootstrap/proxy-bootstrap/node_modules/
 **/node_modules
 
 # Build artifacts
@@ -15,6 +16,9 @@ rivet/.git/**
 **/.turbo
 **/.cache
 **/.vite
+# Keep the tracked executor build helper while excluding other build outputs.
+!wrapper/executor/build/
+!wrapper/executor/build/bundle-executor.cjs
 
 # Logs
 **/*.log

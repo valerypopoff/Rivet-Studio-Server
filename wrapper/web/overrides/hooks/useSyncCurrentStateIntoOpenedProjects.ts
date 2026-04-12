@@ -8,6 +8,8 @@ import {
   openedProjectsState,
   projectState,
 } from '../../../../rivet/packages/app/src/state/savedGraphs';
+import { trivetState } from '../../../../rivet/packages/app/src/state/trivet';
+import { primeOpenedProjectSession, syncOpenedProjectSessionIds } from '../../io/openedProjectSessionCache';
 
 export function useSyncCurrentStateIntoOpenedProjects() {
   const [openedProjects, setOpenedProjects] = useAtom(openedProjectsState);
@@ -17,6 +19,11 @@ export function useSyncCurrentStateIntoOpenedProjects() {
   const currentProject = useAtomValue(projectState);
   const loadedProject = useAtomValue(loadedProjectState);
   const currentGraph = useAtomValue(graphState);
+  const currentTrivetState = useAtomValue(trivetState);
+
+  useEffect(() => {
+    syncOpenedProjectSessionIds(openedProjectsSortedIds);
+  }, [openedProjectsSortedIds]);
 
   // Clear the file-backed loaded path when the last opened project tab is gone.
   // This keeps scratch-project state from still looking file-backed after everything closes.
@@ -53,6 +60,22 @@ export function useSyncCurrentStateIntoOpenedProjects() {
       setOpenedProjectsSortedIds([...openedProjectsSortedIds, currentProject.metadata.id]);
     }
   }, [currentProject, loadedProject, openedProjects, openedProjectsSortedIds, setOpenedProjects, setOpenedProjectsSortedIds]);
+
+  useEffect(() => {
+    const expectedProjectPath = openedProjects[currentProject.metadata.id]?.fsPath ?? null;
+    const loadedProjectPath = loadedProject.path ?? null;
+
+    if (expectedProjectPath && loadedProjectPath && expectedProjectPath !== loadedProjectPath) {
+      return;
+    }
+
+    primeOpenedProjectSession(currentProject.metadata.id, {
+      fsPath: expectedProjectPath ?? loadedProjectPath,
+      testData: {
+        testSuites: currentTrivetState.testSuites,
+      },
+    });
+  }, [currentProject.metadata.id, currentTrivetState.testSuites, loadedProject.path, openedProjects]);
 
   // Keep the current project's stored project object synchronized with editor edits.
   // eslint-disable-next-line react-hooks/exhaustive-deps -- syncing only on currentProject changes avoids extra re-syncs from openedProjects mutations.

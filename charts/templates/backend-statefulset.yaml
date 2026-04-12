@@ -1,0 +1,140 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "rivet.backendName" . }}
+  labels:
+    {{- include "rivet.labels" . | nindent 4 }}
+    app.kubernetes.io/component: backend
+spec:
+  serviceName: {{ include "rivet.backendHeadlessServiceName" . }}
+  replicas: {{ .Values.replicaCount.backend }}
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      {{- include "rivet.componentLabels" (dict "root" . "component" "backend") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "rivet.componentLabels" (dict "root" . "component" "backend") | nindent 8 }}
+      annotations:
+        {{- with .Values.podAnnotations.backend }}
+{{ toYaml . | nindent 8 }}
+        {{- end }}
+        {{- include "rivet.vaultAnnotations" . | nindent 8 }}
+    spec:
+      {{- include "rivet.pod.imagePullSecrets" . | nindent 6 }}
+      {{- include "rivet.pod.workloadSecurityContext" . | nindent 6 }}
+      containers:
+        - name: api
+          image: {{ include "rivet.image" (dict "root" . "image" .Values.images.api) }}
+          imagePullPolicy: {{ .Values.images.api.pullPolicy }}
+          {{- include "rivet.pod.containerSecurityContext" . | nindent 10 }}
+          ports:
+            - name: api-http
+              containerPort: {{ .Values.service.api.targetPort }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: api-http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: api-http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          env:
+{{ include "rivet.env.apiWorkload" (dict "root" . "port" .Values.service.api.targetPort "profile" "control" "storageBackend" .Values.workflowStorage.backend "replicaTier" "none" "jobWorkerEnabled" "true") | nindent 12 }}
+          volumeMounts:
+{{ include "rivet.pod.apiVolumeMounts" . | nindent 12 }}
+          resources:
+{{ toYaml .Values.resources.api | nindent 12 }}
+        - name: executor
+          image: {{ include "rivet.image" (dict "root" . "image" .Values.images.executor) }}
+          imagePullPolicy: {{ .Values.images.executor.pullPolicy }}
+          {{- include "rivet.pod.containerSecurityContext" . | nindent 10 }}
+          ports:
+            - name: executor-http
+              containerPort: {{ .Values.service.executor.targetPort }}
+          livenessProbe:
+            tcpSocket:
+              port: executor-http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+          readinessProbe:
+            tcpSocket:
+              port: executor-http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          env:
+{{ include "rivet.env.executorWorkload" (dict "root" . "port" .Values.service.executor.targetPort "storageBackend" .Values.runtimeLibraries.backend) | nindent 12 }}
+          volumeMounts:
+{{ include "rivet.pod.executorVolumeMounts" . | nindent 12 }}
+          resources:
+{{ toYaml .Values.resources.executor | nindent 12 }}
+      volumes:
+        - name: workspace
+          emptyDir: {}
+        {{- if eq .Values.workflowStorage.backend "filesystem" }}
+        - name: workflows
+          persistentVolumeClaim:
+            claimName: {{ .Values.filesystem.workflows.existingClaimName }}
+        {{- else }}
+        - name: workflows
+          emptyDir: {}
+        {{- end }}
+        {{- if .Values.storage.appData.existingClaimName }}
+        - name: app-data
+          persistentVolumeClaim:
+            claimName: {{ .Values.storage.appData.existingClaimName }}
+        {{- else if not .Values.storage.appData.enabled }}
+        - name: app-data
+          emptyDir: {}
+        {{- end }}
+        {{- if eq .Values.runtimeLibraries.backend "filesystem" }}
+        - name: runtime-libraries
+          persistentVolumeClaim:
+            claimName: {{ .Values.filesystem.runtimeLibraries.existingClaimName }}
+        {{- else if .Values.runtimeLibraries.cache.existingClaimName }}
+        - name: runtime-libraries
+          persistentVolumeClaim:
+            claimName: {{ .Values.runtimeLibraries.cache.existingClaimName }}
+        {{- else if not .Values.runtimeLibraries.cache.enabled }}
+        - name: runtime-libraries
+          emptyDir: {}
+        {{- end }}
+{{ include "rivet.pod.tmpVolume" . | nindent 8 }}
+  {{- if or (and .Values.storage.appData.enabled (not .Values.storage.appData.existingClaimName)) (and (eq .Values.runtimeLibraries.backend "managed") .Values.runtimeLibraries.cache.enabled (not .Values.runtimeLibraries.cache.existingClaimName)) }}
+  volumeClaimTemplates:
+    {{- if and .Values.storage.appData.enabled (not .Values.storage.appData.existingClaimName) }}
+    - metadata:
+        name: app-data
+        labels:
+          {{- include "rivet.labels" . | nindent 10 }}
+          app.kubernetes.io/component: backend
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: {{ .Values.storage.appData.size }}
+        {{- if .Values.storage.appData.storageClassName }}
+        storageClassName: {{ .Values.storage.appData.storageClassName }}
+        {{- end }}
+    {{- end }}
+    {{- if and (eq .Values.runtimeLibraries.backend "managed") .Values.runtimeLibraries.cache.enabled (not .Values.runtimeLibraries.cache.existingClaimName) }}
+    - metadata:
+        name: runtime-libraries
+        labels:
+          {{- include "rivet.labels" . | nindent 10 }}
+          app.kubernetes.io/component: backend
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: {{ .Values.runtimeLibraries.cache.size }}
+        {{- if .Values.runtimeLibraries.cache.storageClassName }}
+        storageClassName: {{ .Values.runtimeLibraries.cache.storageClassName }}
+        {{- end }}
+    {{- end }}
+  {{- end }}

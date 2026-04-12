@@ -6,10 +6,11 @@ import {
   type OpenedProjectInfo,
   type OpenedProjectsInfo,
 } from '../../../rivet/packages/app/src/state/savedGraphs';
-import { useLoadProject } from '../../../rivet/packages/app/src/hooks/useLoadProject';
 import { ioProvider } from '../../../rivet/packages/app/src/utils/globals';
 import { toast } from 'react-toastify';
 import type { GraphId, NodeGraph } from '@ironclad/rivet-core';
+import { useLoadProject } from '../overrides/hooks/useLoadProject';
+import { primeOpenedProjectSession } from '../io/openedProjectSessionCache';
 
 type OpenWorkflowProjectOptions = {
   replaceCurrent?: boolean;
@@ -66,7 +67,7 @@ export function useOpenWorkflowProject() {
       return;
     }
 
-    const { project } = await ioProvider.loadProjectDataNoPrompt(filePath);
+    const { project, testData } = await ioProvider.loadProjectDataNoPrompt(filePath);
 
     const conflictingProject = openedProjects.find((projectInfo) => projectInfo.project.metadata.id === project.metadata.id);
 
@@ -76,6 +77,11 @@ export function useOpenWorkflowProject() {
       );
       return;
     }
+
+    primeOpenedProjectSession(project.metadata.id, {
+      fsPath: filePath,
+      testData,
+    });
 
     const projectGraphs = Object.values(project.graphs) as NodeGraph[];
 

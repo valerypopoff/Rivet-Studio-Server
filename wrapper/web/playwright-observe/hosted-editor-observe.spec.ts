@@ -25,21 +25,47 @@ test.describe('Observable hosted editor flow', () => {
       timeout: 120_000,
     });
 
-    await test.step('Expand the first folder and open its first project', async () => {
-      await firstFolder.click();
-      const firstProject = page.locator('.project-row').first();
-      await expect(firstProject, 'Need at least one workflow project in the first folder').toBeVisible({
-        timeout: 30_000,
-      });
-      await firstProject.dblclick();
-    });
-
     const iframe = page.locator('iframe.dashboard-editor-frame');
-    await expect(iframe).toBeVisible({ timeout: 120_000 });
-
     const frameLocator = page.frameLocator('iframe.dashboard-editor-frame');
     const canvas = frameLocator.locator('.node-canvas');
     const nodes = frameLocator.locator('.node');
+    let openedProjectRow = page.locator('.project-row').first();
+
+    await test.step('Expand the first folder and open the first project with a visible graph', async () => {
+      await firstFolder.click();
+      const projectRows = page.locator('.project-row');
+      const projectCount = await projectRows.count();
+      expect(projectCount, 'Need at least one workflow project in the first folder').toBeGreaterThan(0);
+
+      let openedProjectIndex = -1;
+      for (let index = 0; index < Math.min(projectCount, 5); index += 1) {
+        const candidate = projectRows.nth(index);
+        await expect(candidate, 'Need a visible workflow project row to open in the observable flow').toBeVisible({
+          timeout: 30_000,
+        });
+        await candidate.scrollIntoViewIfNeeded();
+        await candidate.dblclick();
+
+        await expect(iframe).toBeVisible({ timeout: 30_000 });
+        await expect(canvas).toBeVisible({ timeout: 30_000 });
+
+        try {
+          await expect(nodes.first()).toBeVisible({ timeout: 10_000 });
+          openedProjectIndex = index;
+          break;
+        } catch {
+          // Try the next visible project. Some environments keep scratch or empty projects at the top.
+        }
+      }
+
+      expect(openedProjectIndex, 'Need a visible project graph for the observable hosted-editor flow').toBeGreaterThanOrEqual(0);
+      openedProjectRow = projectRows.nth(openedProjectIndex);
+      await expect(openedProjectRow).toBeVisible({
+        timeout: 30_000,
+      });
+    });
+
+    await expect(iframe).toBeVisible({ timeout: 120_000 });
     await expect(canvas).toBeVisible({ timeout: 120_000 });
     await expect(nodes.first()).toBeVisible({ timeout: 120_000 });
 
@@ -73,11 +99,9 @@ test.describe('Observable hosted editor flow', () => {
     const visibleNodeCenters = await getVisibleNodeCenters(nodes, minVisibleX, maxVisibleX, maxVisibleY);
     expect(visibleNodeCenters.length).toBeGreaterThanOrEqual(2);
 
-    const projectRow = page.locator('.project-row').first();
-
     await test.step('Return focus to the sidebar and recover it with Shift+click node selection', async () => {
       await page.mouse.click(visibleNodeCenters[0]!.x, visibleNodeCenters[0]!.y);
-      await projectRow.click();
+      await openedProjectRow.click();
       await waitForFocusTag(page, 'BUTTON', 'sidebar refocus');
       await saveStepScreenshot(page, testInfo, '03-sidebar-refocus.png');
 
@@ -97,7 +121,7 @@ test.describe('Observable hosted editor flow', () => {
     await saveStepScreenshot(page, testInfo, '04-after-shift-paste.png');
 
     await test.step('Return focus to the sidebar again and recover it with a blank-canvas click', async () => {
-      await projectRow.click();
+      await openedProjectRow.click();
       await waitForFocusTag(page, 'BUTTON', 'sidebar refocus before blank canvas');
 
       const blankPoint = await findBlankCanvasPoint(canvas, nodes, minVisibleX, maxVisibleX, maxVisibleY);

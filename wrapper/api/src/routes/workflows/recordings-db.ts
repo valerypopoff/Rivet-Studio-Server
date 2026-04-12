@@ -46,6 +46,26 @@ export type WorkflowRecordingWorkflowStatsRow = WorkflowRecordingWorkflowRow & {
   suspiciousRuns: number;
 };
 
+const RECORDING_RUN_COLUMNS = `
+  id AS id,
+  workflow_id AS workflowId,
+  created_at AS createdAt,
+  run_kind AS runKind,
+  status AS status,
+  duration_ms AS durationMs,
+  endpoint_name_at_execution AS endpointNameAtExecution,
+  error_message AS errorMessage,
+  bundle_path AS bundlePath,
+  encoding AS encoding,
+  has_replay_dataset AS hasReplayDataset,
+  recording_compressed_bytes AS recordingCompressedBytes,
+  recording_uncompressed_bytes AS recordingUncompressedBytes,
+  project_compressed_bytes AS projectCompressedBytes,
+  project_uncompressed_bytes AS projectUncompressedBytes,
+  dataset_compressed_bytes AS datasetCompressedBytes,
+  dataset_uncompressed_bytes AS datasetUncompressedBytes
+`;
+
 let databasePromise: Promise<DatabaseSync> | null = null;
 
 function toNumber(value: unknown): number {
@@ -277,28 +297,10 @@ export async function listWorkflowRecordingRunRowsByWorkflowId(
   options: { page: number; pageSize: number; statusFilter: WorkflowRecordingFilterStatus },
 ): Promise<WorkflowRecordingRunRow[]> {
   const db = await getDatabase();
-  const whereClause = options.statusFilter === 'failed'
-    ? `WHERE workflow_id = ? AND status IN ('failed', 'suspicious')`
-    : 'WHERE workflow_id = ?';
+  const whereClause = buildRunFilterClause(options.statusFilter);
   const rows = db.prepare(`
     SELECT
-      id AS id,
-      workflow_id AS workflowId,
-      created_at AS createdAt,
-      run_kind AS runKind,
-      status AS status,
-      duration_ms AS durationMs,
-      endpoint_name_at_execution AS endpointNameAtExecution,
-      error_message AS errorMessage,
-      bundle_path AS bundlePath,
-      encoding AS encoding,
-      has_replay_dataset AS hasReplayDataset,
-      recording_compressed_bytes AS recordingCompressedBytes,
-      recording_uncompressed_bytes AS recordingUncompressedBytes,
-      project_compressed_bytes AS projectCompressedBytes,
-      project_uncompressed_bytes AS projectUncompressedBytes,
-      dataset_compressed_bytes AS datasetCompressedBytes,
-      dataset_uncompressed_bytes AS datasetUncompressedBytes
+      ${RECORDING_RUN_COLUMNS}
     FROM recording_runs
     ${whereClause}
     ORDER BY created_at DESC
@@ -313,9 +315,7 @@ export async function countWorkflowRecordingRuns(
   statusFilter: WorkflowRecordingFilterStatus,
 ): Promise<number> {
   const db = await getDatabase();
-  const whereClause = statusFilter === 'failed'
-    ? `WHERE workflow_id = ? AND status IN ('failed', 'suspicious')`
-    : 'WHERE workflow_id = ?';
+  const whereClause = buildRunFilterClause(statusFilter);
   const row = db.prepare(`SELECT COUNT(id) AS count FROM recording_runs ${whereClause}`)
     .get<{ count: number | bigint }>(workflowId);
 
@@ -326,23 +326,7 @@ export async function getWorkflowRecordingRunRow(recordingId: string): Promise<W
   const db = await getDatabase();
   const row = db.prepare(`
     SELECT
-      id AS id,
-      workflow_id AS workflowId,
-      created_at AS createdAt,
-      run_kind AS runKind,
-      status AS status,
-      duration_ms AS durationMs,
-      endpoint_name_at_execution AS endpointNameAtExecution,
-      error_message AS errorMessage,
-      bundle_path AS bundlePath,
-      encoding AS encoding,
-      has_replay_dataset AS hasReplayDataset,
-      recording_compressed_bytes AS recordingCompressedBytes,
-      recording_uncompressed_bytes AS recordingUncompressedBytes,
-      project_compressed_bytes AS projectCompressedBytes,
-      project_uncompressed_bytes AS projectUncompressedBytes,
-      dataset_compressed_bytes AS datasetCompressedBytes,
-      dataset_uncompressed_bytes AS datasetUncompressedBytes
+      ${RECORDING_RUN_COLUMNS}
     FROM recording_runs
     WHERE id = ?
   `).get<Record<string, unknown>>(recordingId);
@@ -354,23 +338,7 @@ export async function listWorkflowRecordingRunRowsForWorkflow(workflowId: string
   const db = await getDatabase();
   const rows = db.prepare(`
     SELECT
-      id AS id,
-      workflow_id AS workflowId,
-      created_at AS createdAt,
-      run_kind AS runKind,
-      status AS status,
-      duration_ms AS durationMs,
-      endpoint_name_at_execution AS endpointNameAtExecution,
-      error_message AS errorMessage,
-      bundle_path AS bundlePath,
-      encoding AS encoding,
-      has_replay_dataset AS hasReplayDataset,
-      recording_compressed_bytes AS recordingCompressedBytes,
-      recording_uncompressed_bytes AS recordingUncompressedBytes,
-      project_compressed_bytes AS projectCompressedBytes,
-      project_uncompressed_bytes AS projectUncompressedBytes,
-      dataset_compressed_bytes AS datasetCompressedBytes,
-      dataset_uncompressed_bytes AS datasetUncompressedBytes
+      ${RECORDING_RUN_COLUMNS}
     FROM recording_runs
     WHERE workflow_id = ?
     ORDER BY created_at DESC
@@ -383,23 +351,7 @@ export async function listWorkflowRecordingRunsOlderThan(createdBefore: string):
   const db = await getDatabase();
   const rows = db.prepare(`
     SELECT
-      id AS id,
-      workflow_id AS workflowId,
-      created_at AS createdAt,
-      run_kind AS runKind,
-      status AS status,
-      duration_ms AS durationMs,
-      endpoint_name_at_execution AS endpointNameAtExecution,
-      error_message AS errorMessage,
-      bundle_path AS bundlePath,
-      encoding AS encoding,
-      has_replay_dataset AS hasReplayDataset,
-      recording_compressed_bytes AS recordingCompressedBytes,
-      recording_uncompressed_bytes AS recordingUncompressedBytes,
-      project_compressed_bytes AS projectCompressedBytes,
-      project_uncompressed_bytes AS projectUncompressedBytes,
-      dataset_compressed_bytes AS datasetCompressedBytes,
-      dataset_uncompressed_bytes AS datasetUncompressedBytes
+      ${RECORDING_RUN_COLUMNS}
     FROM recording_runs
     WHERE created_at < ?
     ORDER BY created_at ASC
@@ -412,23 +364,7 @@ export async function listWorkflowRecordingRunsOldestFirst(): Promise<WorkflowRe
   const db = await getDatabase();
   const rows = db.prepare(`
     SELECT
-      id AS id,
-      workflow_id AS workflowId,
-      created_at AS createdAt,
-      run_kind AS runKind,
-      status AS status,
-      duration_ms AS durationMs,
-      endpoint_name_at_execution AS endpointNameAtExecution,
-      error_message AS errorMessage,
-      bundle_path AS bundlePath,
-      encoding AS encoding,
-      has_replay_dataset AS hasReplayDataset,
-      recording_compressed_bytes AS recordingCompressedBytes,
-      recording_uncompressed_bytes AS recordingUncompressedBytes,
-      project_compressed_bytes AS projectCompressedBytes,
-      project_uncompressed_bytes AS projectUncompressedBytes,
-      dataset_compressed_bytes AS datasetCompressedBytes,
-      dataset_uncompressed_bytes AS datasetUncompressedBytes
+      ${RECORDING_RUN_COLUMNS}
     FROM recording_runs
     ORDER BY created_at ASC
   `).all<Record<string, unknown>>();
@@ -532,4 +468,10 @@ function normalizeWorkflowRecordingRunRow(row: Record<string, unknown>): Workflo
     datasetCompressedBytes: toNumber(row.datasetCompressedBytes),
     datasetUncompressedBytes: toNumber(row.datasetUncompressedBytes),
   };
+}
+
+function buildRunFilterClause(statusFilter: WorkflowRecordingFilterStatus): string {
+  return statusFilter === 'failed'
+    ? `WHERE workflow_id = ? AND status IN ('failed', 'suspicious')`
+    : 'WHERE workflow_id = ?';
 }
