@@ -39,6 +39,21 @@ test('proxy template keeps published traffic on execution upstream, latest debug
   assert.ok(!proxyTemplate.includes('location /internal/workflows'));
 });
 
+test('executor production image and compose contracts pin the websocket service to 21889 independently of the API PORT env', () => {
+  const executorEntrypoint = readRepoFile('image/executor/entrypoint.sh');
+  const executorDockerfile = readRepoFile('image/executor/Dockerfile');
+  const prodCompose = readRepoFile('ops/compose/docker-compose.yml');
+  const devCompose = readRepoFile('ops/compose/docker-compose.dev.yml');
+
+  assert.match(executorEntrypoint, /export RIVET_EXECUTOR_PORT="\$\{RIVET_EXECUTOR_PORT:-21889\}"/);
+  assert.match(executorEntrypoint, /exec node \/app\/executor-bundle\.cjs --port "\$\{RIVET_EXECUTOR_PORT\}"/);
+  assert.doesNotMatch(executorEntrypoint, /exec node \/app\/executor-bundle\.cjs --port "\$\{PORT\}"/);
+  assert.match(executorDockerfile, /ENV RIVET_EXECUTOR_PORT=21889/);
+  assert.doesNotMatch(executorDockerfile, /ENV PORT=21889/);
+  assert.match(prodCompose, /executor:[\s\S]*- PORT=21889[\s\S]*- RIVET_EXECUTOR_PORT=21889/);
+  assert.match(devCompose, /executor:[\s\S]*- PORT=21889[\s\S]*- RIVET_EXECUTOR_PORT=21889/);
+});
+
 test('chart templates keep control-plane and execution-plane API env contracts distinct', () => {
   const backendStatefulSet = readRepoFile('charts/templates/backend-statefulset.yaml');
   const executionDeployment = readRepoFile('charts/templates/execution-deployment.yaml');
