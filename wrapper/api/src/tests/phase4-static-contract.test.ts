@@ -39,6 +39,23 @@ test('proxy template keeps published traffic on execution upstream, latest debug
   assert.ok(!proxyTemplate.includes('location /internal/workflows'));
 });
 
+test('proxy templates pin standard HTTP upstream routes to the configurable 3 minute timeout while keeping websocket routes long-lived', () => {
+  const imageProxyTemplate = readRepoFile('image/proxy/default.conf.template');
+  const prodProxyTemplate = readRepoFile('ops/nginx/default.conf.template');
+  const devProxyTemplate = readRepoFile('ops/nginx/default.dev.conf.template');
+  const proxyDockerfile = readRepoFile('image/proxy/Dockerfile');
+
+  for (const template of [imageProxyTemplate, prodProxyTemplate, devProxyTemplate]) {
+    assert.match(template, /location \/api\/ \{[\s\S]*proxy_read_timeout \$\{RIVET_PROXY_READ_TIMEOUT\};[\s\S]*proxy_send_timeout \$\{RIVET_PROXY_READ_TIMEOUT\};/);
+    assert.match(template, /location \$\{RIVET_PUBLISHED_WORKFLOWS_BASE_PATH\}\/ \{[\s\S]*proxy_read_timeout \$\{RIVET_PROXY_READ_TIMEOUT\};[\s\S]*proxy_send_timeout \$\{RIVET_PROXY_READ_TIMEOUT\};/);
+    assert.match(template, /location \$\{RIVET_LATEST_WORKFLOWS_BASE_PATH\}\/ \{[\s\S]*proxy_read_timeout \$\{RIVET_PROXY_READ_TIMEOUT\};[\s\S]*proxy_send_timeout \$\{RIVET_PROXY_READ_TIMEOUT\};/);
+    assert.match(template, /location \/ws\/latest-debugger \{[\s\S]*proxy_read_timeout 86400s;/);
+    assert.match(template, /location \/ws\/executor\/internal \{[\s\S]*proxy_read_timeout 86400s;/);
+  }
+
+  assert.match(proxyDockerfile, /ENV RIVET_PROXY_READ_TIMEOUT=180s/);
+});
+
 test('executor production image and compose contracts pin the websocket service to 21889 independently of the API PORT env', () => {
   const executorEntrypoint = readRepoFile('image/executor/entrypoint.sh');
   const executorDockerfile = readRepoFile('image/executor/Dockerfile');
