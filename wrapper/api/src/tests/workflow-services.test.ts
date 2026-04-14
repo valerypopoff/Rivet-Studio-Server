@@ -982,6 +982,8 @@ test('publish and unpublish keep workflow project behavior stable', async () => 
   assert.equal(unpublished.settings.status, 'unpublished');
   assert.equal(unpublished.settings.endpointName, 'demo-endpoint');
   assert.equal(unpublished.settings.lastPublishedAt, published.settings.lastPublishedAt);
+  assert.equal(await workflowPublication.findPublishedWorkflowByEndpoint(workflowsRoot, 'demo-endpoint'), null);
+  assert.equal(await workflowPublication.findLatestWorkflowByEndpoint(workflowsRoot, 'demo-endpoint'), null);
 });
 
 test('workflow publish and unpublish routes preserve publication state over HTTP', async () => {
@@ -1018,6 +1020,61 @@ test('workflow publish and unpublish routes preserve publication state over HTTP
     assert.equal(unpublished.project.settings.status, 'unpublished');
     assert.equal(unpublished.project.settings.endpointName, 'http-endpoint');
     assert.equal(unpublished.project.settings.lastPublishedAt, published.project.settings.lastPublishedAt);
+  });
+});
+
+test('full unpublish closes both published and latest execution routes while keeping the saved draft endpoint', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'ClosedExecution');
+  await workflowMutations.publishWorkflowProjectItem(created.relativePath, {
+    endpointName: 'closed-execution-endpoint',
+  });
+
+  await withWorkflowExecutionServer(async ({ apiBaseUrl, publishedBaseUrl, latestBaseUrl }) => {
+    const publishedBefore = await fetch(`${publishedBaseUrl}/closed-execution-endpoint`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'published-before-unpublish' }),
+    });
+    const latestBefore = await fetch(`${latestBaseUrl}/closed-execution-endpoint`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'latest-before-unpublish' }),
+    });
+
+    assert.equal(publishedBefore.ok, true);
+    assert.equal(latestBefore.ok, true);
+
+    const unpublished = await readJson<{
+      project: {
+        settings: {
+          status: string;
+          endpointName: string;
+        };
+      };
+    }>(await fetch(`${apiBaseUrl}/projects/unpublish`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ relativePath: created.relativePath }),
+    }));
+
+    assert.equal(unpublished.project.settings.status, 'unpublished');
+    assert.equal(unpublished.project.settings.endpointName, 'closed-execution-endpoint');
+
+    const publishedAfter = await fetch(`${publishedBaseUrl}/closed-execution-endpoint`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'published-after-unpublish' }),
+    });
+    const latestAfter = await fetch(`${latestBaseUrl}/closed-execution-endpoint`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'latest-after-unpublish' }),
+    });
+
+    assert.equal(publishedAfter.status, 404);
+    assert.equal((await publishedAfter.json() as { error: string }).error, 'Published workflow not found');
+    assert.equal(latestAfter.status, 404);
+    assert.equal((await latestAfter.json() as { error: string }).error, 'Latest workflow not found');
   });
 });
 

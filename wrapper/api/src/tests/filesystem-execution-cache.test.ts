@@ -190,6 +190,28 @@ test('filesystem execution cache resolves latest endpoints from the draft endpoi
   assert.equal(published.projectVirtualPath, created.absolutePath);
 });
 
+test('filesystem execution cache drops both public endpoint families after full unpublish while keeping the saved draft endpoint', async () => {
+  const created = await createPublishedProject('Draft Latest Cache Unpublish', 'draft-latest-cache-unpublish');
+  const cache = new FilesystemExecutionCache();
+
+  await cache.initialize(workflowsRoot);
+
+  const warmLatest = await cache.loadLatestExecutionProject(workflowsRoot, 'draft-latest-cache-unpublish');
+  assert.ok(warmLatest);
+  assert.equal(warmLatest.debug.cacheStatus, 'hit');
+
+  await workflowMutations.unpublishWorkflowProjectItem(created.relativePath);
+
+  const storedSettings = await workflowPublication.readStoredWorkflowProjectSettings(created.absolutePath, created.name);
+  assert.equal(storedSettings.endpointName, 'draft-latest-cache-unpublish');
+
+  const latestAfterUnpublish = await cache.loadLatestExecutionProject(workflowsRoot, 'draft-latest-cache-unpublish');
+  const publishedAfterUnpublish = await cache.loadPublishedExecutionProject(workflowsRoot, 'draft-latest-cache-unpublish');
+
+  assert.equal(latestAfterUnpublish, null);
+  assert.equal(publishedAfterUnpublish, null);
+});
+
 test('filesystem execution cache preserves stale published candidate skipping and notices stale candidate healing', async () => {
   const staleCandidate = await workflowMutations.createWorkflowProjectItem('', 'EndpointStaleCandidate');
   const staleOriginalContents = await fs.readFile(staleCandidate.absolutePath, 'utf8');

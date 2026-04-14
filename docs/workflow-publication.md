@@ -50,6 +50,7 @@ Important current behavior:
 - publishing updates both `endpointName` and `publishedEndpointName`
 - publishing also updates `lastPublishedAt`
 - unpublishing clears only the `published*` fields and keeps `endpointName` as the saved draft/default
+- that saved draft endpoint does not keep either public execution route open after full unpublish
 - unpublishing keeps `lastPublishedAt`, so the UI can still show when the project was last published once it becomes published again
 - endpoint lookup is case-insensitive, but the stored/public casing is preserved
 
@@ -266,7 +267,8 @@ Two public endpoint families exist:
   - stable across live edits
   - belongs to the execution surface
 - **Latest** (`${RIVET_LATEST_WORKFLOWS_BASE_PATH:-/workflows-latest}/:endpointName`)
-  - serves the live project file for the same published workflow
+  - serves the live draft project file for a workflow that still has active published lineage
+  - uses the current draft endpoint name rather than the frozen published endpoint name
   - reflects unpublished changes immediately
   - belongs to the control surface
 
@@ -277,7 +279,7 @@ Both routes:
 
 Endpoint resolution is backend-specific:
 
-- in `filesystem` mode, the API scans workflow settings sidecars for a matching published endpoint name
+- in `filesystem` mode, the API resolves published routes from the published endpoint identity and latest routes from the current draft endpoint identity, but latest is still gated on active published lineage
 - in `managed` mode, the API resolves endpoint ownership and the selected revision from Postgres, with project/dataset blobs stored in object storage
 - in `managed` mode, the first request after startup or after an invalidating mutation can still be a cold shared-state miss, but warm requests reuse API-local derived caches instead of repeating remote Postgres/object-storage reads for the same revision
 - in `managed` mode, API replicas invalidate endpoint-pointer cache entries through same-process post-commit invalidation plus Postgres `LISTEN/NOTIFY`; immutable revision-payload cache entries remain valid by revision id

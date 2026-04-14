@@ -134,6 +134,37 @@ test('filesystem execution source resolves latest pointers from the draft endpoi
   assert.equal(publishedPointer.sourceProjectPath, created.absolutePath);
 });
 
+test('filesystem execution source stops resolving both public endpoint families after full unpublish while keeping the saved draft endpoint', async () => {
+  const created = await createPublishedProject('Unpublished Latest Pointer Project', 'unpublished-latest-pointer-endpoint');
+
+  await workflowMutations.unpublishWorkflowProjectItem(created.relativePath);
+
+  const storedSettings = await workflowPublication.readStoredWorkflowProjectSettings(created.absolutePath, created.name);
+  assert.equal(storedSettings.endpointName, 'unpublished-latest-pointer-endpoint');
+
+  const latestPointer = await executionSource.resolveFilesystemLatestExecutionPointer(
+    workflowsRoot,
+    'unpublished-latest-pointer-endpoint',
+  );
+  const publishedPointer = await executionSource.resolveFilesystemPublishedExecutionPointer(
+    workflowsRoot,
+    'unpublished-latest-pointer-endpoint',
+  );
+  const latestMatch = await workflowPublication.findLatestWorkflowByEndpoint(
+    workflowsRoot,
+    'unpublished-latest-pointer-endpoint',
+  );
+  const publishedMatch = await workflowPublication.findPublishedWorkflowByEndpoint(
+    workflowsRoot,
+    'unpublished-latest-pointer-endpoint',
+  );
+
+  assert.equal(latestPointer, null);
+  assert.equal(publishedPointer, null);
+  assert.equal(latestMatch, null);
+  assert.equal(publishedMatch, null);
+});
+
 test('filesystem execution source prefers the published snapshot when unpublished changes exist', async () => {
   const created = await createPublishedProject('Snapshot Pointer Project', 'snapshot-pointer-endpoint');
   const latestContents = await fs.readFile(created.absolutePath, 'utf8');

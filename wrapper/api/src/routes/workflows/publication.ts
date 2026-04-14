@@ -164,6 +164,14 @@ export function normalizeWorkflowEndpointLookupName(value: string): string {
   return normalizeStoredEndpointName(value).toLowerCase();
 }
 
+export function hasPublishedWorkflowLineage(settings: StoredWorkflowProjectSettings): boolean {
+  if (settings.publishedStateHash || settings.publishedSnapshotId) {
+    return true;
+  }
+
+  return settings.legacyStatus === 'published' || settings.legacyStatus === 'unpublished_changes';
+}
+
 export function isWorkflowEndpointPublished(settings: StoredWorkflowProjectSettings, endpointName: string): boolean {
   if (normalizeWorkflowEndpointLookupName(settings.publishedEndpointName) !== normalizeWorkflowEndpointLookupName(endpointName)) {
     return false;
@@ -276,7 +284,7 @@ export async function resolvePublishedWorkflowProjectPath(
 }
 
 export async function findPublishedWorkflowByEndpoint(root: string, endpointName: string): Promise<PublishedWorkflowMatch | null> {
-  const matches = await listWorkflowMatchesByEndpoint(root, endpointName);
+  const matches = await listPublishedWorkflowMatchesByEndpoint(root, endpointName);
   for (const match of matches) {
     const publishedProjectPath = await resolvePublishedWorkflowProjectPath(root, match.projectPath, match.settings);
     if (!publishedProjectPath) {
@@ -294,7 +302,7 @@ export async function findPublishedWorkflowByEndpoint(root: string, endpointName
 }
 
 export async function findLatestWorkflowByEndpoint(root: string, endpointName: string): Promise<LatestWorkflowMatch | null> {
-  const [match] = await listWorkflowMatchesByEndpoint(root, endpointName);
+  const [match] = await listLatestWorkflowMatchesByEndpoint(root, endpointName);
   if (!match) {
     return null;
   }
@@ -305,7 +313,7 @@ export async function findLatestWorkflowByEndpoint(root: string, endpointName: s
   };
 }
 
-async function listWorkflowMatchesByEndpoint(
+async function listPublishedWorkflowMatchesByEndpoint(
   root: string,
   endpointName: string,
 ): Promise<Array<{ projectPath: string; settings: StoredWorkflowProjectSettings }>> {
@@ -317,6 +325,36 @@ async function listWorkflowMatchesByEndpoint(
     const settings = await readStoredWorkflowProjectSettings(projectPath, projectName);
 
     if (!isWorkflowEndpointPublished(settings, endpointName)) {
+      continue;
+    }
+
+    matches.push({ projectPath, settings });
+  }
+
+  return matches;
+}
+
+async function listLatestWorkflowMatchesByEndpoint(
+  root: string,
+  endpointName: string,
+): Promise<Array<{ projectPath: string; settings: StoredWorkflowProjectSettings }>> {
+  const requestedLookupName = normalizeWorkflowEndpointLookupName(endpointName);
+  const projectPaths = await listProjectPathsRecursive(root);
+  const matches: Array<{ projectPath: string; settings: StoredWorkflowProjectSettings }> = [];
+
+  for (const projectPath of projectPaths) {
+    const projectName = path.basename(projectPath, PROJECT_EXTENSION);
+    const settings = await readStoredWorkflowProjectSettings(projectPath, projectName);
+
+    if (!settings.endpointName) {
+      continue;
+    }
+
+    if (!hasPublishedWorkflowLineage(settings)) {
+      continue;
+    }
+
+    if (normalizeWorkflowEndpointLookupName(settings.endpointName) !== requestedLookupName) {
       continue;
     }
 
