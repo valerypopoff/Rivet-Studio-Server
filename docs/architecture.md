@@ -133,6 +133,7 @@ In Docker-based modes:
 - `RIVET_WORKFLOWS_HOST_PATH` backs `/workflows`, so in `filesystem` mode it stores live projects and published snapshots.
 - `RIVET_WORKFLOW_RECORDINGS_HOST_PATH` backs `/workflow-recordings`, so filesystem-mode recording writes no longer contend with workflow-source reads on the same Windows bind mount.
 - `RIVET_RUNTIME_LIBS_HOST_PATH` backs `/data/runtime-libraries`.
+- the official API and executor images run as uid/gid `10001:10001`, so filesystem bind mounts must grant that uid the required read/write access.
 - the app-data directory is a separate volume and in `filesystem` mode holds `recordings.sqlite`, plugin files, and app logs.
 
 Storage mode decides which of those paths are authoritative:

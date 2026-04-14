@@ -13,6 +13,18 @@ import { LATEST_WORKFLOWS_BASE_PATH, PUBLISHED_WORKFLOWS_BASE_PATH } from './wor
 import { requireAuth } from './middleware/auth.js';
 import { getApiRuntimeProfile, isControlPlaneApiProfile, isExecutionOnlyApiProfile } from './runtime-profile.js';
 
+export function getApiErrorResponse(err: Error): { status: number; body: { error: string } } {
+  const status = (err as { status?: number }).status ?? 500;
+  const expose = Boolean((err as { expose?: boolean }).expose);
+
+  return {
+    status,
+    body: {
+      error: status >= 500 && !expose ? 'Internal server error' : err.message,
+    },
+  };
+}
+
 export function getApiRouteExposureMatrix(profile = getApiRuntimeProfile()): string[] {
   const surfaces: string[] = [];
 
@@ -88,14 +100,9 @@ export function createApiApp(profile = getApiRuntimeProfile()): Express {
   });
 
   app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
-    const status = (err as any).status ?? 500;
     console.error('Unhandled API error:', err);
-    if (status >= 500) {
-      res.status(status).json({ error: 'Internal server error' });
-      return;
-    }
-
-    res.status(status).json({ error: err.message });
+    const response = getApiErrorResponse(err);
+    res.status(response.status).json(response.body);
   });
 
   return app;

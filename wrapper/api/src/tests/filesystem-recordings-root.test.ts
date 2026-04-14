@@ -146,3 +146,90 @@ test('recordings listing rebuilds the index when on-disk bundles drift from the 
   assert.ok(repaired);
   assert.equal(repaired.totalRuns, 1);
 });
+
+test('recordings cleanup tolerates a permission failure deleting one stale bundle', async (t) => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'CleanupPermissions');
+  const [loadedProject, attachedData] = await rivetNode.loadProjectAndAttachedDataFromFile(created.absolutePath);
+
+  const persistRun = async (recordingId: string) => {
+    await workflowRecordings.persistWorkflowExecutionRecording({
+      workflowsRoot,
+      sourceProject: loadedProject,
+      sourceProjectPath: created.absolutePath,
+      executedProject: loadedProject,
+      executedAttachedData: attachedData,
+      executedDatasets: [],
+      endpointName: 'cleanup-permissions-endpoint',
+      recordingSerialized: JSON.stringify({
+        version: 1,
+        recording: {
+          recordingId,
+          events: [],
+          startTs: 1,
+          finishTs: 1,
+        },
+        assets: {},
+        strings: {},
+      }),
+      runKind: 'latest',
+      status: 'succeeded',
+      durationMs: 1,
+    });
+  };
+
+  await persistRun('cleanup-permissions-recording-1');
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  await persistRun('cleanup-permissions-recording-2');
+
+  const runs = await workflowRecordingDb.listWorkflowRecordingRunRowsByWorkflowId(loadedProject.metadata.id!, {
+    page: 1,
+    pageSize: 10,
+    statusFilter: 'all',
+  });
+  assert.equal(runs.length, 2);
+  const run = runs[runs.length - 1];
+  assert.ok(run);
+
+  const previousMaxRunsPerEndpoint = process.env.RIVET_RECORDINGS_MAX_RUNS_PER_ENDPOINT;
+  process.env.RIVET_RECORDINGS_MAX_RUNS_PER_ENDPOINT = '1';
+  t.after(() => {
+    if (previousMaxRunsPerEndpoint == null) {
+      delete process.env.RIVET_RECORDINGS_MAX_RUNS_PER_ENDPOINT;
+    } else {
+      process.env.RIVET_RECORDINGS_MAX_RUNS_PER_ENDPOINT = previousMaxRunsPerEndpoint;
+    }
+  });
+
+  const originalRm = fs.rm;
+  const errors: unknown[] = [];
+  const originalConsoleError = console.error;
+
+  console.error = (...args: unknown[]) => {
+    errors.push(args);
+  };
+
+  t.after(() => {
+    console.error = originalConsoleError;
+  });
+
+  t.mock.method(fs, 'rm', async (
+    targetPath: Parameters<typeof fs.rm>[0],
+    options?: Parameters<typeof fs.rm>[1],
+  ) => {
+    if (String(targetPath) === run.bundlePath) {
+      const error = new Error(`EACCES: permission denied, rmdir '${run.bundlePath}'`) as Error & { code?: string };
+      error.code = 'EACCES';
+      throw error;
+    }
+
+    return originalRm(targetPath, options);
+  });
+
+  await (await import('../routes/workflows/recordings-maintenance.js')).cleanupWorkflowRecordingStorage();
+
+  const rowAfterCleanup = await workflowRecordingDb.getWorkflowRecordingRunRow(run.id);
+  assert.ok(rowAfterCleanup);
+  assert.equal(errors.length > 0, true);
+  const [firstErrorArgs] = errors as unknown[] as Array<unknown[]>;
+  assert.match(String(firstErrorArgs?.[0] ?? ''), /Failed to delete recording during cleanup/);
+});

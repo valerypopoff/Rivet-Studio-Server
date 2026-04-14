@@ -1496,6 +1496,43 @@ test('filesystem saveHostedProject refreshes latest materialization without dirt
   });
 });
 
+test('filesystem saveHostedProject exposes a permission error when the workflows root is not writable', async (t) => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'PermissionSave');
+  const loaded = await workflowStorageBackend.loadHostedProject(created.absolutePath);
+  const originalWriteFile = fs.writeFile;
+
+  t.mock.method(fs, 'writeFile', async (
+    targetPath: Parameters<typeof fs.writeFile>[0],
+    data: Parameters<typeof fs.writeFile>[1],
+    options?: Parameters<typeof fs.writeFile>[2],
+  ) => {
+    if (String(targetPath) === created.absolutePath) {
+      const error = new Error(`EACCES: permission denied, open '${created.absolutePath}'`) as Error & { code?: string };
+      error.code = 'EACCES';
+      throw error;
+    }
+
+    return originalWriteFile(targetPath, data, options as any);
+  });
+
+  await assert.rejects(
+    workflowStorageBackend.saveHostedProject({
+      projectPath: created.absolutePath,
+      contents: loaded.contents.replace('title: "PermissionSave"', 'title: "PermissionSave Updated"'),
+      datasetsContents: loaded.datasetsContents,
+    }),
+    (error: unknown) => {
+      assert.equal((error as { status?: number }).status, 500);
+      assert.equal((error as { expose?: boolean }).expose, true);
+      assert.match(
+        String((error as { message?: string }).message ?? ''),
+        /Workflow storage is not writable/,
+      );
+      return true;
+    },
+  );
+});
+
 test('filesystem latest execution follows the draft endpoint after publish settings diverge', async () => {
   const created = await workflowMutations.createWorkflowProjectItem('', 'DraftLatestBackend');
   await workflowMutations.publishWorkflowProjectItem(created.relativePath, {

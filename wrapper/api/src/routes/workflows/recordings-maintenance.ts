@@ -30,6 +30,10 @@ function getCompressedBundleSize(run: Pick<
   return run.recordingCompressedBytes + run.projectCompressedBytes + run.datasetCompressedBytes;
 }
 
+function formatCleanupTarget(row: WorkflowRecordingRunRow): string {
+  return `${row.id} (${row.bundlePath})`;
+}
+
 export async function rebuildWorkflowRecordingIndex(recordingsRoot: string): Promise<void> {
   await clearWorkflowRecordingIndex();
 
@@ -158,7 +162,14 @@ export async function cleanupWorkflowRecordingStorage(): Promise<void> {
   }
 
   for (const row of rowsToDelete.values()) {
-    await deleteRecordingRun(row);
+    try {
+      await deleteRecordingRun(row);
+    } catch (error) {
+      console.error(
+        `[workflow-recordings] Failed to delete recording during cleanup: ${formatCleanupTarget(row)}`,
+        error,
+      );
+    }
   }
 
   await deleteEmptyWorkflowRecordingWorkflows();

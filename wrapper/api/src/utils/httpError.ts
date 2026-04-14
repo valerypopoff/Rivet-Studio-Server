@@ -1,8 +1,15 @@
-export type HttpError = Error & { status: number };
+export type HttpError = Error & { status: number; expose?: boolean };
 
-export function createHttpError(status: number, message: string): HttpError {
+export function createHttpError(
+  status: number,
+  message: string,
+  options?: { expose?: boolean },
+): HttpError {
   const error = new Error(message) as HttpError;
   error.status = status;
+  if (options?.expose) {
+    error.expose = true;
+  }
   return error;
 }
 
