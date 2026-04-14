@@ -109,7 +109,8 @@ server {
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 120s;
+        proxy_read_timeout ${RIVET_PROXY_READ_TIMEOUT};
+        proxy_send_timeout ${RIVET_PROXY_READ_TIMEOUT};
     }
 
     location ${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH}/ {
@@ -120,7 +121,8 @@ server {
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 120s;
+        proxy_read_timeout ${RIVET_PROXY_READ_TIMEOUT};
+        proxy_send_timeout ${RIVET_PROXY_READ_TIMEOUT};
     }
 
     location ${RIVET_LATEST_WORKFLOWS_BASE_PATH}/ {
@@ -131,7 +133,8 @@ server {
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
-        proxy_read_timeout 120s;
+        proxy_read_timeout ${RIVET_PROXY_READ_TIMEOUT};
+        proxy_send_timeout ${RIVET_PROXY_READ_TIMEOUT};
     }
 
     location /ws/latest-debugger {

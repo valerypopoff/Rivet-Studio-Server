@@ -186,6 +186,7 @@ Interpretation rules:
 - `RIVET_REQUIRE_WORKFLOW_KEY` enables `Authorization: Bearer <RIVET_KEY>` checks on the public workflow routes.
 - `RIVET_REQUIRE_UI_GATE_KEY` enables the browser-side nginx gate.
 - `RIVET_UI_TOKEN_FREE_HOSTS` lists hosts that bypass the UI gate and public workflow bearer auth.
+- `RIVET_PROXY_READ_TIMEOUT` controls nginx `proxy_read_timeout` and `proxy_send_timeout` for `/api/*`, `${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH}`, and `${RIVET_LATEST_WORKFLOWS_BASE_PATH}`. The tracked Docker defaults now pin that to `180s`, while websocket routes keep their separate long-lived timeouts.
 
 ### Storage and runtime libraries
 
@@ -211,7 +212,7 @@ Development-only execution measurement is available through:
 - `RIVET_ENV_ALLOWLIST` extends the hosted env shim beyond the built-in OpenAI vars.
 - `RIVET_SHELL_ALLOWLIST` extends the hosted shell-command allowlist beyond `git` and `pnpm`.
 - `RIVET_EXTRA_ROOTS` adds more allowed filesystem roots.
-- `RIVET_COMMAND_TIMEOUT` and `RIVET_MAX_OUTPUT` bound hosted shell execution.
+- `RIVET_COMMAND_TIMEOUT` and `RIVET_MAX_OUTPUT` bound hosted shell execution. They do not control workflow HTTP proxy timeouts; use `RIVET_PROXY_READ_TIMEOUT` for that.
 
 ### Recording defaults
 

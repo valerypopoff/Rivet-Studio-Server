@@ -34,6 +34,12 @@ The Docker dev and production stacks expose these route families through nginx:
 
 The nginx configs also set `client_max_body_size 100m`, so large API/editor payloads are allowed up to that limit.
 
+Current proxy timeout behavior:
+
+- `/api/*`, `${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH}`, and `${RIVET_LATEST_WORKFLOWS_BASE_PATH}` now use `RIVET_PROXY_READ_TIMEOUT`, which defaults to `180s` in the tracked Docker images and Compose stacks
+- websocket routes stay long-lived at `86400s`; `RIVET_PROXY_READ_TIMEOUT` is only for the standard HTTP upstream routes
+- this proxy timeout is separate from `RIVET_COMMAND_TIMEOUT`, which only limits hosted shell commands under `/api/shell/exec`
+
 Important local-Docker wiring note:
 
 - the repo-local Docker stacks still run a single `api` container in `combined` mode

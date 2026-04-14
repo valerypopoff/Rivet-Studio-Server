@@ -84,6 +84,8 @@ Operational note:
 
 - `RIVET_ARTIFACTS_HOST_PATH` is the primary public filesystem-mode contract
 - `RIVET_WORKFLOWS_HOST_PATH`, `RIVET_WORKFLOW_RECORDINGS_HOST_PATH`, and `RIVET_RUNTIME_LIBS_HOST_PATH` remain compatibility overrides for the launcher
+- `RIVET_PROXY_READ_TIMEOUT` controls nginx `proxy_read_timeout` and `proxy_send_timeout` for `/api/*`, `${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH}`, and `${RIVET_LATEST_WORKFLOWS_BASE_PATH}` in the Docker stacks; the default tracked value is `180s`
+- `RIVET_COMMAND_TIMEOUT` is unrelated to workflow HTTP lifetime; it only bounds hosted shell execution under `/api/shell/exec`
 - `RIVET_STORAGE_MODE=managed` switches both workflows and runtime libraries to managed Postgres plus object storage; in that mode `RIVET_RUNTIME_LIBRARIES_ROOT` remains only a local cache/workspace
 - optional managed runtime-library readiness tuning uses:
   - `RIVET_RUNTIME_LIBRARIES_SYNC_POLL_INTERVAL_MS`
@@ -256,6 +258,7 @@ Current behavior:
 
 - the browser entrypoint is still `http://localhost:8080` through nginx by default; override it with `RIVET_PORT` if needed
 - the API is also exposed directly on `http://localhost:3100` for diagnostics
+- standard proxied HTTP routes now default to a `180s` upstream timeout through `RIVET_PROXY_READ_TIMEOUT`; websocket routes stay long-lived separately
 - the local Docker stacks keep `RIVET_API_PROFILE=combined` by default, so `/api/*`, `${RIVET_LATEST_WORKFLOWS_BASE_PATH}`, and `${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH}` all land on the same `api` container there
 - the `web` service runs the Vite dev server inside the container with live bind mounts
 - the `api` and `executor` services rebuild from Dockerfiles, so Node/runtime changes are picked up without a separate manual build step
