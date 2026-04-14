@@ -72,7 +72,7 @@ COPY --chown=10001:10001 image/executor/entrypoint.sh /opt/rivet/executor-entryp
 RUN chmod +x /opt/rivet/lib/load-env.sh /opt/rivet/executor-entrypoint.sh
 
 ENV HOME=/home/rivet
-ENV PORT=21889
+ENV RIVET_EXECUTOR_PORT=21889
 ENV RIVET_RUNTIME_LIBRARIES_ROOT=/data/runtime-libraries
 ENV RIVET_RUNTIME_PROCESS_ROLE=executor
 

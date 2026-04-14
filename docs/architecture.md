@@ -31,6 +31,7 @@ Browser
 
 In Docker dev and production, nginx fronts the stack and injects the trusted proxy header the API expects.
 The repo-local Docker stacks still run the API in `combined` mode, so both workflow route families terminate at the same `api` container there even though the published-vs-latest split remains a first-class deployment contract.
+The executor websocket remains a separate internal service on port `21889` in those Docker modes; it does not follow the API's generic `PORT` contract.
 In local direct-process mode, the services run separately without nginx. The Vite dev server only proxies `/api/*` and `/ws/executor*`, so published/latest workflow endpoints, `/ui-auth`, and `/ws/latest-debugger` are not recreated there with production-like routing or trust behavior.
 
 The current runtime keeps the control plane conservative while published execution scales separately:
@@ -230,7 +231,7 @@ Workflow recording settings are documented in detail in [workflow-publication.md
 | Local direct-process | `npm run dev:local` | `http://localhost:5174` | Runs API, web, and executor directly. Good for process-level work, but it does not recreate nginx's trusted-proxy wiring, so browser-driven `/api/*`, `/ui-auth`, and `/ws/latest-debugger` behavior is not representative there. |
 | Docker dev | `npm run dev` | `http://localhost:8080` by default | Closest to production while still using bind mounts and a Vite dev server. The proxy port can be overridden with `RIVET_PORT`. |
 | Local Kubernetes rehearsal | `npm run dev:kubernetes-test` | `http://127.0.0.1:8080` by default | Builds local images, deploys the real Helm chart against the local Kubernetes cluster, keeps `web=1`, keeps `backend=1`, scales `proxy` and `execution`, and port-forwards the proxy service for browser testing. This is the closest local rehearsal of the supported Kubernetes topology. |
-| Production-style Docker | `npm run prod` | `http://localhost:8080` by default | Uses prebuilt images when available, otherwise falls back to local builds. The proxy port can be overridden with `RIVET_PORT`. |
+| Production-style Docker | `npm run prod` | `http://localhost:8080` by default | Uses prebuilt images when available, otherwise falls back to local builds. The proxy port can be overridden with `RIVET_PORT`, while the executor websocket stays pinned to internal port `21889`. |
 
 The API now depends on Node's built-in `node:sqlite`, so host-based API execution requires Node 24+.
 

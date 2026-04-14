@@ -244,6 +244,10 @@ Important constraints:
 
 The Docker launchers now render layered Compose files:
 
+- the API uses its own `PORT` contract
+- the executor websocket service is pinned separately to `21889`
+- do not treat `PORT` in `.env` as a shared port for every container; the executor must stay on `21889` unless the nginx upstreams change with it
+
 - `npm run dev` / `npm run dev:docker:*` use `ops/compose/docker-compose.managed-services.yml` plus `ops/compose/docker-compose.dev.yml`
 - `npm run prod` / `npm run prod:docker:*` use `ops/compose/docker-compose.managed-services.yml` plus `ops/compose/docker-compose.yml`
 - the shared file only contributes the managed Postgres/MinIO services, and the launcher auto-enables the `workflow-managed` profile only when `RIVET_STORAGE_MODE=managed`

@@ -153,7 +153,9 @@ services:
       - no_proxy=${no_proxy:-${NO_PROXY:-}}
       - npm_config_cache=/root/.npm
       - YARN_CACHE_FOLDER=/root/.cache/yarn
+      - PORT=21889
       - HOME=/root
+      - RIVET_EXECUTOR_PORT=21889
       - RIVET_RUNTIME_LIBRARIES_ROOT=/data/runtime-libraries
       - RIVET_RUNTIME_PROCESS_ROLE=executor
       - RIVET_STORAGE_MODE

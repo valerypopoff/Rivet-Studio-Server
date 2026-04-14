@@ -39,6 +39,7 @@ Important local-Docker wiring note:
 - the repo-local Docker stacks still run a single `api` container in `combined` mode
 - nginx therefore proxies both `${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH}` and `${RIVET_LATEST_WORKFLOWS_BASE_PATH}` to that same container there
 - the control-plane vs execution-plane labels in the table describe the intended split topology and the route ownership enforced by `RIVET_API_PROFILE`, not a guarantee that local Docker physically runs two API services
+- the executor websocket upstream remains a separate internal service on port `21889`; it must not inherit the API `PORT` value from `.env`
 
 ## Browser-side websocket ownership
 
