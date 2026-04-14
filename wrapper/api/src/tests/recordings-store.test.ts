@@ -105,3 +105,34 @@ test('recordings store drops persistence tasks once the configured queue limit i
     assert.deepEqual(persisted, ['first', 'second']);
   });
 });
+
+test('recordings store startup does not fail permanently when cleanup logs a non-fatal error', async () => {
+  const initializedRoots: string[] = [];
+  let cleanupAttempts = 0;
+
+  const store = createWorkflowRecordingStore({
+    async rebuildIndex(root) {
+      initializedRoots.push(`rebuild:${root}`);
+    },
+    async cleanupStorage() {
+      cleanupAttempts += 1;
+      initializedRoots.push(`cleanup:${cleanupAttempts}`);
+      if (cleanupAttempts === 1) {
+        return;
+      }
+    },
+    async setSchemaVersion(version) {
+      initializedRoots.push(`schema:${version}`);
+    },
+    async resetDatabaseForTests() {},
+  });
+
+  await store.ensureStorage('/tmp/workflows-a');
+  await store.ensureStorage('/tmp/workflows-a');
+
+  assert.deepEqual(initializedRoots, [
+    'rebuild:/tmp/workflows-a',
+    'cleanup:1',
+    'schema:2',
+  ]);
+});

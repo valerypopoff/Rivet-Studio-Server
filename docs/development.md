@@ -294,6 +294,8 @@ Migration note for existing local Docker setups:
 
 For host-based API execution, filesystem-mode recording persistence still requires `node:sqlite` (Node 24+). If your host Node version is older, use the Docker dev stack instead of `npm run dev:local`.
 
+Filesystem-mode recording startup reconciliation is intentionally non-fatal for stale-bundle cleanup. If an old bundle directory cannot be removed because of host-side permissions, the API logs the cleanup error and still starts; the undeleted bundle simply remains on disk until permissions are corrected.
+
 ## Source of truth
 
 - authored source lives under `wrapper/`, `image/`, `ops/`, `charts/`, `scripts/`, `docs/`, and `.github/`

@@ -446,7 +446,7 @@ In `managed` mode, the same logical recording artifacts are stored as object blo
 
 Bundles are keyed by the source workflow metadata ID, so recordings stay attached across project renames, moves, and endpoint-name changes. Project deletion removes that recording history as part of workflow cleanup.
 
-Legacy uncompressed bundles are still readable in `filesystem` mode. Startup reconciliation rebuilds the SQLite index from on-disk metadata and normalizes old `version: 1` metadata into the current index shape there. In `managed` mode, the source of truth is the Postgres row plus the recording/replay blob keys in object storage.
+Legacy uncompressed bundles are still readable in `filesystem` mode. Startup reconciliation rebuilds the SQLite index from on-disk metadata and normalizes old `version: 1` metadata into the current index shape there. Retention cleanup during that reconciliation is best-effort: a stale bundle that cannot be removed logs a warning but does not block API startup. In `managed` mode, the source of truth is the Postgres row plus the recording/replay blob keys in object storage.
 
 ## Recording defaults and retention
 
