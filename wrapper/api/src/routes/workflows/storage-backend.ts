@@ -52,6 +52,26 @@ import { NodeDatasetProvider } from '@ironclad/rivet-node';
 import type { AttachedData, Project, CombinedDataset } from '@ironclad/rivet-node';
 import { getFilesystemExecutionCache } from './filesystem-execution-cache.js';
 
+function mapHostedProjectFilesystemError(
+  error: unknown,
+  operation: 'read' | 'write',
+  projectPath: string,
+): Error {
+  const code = (error as NodeJS.ErrnoException | null)?.code;
+  if (code !== 'EACCES' && code !== 'EPERM') {
+    return error instanceof Error ? error : new Error(String(error));
+  }
+
+  const targetDir = path.dirname(projectPath).replace(/\\/g, '/');
+  return createHttpError(
+    500,
+    operation === 'write'
+      ? `Workflow storage is not writable. Check server permissions for ${targetDir}.`
+      : `Workflow storage is not readable. Check server permissions for ${targetDir}.`,
+    { expose: true },
+  );
+}
+
 type SaveHostedProjectResult = {
   path: string;
   revisionId: string | null;
@@ -197,17 +217,21 @@ export async function loadHostedProject(projectPath: string): Promise<LoadHosted
   return delegate<LoadHostedProjectResult>(
     async (backend) => backend.loadHostedProject(projectPath),
     async () => {
-      const [project, attachedData] = await loadProjectAndAttachedDataFromFile(projectPath);
-      void project;
-      void attachedData;
-      const datasetPath = getWorkflowDatasetPath(projectPath);
-      const datasetsContents = await pathExists(datasetPath) ? await fs.readFile(datasetPath, 'utf8') : null;
+      try {
+        const [project, attachedData] = await loadProjectAndAttachedDataFromFile(projectPath);
+        void project;
+        void attachedData;
+        const datasetPath = getWorkflowDatasetPath(projectPath);
+        const datasetsContents = await pathExists(datasetPath) ? await fs.readFile(datasetPath, 'utf8') : null;
 
-      return {
-        contents: await fs.readFile(projectPath, 'utf8'),
-        datasetsContents,
-        revisionId: null,
-      };
+        return {
+          contents: await fs.readFile(projectPath, 'utf8'),
+          datasetsContents,
+          revisionId: null,
+        };
+      } catch (error) {
+        throw mapHostedProjectFilesystemError(error, 'read', projectPath);
+      }
     },
   );
 }
@@ -221,24 +245,28 @@ export async function saveHostedProject(options: {
   return delegate<SaveHostedProjectResult>(
     async (backend) => backend.saveHostedProject(options),
     async () => {
-      await fs.mkdir(path.dirname(options.projectPath), { recursive: true });
-      await fs.writeFile(options.projectPath, options.contents, 'utf8');
+      try {
+        await fs.mkdir(path.dirname(options.projectPath), { recursive: true });
+        await fs.writeFile(options.projectPath, options.contents, 'utf8');
 
-      const datasetPath = getWorkflowDatasetPath(options.projectPath);
-      if (options.datasetsContents != null) {
-        await fs.writeFile(datasetPath, options.datasetsContents, 'utf8');
-      } else {
-        await fs.rm(datasetPath, { force: true }).catch(() => {});
+        const datasetPath = getWorkflowDatasetPath(options.projectPath);
+        if (options.datasetsContents != null) {
+          await fs.writeFile(datasetPath, options.datasetsContents, 'utf8');
+        } else {
+          await fs.rm(datasetPath, { force: true }).catch(() => {});
+        }
+
+        invalidateFilesystemExecutionMaterializations([options.projectPath]);
+
+        return {
+          path: options.projectPath,
+          revisionId: null,
+          project: null,
+          created: false,
+        };
+      } catch (error) {
+        throw mapHostedProjectFilesystemError(error, 'write', options.projectPath);
       }
-
-      invalidateFilesystemExecutionMaterializations([options.projectPath]);
-
-      return {
-        path: options.projectPath,
-        revisionId: null,
-        project: null,
-        created: false,
-      };
     },
   );
 }

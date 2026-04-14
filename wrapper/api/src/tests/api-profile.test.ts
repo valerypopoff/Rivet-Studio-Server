@@ -10,8 +10,10 @@ import { getExpectedProxyAuthToken } from '../auth.js';
 import {
   assertApiRuntimeProfileStartupPreconditions,
   createApiApp,
+  getApiErrorResponse,
   getApiRouteExposureMatrix,
 } from '../app.js';
+import { createHttpError } from '../utils/httpError.js';
 
 const relevantEnvKeys = [
   'RIVET_KEY',
@@ -147,6 +149,32 @@ test('combined and control profiles keep filesystem mode as a supported startup 
     assert.doesNotThrow(() => assertApiRuntimeProfileStartupPreconditions('combined'));
     assert.doesNotThrow(() => assertApiRuntimeProfileStartupPreconditions('control'));
   });
+});
+
+test('API error responses expose only explicitly marked 500 messages', () => {
+  assert.deepEqual(
+    getApiErrorResponse(new Error('boom')),
+    {
+      status: 500,
+      body: { error: 'Internal server error' },
+    },
+  );
+
+  assert.deepEqual(
+    getApiErrorResponse(createHttpError(500, 'Workflow storage is not writable.', { expose: true })),
+    {
+      status: 500,
+      body: { error: 'Workflow storage is not writable.' },
+    },
+  );
+
+  assert.deepEqual(
+    getApiErrorResponse(createHttpError(403, 'Forbidden')),
+    {
+      status: 403,
+      body: { error: 'Forbidden' },
+    },
+  );
 });
 
 test('control profile exposes control-plane routes and does not expose published execution routes', async () => {

@@ -284,6 +284,8 @@ Filesystem-mode Docker topology now splits the hot paths intentionally:
 - `RIVET_WORKFLOWS_HOST_PATH` backs `/workflows` for live projects and `.published/`
 - `RIVET_WORKFLOW_RECORDINGS_HOST_PATH` backs `/workflow-recordings` for replay bundles
 - this keeps high-churn recording writes off the workflow-source bind mount on Windows/Docker Desktop
+- the official API and executor images run as uid/gid `10001:10001`, so bind-mounted host paths must grant that uid the expected read/write access
+- if `/workflows` is not writable, hosted editor saves fail and the API now returns an explicit workflow-storage permission error instead of a generic hidden 500
 
 Migration note for existing local Docker setups:
 

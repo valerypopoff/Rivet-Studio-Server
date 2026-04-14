@@ -23,6 +23,14 @@ function dispatchProjectSaved(path: string): void {
   }));
 }
 
+function getSaveErrorMessage(cause: unknown): string {
+  if (cause instanceof Error && cause.message.trim()) {
+    return `Failed to save project: ${cause.message}`;
+  }
+
+  return 'Failed to save project';
+}
+
 export function useSaveProject() {
   const saveGraph = useSaveCurrentGraph();
   const project = useAtomValue(projectState);
@@ -68,9 +76,9 @@ export function useSaveProject() {
         path: loadedProject.path,
       });
       dispatchProjectSaved(loadedProject.path);
-    } catch (_cause) {
+    } catch (cause) {
       clearTimeout(savingTimeout);
-      toast.error('Failed to save project');
+      toast.error(getSaveErrorMessage(cause));
     }
   }
 
@@ -111,9 +119,9 @@ export function useSaveProject() {
         });
         dispatchProjectSaved(filePath);
       }
-    } catch (_cause) {
+    } catch (cause) {
       clearTimeout(savingTimeout);
-      toast.error('Failed to save project');
+      toast.error(getSaveErrorMessage(cause));
     }
   }
 
