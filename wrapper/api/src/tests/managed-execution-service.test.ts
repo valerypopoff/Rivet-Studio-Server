@@ -32,7 +32,10 @@ function createControllerFixture() {
 }
 
 function createExecutionServiceFixture(options: {
-  resolveExecutionPointerFromDatabase?: (lookupName: string) => Promise<ManagedExecutionPointerLookupResult | null>;
+  resolveExecutionPointerFromDatabase?: (
+    runKind: 'published' | 'latest',
+    lookupName: string,
+  ) => Promise<ManagedExecutionPointerLookupResult | null>;
   getWorkflowByRelativePath?: (relativePath: string) => Promise<ManagedExecutionWorkflowRecord | null>;
   getWorkflowById?: (workflowId: string) => Promise<ManagedExecutionWorkflowRecord | null>;
   getRevision?: (revisionId: string | null | undefined) => Promise<ManagedExecutionRevisionRecord | null>;
@@ -85,10 +88,10 @@ function createExecutionServiceFixture(options: {
             : null;
       },
       getRevision: async (_client, revisionId) => options.getRevision ? options.getRevision(revisionId) : revisionId === revision.revision_id ? revision : null,
-      resolveExecutionPointerFromDatabase: async (_client, _runKind, lookupName) => {
+      resolveExecutionPointerFromDatabase: async (_client, runKind, lookupName) => {
         resolveCount += 1;
         return options.resolveExecutionPointerFromDatabase
-          ? options.resolveExecutionPointerFromDatabase(lookupName)
+          ? options.resolveExecutionPointerFromDatabase(runKind, lookupName)
           : {
               pointer: {
                 workflowId: workflow.workflow_id,
@@ -178,6 +181,40 @@ test('warm pointer hit does not re-run joined DB resolution', async () => {
   assert.ok(second);
   assert.equal(fixture.resolveCount, 1);
   assert.equal(fixture.readRevisionContentsCount, 1);
+});
+
+test('service forwards the correct run kind for published and latest endpoint resolution', async () => {
+  const observedCalls: Array<{ runKind: 'published' | 'latest'; lookupName: string }> = [];
+  const fixture = createExecutionServiceFixture({
+    resolveExecutionPointerFromDatabase: async (runKind, lookupName) => {
+      observedCalls.push({ runKind, lookupName });
+      return {
+        pointer: {
+          workflowId: 'workflow-a',
+          relativePath: 'Managed Cache.rivet-project',
+          revisionId: 'revision-a',
+        },
+        revision: {
+          revision_id: 'revision-a',
+          workflow_id: 'workflow-a',
+          project_blob_key: 'project-blob',
+          dataset_blob_key: null,
+          created_at: new Date(),
+        },
+      };
+    },
+  });
+  await fixture.controller.initialize();
+
+  const published = await fixture.service.loadPublishedExecutionProject('public-live');
+  const latest = await fixture.service.loadLatestExecutionProject('latest-only');
+
+  assert.ok(published);
+  assert.ok(latest);
+  assert.deepEqual(observedCalls, [
+    { runKind: 'published', lookupName: 'public-live' },
+    { runKind: 'latest', lookupName: 'latest-only' },
+  ]);
 });
 
 test('pointer misses are not cached as null', async () => {

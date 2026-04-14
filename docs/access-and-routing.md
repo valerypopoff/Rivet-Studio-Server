@@ -27,7 +27,7 @@ The Docker dev and production stacks expose these route families through nginx:
 | `POST /__rivet_auth` | control-plane `api` (`/ui-auth`) | UI gate form exchange |
 | `/api/*` | control-plane `api` | Wrapper API surface |
 | `${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH:-/workflows}/:endpointName` | execution-plane `api` | Execute frozen published workflow snapshot |
-| `${RIVET_LATEST_WORKFLOWS_BASE_PATH:-/workflows-latest}/:endpointName` | control-plane `api` | Execute latest live file for a published workflow |
+| `${RIVET_LATEST_WORKFLOWS_BASE_PATH:-/workflows-latest}/:endpointName` | control-plane `api` | Execute the latest live draft for a still-published workflow, keyed by the current draft endpoint |
 | `/ws/latest-debugger` | control-plane `api` | Latest-workflow remote debugger websocket |
 | `/ws/executor/internal` | `executor` | Hosted editor execution websocket |
 | `/ws/executor` | `executor` | Upstream-compatible executor websocket path |
@@ -214,6 +214,12 @@ All three workflow execution handlers are `POST`-only:
 - `${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH:-/workflows}/:endpointName`
 - `${RIVET_LATEST_WORKFLOWS_BASE_PATH:-/workflows-latest}/:endpointName`
 - `/internal/workflows/:endpointName`
+
+Public route exposure rules:
+
+- `${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH}` resolves only the actively published endpoint identity
+- `${RIVET_LATEST_WORKFLOWS_BASE_PATH}` resolves the current draft endpoint identity only while the workflow still has active published lineage
+- full unpublish closes both public route families even though the saved draft `endpointName` remains in project settings for later republish convenience
 
 Current request/response behavior:
 

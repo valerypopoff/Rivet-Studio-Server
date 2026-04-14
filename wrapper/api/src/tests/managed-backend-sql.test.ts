@@ -1,12 +1,49 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import test from 'node:test';
+import type { Pool } from 'pg';
 import { resolveManagedHostedProjectSaveTarget } from '../routes/workflows/managed/backend.js';
+import { createManagedWorkflowQueries } from '../routes/workflows/managed/db.js';
 
 const managedSchemaSource = await fs.readFile(
   new URL('../routes/workflows/managed/schema.ts', import.meta.url),
   'utf8',
 );
+
+function createExecutionLookupRow() {
+  return {
+    workflow_id: 'workflow-a',
+    name: 'Main',
+    file_name: 'Main.rivet-project',
+    relative_path: 'Main.rivet-project',
+    folder_relative_path: '',
+    updated_at: new Date().toISOString(),
+    current_draft_revision_id: 'draft-revision',
+    published_revision_id: 'published-revision',
+    endpoint_name: 'latest-only',
+    published_endpoint_name: 'public-live',
+    last_published_at: new Date().toISOString(),
+    revision_id: 'resolved-revision',
+    revision_workflow_id: 'workflow-a',
+    project_blob_key: 'project-blob',
+    dataset_blob_key: null,
+    revision_created_at: new Date().toISOString(),
+  };
+}
+
+function createExecutionLookupPool() {
+  const queries: Array<{ text: string; params: unknown[] }> = [];
+  const row = createExecutionLookupRow();
+
+  const pool = {
+    async query(text: string, params: unknown[] = []) {
+      queries.push({ text, params });
+      return { rows: [row] };
+    },
+  } as unknown as Pool;
+
+  return { pool, queries };
+}
 
 test('managed folder move SQL escapes wildcard characters in prefix LIKE patterns', () => {
   assert.ok(
@@ -115,4 +152,38 @@ test('managed save still creates a new revision for real published-project chang
   });
 
   assert.equal(target, 'create-revision');
+});
+
+test('managed published execution lookup uses published endpoint rows and the published revision join', async () => {
+  const { pool, queries } = createExecutionLookupPool();
+  const managedQueries = createManagedWorkflowQueries(pool);
+
+  const result = await managedQueries.resolveExecutionPointerFromDatabase(pool, 'published', 'public-live');
+
+  assert.ok(result);
+  assert.equal(result.pointer.relativePath, 'Main.rivet-project');
+  assert.equal(result.pointer.revisionId, 'resolved-revision');
+  assert.equal(queries.length, 1);
+  assert.deepEqual(queries[0]?.params, ['public-live']);
+
+  const normalizedSql = queries[0]!.text.replace(/\s+/g, ' ').trim();
+  assert.match(normalizedSql, /JOIN workflow_revisions r ON r\.revision_id = w\.published_revision_id/);
+  assert.match(normalizedSql, /WHERE e\.lookup_name = \$1 AND e\.is_published = TRUE$/);
+});
+
+test('managed latest execution lookup uses draft endpoint rows but still requires published lineage', async () => {
+  const { pool, queries } = createExecutionLookupPool();
+  const managedQueries = createManagedWorkflowQueries(pool);
+
+  const result = await managedQueries.resolveExecutionPointerFromDatabase(pool, 'latest', 'latest-only');
+
+  assert.ok(result);
+  assert.equal(result.pointer.relativePath, 'Main.rivet-project');
+  assert.equal(result.pointer.revisionId, 'resolved-revision');
+  assert.equal(queries.length, 1);
+  assert.deepEqual(queries[0]?.params, ['latest-only']);
+
+  const normalizedSql = queries[0]!.text.replace(/\s+/g, ' ').trim();
+  assert.match(normalizedSql, /JOIN workflow_revisions r ON r\.revision_id = w\.current_draft_revision_id/);
+  assert.match(normalizedSql, /WHERE e\.lookup_name = \$1 AND e\.is_draft = TRUE AND w\.published_revision_id IS NOT NULL$/);
 });

@@ -96,7 +96,7 @@ The important operational detail is that these tiers scale independently. A new 
 - `/api/shell/exec` runs allowlisted shell commands (`git` and `pnpm` by default, extendable via env).
 - `/api/config`, `/api/path/*`, and `/api/config/env/:name` expose hosted-mode configuration, app-data paths, and allowlisted env vars.
 - `POST ${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH}/:endpointName` executes the frozen published snapshot through the execution-plane API.
-- `POST ${RIVET_LATEST_WORKFLOWS_BASE_PATH}/:endpointName` executes the latest live project file for a published workflow through the control-plane API.
+- `POST ${RIVET_LATEST_WORKFLOWS_BASE_PATH}/:endpointName` executes the latest live draft for a still-published workflow through the control-plane API, keyed by the current draft endpoint name.
 - `POST /internal/workflows/:endpointName` is an internal published-only execution route mounted on the execution-plane API service and not exposed through nginx.
 - In `managed` mode, those execution routes use API-local derived caches for warm endpoint execution; Postgres plus object storage remain authoritative, and cache invalidation is driven by same-process post-commit clearing plus Postgres `LISTEN/NOTIFY` across both control-plane and execution-plane API replicas.
 - A later cleanup pass kept that behavior intact but extracted the managed execution subsystem into focused internal modules so the large managed backend remains orchestration-oriented instead of owning the whole execution state machine inline. The later hardening pass also made the writer replica ignore self-originated `NOTIFY` payloads and tightened listener startup/disposal behavior without changing route contracts or cache semantics.
@@ -146,6 +146,7 @@ Storage mode decides which of those paths are authoritative:
   - that materialization cache keeps the parsed project for the current file signature, so warm hits do not reparse the YAML workflow file on every request
   - those filesystem caches are derived accelerators only; stat-validated filesystem contents remain authoritative and out-of-band edits are still honored without restart
   - cache freshness is split between global workflow-tree validation and selected-pointer routing validation, and uncertainty degrades to cold bypass rather than stale execution
+  - full unpublish closes both public route families even though the saved draft `endpointName` remains stored for later republish convenience
 - `RIVET_STORAGE_MODE=managed`
   - workflow metadata lives in Postgres and workflow blobs live in object storage
   - workflow recording metadata lives in Postgres `workflow_recordings`

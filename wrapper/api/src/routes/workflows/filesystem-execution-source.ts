@@ -13,6 +13,7 @@ import {
   PROJECT_EXTENSION,
 } from './fs-helpers.js';
 import {
+  hasPublishedWorkflowLineage,
   isWorkflowEndpointPublished,
   normalizeWorkflowEndpointLookupName,
   readStoredWorkflowProjectSettings,
@@ -250,7 +251,7 @@ export async function scanFilesystemExecutionCandidates(root: string): Promise<F
       capturePathSignature(settingsPath),
     ]);
 
-    const latestLookupName = settings.endpointName
+    const latestLookupName = settings.endpointName && hasPublishedWorkflowLineage(settings)
       ? normalizeWorkflowEndpointLookupName(settings.endpointName)
       : null;
     const publishedEndpointName = settings.publishedEndpointName;

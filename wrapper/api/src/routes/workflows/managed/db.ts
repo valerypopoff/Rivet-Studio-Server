@@ -271,34 +271,57 @@ export function createManagedWorkflowQueries(pool: Pool): ManagedWorkflowQueries
       runKind: 'published' | 'latest',
       lookupName: string,
     ): Promise<ManagedExecutionPointerLookupResult | null> {
-      const revisionJoinColumn = runKind === 'published'
-        ? 'w.published_revision_id'
-        : 'w.current_draft_revision_id';
       const row = await queryOne<CurrentDraftRevisionRow>(
         client,
-        `
-          SELECT
-            w.workflow_id,
-            w.name,
-            w.file_name,
-            w.relative_path,
-            w.folder_relative_path,
-            w.updated_at,
-            w.current_draft_revision_id,
-            w.published_revision_id,
-            w.endpoint_name,
-            w.published_endpoint_name,
-            w.last_published_at,
-            r.revision_id,
-            r.workflow_id AS revision_workflow_id,
-            r.project_blob_key,
-            r.dataset_blob_key,
-            r.created_at AS revision_created_at
-          FROM workflow_endpoints e
-          JOIN workflows w ON w.workflow_id = e.workflow_id
-          JOIN workflow_revisions r ON r.revision_id = ${revisionJoinColumn}
-          WHERE e.lookup_name = $1 AND e.is_published = TRUE
-        `,
+        runKind === 'published'
+          ? `
+            SELECT
+              w.workflow_id,
+              w.name,
+              w.file_name,
+              w.relative_path,
+              w.folder_relative_path,
+              w.updated_at,
+              w.current_draft_revision_id,
+              w.published_revision_id,
+              w.endpoint_name,
+              w.published_endpoint_name,
+              w.last_published_at,
+              r.revision_id,
+              r.workflow_id AS revision_workflow_id,
+              r.project_blob_key,
+              r.dataset_blob_key,
+              r.created_at AS revision_created_at
+            FROM workflow_endpoints e
+            JOIN workflows w ON w.workflow_id = e.workflow_id
+            JOIN workflow_revisions r ON r.revision_id = w.published_revision_id
+            WHERE e.lookup_name = $1 AND e.is_published = TRUE
+          `
+          : `
+            SELECT
+              w.workflow_id,
+              w.name,
+              w.file_name,
+              w.relative_path,
+              w.folder_relative_path,
+              w.updated_at,
+              w.current_draft_revision_id,
+              w.published_revision_id,
+              w.endpoint_name,
+              w.published_endpoint_name,
+              w.last_published_at,
+              r.revision_id,
+              r.workflow_id AS revision_workflow_id,
+              r.project_blob_key,
+              r.dataset_blob_key,
+              r.created_at AS revision_created_at
+            FROM workflow_endpoints e
+            JOIN workflows w ON w.workflow_id = e.workflow_id
+            JOIN workflow_revisions r ON r.revision_id = w.current_draft_revision_id
+            WHERE e.lookup_name = $1
+              AND e.is_draft = TRUE
+              AND w.published_revision_id IS NOT NULL
+          `,
         [lookupName],
       );
       if (!row) {
