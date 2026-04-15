@@ -29,12 +29,28 @@ export const publishedWorkflowsRouter = Router();
 export const internalPublishedWorkflowsRouter = Router();
 export const latestWorkflowsRouter = Router();
 
+type WorkflowRequestHeadersContext = Record<string, string | string[]>;
+
 function isJsonObjectRecord(value: unknown): value is Record<string, unknown> {
   return value != null && typeof value === 'object' && !Array.isArray(value);
 }
 
 function getWorkflowRequestInput(req: Request): unknown {
   return req.body === undefined ? {} : req.body;
+}
+
+function getWorkflowRequestHeaders(req: Request): WorkflowRequestHeadersContext {
+  const headers: WorkflowRequestHeadersContext = {};
+
+  for (const [name, value] of Object.entries(req.headers)) {
+    if (value === undefined) {
+      continue;
+    }
+
+    headers[name] = Array.isArray(value) ? [...value] : value;
+  }
+
+  return headers;
 }
 
 function getWorkflowResponsePayload(outputs: Record<string, { type?: string; value?: unknown }>): unknown {
@@ -140,6 +156,17 @@ function shouldEmitWorkflowExecutionDebugHeaders(): boolean {
   return isEnvFlagEnabled(process.env.RIVET_WORKFLOW_EXECUTION_DEBUG_HEADERS, false);
 }
 
+function getWorkflowExecutionContext(
+  req: Request
+): Record<string, { type: 'any'; value: WorkflowRequestHeadersContext }> | undefined {
+  return {
+    headers: {
+      type: 'any',
+      value: getWorkflowRequestHeaders(req),
+    },
+  };
+}
+
 function setWorkflowExecutionDebugHeaders(
   res: Response,
   executionProject: Awaited<ReturnType<typeof resolvePublishedExecutionProject>> extends infer T
@@ -202,6 +229,7 @@ async function executeWorkflowEndpoint(
     datasetProvider,
     projectReferenceLoader,
     remoteDebugger,
+    context: getWorkflowExecutionContext(req),
     inputs: {
       input: {
         type: 'any',
