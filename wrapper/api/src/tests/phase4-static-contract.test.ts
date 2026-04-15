@@ -71,6 +71,22 @@ test('executor production image and compose contracts pin the websocket service 
   assert.match(devCompose, /executor:[\s\S]*- PORT=21889[\s\S]*- RIVET_EXECUTOR_PORT=21889/);
 });
 
+test('docker compose files keep runtime caches and executor app-data under /home/rivet to match the non-root image contract', () => {
+  const prodCompose = readRepoFile('ops/compose/docker-compose.yml');
+  const devCompose = readRepoFile('ops/compose/docker-compose.dev.yml');
+
+  for (const compose of [prodCompose, devCompose]) {
+    assert.match(compose, /- HOME=\/home\/rivet/);
+    assert.match(compose, /- npm_config_cache=\/home\/rivet\/\.npm/);
+    assert.match(compose, /- YARN_CACHE_FOLDER=\/home\/rivet\/\.cache\/yarn/);
+    assert.match(compose, /\/home\/rivet\/\.local\/share\/com\.ironcladapp\.rivet/);
+    assert.doesNotMatch(compose, /\/root\/\.npm/);
+    assert.doesNotMatch(compose, /\/root\/\.cache\/yarn/);
+    assert.doesNotMatch(compose, /HOME=\/root/);
+    assert.doesNotMatch(compose, /\/root\/\.local\/share\/com\.ironcladapp\.rivet/);
+  }
+});
+
 test('chart templates keep control-plane and execution-plane API env contracts distinct', () => {
   const backendStatefulSet = readRepoFile('charts/templates/backend-statefulset.yaml');
   const executionDeployment = readRepoFile('charts/templates/execution-deployment.yaml');
