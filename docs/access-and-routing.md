@@ -225,6 +225,9 @@ Current request/response behavior:
 
 - the incoming JSON body becomes the workflow's `input` value
 - an empty request body is treated as `{}`
+- published execution routes (`${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH:-/workflows}` and `/internal/workflows`) also inject the incoming request headers into `context.headers`
+  - header names follow the normalized lowercase keys exposed by Node/Express
+  - latest execution does not inject request headers into graph context
 - if the workflow's final `output` port is typed as `any`, the HTTP response body is that raw value
 - otherwise the response body is the full outputs object
 - every execution response sets `x-duration-ms`

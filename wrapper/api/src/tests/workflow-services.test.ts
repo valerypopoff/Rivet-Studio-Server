@@ -164,6 +164,50 @@ async function waitForWorkflowRecordingRunCount(
   throw new Error(`Timed out waiting for workflow ${workflowId} to reach ${expectedTotalRuns} recording runs`);
 }
 
+async function writeHeadersContextEchoProject(projectPath: string, projectName: string): Promise<void> {
+  const project = rivetNode.loadProjectFromString(workflowFs.createBlankProjectFile(projectName));
+  const graph = project.graphs[project.metadata.mainGraphId!];
+
+  graph.nodes = [
+    {
+      type: 'context',
+      title: 'Context',
+      id: 'context-headers',
+      visualData: { x: 0, y: 0, width: 300 },
+      data: {
+        id: 'headers',
+        dataType: 'any',
+        defaultValue: undefined,
+        useDefaultValueInput: false,
+      },
+    } as never,
+    {
+      type: 'graphOutput',
+      title: 'Graph Output',
+      id: 'graph-output',
+      visualData: { x: 360, y: 0, width: 300 },
+      data: {
+        id: 'output',
+        dataType: 'any',
+      },
+    } as never,
+  ];
+  graph.connections = [
+    {
+      outputNodeId: 'context-headers',
+      outputId: 'data',
+      inputNodeId: 'graph-output',
+      inputId: 'value',
+    } as never,
+  ];
+
+  const serializedProject = rivetNode.serializeProject(project);
+  if (typeof serializedProject !== 'string') {
+    throw new TypeError('Expected serialized project to be a string');
+  }
+  await fs.writeFile(projectPath, serializedProject, 'utf8');
+}
+
 test('workflow project rename and move preserve wrapper sidecars', async () => {
   await workflowMutations.createWorkflowFolderItem('Folder', '');
   const created = await workflowMutations.createWorkflowProjectItem('', 'Example');
@@ -1801,6 +1845,46 @@ test('published workflow responds with any outputs and records the run asynchron
 
     assert.equal(workflowsResponse.workflows.length, 1);
     assert.equal(workflowsResponse.workflows[0]?.totalRuns, 1);
+  });
+});
+
+test('published workflow injects request headers into context while latest execution does not', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'HeadersContext');
+  await writeHeadersContextEchoProject(created.absolutePath, 'HeadersContext');
+
+  await workflowMutations.publishWorkflowProjectItem(created.relativePath, {
+    endpointName: 'headers-context-endpoint',
+  });
+
+  await withWorkflowExecutionServer(async ({ publishedBaseUrl, latestBaseUrl }) => {
+    const requestHeaders = {
+      'Content-Type': 'application/json',
+      'X-Storyteller-Header': 'published-request-header',
+    };
+
+    const publishedResponse = await fetch(`${publishedBaseUrl}/headers-context-endpoint`, {
+      method: 'POST',
+      headers: requestHeaders,
+      body: JSON.stringify({ ignored: true }),
+      signal: AbortSignal.timeout(5000),
+    });
+
+    assert.equal(publishedResponse.ok, true);
+
+    const publishedBody = await publishedResponse.json() as Record<string, unknown>;
+    assert.equal(publishedBody['x-storyteller-header'], 'published-request-header');
+    assert.equal(publishedBody['content-type'], 'application/json');
+    assert.equal(typeof publishedBody.durationMs, 'number');
+
+    const latestResponse = await fetch(`${latestBaseUrl}/headers-context-endpoint`, {
+      method: 'POST',
+      headers: requestHeaders,
+      body: JSON.stringify({ ignored: true }),
+      signal: AbortSignal.timeout(5000),
+    });
+
+    assert.equal(latestResponse.ok, true);
+    assert.equal(await latestResponse.json(), null);
   });
 });
 
