@@ -87,8 +87,13 @@ export function readManifest(): RuntimeLibraryManifest {
   try {
     const raw = fs.readFileSync(manifestPath(), 'utf8');
     return normalizeManifest(JSON.parse(raw) as unknown);
-  } catch {
-    return emptyManifest();
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException | null)?.code;
+    if (code === 'ENOENT' || error instanceof SyntaxError) {
+      return emptyManifest();
+    }
+
+    throw error;
   }
 }
 

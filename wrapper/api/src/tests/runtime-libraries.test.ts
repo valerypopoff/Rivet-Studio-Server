@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -186,6 +187,35 @@ test('filesystem backend reports no active libraries for an empty active release
   assert.equal(state.hasActiveLibraries, false);
   assert.deepEqual(state.packages, {});
   assert.equal(state.replicaReadiness, null);
+});
+
+test('filesystem backend exposes a permission error when runtime-library storage is not writable', async (t) => {
+  const backend = filesystemBackend.createFilesystemRuntimeLibrariesBackend();
+  const normalizedRoot = runtimeLibrariesRoot.replace(/\\/g, '/');
+
+  t.mock.method(fsSync, 'mkdirSync', (targetPath: fsSync.PathLike) => {
+    const normalizedTargetPath = String(targetPath).replace(/\\/g, '/');
+    if (normalizedTargetPath.startsWith(normalizedRoot)) {
+      const error = new Error(`EACCES: permission denied, mkdir '${targetPath}'`) as Error & { code?: string };
+      error.code = 'EACCES';
+      throw error;
+    }
+
+    return undefined;
+  });
+
+  await assert.rejects(
+    backend.getState(),
+    (error: Error & { status?: number; expose?: boolean }) => {
+      assert.equal(error.status, 500);
+      assert.equal(error.expose, true);
+      assert.equal(
+        error.message,
+        `Runtime-library storage is not writable. Check server permissions for ${normalizedRoot}.`,
+      );
+      return true;
+    },
+  );
 });
 
 test('filesystem backend hides finished jobs from modal state but keeps them addressable by job id', async () => {

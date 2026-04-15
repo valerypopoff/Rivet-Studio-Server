@@ -13,6 +13,7 @@ import {
   getApiErrorResponse,
   getApiRouteExposureMatrix,
 } from '../app.js';
+import { disposeRuntimeLibrariesBackend } from '../runtime-libraries/backend.js';
 import { createHttpError } from '../utils/httpError.js';
 
 const relevantEnvKeys = [
@@ -303,6 +304,40 @@ test('combined profile preserves both control-plane and published/latest executi
       assert.match(latestResponse.headers.get('x-duration-ms') ?? '', /^\d+$/);
       assert.equal((await latestResponse.json()).error, 'Latest workflow not found');
     } finally {
+      await server.close();
+    }
+  });
+});
+
+test('runtime-libraries route exposes permission errors for an unwritable runtime-library root', async (t) => {
+  await withApiEnv({}, async () => {
+    await disposeRuntimeLibrariesBackend();
+    const server = await startServer('control');
+    const runtimeLibrariesRoot = process.env.RIVET_RUNTIME_LIBRARIES_ROOT!;
+    const normalizedRoot = runtimeLibrariesRoot.replace(/\\/g, '/');
+
+    try {
+      t.mock.method(fs, 'mkdirSync', (targetPath: fs.PathLike) => {
+        const normalizedTargetPath = String(targetPath).replace(/\\/g, '/');
+        if (normalizedTargetPath.startsWith(normalizedRoot)) {
+          const error = new Error(`EACCES: permission denied, mkdir '${targetPath}'`) as Error & { code?: string };
+          error.code = 'EACCES';
+          throw error;
+        }
+
+        return undefined;
+      });
+
+      const response = await fetch(`${server.baseUrl}/api/runtime-libraries`, {
+        headers: trustedProxyHeaders(),
+      });
+
+      assert.equal(response.status, 500);
+      assert.deepEqual(await response.json(), {
+        error: `Runtime-library storage is not writable. Check server permissions for ${normalizedRoot}.`,
+      });
+    } finally {
+      await disposeRuntimeLibrariesBackend();
       await server.close();
     }
   });

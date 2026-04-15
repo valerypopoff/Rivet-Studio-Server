@@ -262,6 +262,7 @@ Current behavior:
 - the local Docker stacks keep `RIVET_API_PROFILE=combined` by default, so `/api/*`, `${RIVET_LATEST_WORKFLOWS_BASE_PATH}`, and `${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH}` all land on the same `api` container there
 - the `web` service runs the Vite dev server inside the container with live bind mounts
 - the `api` and `executor` services rebuild from Dockerfiles, so Node/runtime changes are picked up without a separate manual build step
+- the Docker Compose stacks set `HOME=/home/rivet` and keep npm/Yarn caches there so pulled non-root images and locally built images use the same runtime cache contract
 - the launcher waits for healthy services; `RIVET_DOCKER_WAIT_TIMEOUT` controls the wait window
 - in `RIVET_STORAGE_MODE=managed`, both workflow state and runtime-library releases come from managed services, while `/data/runtime-libraries` remains only an extracted local cache/workspace inside each container
 - in `RIVET_STORAGE_MODE=managed`, published/latest endpoint execution also keeps API-local warm caches for endpoint pointers and immutable revision contents; the first hit after startup or after a workflow mutation can still be slower, but repeated hits for the same unchanged trivial workflow should settle onto the warm local path
@@ -289,6 +290,7 @@ Filesystem-mode Docker topology now splits the hot paths intentionally:
 - this keeps high-churn recording writes off the workflow-source bind mount on Windows/Docker Desktop
 - the official API and executor images run as uid/gid `10001:10001`, so bind-mounted host paths must grant that uid the expected read/write access
 - if `/workflows` is not writable, hosted editor saves fail and the API now returns an explicit workflow-storage permission error instead of a generic hidden 500
+- if `/data/runtime-libraries` is not writable, `/api/runtime-libraries` now returns an explicit runtime-library storage permission error instead of a generic hidden 500
 
 Migration note for existing local Docker setups:
 

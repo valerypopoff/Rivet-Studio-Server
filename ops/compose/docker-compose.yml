@@ -55,8 +55,9 @@ services:
       - https_proxy=${https_proxy:-${HTTPS_PROXY:-}}
       - all_proxy=${all_proxy:-${ALL_PROXY:-}}
       - no_proxy=${no_proxy:-${NO_PROXY:-}}
-      - npm_config_cache=/root/.npm
-      - YARN_CACHE_FOLDER=/root/.cache/yarn
+      - HOME=/home/rivet
+      - npm_config_cache=/home/rivet/.npm
+      - YARN_CACHE_FOLDER=/home/rivet/.cache/yarn
     healthcheck:
       test: ["CMD-SHELL", "node -e \"require('http').get('http://127.0.0.1:3000/',r=>{process.exit(r.statusCode===200?0:1)}).on('error',()=>process.exit(1))\""]
       interval: 10s
@@ -90,7 +91,8 @@ services:
       - https_proxy=${https_proxy:-${HTTPS_PROXY:-}}
       - all_proxy=${all_proxy:-${ALL_PROXY:-}}
       - no_proxy=${no_proxy:-${NO_PROXY:-}}
-      - npm_config_cache=/root/.npm
+      - HOME=/home/rivet
+      - npm_config_cache=/home/rivet/.npm
       - PORT=80
       - RIVET_WORKSPACE_ROOT=/workspace
       - RIVET_WORKFLOWS_ROOT=/workflows
@@ -152,10 +154,10 @@ services:
       - https_proxy=${https_proxy:-${HTTPS_PROXY:-}}
       - all_proxy=${all_proxy:-${ALL_PROXY:-}}
       - no_proxy=${no_proxy:-${NO_PROXY:-}}
-      - npm_config_cache=/root/.npm
-      - YARN_CACHE_FOLDER=/root/.cache/yarn
+      - HOME=/home/rivet
+      - npm_config_cache=/home/rivet/.npm
+      - YARN_CACHE_FOLDER=/home/rivet/.cache/yarn
       - PORT=21889
-      - HOME=/root
       - RIVET_EXECUTOR_PORT=21889
       - RIVET_RUNTIME_LIBRARIES_ROOT=/data/runtime-libraries
       - RIVET_RUNTIME_PROCESS_ROLE=executor
@@ -172,7 +174,7 @@ services:
       - RIVET_STORAGE_FORCE_PATH_STYLE
       - RIVET_RUNTIME_LIBRARIES_SYNC_POLL_INTERVAL_MS
     volumes:
-      - rivet_data:/root/.local/share/com.ironcladapp.rivet
+      - rivet_data:/home/rivet/.local/share/com.ironcladapp.rivet
       - ${RIVET_RUNTIME_LIBS_HOST_PATH:-rivet_runtime_libs}:/data/runtime-libraries
     restart: unless-stopped
 

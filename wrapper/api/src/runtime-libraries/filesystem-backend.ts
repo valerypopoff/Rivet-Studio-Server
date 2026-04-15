@@ -9,10 +9,26 @@ import type {
   RuntimeLibraryLogSource,
   RuntimeLibraryPackageSpec,
 } from '../../../shared/runtime-library-types.js';
-import { currentNodeModulesPath, ensureDirectories, readManifest } from './manifest.js';
+import { currentNodeModulesPath, ensureDirectories, getRootPath, readManifest } from './manifest.js';
 import { jobRunner } from './job-runner.js';
 import type { RuntimeLibrariesBackend } from './backend.js';
-import { conflict } from '../utils/httpError.js';
+import { conflict, createHttpError } from '../utils/httpError.js';
+
+function mapRuntimeLibrariesFilesystemError(error: unknown, operation: 'read' | 'write'): Error {
+  const code = (error as NodeJS.ErrnoException | null)?.code;
+  if (code !== 'EACCES' && code !== 'EPERM') {
+    return error instanceof Error ? error : new Error(String(error));
+  }
+
+  const targetDir = getRootPath().replace(/\\/g, '/');
+  return createHttpError(
+    500,
+    operation === 'write'
+      ? `Runtime-library storage is not writable. Check server permissions for ${targetDir}.`
+      : `Runtime-library storage is not readable. Check server permissions for ${targetDir}.`,
+    { expose: true },
+  );
+}
 
 function mapJob(job: {
   id: string;
@@ -50,7 +66,11 @@ function mapJob(job: {
 
 class FilesystemRuntimeLibrariesBackend implements RuntimeLibrariesBackend {
   async initialize(): Promise<void> {
-    ensureDirectories();
+    try {
+      ensureDirectories();
+    } catch (error) {
+      throw mapRuntimeLibrariesFilesystemError(error, 'write');
+    }
   }
 
   async prepareForExecution(): Promise<void> {
@@ -62,8 +82,19 @@ class FilesystemRuntimeLibrariesBackend implements RuntimeLibrariesBackend {
   }
 
   async getState(): Promise<RuntimeLibrariesState> {
-    ensureDirectories();
-    const manifest = readManifest();
+    try {
+      ensureDirectories();
+    } catch (error) {
+      throw mapRuntimeLibrariesFilesystemError(error, 'write');
+    }
+
+    let manifest;
+    try {
+      manifest = readManifest();
+    } catch (error) {
+      throw mapRuntimeLibrariesFilesystemError(error, 'read');
+    }
+
     const activeJob = jobRunner.getActiveJob();
 
     return {
@@ -83,7 +114,12 @@ class FilesystemRuntimeLibrariesBackend implements RuntimeLibrariesBackend {
       throw conflict(`A job is already running (job ${active.id})`);
     }
 
-    ensureDirectories();
+    try {
+      ensureDirectories();
+    } catch (error) {
+      throw mapRuntimeLibrariesFilesystemError(error, 'write');
+    }
+
     return mapJob(jobRunner.startInstall(packages))!;
   }
 
@@ -93,7 +129,12 @@ class FilesystemRuntimeLibrariesBackend implements RuntimeLibrariesBackend {
       throw conflict(`A job is already running (job ${active.id})`);
     }
 
-    ensureDirectories();
+    try {
+      ensureDirectories();
+    } catch (error) {
+      throw mapRuntimeLibrariesFilesystemError(error, 'write');
+    }
+
     return mapJob(jobRunner.startRemove(packageNames))!;
   }
 
