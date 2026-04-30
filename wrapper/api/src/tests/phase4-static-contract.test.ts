@@ -14,6 +14,10 @@ function readRepoFileBytes(relativePath: string): Buffer {
   return fs.readFileSync(new URL(`../../../../${relativePath}`, import.meta.url));
 }
 
+function repoFileExists(relativePath: string): boolean {
+  return fs.existsSync(new URL(`../../../../${relativePath}`, import.meta.url));
+}
+
 function renderLocalKubernetesChart(): string {
   return execFileSync(
     'helm',
@@ -172,6 +176,36 @@ test('hosted editor opened-project overrides follow Rivet 2 project metadata and
   assert.match(syncOpenedProjectsOverride, /openProjectIdSet/);
   assert.match(syncOpenedProjectsOverride, /openedProjectSnapshotsState/);
   assert.doesNotMatch(syncOpenedProjectsOverride, /project: currentProject/);
+});
+
+test('hosted executor integration keeps Rivet 2 transport ownership and removes stale wrapper transport overrides', () => {
+  const viteAliases = readRepoFile('wrapper/web/vite-aliases.ts');
+  const hostedExecutorSession = readRepoFile('wrapper/web/overrides/hooks/useHostedExecutorSession.ts');
+  const hostedRemoteDebugger = readRepoFile('wrapper/web/overrides/hooks/useHostedRemoteDebugger.ts');
+  const packageJson = readRepoFile('package.json');
+
+  assert.match(viteAliases, /useExecutorSession[\s\S]*useHostedExecutorSession/);
+  assert.match(viteAliases, /useRemoteDebugger[\s\S]*useHostedRemoteDebugger/);
+  assert.doesNotMatch(viteAliases, /useGraphExecutor/);
+  assert.doesNotMatch(viteAliases, /useRemoteExecutor/);
+
+  assert.match(hostedExecutorSession, /from '\.\.\/state\/settings'/);
+  assert.match(hostedExecutorSession, /markHostedInternalExecutorSession/);
+  assert.match(hostedRemoteDebugger, /markHostedInternalExecutorSession/);
+
+  for (const stalePath of [
+    'wrapper/web/overrides/hooks/useGraphExecutor.ts',
+    'wrapper/web/overrides/hooks/useRemoteExecutor.ts',
+    'wrapper/web/overrides/hooks/useRemoteDebugger.ts',
+    'wrapper/web/overrides/hooks/remoteDebuggerClient.ts',
+    'wrapper/web/overrides/hooks/remoteDebuggerDatasets.ts',
+    'wrapper/web/overrides/components/DebuggerConnectPanel.tsx',
+  ]) {
+    assert.equal(repoFileExists(stalePath), false, `${stalePath} should not be retained after the Rivet 2 seam migration`);
+  }
+
+  assert.doesNotMatch(packageJson, /remote-execution-session\.test/);
+  assert.doesNotMatch(packageJson, /remote-executor-protocol\.test/);
 });
 
 test('docker compose files keep runtime caches and executor app-data under /home/rivet to match the non-root image contract', () => {

@@ -355,7 +355,9 @@ When adding new code, keep the post-refactor ownership seams explicit instead of
 - editor executor transport should prefer Rivet's upstream host/session seam
   - mount the editor through `RivetAppHost`
   - pass the hosted executor websocket through `executor.internalExecutorUrl`
-  - do not reintroduce `useGraphExecutor`, `useRemoteExecutor`, or `useRemoteDebugger` overrides unless the upstream seam no longer covers hosted behavior
+  - keep graph execution, upload, abort, pause/resume, and websocket message ownership in upstream Rivet hooks
+  - keep the wrapper shims for `useExecutorSession` and `useRemoteDebugger` limited to hosted UI classification: `/ws/executor/internal` is internal Node executor mode, not a manual Remote Debugger connection
+  - stale wrapper transport override files were removed; do not reintroduce `useGraphExecutor` or `useRemoteExecutor` overrides unless the upstream seam no longer covers hosted behavior
 - hosted opened-project hooks should preserve Rivet 2.0's split tab state
   - keep `projectsState.openedProjects` as lightweight tab metadata: project id, title, path, and opened graph
   - keep full in-memory project content in `openedProjectSnapshotsState`
@@ -387,6 +389,8 @@ Current repo-local baseline:
   - published-route-prefix overrides are rejected
   - the managed-only chart shape is enforced
 - managed migration verification now has direct regression coverage for its comparison logic, but real import/cutover confidence still requires the managed Docker rehearsal described below.
+
+For hosted editor shell changes, keep `wrapper/web/index.html` loading the same font families that Rivet styles reference. Rivet uses both `Roboto` and `Roboto Mono`; loading only the monospace family leaves several upstream panels on browser fallbacks.
 
 For wrapper/web changes:
 

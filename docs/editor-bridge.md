@@ -80,10 +80,10 @@ Node copy/paste shortcuts do not cross the editor bridge.
 
 The editor bridge is not the same thing as the executor/debugger websocket transport. In the Rivet 2.0 integration, the hosted shell mounts the editor through `RivetAppHost` and passes the hosted executor websocket as `executor.internalExecutorUrl`.
 
-- the editor-side bridge remains in `wrapper/web/dashboard/EditorMessageBridge.tsx`
-- executor session ownership now stays in upstream Rivet app code (`useExecutorSession`, `useRemoteExecutor`, and the shared executor-session runtime)
+- the editor-side bridge remains in `wrapper/web/dashboard/EditorMessageBridge.tsx`, and hosted executor UI classification stays in the wrapper's small `useExecutorSession` / `useRemoteDebugger` shims
+- executor transport ownership stays in upstream Rivet app code (`useRemoteExecutor` and the shared executor-session runtime); wrapper `useExecutorSession` / `useRemoteDebugger` shims only normalize hosted UI state
 - hosted wrapper code still owns project-open/save/delete/path-move messages and hosted IO adapters
-- legacy wrapper transport helper files under `wrapper/web/overrides/hooks/` are retained only for historical pure tests and should not be reintroduced through Vite aliases unless the upstream seam is removed
+- stale wrapper transport override files were removed after the Rivet 2 seam migration; do not restore `useGraphExecutor` or `useRemoteExecutor` aliases unless the upstream seam is removed
 
 Those execution websocket responsibilities are separate from the dashboard/editor `window.postMessage` bridge. The bridge moves open/save/delete/path-move intent between browsing contexts; the Rivet executor session talks to `/ws/executor*`.
 
