@@ -1,3 +1,5 @@
+- When I unpublish the project, the endpoint is still occupied and can't be used by other projects
+
 - The project name (in the yaml file) and the project name in the project trea - are they the same? Or not necessarily? Should the mirror?
 
 - Do we need /health enpoint for k8s?
