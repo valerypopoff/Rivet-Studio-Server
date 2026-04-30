@@ -12,6 +12,7 @@ import {
   renderKubernetesLauncherSecretManifest,
   renderKubernetesLauncherValuesYaml,
 } from './lib/kubernetes-launcher-config.mjs';
+import { prepareRivetDockerContext } from './lib/rivet-source-context.mjs';
 
 const rootDir = process.cwd();
 const action = process.argv[2] == null ? 'dev' : process.argv[2];
@@ -419,16 +420,20 @@ async function applySecrets(kubectlBin, config, env) {
 
 async function buildImages(dockerBin, config, env) {
   const buildSpecs = [
-    { dockerfile: 'image/api/Dockerfile', image: config.images.api },
-    { dockerfile: 'image/executor/Dockerfile', image: config.images.executor },
-    { dockerfile: 'image/web/Dockerfile', image: config.images.web },
+    { dockerfile: 'image/api/Dockerfile', image: config.images.api, needsRivetSource: true },
+    { dockerfile: 'image/executor/Dockerfile', image: config.images.executor, needsRivetSource: true },
+    { dockerfile: 'image/web/Dockerfile', image: config.images.web, needsRivetSource: true },
     { dockerfile: 'image/proxy/Dockerfile', image: config.images.proxy },
   ];
+  const rivetSourceBuildContextPath = prepareRivetDockerContext(rootDir, env);
 
   for (const spec of buildSpecs) {
+    const buildContextArgs = spec.needsRivetSource
+      ? ['--build-context', `rivet_source=${rivetSourceBuildContextPath}`]
+      : [];
     await spawnProgram(
       dockerBin,
-      ['build', '-f', spec.dockerfile, '-t', buildImageRef(spec.image), '.'],
+      ['build', ...buildContextArgs, '-f', spec.dockerfile, '-t', buildImageRef(spec.image), '.'],
       { env },
     );
   }

@@ -59,16 +59,66 @@ test('proxy templates pin standard HTTP upstream routes to the configurable 3 mi
 test('executor production image and compose contracts pin the websocket service to 21889 independently of the API PORT env', () => {
   const executorEntrypoint = readRepoFile('image/executor/entrypoint.sh');
   const executorDockerfile = readRepoFile('image/executor/Dockerfile');
+  const composeExecutorDockerfile = readRepoFile('ops/docker/Dockerfile.executor');
   const prodCompose = readRepoFile('ops/compose/docker-compose.yml');
   const devCompose = readRepoFile('ops/compose/docker-compose.dev.yml');
 
   assert.match(executorEntrypoint, /export RIVET_EXECUTOR_PORT="\$\{RIVET_EXECUTOR_PORT:-21889\}"/);
-  assert.match(executorEntrypoint, /exec node \/app\/executor-bundle\.cjs --port "\$\{RIVET_EXECUTOR_PORT\}"/);
+  assert.match(executorEntrypoint, /export RIVET_EXECUTOR_HOST="\$\{RIVET_EXECUTOR_HOST:-0\.0\.0\.0\}"/);
+  assert.match(executorEntrypoint, /exec node \/app\/executor-bundle\.cjs --host "\$\{RIVET_EXECUTOR_HOST\}" --port "\$\{RIVET_EXECUTOR_PORT\}"/);
   assert.doesNotMatch(executorEntrypoint, /exec node \/app\/executor-bundle\.cjs --port "\$\{PORT\}"/);
   assert.match(executorDockerfile, /ENV RIVET_EXECUTOR_PORT=21889/);
+  assert.match(executorDockerfile, /ENV RIVET_EXECUTOR_HOST=0\.0\.0\.0/);
+  assert.match(executorDockerfile, /ENV RIVET_CODE_RUNNER_REQUIRE_ROOT=\/data\/runtime-libraries\/current\/node_modules/);
   assert.doesNotMatch(executorDockerfile, /ENV PORT=21889/);
-  assert.match(prodCompose, /executor:[\s\S]*- PORT=21889[\s\S]*- RIVET_EXECUTOR_PORT=21889/);
-  assert.match(devCompose, /executor:[\s\S]*- PORT=21889[\s\S]*- RIVET_EXECUTOR_PORT=21889/);
+  assert.match(composeExecutorDockerfile, /ENV RIVET_EXECUTOR_HOST=0\.0\.0\.0/);
+  assert.ok(composeExecutorDockerfile.includes('node executor-bundle.cjs --host \\"${RIVET_EXECUTOR_HOST}\\" --port 21889'));
+  assert.match(prodCompose, /executor:[\s\S]*- PORT=21889[\s\S]*- RIVET_EXECUTOR_PORT=21889[\s\S]*- RIVET_EXECUTOR_HOST=0\.0\.0\.0/);
+  assert.match(devCompose, /executor:[\s\S]*- PORT=21889[\s\S]*- RIVET_EXECUTOR_PORT=21889[\s\S]*- RIVET_EXECUTOR_HOST=0\.0\.0\.0/);
+});
+
+test('API images link workflow execution to the embedded Rivet source tree', () => {
+  const apiDockerfile = readRepoFile('image/api/Dockerfile');
+  const composeApiDockerfile = readRepoFile('ops/docker/Dockerfile.api');
+  const prodCompose = readRepoFile('ops/compose/docker-compose.yml');
+  const devCompose = readRepoFile('ops/compose/docker-compose.dev.yml');
+  const kubernetesLauncher = readRepoFile('scripts/dev-kubernetes.mjs');
+  const devDockerLauncher = readRepoFile('scripts/dev-docker.mjs');
+  const prodDockerLauncher = readRepoFile('scripts/prod-docker.mjs');
+  const rivetContextHelper = readRepoFile('scripts/lib/rivet-source-context.mjs');
+  const imageBuildWorkflow = readRepoFile('.github/workflows/build-images.yml');
+  const linkScript = readRepoFile('scripts/link-rivet-node-package.mjs');
+
+  for (const dockerfile of [apiDockerfile, composeApiDockerfile]) {
+    assert.match(dockerfile, /COPY --from=rivet_source \. rivet\//);
+    assert.match(dockerfile, /yarn workspace @ironclad\/rivet-core run build/);
+    assert.match(dockerfile, /yarn workspace @ironclad\/rivet-node run build/);
+    assert.match(dockerfile, /COPY scripts\/link-rivet-node-package\.mjs scripts\/link-rivet-node-package\.mjs/);
+    assert.match(dockerfile, /RUN node \/app\/scripts\/link-rivet-node-package\.mjs/);
+  }
+
+  assert.match(apiDockerfile, /COPY --from=builder --chown=10001:10001 \/app\/rivet\/node_modules \/app\/rivet\/node_modules/);
+  assert.match(apiDockerfile, /COPY --from=builder --chown=10001:10001 \/app\/rivet\/packages\/core \/app\/rivet\/packages\/core/);
+  assert.match(apiDockerfile, /COPY --from=builder --chown=10001:10001 \/app\/rivet\/packages\/node \/app\/rivet\/packages\/node/);
+  assert.match(linkScript, /@ironclad\/\$\{pkg\.name\}/);
+  assert.match(linkScript, /source: path\.join\(rivetRootDir, 'packages', 'node'\)/);
+  for (const compose of [prodCompose, devCompose]) {
+    assert.match(compose, /additional_contexts:\s*\n\s*rivet_source: \$\{RIVET_SOURCE_BUILD_CONTEXT_PATH:-\.\.\/\.\.\/rivet\}/);
+  }
+  assert.match(devCompose, /api:[\s\S]*depends_on:\s*\n\s*web:\s*\n\s*condition: service_healthy/);
+  assert.match(devCompose, /api:[\s\S]*- rivet_node_modules:\/workspace\/rivet\/node_modules/);
+  assert.match(devCompose, /cp -a \/workspace\/rivet\/packages\/core \/app\/\.rivet-source\/packages\/core/);
+  assert.match(devCompose, /ln -s \/workspace\/rivet\/node_modules \/app\/\.rivet-source\/node_modules/);
+  assert.match(devCompose, /RIVET_SOURCE_ROOT=\/app\/\.rivet-source RIVET_API_PACKAGE_ROOT=\/app node \/workspace\/scripts\/link-rivet-node-package\.mjs/);
+  assert.match(devCompose, /NODE_OPTIONS='\$\{NODE_OPTIONS:-\} --import=\/opt\/proxy-bootstrap\/bootstrap\.mjs'/);
+  assert.match(devDockerLauncher, /prepareRivetDockerContext\(rootDir, mergedEnv\)/);
+  assert.match(prodDockerLauncher, /prepareRivetDockerContext\(rootDir, mergedEnv\)/);
+  assert.ok(rivetContextHelper.includes("const contextRootRelPath = path.join('.data', 'docker-contexts');"));
+  assert.ok(rivetContextHelper.includes("const defaultContextRelPath = path.join(contextRootRelPath, 'rivet-source');"));
+  assert.match(rivetContextHelper, /Excluded dependency folders, build output, VCS data, and Yarn cache artifacts/);
+  assert.match(kubernetesLauncher, /--build-context/);
+  assert.match(kubernetesLauncher, /rivet_source=\$\{rivetSourceBuildContextPath\}/);
+  assert.match(imageBuildWorkflow, /build-contexts:\s*\|\s*\n\s*rivet_source=\.\/rivet/);
 });
 
 test('docker compose files keep runtime caches and executor app-data under /home/rivet to match the non-root image contract', () => {

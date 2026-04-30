@@ -10,6 +10,7 @@ node_modules/
 # Includes moved runtime/bootstrap package state such as wrapper/bootstrap/proxy-bootstrap/node_modules/
 wrapper/**/node_modules/
 wrapper/api/dist/
+wrapper/api/.rivet-source/
 wrapper/web/dist/
 artifacts/playwright/
 artifacts/runtime-library-cleanup/

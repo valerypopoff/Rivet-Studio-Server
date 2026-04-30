@@ -50,6 +50,7 @@ services:
       - CHOKIDAR_INTERVAL=300
     volumes:
       - ../..:/workspace
+      - ${RIVET_SOURCE_HOST_PATH:-../../rivet}:/workspace/rivet
       - rivet_node_modules:/workspace/rivet/node_modules
       - wrapper_web_node_modules:/workspace/wrapper/web/node_modules
       - npm_cache:/home/rivet/.npm
@@ -89,6 +90,8 @@ services:
     build:
       context: ../..
       dockerfile: ops/docker/Dockerfile.api
+      additional_contexts:
+        rivet_source: ${RIVET_SOURCE_BUILD_CONTEXT_PATH:-../../rivet}
       args:
         HTTP_PROXY: ${HTTP_PROXY:-}
         HTTPS_PROXY: ${HTTPS_PROXY:-}
@@ -98,6 +101,9 @@ services:
         https_proxy: ${https_proxy:-${HTTPS_PROXY:-}}
         all_proxy: ${all_proxy:-${ALL_PROXY:-}}
         no_proxy: ${no_proxy:-${NO_PROXY:-}}
+    depends_on:
+      web:
+        condition: service_healthy
     env_file:
       - ../../.env
     working_dir: /app
@@ -146,6 +152,8 @@ services:
       - OPENAI_ENDPOINT=${OPENAI_ENDPOINT:-}
     volumes:
       - ../..:/workspace
+      - ${RIVET_SOURCE_HOST_PATH:-../../rivet}:/workspace/rivet
+      - rivet_node_modules:/workspace/rivet/node_modules
       - ../../wrapper/api:/app
       - ../../wrapper/shared:/shared
       - ../../wrapper/bootstrap/proxy-bootstrap:/opt/proxy-bootstrap
@@ -167,6 +175,13 @@ services:
           npm ci &&
           cp /app/package-lock.json node_modules/.package-lock.json;
         fi &&
+        rm -rf /app/.rivet-source &&
+        mkdir -p /app/.rivet-source/packages &&
+        cp -a /workspace/rivet/packages/core /app/.rivet-source/packages/core &&
+        cp -a /workspace/rivet/packages/node /app/.rivet-source/packages/node &&
+        rm -rf /app/.rivet-source/packages/core/node_modules /app/.rivet-source/packages/node/node_modules &&
+        ln -s /workspace/rivet/node_modules /app/.rivet-source/node_modules &&
+        RIVET_SOURCE_ROOT=/app/.rivet-source RIVET_API_PACKAGE_ROOT=/app node /workspace/scripts/link-rivet-node-package.mjs &&
         NODE_OPTIONS='${NODE_OPTIONS:-} --import=/opt/proxy-bootstrap/bootstrap.mjs' npm run dev
       "
     healthcheck:
@@ -187,6 +202,8 @@ services:
     build:
       context: ../..
       dockerfile: ops/docker/Dockerfile.executor
+      additional_contexts:
+        rivet_source: ${RIVET_SOURCE_BUILD_CONTEXT_PATH:-../../rivet}
       args:
         HTTP_PROXY: ${HTTP_PROXY:-}
         HTTPS_PROXY: ${HTTPS_PROXY:-}
@@ -212,6 +229,7 @@ services:
       - YARN_CACHE_FOLDER=/home/rivet/.cache/yarn
       - PORT=21889
       - RIVET_EXECUTOR_PORT=21889
+      - RIVET_EXECUTOR_HOST=0.0.0.0
       - RIVET_RUNTIME_LIBRARIES_ROOT=/data/runtime-libraries
       - RIVET_RUNTIME_PROCESS_ROLE=executor
       - RIVET_STORAGE_MODE

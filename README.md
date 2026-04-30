@@ -46,7 +46,7 @@ Rivet Studio Server is a self-hosted personal Rivet platform with a UI that you 
 - `.github/`
   - CI workflows
 - `rivet/`
-  - upstream input, treated as read-only in this repo
+  - upstream input, treated as read-only in this repo; it can be a real checkout/snapshot or a local symlink/junction to one
 
 ## Root Working Docs
 
@@ -120,6 +120,8 @@ npm run setup:rivet
 
 The script resolves the newest stable GitHub tag matching `v<major>.<minor>.<patch>` and downloads that release, not the moving `main` branch.
 
+If `./rivet` is a symlink or Windows junction to another checkout, the repo launchers resolve that link to its real host path for dev bind mounts. Local Docker image builds use a filtered snapshot at `.data/docker-contexts/rivet-source` for the named `rivet_source` build context, so a large upstream working tree does not send `node_modules`, VCS data, or Yarn caches into BuildKit. Direct `docker build` commands need the same build context explicitly; run `npm run dev:docker:prepare-rivet-context`, then use a command such as `docker build --build-context rivet_source=.data/docker-contexts/rivet-source -f image/api/Dockerfile .`.
+
 To replace an existing non-empty `rivet/` directory:
 
 ```bash
@@ -143,6 +145,7 @@ Useful follow-up commands:
 ```bash
 npm run dev:docker:ps
 npm run dev:docker:logs
+npm run dev:docker:prepare-rivet-context
 npm run dev:down
 ```
 
@@ -181,7 +184,9 @@ Internally, the wrapper now keeps the major ownership seams explicit:
 - workflow-managed backend code is split into a thin facade plus focused modules under `wrapper/api/src/routes/workflows/managed/`
 - managed runtime-library orchestration is split into focused modules under `wrapper/api/src/runtime-libraries/managed/`
 - dashboard-heavy UI state now lives in controller/helpers under `wrapper/web/dashboard/`
-- remote debugger and remote executor transport state now live in dedicated client/protocol/session modules under `wrapper/web/overrides/hooks/`
+- editor-side Node execution uses Rivet 2.0's `RivetAppHost` external executor seam instead of wrapper-owned remote-executor hook overrides
+- the executor container binds its websocket server to `0.0.0.0:21889` inside Docker so the proxy can reach it as the separate `executor` service; browser access still goes through `/ws/executor*` on the proxy
+- endpoint/API workflow execution imports `@ironclad/rivet-node` through a package-name seam, while setup and image builds link that package to the embedded `rivet/` source tree so replacing `rivet/` upgrades both editor-side and server-side execution
 
 ## Security
 

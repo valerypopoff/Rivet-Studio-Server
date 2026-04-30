@@ -26,7 +26,7 @@ WORKDIR /app
 COPY wrapper/bootstrap/proxy-bootstrap/ /opt/proxy-bootstrap/
 RUN --mount=type=cache,target=/root/.npm npm --prefix /opt/proxy-bootstrap ci
 
-COPY rivet/ /app/rivet/
+COPY --from=rivet_source . /app/rivet/
 
 WORKDIR /app/rivet
 RUN --mount=type=cache,target=/root/.cache/yarn YARN_NODE_LINKER=node-modules YARN_CHECKSUM_BEHAVIOR=ignore yarn install --immutable || YARN_NODE_LINKER=node-modules YARN_CHECKSUM_BEHAVIOR=ignore yarn install
@@ -65,8 +65,9 @@ COPY --from=builder /app/rivet/packages/app-executor/bin/executor-bundle.cjs ./e
 RUN mkdir -p /root/.local/share/com.ironcladapp.rivet/plugins
 
 ENV RIVET_RUNTIME_LIBRARIES_ROOT=/data/runtime-libraries
+ENV RIVET_EXECUTOR_HOST=0.0.0.0
 ENV RIVET_RUNTIME_PROCESS_ROLE=executor
 
 EXPOSE 21889
 
-CMD ["sh", "-lc", "NODE_OPTIONS=\"${NODE_OPTIONS:+$NODE_OPTIONS }--import=/opt/proxy-bootstrap/bootstrap.mjs\" node executor-bundle.cjs --port 21889"]
+CMD ["sh", "-lc", "NODE_OPTIONS=\"${NODE_OPTIONS:+$NODE_OPTIONS }--import=/opt/proxy-bootstrap/bootstrap.mjs\" node executor-bundle.cjs --host \"${RIVET_EXECUTOR_HOST}\" --port 21889"]

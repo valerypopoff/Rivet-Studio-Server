@@ -36,10 +36,6 @@ ALIASED_FILES=(
   "utils/tauri.ts"
   "utils/globals/ioProvider.ts"
   "state/settings.ts"
-  "hooks/useExecutorSidecar.ts"
-  "hooks/useGraphExecutor.ts"
-  "hooks/useRemoteDebugger.ts"
-  "hooks/useRemoteExecutor.ts"
   "hooks/useLoadPackagePlugin.ts"
   "model/native/TauriNativeApi.ts"
   "model/TauriProjectReferenceLoader.ts"
@@ -68,7 +64,7 @@ if [ -n "$HARDCODED" ]; then
   echo "  WARN: Hardcoded localhost WebSocket URLs found:"
   echo "$HARDCODED" | sed 's/^/    /'
   # Not a hard fail — these are expected in upstream, overrides handle them
-  echo "  (Handled by wrapper overrides if files are aliased)"
+  echo "  (Review host wiring if new executor/debugger entrypoints appear)"
 else
   echo "  OK: No hardcoded localhost WebSocket URLs"
 fi

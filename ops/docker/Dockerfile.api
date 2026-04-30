@@ -20,15 +20,26 @@ ENV all_proxy=$all_proxy
 ENV no_proxy=$no_proxy
 
 RUN apk add --no-cache git
+RUN corepack enable && \
+    corepack prepare yarn@4.6.0 --activate && \
+    corepack prepare pnpm@10.18.3 --activate
 
-# Install pnpm for plugin dependency installation
-RUN npm install -g pnpm
+# pnpm is used by plugin dependency installation.
 
 WORKDIR /app
 
 # Install proxy bootstrap for Node fetch/undici traffic.
 COPY wrapper/bootstrap/proxy-bootstrap/ /opt/proxy-bootstrap/
 RUN --mount=type=cache,target=/root/.npm npm --prefix /opt/proxy-bootstrap ci
+
+COPY --from=rivet_source . rivet/
+WORKDIR /app/rivet
+RUN --mount=type=cache,target=/root/.cache/yarn YARN_NODE_LINKER=node-modules YARN_CHECKSUM_BEHAVIOR=ignore yarn install --immutable || YARN_NODE_LINKER=node-modules YARN_CHECKSUM_BEHAVIOR=ignore yarn install
+RUN YARN_NODE_LINKER=node-modules yarn workspace @ironclad/rivet-core run build
+RUN YARN_NODE_LINKER=node-modules yarn workspace @ironclad/rivet-node run build
+
+WORKDIR /app
+COPY scripts/link-rivet-node-package.mjs scripts/link-rivet-node-package.mjs
 
 # Copy API source while preserving the wrapper layout expected by tsconfig.
 COPY wrapper/api/ wrapper/api/
@@ -38,6 +49,7 @@ WORKDIR /app/wrapper/api
 
 # Install dependencies with a persistent BuildKit cache.
 RUN --mount=type=cache,target=/root/.npm npm ci
+RUN node /app/scripts/link-rivet-node-package.mjs
 
 # Build the API so production runs compiled JavaScript instead of transpiling at startup.
 RUN npm run build

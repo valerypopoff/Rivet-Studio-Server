@@ -78,16 +78,14 @@ Node copy/paste shortcuts do not cross the editor bridge.
 
 ## Adjacent hosted execution transport
 
-The editor bridge is not the same thing as the executor/debugger websocket transport, but the hosted shell now keeps those seams explicit too:
+The editor bridge is not the same thing as the executor/debugger websocket transport. In the Rivet 2.0 integration, the hosted shell mounts the editor through `RivetAppHost` and passes the hosted executor websocket as `executor.internalExecutorUrl`.
 
-- `useRemoteExecutor.ts` no longer owns the raw message switch or the unresolved "current run" promise inline
-- `remoteExecutorProtocol.ts` owns remote-executor message dispatch and trace logging
-- `remoteExecutionSession.ts` owns the explicit one-run-at-a-time session contract; starting a new hosted run supersedes the previous unresolved session instead of pretending the protocol is concurrent
-- `useRemoteDebugger.ts` is now a thin hook over the module-level singleton in `remoteDebuggerClient.ts`
-- `remoteDebuggerClient.ts` keeps the one-websocket-per-page guarantee, reconnect timer, send helpers, and shared debugger state
-- `remoteDebuggerDatasets.ts` owns dataset RPC forwarding over that same websocket
+- the editor-side bridge remains in `wrapper/web/dashboard/EditorMessageBridge.tsx`
+- executor session ownership now stays in upstream Rivet app code (`useExecutorSession`, `useRemoteExecutor`, and the shared executor-session runtime)
+- hosted wrapper code still owns project-open/save/delete/path-move messages and hosted IO adapters
+- legacy wrapper transport helper files under `wrapper/web/overrides/hooks/` are retained only for historical pure tests and should not be reintroduced through Vite aliases unless the upstream seam is removed
 
-Those transport modules are separate from the dashboard/editor `window.postMessage` bridge. The bridge moves open/save/delete/path-move intent between browsing contexts; the websocket modules talk to `/ws/executor*` and `/ws/latest-debugger`.
+Those execution websocket responsibilities are separate from the dashboard/editor `window.postMessage` bridge. The bridge moves open/save/delete/path-move intent between browsing contexts; the Rivet executor session talks to `/ws/executor*`.
 
 ## Key files
 
@@ -100,14 +98,10 @@ Those transport modules are separate from the dashboard/editor `window.postMessa
 - `wrapper/web/dashboard/EditorMessageBridge.tsx` - editor-side message handling
 - `wrapper/web/dashboard/useOpenWorkflowProject.ts` - open/replace-current behavior inside the editor
 - `wrapper/web/io/HostedIOProvider.ts` - API-backed project loading/saving plus replay-project loading
-- `wrapper/web/overrides/hooks/remoteExecutorProtocol.ts` - hosted executor websocket message dispatch
-- `wrapper/web/overrides/hooks/remoteExecutionSession.ts` - one-run-at-a-time hosted execution promise bookkeeping
-- `wrapper/web/overrides/hooks/remoteDebuggerClient.ts` - module-level latest-debugger websocket singleton
-- `wrapper/web/overrides/hooks/remoteDebuggerDatasets.ts` - dataset RPC forwarding over the debugger websocket
 - `wrapper/web/overrides/hooks/useCopyNodesHotkeys.ts` - hosted clipboard hotkey override that reads the latest node state synchronously
 - `wrapper/web/overrides/hooks/useContextMenu.ts` - hosted context-menu override that clears stale focused menu inputs
 - `wrapper/web/overrides/hooks/useSaveProject.ts` - hosted save hook override that dispatches `rivet-project-saved`
 - `wrapper/web/overrides/hooks/useWindowsHotkeysFix.tsx` - hosted Windows hotkey override that suppresses duplicate save fallback
 - `wrapper/web/hosted-editor.css` - hosted global CSS that suppresses visible canvas focus outlines
 - `wrapper/web/vite-aliases.ts` - Vite alias wiring that redirects hosted builds to tracked wrapper overrides
-- `rivet/packages/app/src/components/NodeCanvas.tsx` - upstream canvas component that still renders the editor surface and calls the hosted overrides
+- `rivet/packages/app/src/host.tsx` - upstream Rivet 2.0 host seam that provides the editor providers, storage bootstrap, and external executor URL wiring

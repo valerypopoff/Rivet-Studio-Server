@@ -31,6 +31,8 @@ services:
     build:
       context: ../..
       dockerfile: ops/docker/Dockerfile.web
+      additional_contexts:
+        rivet_source: ${RIVET_SOURCE_BUILD_CONTEXT_PATH:-../../rivet}
       args:
         HTTP_PROXY: ${HTTP_PROXY:-}
         HTTPS_PROXY: ${HTTPS_PROXY:-}
@@ -71,6 +73,8 @@ services:
     build:
       context: ../..
       dockerfile: ops/docker/Dockerfile.api
+      additional_contexts:
+        rivet_source: ${RIVET_SOURCE_BUILD_CONTEXT_PATH:-../../rivet}
       args:
         HTTP_PROXY: ${HTTP_PROXY:-}
         HTTPS_PROXY: ${HTTPS_PROXY:-}
@@ -143,6 +147,8 @@ services:
     build:
       context: ../..
       dockerfile: ops/docker/Dockerfile.executor
+      additional_contexts:
+        rivet_source: ${RIVET_SOURCE_BUILD_CONTEXT_PATH:-../../rivet}
     env_file:
       - ../../.env
     environment:
@@ -159,6 +165,7 @@ services:
       - YARN_CACHE_FOLDER=/home/rivet/.cache/yarn
       - PORT=21889
       - RIVET_EXECUTOR_PORT=21889
+      - RIVET_EXECUTOR_HOST=0.0.0.0
       - RIVET_RUNTIME_LIBRARIES_ROOT=/data/runtime-libraries
       - RIVET_RUNTIME_PROCESS_ROLE=executor
       - RIVET_STORAGE_MODE

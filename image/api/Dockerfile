@@ -20,18 +20,29 @@ ENV all_proxy=$all_proxy
 ENV no_proxy=$no_proxy
 
 RUN apk add --no-cache git
-RUN npm install -g pnpm
+RUN corepack enable && \
+    corepack prepare yarn@4.6.0 --activate && \
+    corepack prepare pnpm@10.18.3 --activate
 
 WORKDIR /app
 
 COPY wrapper/bootstrap/proxy-bootstrap/ /opt/proxy-bootstrap/
 RUN --mount=type=cache,target=/root/.npm npm --prefix /opt/proxy-bootstrap ci
 
+COPY --from=rivet_source . rivet/
+WORKDIR /app/rivet
+RUN --mount=type=cache,target=/root/.cache/yarn YARN_NODE_LINKER=node-modules YARN_CHECKSUM_BEHAVIOR=ignore yarn install --immutable || YARN_NODE_LINKER=node-modules YARN_CHECKSUM_BEHAVIOR=ignore yarn install
+RUN YARN_NODE_LINKER=node-modules yarn workspace @ironclad/rivet-core run build
+RUN YARN_NODE_LINKER=node-modules yarn workspace @ironclad/rivet-node run build
+
+WORKDIR /app
+COPY scripts/link-rivet-node-package.mjs scripts/link-rivet-node-package.mjs
 COPY wrapper/api/ wrapper/api/
 COPY wrapper/shared/ wrapper/shared/
 
 WORKDIR /app/wrapper/api
 RUN --mount=type=cache,target=/root/.npm npm ci
+RUN node /app/scripts/link-rivet-node-package.mjs
 RUN npm run build
 
 FROM node:24-alpine
@@ -55,7 +66,8 @@ ENV all_proxy=$all_proxy
 ENV no_proxy=$no_proxy
 
 RUN apk add --no-cache git && \
-    npm install -g pnpm && \
+    corepack enable && \
+    corepack prepare pnpm@10.18.3 --activate && \
     addgroup -g 10001 -S rivet && \
     adduser -u 10001 -S -D -h /home/rivet -G rivet rivet && \
     mkdir -p /workspace /workflows /data/rivet-app/plugins /data/rivet-app/logs /data/runtime-libraries /home/rivet /opt/rivet/lib && \
@@ -66,6 +78,9 @@ WORKDIR /app/wrapper/api
 COPY --from=builder --chown=10001:10001 /opt/proxy-bootstrap /opt/proxy-bootstrap
 COPY --from=builder --chown=10001:10001 /app/wrapper/api /app/wrapper/api
 COPY --from=builder --chown=10001:10001 /app/wrapper/shared /app/wrapper/shared
+COPY --from=builder --chown=10001:10001 /app/rivet/node_modules /app/rivet/node_modules
+COPY --from=builder --chown=10001:10001 /app/rivet/packages/core /app/rivet/packages/core
+COPY --from=builder --chown=10001:10001 /app/rivet/packages/node /app/rivet/packages/node
 COPY --chown=10001:10001 image/lib/load-env.sh /opt/rivet/lib/load-env.sh
 COPY --chown=10001:10001 image/lib/build-db-connection.mjs /opt/rivet/lib/build-db-connection.mjs
 COPY --chown=10001:10001 image/api/entrypoint.sh /opt/rivet/api-entrypoint.sh

@@ -2,7 +2,7 @@
 
 ## Repository layout
 
-- `rivet/` is upstream Rivet source consumed by this repo. `npm run setup` may clone it as a Git checkout for local development, while `npm run setup:rivet` downloads a versioned upstream snapshot for Docker builds. Treat it as read-only input here; repo-specific behavior belongs in the wrapper layer, and real Rivet changes should be contributed upstream.
+- `rivet/` is upstream Rivet source consumed by this repo. `npm run setup` may clone it as a Git checkout for local development, while `npm run setup:rivet` downloads a versioned upstream snapshot for Docker builds. It may also be a local symlink or Windows junction to another Rivet checkout. Local Docker launchers copy the build-relevant subset into `.data/docker-contexts/rivet-source` before invoking BuildKit, while dev bind mounts still point at the live source path. Treat `rivet/` as read-only input here; repo-specific behavior belongs in the wrapper layer, and real Rivet changes should be contributed upstream.
 - `wrapper/web/` contains the hosted dashboard, browser entrypoint, and the tracked alias-based override layer for upstream editor behavior.
 - `wrapper/api/` contains workflow management, publication, recordings, runtime-library management, native IO shims, plugin install/load routes, and guarded shell/config endpoints.
 - `wrapper/shared/` contains browser/server contracts such as hosted env constants, editor-bridge messages, workflow types, and recording helpers.
@@ -32,6 +32,7 @@ Browser
 In Docker dev and production, nginx fronts the stack and injects the trusted proxy header the API expects.
 The repo-local Docker stacks still run the API in `combined` mode, so both workflow route families terminate at the same `api` container there even though the published-vs-latest split remains a first-class deployment contract.
 The executor websocket remains a separate internal service on port `21889` in those Docker modes; it does not follow the API's generic `PORT` contract.
+The executor container listens on `0.0.0.0` inside the Docker network because the proxy is a separate container that connects to `executor:21889`; external browser access still flows through the proxy's `/ws/executor*` routes.
 In local direct-process mode, the services run separately without nginx. The Vite dev server only proxies `/api/*` and `/ws/executor*`, so published/latest workflow endpoints, `/ui-auth`, and `/ws/latest-debugger` are not recreated there with production-like routing or trust behavior.
 
 The current runtime keeps the control plane conservative while published execution scales separately:
@@ -113,7 +114,10 @@ The important operational detail is that these tiers scale independently. A new 
 - Workflow-library UI orchestration now sits in `useWorkflowLibraryController.ts`, with menus and modal rendering split out of `WorkflowLibraryPanel.tsx`.
 - Project settings, run recordings, and runtime-library modal logic now sit behind focused dashboard controllers and helpers instead of staying inline in the modal components.
 - Dashboard shell orchestration now sits in `useDashboardSidebar.ts`, `useEditorBridgeEvents.ts`, and `editorBridgeFocus.ts`, with `DashboardPage.tsx` mostly composing those seams instead of owning all iframe, layout, and focus logic itself.
-- Remote debugger and remote executor browser transport code now live behind explicit client/protocol/session modules under `wrapper/web/overrides/hooks/`. `useRemoteDebugger.ts` stays a thin subscriber to the module-level singleton in `remoteDebuggerClient.ts`, and `useRemoteExecutor.ts` delegates message dispatch and one-run-at-a-time promise bookkeeping to `remoteExecutorProtocol.ts` and `remoteExecutionSession.ts`.
+- Hosted editor mounting uses Rivet 2.0's `RivetAppHost` seam from `rivet/packages/app/src/host.tsx`. The wrapper passes `/ws/executor/internal` as `executor.internalExecutorUrl`, so Node executor mode reuses Rivet's upstream executor-session and remote-executor hooks instead of overriding those transport hooks in `wrapper/web/overrides/`.
+- Hosted Tauri API shims must cover every upstream `@tauri-apps/api/*` subpath used by Rivet's browser bundle; currently that includes the `tauri` subpath for guarded native `invoke` calls.
+- API workflow execution keeps importing `@ironclad/rivet-node`, but local setup and API image builds replace that package with symlinks to the built `rivet/packages/node` and `rivet/packages/core` directories. This keeps endpoint execution on the embedded Rivet 2.0 source tree without scattering deep upstream imports through `wrapper/api`.
+- Docker and local Kubernetes image builds receive that embedded source through the named `rivet_source` build context. The root launchers default `RIVET_SOURCE_HOST_PATH` to the real path behind `<repo>/rivet`, then create the filtered `RIVET_SOURCE_BUILD_CONTEXT_PATH` snapshot under `.data/docker-contexts/rivet-source`, so linked checkouts outside the repo still build without sending their local dependency/cache state to BuildKit.
 - Hosted browser/file IO lives in `wrapper/web/io/HostedIOProvider.ts`.
 - Shared browser/backend contracts live in `wrapper/shared/`.
 

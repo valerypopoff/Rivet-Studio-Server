@@ -16,6 +16,8 @@ export const settingsState = atomWithStorage<Settings>(
   'settings',
   {
     recordingPlaybackLatency: 1000,
+    defaultNodeColors: false,
+    openNodeSettingsOnCreate: true,
 
     openAiKey: '',
     openAiOrganization: '',
@@ -27,6 +29,20 @@ export const settingsState = atomWithStorage<Settings>(
   },
   storage,
 );
+
+export type EditorPreferences = {
+  applyDefaultNodeColors: boolean;
+  openNodeSettingsOnCreate: boolean;
+};
+
+export function resolveEditorPreferences(
+  settings: Partial<Pick<Settings, 'defaultNodeColors' | 'openNodeSettingsOnCreate'>> | undefined,
+): EditorPreferences {
+  return {
+    applyDefaultNodeColors: settings?.defaultNodeColors ?? false,
+    openNodeSettingsOnCreate: settings?.openNodeSettingsOnCreate ?? true,
+  };
+}
 
 export const themes = [
   {
@@ -49,7 +65,9 @@ export const themeState = atomWithStorage<Theme>('theme', 'molten', storage);
 
 export const recordExecutionsState = atomWithStorage<boolean>('recordExecutions', true, storage);
 
-export const defaultExecutorState = atomWithStorage<'browser' | 'nodejs'>('defaultExecutor', 'browser', storage);
+export type DefaultExecutor = 'browser' | 'nodejs';
+
+export const defaultExecutorState = atomWithStorage<DefaultExecutor>('defaultExecutor', 'browser', storage);
 
 export const executorOptions = isInTauri() || isHostedMode()
   ? ([

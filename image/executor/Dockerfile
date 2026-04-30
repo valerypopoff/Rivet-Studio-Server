@@ -26,7 +26,7 @@ WORKDIR /app
 COPY wrapper/bootstrap/proxy-bootstrap/ /opt/proxy-bootstrap/
 RUN --mount=type=cache,target=/root/.npm npm --prefix /opt/proxy-bootstrap ci
 
-COPY rivet/ /app/rivet/
+COPY --from=rivet_source . /app/rivet/
 
 WORKDIR /app/rivet
 RUN --mount=type=cache,target=/root/.cache/yarn YARN_NODE_LINKER=node-modules YARN_CHECKSUM_BEHAVIOR=ignore yarn install --immutable || YARN_NODE_LINKER=node-modules YARN_CHECKSUM_BEHAVIOR=ignore yarn install
@@ -73,7 +73,9 @@ RUN chmod +x /opt/rivet/lib/load-env.sh /opt/rivet/executor-entrypoint.sh
 
 ENV HOME=/home/rivet
 ENV RIVET_EXECUTOR_PORT=21889
+ENV RIVET_EXECUTOR_HOST=0.0.0.0
 ENV RIVET_RUNTIME_LIBRARIES_ROOT=/data/runtime-libraries
+ENV RIVET_CODE_RUNNER_REQUIRE_ROOT=/data/runtime-libraries/current/node_modules
 ENV RIVET_RUNTIME_PROCESS_ROLE=executor
 
 EXPOSE 21889

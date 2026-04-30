@@ -25,8 +25,8 @@ RUN corepack enable && corepack prepare yarn@4.6.0 --activate
 
 WORKDIR /app
 
-# Copy upstream rivet source
-COPY rivet/ rivet/
+# Copy upstream Rivet source from the explicit named build context.
+COPY --from=rivet_source . rivet/
 
 # Install upstream dependencies
 WORKDIR /app/rivet

@@ -6,6 +6,8 @@ import { isTrustedProxyRequest } from './auth.js';
 
 export const LATEST_WORKFLOW_REMOTE_DEBUGGER_PATH = '/ws/latest-debugger';
 
+type RivetDebuggerServerOptions = NonNullable<Parameters<typeof startDebuggerServer>[0]>;
+
 let latestWorkflowRemoteDebugger: RivetDebuggerServer | null = null;
 let latestWorkflowRemoteDebuggerUpgradeHandlerInitialized = false;
 
@@ -64,7 +66,7 @@ export function initializeLatestWorkflowRemoteDebugger(httpServer: HttpServer): 
   }
 
   latestWorkflowRemoteDebugger = startDebuggerServer({
-    server: webSocketServer,
+    server: webSocketServer as RivetDebuggerServerOptions['server'],
   });
 
   return latestWorkflowRemoteDebugger;

@@ -46,18 +46,18 @@ Important local-Docker wiring note:
 - nginx therefore proxies both `${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH}` and `${RIVET_LATEST_WORKFLOWS_BASE_PATH}` to that same container there
 - the control-plane vs execution-plane labels in the table describe the intended split topology and the route ownership enforced by `RIVET_API_PROFILE`, not a guarantee that local Docker physically runs two API services
 - the executor websocket upstream remains a separate internal service on port `21889`; it must not inherit the API `PORT` value from `.env`
+- in Docker modes the executor process binds to `0.0.0.0` inside its container so nginx can reach the `executor:21889` service; external clients should still use the proxy routes, not the executor container directly
 
 ## Browser-side websocket ownership
 
 The browser transport seams now match the backend route split more explicitly:
 
 - `/?editor` prefers `/ws/executor/internal` for the hosted executor websocket and keeps `/ws/executor` only for upstream-compatible clients
-- `useRemoteExecutor.ts` delegates websocket message dispatch to `remoteExecutorProtocol.ts`
-- hosted remote execution is still explicitly single-run; `remoteExecutionSession.ts` rejects the previous unresolved session if a new run begins
-- `useRemoteDebugger.ts` is a thin subscriber to the module-level singleton in `remoteDebuggerClient.ts`
-- `remoteDebuggerClient.ts` keeps one `/ws/latest-debugger` websocket per page and forwards dataset RPCs to `remoteDebuggerDatasets.ts`
+- the editor mounts through Rivet 2.0's `RivetAppHost` and passes `/ws/executor/internal` as `executor.internalExecutorUrl`
+- upstream Rivet owns the executor session, upload, run, abort, pause/resume, and request-scoped websocket event handling
+- wrapper code still owns dashboard/editor `window.postMessage` commands and hosted project IO
 
-Those websocket modules are separate from the dashboard/editor `window.postMessage` bridge. The bridge coordinates project-open/save/delete/path-move behavior between browsing contexts; the websocket transports talk to executor/debugger routes.
+Those executor websocket responsibilities are separate from the dashboard/editor `window.postMessage` bridge. The bridge coordinates project-open/save/delete/path-move behavior between browsing contexts; the executor session talks to executor routes.
 
 ## `/api/*` route families
 

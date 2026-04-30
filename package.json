@@ -46,6 +46,7 @@
     "dev:docker:config": "node scripts/dev-docker.mjs config",
     "dev:docker:ps": "node scripts/dev-docker.mjs ps",
     "dev:docker:logs": "node scripts/dev-docker.mjs logs",
+    "dev:docker:prepare-rivet-context": "node scripts/prepare-rivet-docker-context.mjs",
     "dev:down": "npm run dev:docker:down",
     "dev:recreate": "npm run dev:docker:recreate",
     "predev:kubernetes-test": "node scripts/ensure-dev-deps.mjs",

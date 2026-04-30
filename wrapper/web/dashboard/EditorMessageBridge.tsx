@@ -9,7 +9,8 @@ import {
   openedProjectsState,
   projectState,
 } from '../../../rivet/packages/app/src/state/savedGraphs';
-import { loadedRecordingState, selectedExecutorState } from '../../../rivet/packages/app/src/state/execution';
+import { loadedRecordingState } from '../../../rivet/packages/app/src/state/execution';
+import { defaultExecutorState } from '../../../rivet/packages/app/src/state/settings';
 import type { WorkflowProjectPathMove } from './types';
 import {
   isDashboardToEditorCommand,
@@ -51,7 +52,7 @@ export const EditorMessageBridge: FC = () => {
   const [loadedProject, setLoadedProject] = useAtom(loadedProjectState);
   const currentProject = useAtomValue(projectState);
   const setLoadedRecording = useSetAtom(loadedRecordingState);
-  const setSelectedExecutor = useSetAtom(selectedExecutorState);
+  const setDefaultExecutor = useSetAtom(defaultExecutorState);
   const openedProjectIds = projects.openedProjectsSortedIds;
   const openProjectRef = useRef(openProject);
   const loadProjectRef = useRef(loadProject);
@@ -244,7 +245,7 @@ export const EditorMessageBridge: FC = () => {
               replaceCurrent: Boolean(event.data.replaceCurrent),
               preferredGraphId,
             });
-            setSelectedExecutor('browser');
+            setDefaultExecutor('browser');
             setLoadedRecording(null);
 
             setLoadedRecording({
@@ -275,7 +276,7 @@ export const EditorMessageBridge: FC = () => {
     setLoadedProject,
     setLoadedRecording,
     setProjects,
-    setSelectedExecutor,
+    setDefaultExecutor,
   ]);
 
   useEffect(() => {

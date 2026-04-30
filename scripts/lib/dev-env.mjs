@@ -15,6 +15,23 @@ export function loadDevEnv(rootDir) {
     ...fileEnv,
   };
 
+  const explicitRivetSourceHostPath = Object.prototype.hasOwnProperty.call(fileEnv, 'RIVET_SOURCE_HOST_PATH')
+    ? String(fileEnv.RIVET_SOURCE_HOST_PATH ?? '').trim()
+    : String(process.env.RIVET_SOURCE_HOST_PATH ?? '').trim();
+  const rivetSourceHostPath = explicitRivetSourceHostPath
+    ? path.resolve(rootDir, explicitRivetSourceHostPath)
+    : path.join(rootDir, 'rivet');
+  mergedEnv.RIVET_SOURCE_HOST_PATH = fs.existsSync(rivetSourceHostPath)
+    ? fs.realpathSync.native(rivetSourceHostPath)
+    : rivetSourceHostPath;
+
+  const explicitRivetSourceBuildContextPath = Object.prototype.hasOwnProperty.call(fileEnv, 'RIVET_SOURCE_BUILD_CONTEXT_PATH')
+    ? String(fileEnv.RIVET_SOURCE_BUILD_CONTEXT_PATH ?? '').trim()
+    : String(process.env.RIVET_SOURCE_BUILD_CONTEXT_PATH ?? '').trim();
+  mergedEnv.RIVET_SOURCE_BUILD_CONTEXT_PATH = explicitRivetSourceBuildContextPath
+    ? path.resolve(rootDir, explicitRivetSourceBuildContextPath)
+    : path.join(rootDir, '.data', 'docker-contexts', 'rivet-source');
+
   if (!Object.prototype.hasOwnProperty.call(fileEnv, 'RIVET_WORKSPACE_ROOT')) {
     mergedEnv.RIVET_WORKSPACE_ROOT = rootDir;
   }

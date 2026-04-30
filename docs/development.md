@@ -9,7 +9,8 @@ See also: [Repo structure](./repo-structure.md)
   - ensures `wrapper/api` and `wrapper/web` dependencies exist
   - clones `rivet/` from the upstream repo if it is missing
   - installs upstream Yarn dependencies and builds `@ironclad/rivet-core` and `@ironclad/rivet-node` when needed
-  - accepts either a Git checkout or a valid upstream snapshot already present in `rivet/`
+  - links `wrapper/api/node_modules/@ironclad/rivet-core` and `@ironclad/rivet-node` to the built packages under `rivet/`, so endpoint execution uses the embedded Rivet source instead of the npm fallback package
+  - accepts either a Git checkout, a valid upstream snapshot, or a local symlink/junction already present in `rivet/`
 - `npm run setup:k8s-tools`
   - downloads the pinned Helm release into `.data/tools/helm/`
   - use this when you want Kubernetes verification or the local Kubernetes launcher to work without a system Helm install
@@ -26,6 +27,7 @@ See also: [Repo structure](./repo-structure.md)
 | `npm run dev:recreate` | Rebuilds and recreates the Docker dev stack | Pick up Dockerfile/env/runtime changes |
 | `npm run dev:docker:recreate` | Rebuilds and recreates the Docker dev stack without going through the alias | Useful when you want the exact script name that repo instructions refer to |
 | `npm run dev:docker:config` | Renders the merged Docker dev Compose config without starting containers | Verify launcher/env/Compose wiring |
+| `npm run dev:docker:prepare-rivet-context` | Refreshes the filtered upstream Rivet Docker build context | Manual build-context checks without starting Docker |
 | `npm run dev:down` | Stops the Docker dev stack | Cleanup |
 | `npm run dev:docker:ps` | Shows Docker dev container status | Diagnostics |
 | `npm run dev:docker:logs` | Streams Docker dev logs | Diagnostics |
@@ -77,6 +79,8 @@ Current behavior:
   - `RIVET_WORKFLOWS_HOST_PATH=<artifactsRoot>/workflows`
   - `RIVET_WORKFLOW_RECORDINGS_HOST_PATH=<artifactsRoot>/workflow-recordings`
   - `RIVET_RUNTIME_LIBS_HOST_PATH=<artifactsRoot>/runtime-libraries`
+- `RIVET_SOURCE_HOST_PATH` points dev bind mounts at the embedded upstream Rivet source. If it is unset, the launchers resolve `<repo>/rivet` through `fs.realpathSync.native()`, so a Windows junction such as `rivet -> D:\Programming\Rivet2.0` becomes the real host path before Docker sees it.
+- `RIVET_SOURCE_BUILD_CONTEXT_PATH` points Docker image builds at a filtered Rivet source snapshot. If it is unset, build-capable launchers recreate `.data/docker-contexts/rivet-source` from `RIVET_SOURCE_HOST_PATH`, copying package source plus Yarn release metadata while excluding dependency folders, build output, VCS data, and Yarn cache artifacts.
 - if `RIVET_WORKFLOWS_HOST_PATH`, `RIVET_WORKFLOW_RECORDINGS_HOST_PATH`, or `RIVET_RUNTIME_LIBS_HOST_PATH` is present, the launcher resolves it to an absolute host path before invoking Docker Compose
 - explicit `RIVET_WORKFLOWS_HOST_PATH`, `RIVET_WORKFLOW_RECORDINGS_HOST_PATH`, and `RIVET_RUNTIME_LIBS_HOST_PATH` values override the derived paths from `RIVET_ARTIFACTS_HOST_PATH`
 
@@ -249,6 +253,7 @@ The Docker launchers now render layered Compose files:
 - the API uses its own `PORT` contract
 - the executor websocket service is pinned separately to `21889`
 - do not treat `PORT` in `.env` as a shared port for every container; the executor must stay on `21889` unless the nginx upstreams change with it
+- the executor service sets `RIVET_EXECUTOR_HOST=0.0.0.0` in Docker so the proxy container can connect to it over the compose network; do not change that back to `127.0.0.1` unless the proxy and executor are collapsed into the same process/network namespace
 
 - `npm run dev` / `npm run dev:docker:*` use `ops/compose/docker-compose.managed-services.yml` plus `ops/compose/docker-compose.dev.yml`
 - `npm run prod` / `npm run prod:docker:*` use `ops/compose/docker-compose.managed-services.yml` plus `ops/compose/docker-compose.yml`
@@ -262,6 +267,10 @@ Current behavior:
 - the local Docker stacks keep `RIVET_API_PROFILE=combined` by default, so `/api/*`, `${RIVET_LATEST_WORKFLOWS_BASE_PATH}`, and `${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH}` all land on the same `api` container there
 - the `web` service runs the Vite dev server inside the container with live bind mounts
 - the `api` and `executor` services rebuild from Dockerfiles, so Node/runtime changes are picked up without a separate manual build step
+- the API image builds `rivet/packages/core` and `rivet/packages/node`, then links `wrapper/api` to those built package directories before compiling the API; this keeps hosted endpoint execution on the same Rivet source tree as the editor and executor
+- the Docker dev API waits for the web service to populate the shared `rivet_node_modules` volume, then copies only `rivet/packages/core` and `rivet/packages/node` into `/app/.rivet-source`, attaches `/workspace/rivet/node_modules` beside that copy, and relinks `@ironclad/rivet-core` / `@ironclad/rivet-node` to the internal copy. That keeps Node package resolution inside the container even when `rivet/` is a Windows junction target, avoids duplicating the upstream dependency install, and avoids writing API helper links into the external Rivet checkout.
+- Docker image builds receive upstream Rivet through the named `rivet_source` build context instead of `COPY rivet/` from the main repo context; local launchers feed that context from `.data/docker-contexts/rivet-source` so linked Rivet checkouts do not send `node_modules`, `.git`, or Yarn cache artifacts to BuildKit
+- `npm run dev:docker:prepare-rivet-context` refreshes that filtered context without starting Docker, which is useful before manual `docker build --build-context rivet_source=.data/docker-contexts/rivet-source ...` checks
 - the Docker Compose stacks set `HOME=/home/rivet` and keep npm/Yarn caches there so pulled non-root images and locally built images use the same runtime cache contract
 - the launcher waits for healthy services; `RIVET_DOCKER_WAIT_TIMEOUT` controls the wait window
 - in `RIVET_STORAGE_MODE=managed`, both workflow state and runtime-library releases come from managed services, while `/data/runtime-libraries` remains only an extracted local cache/workspace inside each container
@@ -342,8 +351,13 @@ When adding new code, keep the post-refactor ownership seams explicit instead of
   - `useEditorCommandQueue.ts` owns pre-ready command buffering
   - `useEditorBridgeEvents.ts` owns dashboard-side message listeners and cross-iframe save shortcut capture
   - `EditorMessageBridge.tsx` owns editor-side message handling
-- remote debugger/executor transport code belongs in `wrapper/web/overrides/hooks/`
-  - keep exported hooks thin over `remoteDebuggerClient.ts`, `remoteDebuggerDatasets.ts`, `remoteExecutorProtocol.ts`, and `remoteExecutionSession.ts`
+- editor executor transport should prefer Rivet's upstream host/session seam
+  - mount the editor through `RivetAppHost`
+  - pass the hosted executor websocket through `executor.internalExecutorUrl`
+  - do not reintroduce `useGraphExecutor`, `useRemoteExecutor`, or `useRemoteDebugger` overrides unless the upstream seam no longer covers hosted behavior
+- API workflow execution should resolve `@ironclad/rivet-node` through `scripts/link-rivet-node-package.mjs`
+  - keep local setup and API image builds linking to `rivet/packages/node` plus `rivet/packages/core`
+  - do not add direct API imports from `rivet/packages/*/src`; the package-name import remains the stable seam
 - Kubernetes template reuse should stay shallow
   - use `_env.tpl` and `_pod.tpl` for genuinely repeated backend/execution blocks
   - keep `proxy` and `web` explicit unless extraction clearly improves readability

@@ -85,6 +85,8 @@ jobs:
         with:
           context: .
           file: ${{ matrix.dockerfile }}
+          build-contexts: |
+            rivet_source=./rivet
           platforms: ${{ matrix.platforms }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}

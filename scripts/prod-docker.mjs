@@ -11,6 +11,7 @@ import {
   assertNoRetiredEnv,
   enableManagedWorkflowProfileIfNeeded,
 } from './lib/docker-launcher-env.mjs';
+import { prepareRivetDockerContext } from './lib/rivet-source-context.mjs';
 
 const rootDir = process.cwd();
 let composeBase = 'docker compose -f ops/compose/docker-compose.managed-services.yml -f ops/compose/docker-compose.yml';
@@ -34,6 +35,10 @@ async function main() {
 
   assertNoRetiredEnv(mergedEnv, { launcherName: 'prod-docker', envFileLabel });
   enableManagedWorkflowProfileIfNeeded(mergedEnv);
+
+  if (buildHeavyActions.has(action)) {
+    prepareRivetDockerContext(rootDir, mergedEnv);
+  }
 
   const waitTimeoutSeconds = parseInt(mergedEnv.RIVET_DOCKER_WAIT_TIMEOUT ?? '900', 10);
   const proxyPort = assertValidPort(mergedEnv.RIVET_PORT, 8080);

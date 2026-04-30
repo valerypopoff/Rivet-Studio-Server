@@ -41,6 +41,21 @@ function exists(relPath) {
   return fs.existsSync(path.join(rootDir, relPath));
 }
 
+function isLinkedTo(relPath, targetRelPath) {
+  const fullPath = path.join(rootDir, relPath);
+  const targetPath = path.join(rootDir, targetRelPath);
+
+  if (!fs.existsSync(fullPath) || !fs.existsSync(targetPath)) {
+    return false;
+  }
+
+  try {
+    return fs.realpathSync(fullPath) === fs.realpathSync(targetPath);
+  } catch {
+    return false;
+  }
+}
+
 function hasExpectedRivetWorkspace() {
   const requiredEntries = [
     'rivet/package.json',
@@ -89,8 +104,18 @@ const needsRivetDeps =
   !exists('rivet/.yarn/unplugged/esbuild-npm-0.19.5-107ce8536d/node_modules/esbuild');
 const needsRivetCoreBuild = !exists('rivet/packages/core/dist/esm/index.js');
 const needsRivetNodeBuild = !exists('rivet/packages/node/dist/esm/index.js');
+const needsApiRivetLinks =
+  !isLinkedTo('wrapper/api/node_modules/@ironclad/rivet-core', 'rivet/packages/core') ||
+  !isLinkedTo('wrapper/api/node_modules/@ironclad/rivet-node', 'rivet/packages/node');
 
-if (!needsApiDeps && !needsWebDeps && !needsRivetDeps && !needsRivetCoreBuild && !needsRivetNodeBuild) {
+if (
+  !needsApiDeps &&
+  !needsWebDeps &&
+  !needsRivetDeps &&
+  !needsRivetCoreBuild &&
+  !needsRivetNodeBuild &&
+  !needsApiRivetLinks
+) {
   process.exit(0);
 }
 
@@ -119,6 +144,11 @@ if (needsRivetCoreBuild) {
 if (needsRivetNodeBuild) {
   console.log('[predev] Building @ironclad/rivet-node');
   run(corepackCmd, ['yarn', 'workspace', '@ironclad/rivet-node', 'run', 'build'], path.join(rootDir, 'rivet'));
+}
+
+if (needsApiRivetLinks || needsApiDeps || needsRivetCoreBuild || needsRivetNodeBuild) {
+  console.log('[predev] Linking wrapper/api to local Rivet packages');
+  run(process.execPath, ['scripts/link-rivet-node-package.mjs']);
 }
 
 console.log('[predev] Dependencies are ready.');
