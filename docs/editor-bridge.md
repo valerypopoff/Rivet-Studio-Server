@@ -37,7 +37,7 @@ All message types live in `wrapper/shared/editor-bridge.ts`. Both sides import f
 1. The dashboard renders the iframe. The editor emits `editor-ready` once mounted.
 2. Commands sent before `editor-ready` are buffered by `useEditorCommandQueue` and flushed once the editor is ready.
 3. Both sides validate message shape and origin before acting.
-4. `open-project` uses the project reference supplied by the workflow tree and opens it through `HostedIOProvider`.
+4. `open-project` uses the project reference supplied by the workflow tree and opens it through `HostedIOProvider`. The editor stores lightweight tab metadata separately from the full project snapshot, and direct workflow opens pass the freshly loaded snapshot into the loader so the clicked project becomes the active editor tab immediately.
 5. In `filesystem` mode that reference is a real server filesystem path. In `managed` mode it is a virtual managed path under `/managed/workflows/...`, even though the shared bridge type still uses the legacy field name `path`.
 6. `open-recording` first fetches the serialized recorder payload for the selected `recordingId`, extracts the preferred start graph, and asks the editor to open the virtual path `recording://<recordingId>/replay.rivet-project`.
 7. When that virtual path loads, `HostedIOProvider` fetches the replay project and optional replay dataset from the API and imports the dataset snapshot into browser replay state.

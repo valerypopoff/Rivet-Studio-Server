@@ -10,6 +10,10 @@ function readRepoFile(relativePath: string): string {
   return fs.readFileSync(new URL(`../../../../${relativePath}`, import.meta.url), 'utf8');
 }
 
+function readRepoFileBytes(relativePath: string): Buffer {
+  return fs.readFileSync(new URL(`../../../../${relativePath}`, import.meta.url));
+}
+
 function renderLocalKubernetesChart(): string {
   return execFileSync(
     'helm',
@@ -37,6 +41,15 @@ test('proxy template keeps published traffic on execution upstream, latest debug
   assert.match(proxyBootstrap, /resolve_proxy_resolver\(\)/);
   assert.match(proxyBootstrap, /export RIVET_PROXY_RESOLVER="\$\(resolve_proxy_resolver "\$\{RIVET_PROXY_RESOLVER:-\}"\)"/);
   assert.ok(!proxyTemplate.includes('location /internal/workflows'));
+});
+
+test('proxy shell entrypoints stay LF-normalized for Linux containers', () => {
+  const gitattributes = readRepoFile('.gitattributes');
+  const proxyBootstrapBytes = readRepoFileBytes('image/proxy/normalize-workflow-paths.sh');
+
+  assert.match(gitattributes, /^\*\.sh text eol=lf$/m);
+  assert.equal(proxyBootstrapBytes.includes(Buffer.from('\r\n')), false);
+  assert.match(proxyBootstrapBytes.toString('utf8'), /^#!\/bin\/sh\n/);
 });
 
 test('proxy templates pin standard HTTP upstream routes to the configurable 3 minute timeout while keeping websocket routes long-lived', () => {
@@ -119,6 +132,46 @@ test('API images link workflow execution to the embedded Rivet source tree', () 
   assert.match(kubernetesLauncher, /--build-context/);
   assert.match(kubernetesLauncher, /rivet_source=\$\{rivetSourceBuildContextPath\}/);
   assert.match(imageBuildWorkflow, /build-contexts:\s*\|\s*\n\s*rivet_source=\.\/rivet/);
+});
+
+test('hosted editor opened-project overrides follow Rivet 2 project metadata and snapshot state', () => {
+  const openWorkflowProject = readRepoFile('wrapper/web/dashboard/useOpenWorkflowProject.ts');
+  const loadProjectOverride = readRepoFile('wrapper/web/overrides/hooks/useLoadProject.ts');
+  const syncOpenedProjectsOverride = readRepoFile('wrapper/web/overrides/hooks/useSyncCurrentStateIntoOpenedProjects.ts');
+
+  assert.match(openWorkflowProject, /openedProjectSnapshotsState/);
+  assert.match(openWorkflowProject, /useStore/);
+  assert.match(openWorkflowProject, /activeOpenedProjectIds/);
+  assert.match(openWorkflowProject, /resetOpenProjectState/);
+  assert.match(openWorkflowProject, /function removeOpenedProject/);
+  assert.match(openWorkflowProject, /withHostedProjectTitle/);
+  assert.match(openWorkflowProject, /title: resolveHostedProjectTitle\(project, filePath\)/);
+  assert.match(openWorkflowProject, /projectId: project\.metadata\.id/);
+  assert.match(openWorkflowProject, /const projectSnapshot = \{/);
+  assert.match(openWorkflowProject, /data: project\.data/);
+  assert.match(openWorkflowProject, /await loadProject\(projectInfo, projectSnapshot\)/);
+  assert.match(openWorkflowProject, /removeOpenedProject\(prev, project\.metadata\.id\)/);
+  assert.doesNotMatch(openWorkflowProject, /projectInfo\.project\./);
+
+  assert.match(loadProjectOverride, /openedProjectSnapshotsState/);
+  assert.match(loadProjectOverride, /useWorkspaceTransitions/);
+  assert.match(loadProjectOverride, /useStore/);
+  assert.match(loadProjectOverride, /providedSnapshot/);
+  assert.match(loadProjectOverride, /Promise<boolean>/);
+  assert.match(loadProjectOverride, /store\.get\(openedProjectSnapshotsState\)/);
+  assert.match(loadProjectOverride, /loadedProject\.loaded/);
+  assert.match(loadProjectOverride, /projectInfo\.projectId/);
+  assert.doesNotMatch(loadProjectOverride, /setProject\(projectInfo\.project\)/);
+
+  assert.match(syncOpenedProjectsOverride, /addOpenedProject/);
+  assert.match(syncOpenedProjectsOverride, /resolveHostedProjectTitle/);
+  assert.match(syncOpenedProjectsOverride, /withHostedProjectTitle/);
+  assert.match(syncOpenedProjectsOverride, /suppressedClosedProjectIdsRef/);
+  assert.match(syncOpenedProjectsOverride, /openedProjectIds\.length > 0 && !openedProjectIds\.includes\(currentProjectId\)/);
+  assert.match(syncOpenedProjectsOverride, /Object\.keys\(previousProjects\.openedProjects\)\.length !== nextOpenedProjectIds\.length/);
+  assert.match(syncOpenedProjectsOverride, /openProjectIdSet/);
+  assert.match(syncOpenedProjectsOverride, /openedProjectSnapshotsState/);
+  assert.doesNotMatch(syncOpenedProjectsOverride, /project: currentProject/);
 });
 
 test('docker compose files keep runtime caches and executor app-data under /home/rivet to match the non-root image contract', () => {

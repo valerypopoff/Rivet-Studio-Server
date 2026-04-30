@@ -1,83 +1,83 @@
-import { type OpenedProjectInfo, loadedProjectState, projectState } from '../../../../rivet/packages/app/src/state/savedGraphs.js';
-import { emptyNodeGraph, getError } from '@ironclad/rivet-core';
-import { graphState, historicalGraphState, isReadOnlyGraphState } from '../../../../rivet/packages/app/src/state/graph.js';
-import { ioProvider } from '../../../../rivet/packages/app/src/utils/globals.js';
-import { trivetState } from '../../../../rivet/packages/app/src/state/trivet.js';
-import { useSetStaticData } from '../../../../rivet/packages/app/src/hooks/useSetStaticData.js';
+import { getError } from '@ironclad/rivet-core';
+import {
+  loadedProjectState,
+  type OpenedProjectSnapshot,
+  openedProjectSnapshotsState,
+  type OpenedProjectInfo,
+  projectDataState,
+  projectState,
+} from '../../../../rivet/packages/app/src/state/savedGraphs.js';
+import { isPathBasedIOProvider } from '../../../../rivet/packages/app/src/io/IOProvider.js';
+import { useIOProvider } from '../../../../rivet/packages/app/src/providers/ProvidersContext.js';
+import { useWorkspaceTransitions } from '../../../../rivet/packages/app/src/hooks/useWorkspaceTransitions.js';
+import type { TrivetState } from '../../../../rivet/packages/app/src/state/trivet.js';
 import { toast } from 'react-toastify';
-import { graphNavigationStackState } from '../../../../rivet/packages/app/src/state/graphBuilder.js';
-import { useSetAtom } from 'jotai';
+import { useStore } from 'jotai';
 import { getOpenedProjectSession, primeOpenedProjectSession } from '../../io/openedProjectSessionCache.js';
 
 export function useLoadProject() {
-  const setProject = useSetAtom(projectState);
-  const setLoadedProjectState = useSetAtom(loadedProjectState);
-  const setGraphData = useSetAtom(graphState);
-  const setTrivetState = useSetAtom(trivetState);
-  const setStaticData = useSetStaticData();
-  const setNavigationStack = useSetAtom(graphNavigationStackState);
-  const setIsReadOnlyGraph = useSetAtom(isReadOnlyGraphState);
-  const setHistoricalGraph = useSetAtom(historicalGraphState);
+  const store = useStore();
+  const ioProvider = useIOProvider();
+  const workspaceTransitions = useWorkspaceTransitions();
 
-  return async (projectInfo: OpenedProjectInfo) => {
+  return async (projectInfo: OpenedProjectInfo, providedSnapshot?: OpenedProjectSnapshot): Promise<boolean> => {
     try {
-      setProject(projectInfo.project);
-
-      setNavigationStack({ stack: [], index: undefined });
-
-      setIsReadOnlyGraph(false);
-      setHistoricalGraph(null);
-
-      if (projectInfo.openedGraph) {
-        const graphData = projectInfo.project.graphs[projectInfo.openedGraph];
-        if (graphData) {
-          setGraphData(graphData);
-        } else {
-          setGraphData(emptyNodeGraph());
-        }
-      } else {
-        setGraphData(emptyNodeGraph());
+      const currentProject = store.get(projectState);
+      const currentProjectData = store.get(projectDataState);
+      const loadedProject = store.get(loadedProjectState);
+      const openedProjectSnapshots = store.get(openedProjectSnapshotsState);
+      const nextProjectPath = projectInfo.fsPath ?? '';
+      if (
+        currentProject.metadata.id === projectInfo.projectId &&
+        loadedProject.loaded &&
+        loadedProject.path === nextProjectPath
+      ) {
+        return true;
       }
 
-      if (projectInfo.project.data) {
-        setStaticData(projectInfo.project.data);
-      }
+      const activeProjectSnapshot =
+        currentProject.metadata.id === projectInfo.projectId
+          ? {
+              project: currentProject,
+              data: currentProjectData,
+            }
+          : undefined;
+      const storedSnapshot = activeProjectSnapshot ?? providedSnapshot ?? openedProjectSnapshots[projectInfo.projectId];
+      let project = storedSnapshot?.project;
+      let data = storedSnapshot?.data;
+      let testSuites: TrivetState['testSuites'] = [];
 
-      setLoadedProjectState({
-        path: projectInfo.fsPath ?? '',
-        loaded: true,
-      });
-
-      if (projectInfo.fsPath) {
-        let testData = getOpenedProjectSession(projectInfo.project.metadata.id, projectInfo.fsPath);
+      if (projectInfo.fsPath && isPathBasedIOProvider(ioProvider)) {
+        let testData = getOpenedProjectSession(projectInfo.projectId, projectInfo.fsPath);
 
         if (!testData) {
           const loadedProject = await ioProvider.loadProjectDataNoPrompt(projectInfo.fsPath);
+          project ??= loadedProject.project;
+          data ??= loadedProject.project.data;
           testData = loadedProject.testData;
-          primeOpenedProjectSession(projectInfo.project.metadata.id, {
+          primeOpenedProjectSession(projectInfo.projectId, {
             fsPath: projectInfo.fsPath,
             testData,
           });
         }
 
-        setTrivetState({
-          testSuites: testData.testSuites,
-          selectedTestSuiteId: undefined,
-          editingTestCaseId: undefined,
-          recentTestResults: undefined,
-          runningTests: false,
-        });
-      } else {
-        setTrivetState({
-          testSuites: [],
-          selectedTestSuiteId: undefined,
-          editingTestCaseId: undefined,
-          recentTestResults: undefined,
-          runningTests: false,
-        });
+        testSuites = testData.testSuites;
       }
+
+      if (!project) {
+        throw new Error(`No in-memory snapshot is available for "${projectInfo.title}".`);
+      }
+
+      return await workspaceTransitions.loadProject({
+        project,
+        data,
+        fsPath: projectInfo.fsPath,
+        openedGraph: projectInfo.openedGraph,
+        testSuites,
+      });
     } catch (err) {
       toast.error(`Failed to load project: ${getError(err).message}`);
+      return false;
     }
   };
 }

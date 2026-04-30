@@ -263,6 +263,7 @@ Current behavior:
 
 - the browser entrypoint is still `http://localhost:8080` through nginx by default; override it with `RIVET_PORT` if needed
 - the API is also exposed directly on `http://localhost:3100` for diagnostics
+- proxy startup scripts are Linux shell scripts mounted into nginx containers, and the repo pins `*.sh` files to LF line endings so Windows checkouts do not inject CRLF characters into `/bin/sh`
 - standard proxied HTTP routes now default to a `180s` upstream timeout through `RIVET_PROXY_READ_TIMEOUT`; websocket routes stay long-lived separately
 - the local Docker stacks keep `RIVET_API_PROFILE=combined` by default, so `/api/*`, `${RIVET_LATEST_WORKFLOWS_BASE_PATH}`, and `${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH}` all land on the same `api` container there
 - the `web` service runs the Vite dev server inside the container with live bind mounts
@@ -355,6 +356,15 @@ When adding new code, keep the post-refactor ownership seams explicit instead of
   - mount the editor through `RivetAppHost`
   - pass the hosted executor websocket through `executor.internalExecutorUrl`
   - do not reintroduce `useGraphExecutor`, `useRemoteExecutor`, or `useRemoteDebugger` overrides unless the upstream seam no longer covers hosted behavior
+- hosted opened-project hooks should preserve Rivet 2.0's split tab state
+  - keep `projectsState.openedProjects` as lightweight tab metadata: project id, title, path, and opened graph
+  - keep full in-memory project content in `openedProjectSnapshotsState`
+  - resolve tab titles through the wrapper helper so old projects or legacy persisted tab entries fall back to the project filename instead of rendering missing, `undefined`, or `null` labels
+  - when the visible tab strip is empty, the next workflow open must reset opened-project metadata and snapshots instead of merging hidden stale entries from older sessions
+  - after the tab strip remounts, do not let the previous `projectState` re-add itself unless its project id is already present in the visible opened-project id list
+  - project loading must read the latest atom store at call time, and direct workflow opens should pass their freshly loaded snapshot into the loader instead of depending on a just-written atom value to be visible immediately
+  - if direct workflow activation fails after adding tab metadata, roll back that tab metadata and snapshot so the editor cannot be left with a visible but inactive half-open tab
+  - when fixing tab close/switch behavior, update the wrapper overrides rather than storing full project objects back into `projectsState.openedProjects`
 - API workflow execution should resolve `@ironclad/rivet-node` through `scripts/link-rivet-node-package.mjs`
   - keep local setup and API image builds linking to `rivet/packages/node` plus `rivet/packages/core`
   - do not add direct API imports from `rivet/packages/*/src`; the package-name import remains the stable seam

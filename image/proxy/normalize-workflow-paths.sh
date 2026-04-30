@@ -1,3 +1,5 @@
+#!/bin/sh
+
 normalize_path() {
   value="$1"
   fallback="$2"

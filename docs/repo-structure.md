@@ -61,6 +61,8 @@ Examples:
 
 Compose-only proxy templates do not belong here if they are specific to the local Docker topology.
 
+Proxy shell scripts run inside Linux containers, so they must stay LF-normalized even on Windows checkouts. The root `.gitattributes` pins `*.sh` files to `eol=lf` for that reason.
+
 ## What belongs in `ops/`
 
 `ops/` is deployment-only.
