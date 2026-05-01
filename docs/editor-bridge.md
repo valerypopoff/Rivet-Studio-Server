@@ -37,13 +37,13 @@ All message types live in `wrapper/shared/editor-bridge.ts`. Both sides import f
 1. The dashboard renders the iframe. The editor emits `editor-ready` once mounted.
 2. Commands sent before `editor-ready` are buffered by `useEditorCommandQueue` and flushed once the editor is ready.
 3. Both sides validate message shape and origin before acting.
-4. `open-project` uses the project reference supplied by the workflow tree and opens it through `HostedIOProvider`. The editor stores lightweight tab metadata separately from the full project snapshot, and direct workflow opens pass the freshly loaded snapshot into the loader so the clicked project becomes the active editor tab immediately.
+4. `open-project` uses the project reference supplied by the workflow tree, loads the snapshot through `HostedIOProvider`, then opens or replaces it through Rivet's `RivetWorkspaceHost`. The wrapper keeps only the hosted path lookup, duplicate-id guard, stale-empty-tab cleanup, and replace-current confirmation around that upstream workspace handle.
 5. In `filesystem` mode that reference is a real server filesystem path. In `managed` mode it is a virtual managed path under `/managed/workflows/...`, even though the shared bridge type still uses the legacy field name `path`.
 6. `open-recording` first fetches the serialized recorder payload for the selected `recordingId`, extracts the preferred start graph, and asks the editor to open the virtual path `recording://<recordingId>/replay.rivet-project`.
 7. When that virtual path loads, `HostedIOProvider` fetches the replay project and optional replay dataset from the API and imports the dataset snapshot into browser replay state.
 8. Replay projects are read-only. A plain save from a replay project throws and the user must use Save As to create a normal project file.
-9. `delete-workflow-project` removes the matching open tab inside the editor. If that tab was active, the bridge selects a fallback open project when possible.
-10. `workflow-paths-moved` rewrites already-open project references after rename/move so open tabs, loaded-project state, and later saves keep pointing at the new location. In `managed` mode those `fromAbsolutePath` and `toAbsolutePath` fields contain managed virtual project paths rather than host filesystem paths.
+9. `delete-workflow-project` resolves the hosted path to the current open project id, then calls `RivetWorkspaceHost.closeProject()`. If that tab was active, upstream Rivet owns the fallback-tab load and can fail safely without dropping the current tab.
+10. `workflow-paths-moved` rewrites wrapper revision/session caches and then calls `RivetWorkspaceHost.moveProjectPaths()` so open tabs, loaded-project state, and later saves keep pointing at the new location. In `managed` mode those `fromAbsolutePath` and `toAbsolutePath` fields contain managed virtual project paths rather than host filesystem paths.
 11. Folder rename uses that same `workflow-paths-moved` path-rewrite flow for every affected project path under the folder.
 12. Project duplication does not use the editor bridge. The dashboard calls `POST /api/workflows/projects/duplicate` directly, refreshes the workflow tree, and intentionally leaves selection and open tabs unchanged.
 13. Project uploading also does not use the editor bridge. The dashboard opens a browser file picker, posts the selected file to `POST /api/workflows/projects/upload`, refreshes the workflow tree, and leaves selection and open tabs unchanged.
@@ -68,13 +68,13 @@ That lets the hosted shell behave like a single app even though the editor lives
 
 Node copy/paste shortcuts do not cross the editor bridge.
 
-- `Ctrl+C`, `Ctrl+V`, and `Ctrl+D` stay inside the iframe, but hosted builds replace the upstream hotkey hook with a tracked wrapper override so copy/paste reads the latest Jotai state immediately instead of waiting for a React re-render.
+- `Ctrl+C`, `Ctrl+X`, `Ctrl+V`, and `Ctrl+D` stay inside the iframe, but hosted builds replace the upstream hotkey hook with a tracked wrapper override so copy/cut/paste reads the latest Jotai state immediately instead of waiting for a React re-render.
 - The dashboard does not relay those shortcuts to the iframe. That approach was intentionally avoided because iframe-focused keyboard events are not reliable at the parent-page level.
 - In hosted mode, shortcut reliability depends on editor focus, not dashboard focus. The hosted wrapper therefore explicitly focuses the iframe after `project-opened` and reclaims iframe focus on capture-phase pointer interactions inside `.node-canvas`.
 - On those canvas interactions, the hosted editor bridge also focuses the canvas element itself unless the click is on a real form control, and blurs stale editor-local text inputs before keyboard node actions run.
 - The hosted wrapper also replaces the upstream context-menu hook so closing a context menu clears any focused search input instead of leaving a hidden text field intercepting shortcuts.
 - The hosted wrapper keeps the iframe and canvas focusable for keyboard reliability but suppresses their visible browser focus outline, so the editor does not show a white perimeter when focused.
-- Save is still special: it crosses the bridge when initiated outside the iframe, but copy/paste/duplicate stay editor-local and iframe-focused save is handled directly inside the editor context.
+- Save is still special: it crosses the bridge when initiated outside the iframe, but copy/cut/paste/duplicate stay editor-local and iframe-focused save is handled directly inside the editor context.
 
 ## Adjacent hosted execution transport
 
@@ -82,7 +82,8 @@ The editor bridge is not the same thing as the executor/debugger websocket trans
 
 - the editor-side bridge remains in `wrapper/web/dashboard/EditorMessageBridge.tsx`; executor UI classification stays in upstream Rivet's `useExecutorSession` / `useRemoteDebugger` flow through `executor.internalExecutorUrl`
 - executor transport ownership stays in upstream Rivet app code (`useExecutorSession`, `useRemoteDebugger`, `useRemoteExecutor`, and the shared executor-session runtime); the wrapper passes the hosted executor URL and does not alias those transport/debugger hooks
-- hosted wrapper code still owns project-open/delete/path-move messages, parent-page save relay, and hosted IO adapters; upstream Rivet owns the actual save transition
+- hosted wrapper code still owns project-open/delete/path-move messages, parent-page save relay, and hosted IO adapters; upstream Rivet owns workspace transitions, tab close fallback, path moves, and the actual save transition
+- hosted provider wiring is explicit in `hostedRivetProviders`: the wrapper passes `HostedIOProvider`, the shared browser dataset provider, hosted environment lookup, and hosted path-policy reads into `RivetAppHost.providers`
 - stale wrapper transport override files were removed after the Rivet 2 seam migration; do not restore `useExecutorSession`, `useRemoteDebugger`, `useGraphExecutor`, or `useRemoteExecutor` aliases unless the upstream seam is removed
 
 Those execution websocket responsibilities are separate from the dashboard/editor `window.postMessage` bridge. The bridge moves open/save/delete/path-move intent between browsing contexts; the Rivet executor session talks to `/ws/executor*`.
@@ -97,7 +98,8 @@ Those execution websocket responsibilities are separate from the dashboard/edito
 - `wrapper/web/dashboard/editorBridgeFocus.ts` - iframe/canvas focus helpers and save-shortcut detection
 - `wrapper/web/dashboard/EditorMessageBridge.tsx` - editor-side message handling
 - `wrapper/web/dashboard/HostedEditorApp.tsx` - `RivetAppHost` callback forwarding for active project, open project count, and saved project events
-- `wrapper/web/dashboard/useOpenWorkflowProject.ts` - open/replace-current behavior inside the editor
+- `wrapper/web/dashboard/hostedRivetProviders.ts` - explicit provider overrides passed into `RivetAppHost`
+- `wrapper/web/dashboard/useOpenWorkflowProject.ts` - hosted path loading, duplicate-id checks, and open/replace-current calls into `RivetWorkspaceHost`
 - `wrapper/web/io/HostedIOProvider.ts` - API-backed project loading/saving plus replay-project loading
 - `wrapper/web/overrides/hooks/useCopyNodesHotkeys.ts` - hosted clipboard hotkey override that reads the latest node state synchronously
 - `wrapper/web/overrides/hooks/useContextMenu.ts` - hosted context-menu override that clears stale focused menu inputs

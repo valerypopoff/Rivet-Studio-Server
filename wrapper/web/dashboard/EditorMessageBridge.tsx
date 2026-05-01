@@ -1,16 +1,15 @@
 import { type FC, useEffect, useRef } from 'react';
 import { useOpenWorkflowProject } from './useOpenWorkflowProject';
 import { ExecutionRecorder, getError } from '@ironclad/rivet-core';
-import { useAtom, useAtomValue, useSetAtom } from 'jotai';
+import { useAtomValue, useSetAtom } from 'jotai';
 import {
   loadedProjectState,
-  type OpenedProjectInfo,
+  type OpenedProjectsInfo,
   projectsState,
-  openedProjectsState,
-  projectState,
 } from '../../../rivet/packages/app/src/state/savedGraphs';
 import { loadedRecordingState } from '../../../rivet/packages/app/src/state/execution';
 import { defaultExecutorState } from '../../../rivet/packages/app/src/state/settings';
+import { useRivetWorkspaceHost } from '../../../rivet/packages/app/src/host';
 import type { WorkflowProjectPathMove } from './types';
 import {
   isDashboardToEditorCommand,
@@ -21,7 +20,6 @@ import { getWorkflowRecordingVirtualProjectPath } from '../../shared/workflow-re
 import { fetchWorkflowRecordingArtifactText } from './workflowApi';
 import { clearOpenedProjectSession, remapOpenedProjectSessionPaths } from '../io/openedProjectSessionCache';
 import { clearHostedProjectRevisionPath, remapHostedProjectRevisionPaths } from '../io/HostedIOProvider';
-import { useLoadProject } from '../overrides/hooks/useLoadProject';
 import { useSaveProject } from '../../../rivet/packages/app/src/hooks/useSaveProject';
 import {
   focusHostedEditorCanvas,
@@ -44,21 +42,23 @@ function getRecordingStartGraphId(recorder: ExecutionRecorder): string | undefin
 }
 
 export const EditorMessageBridge: FC = () => {
+  const workspace = useRivetWorkspaceHost();
   const openProject = useOpenWorkflowProject();
-  const loadProject = useLoadProject();
   const { saveProject } = useSaveProject();
-  const [projects, setProjects] = useAtom(projectsState);
-  const [openedProjects, setOpenedProjects] = useAtom(openedProjectsState);
-  const [loadedProject, setLoadedProject] = useAtom(loadedProjectState);
-  const currentProject = useAtomValue(projectState);
+  const projects = useAtomValue(projectsState);
+  const loadedProject = useAtomValue(loadedProjectState);
+  const setLoadedProject = useSetAtom(loadedProjectState);
   const setLoadedRecording = useSetAtom(loadedRecordingState);
   const setDefaultExecutor = useSetAtom(defaultExecutorState);
-  const openedProjectIds = projects.openedProjectsSortedIds;
+  const projectsRef = useRef<OpenedProjectsInfo>(projects);
+  const loadedProjectRef = useRef(loadedProject);
+  const workspaceRef = useRef(workspace);
   const openProjectRef = useRef(openProject);
-  const loadProjectRef = useRef(loadProject);
   const saveProjectRef = useRef(saveProject);
+  projectsRef.current = projects;
+  loadedProjectRef.current = loadedProject;
+  workspaceRef.current = workspace;
   openProjectRef.current = openProject;
-  loadProjectRef.current = loadProject;
   saveProjectRef.current = saveProject;
 
   const saveCurrentProject = async () => {
@@ -126,42 +126,22 @@ export const EditorMessageBridge: FC = () => {
 
         case 'delete-workflow-project': {
           const deletedPath = event.data.path;
+          const latestProjects = projectsRef.current;
+          const openedProjects = latestProjects.openedProjects;
+          const openedProjectIds = latestProjects.openedProjectsSortedIds.filter((projectId) => openedProjects[projectId] != null);
           const deletedProjectId = openedProjectIds.find((projectId) => openedProjects[projectId]?.fsPath === deletedPath);
           clearHostedProjectRevisionPath(deletedPath);
 
           if (!deletedProjectId) {
-            if (loadedProject.path === deletedPath) {
+            if (loadedProjectRef.current.path === deletedPath) {
               setLoadedProject({ loaded: false, path: '' });
             }
             break;
           }
 
-          const deletedProjectIndex = openedProjectIds.indexOf(deletedProjectId);
-          const nextOpenedProjectIds = openedProjectIds.filter((projectId) => projectId !== deletedProjectId);
-          const remainingProjects = Object.fromEntries(
-            Object.entries(openedProjects).filter(([projectId]) => projectId !== deletedProjectId),
-          ) as Record<string, OpenedProjectInfo>;
-          clearOpenedProjectSession(deletedProjectId);
-
-          setProjects({
-            openedProjects: remainingProjects,
-            openedProjectsSortedIds: nextOpenedProjectIds,
-          });
-
-          if (nextOpenedProjectIds.length === 0) {
-            setLoadedProject({ loaded: false, path: '' });
-            break;
-          }
-
-          const fallbackProjectId = nextOpenedProjectIds[deletedProjectIndex] ?? nextOpenedProjectIds[deletedProjectIndex - 1];
-
-          if (deletedProjectId === currentProject.metadata.id && fallbackProjectId && remainingProjects[fallbackProjectId]) {
-            await loadProjectRef.current(remainingProjects[fallbackProjectId]!);
-          } else if (loadedProject.path === deletedPath) {
-            setLoadedProject({
-              loaded: true,
-              path: remainingProjects[fallbackProjectId!]?.fsPath ?? '',
-            });
+          const closed = await workspaceRef.current.closeProject(deletedProjectId);
+          if (closed) {
+            clearOpenedProjectSession(deletedProjectId);
           }
 
           break;
@@ -173,37 +153,25 @@ export const EditorMessageBridge: FC = () => {
             break;
           }
 
-          const moveMap = new Map(moves.map((move) => [move.fromAbsolutePath, move.toAbsolutePath]));
           remapOpenedProjectSessionPaths(moves);
           remapHostedProjectRevisionPaths(moves);
-          const openedProjectsRecord = openedProjects as Record<string, OpenedProjectInfo>;
-          const nextOpenedProjects = Object.fromEntries(
-            Object.entries(openedProjectsRecord).map(([projectId, projectInfo]) => [
-              projectId,
-              projectInfo.fsPath && moveMap.has(projectInfo.fsPath)
-                ? {
-                    ...projectInfo,
-                    fsPath: moveMap.get(projectInfo.fsPath)!,
-                  }
-                : projectInfo,
-            ]),
-          ) as Record<string, OpenedProjectInfo>;
-
-          setOpenedProjects(nextOpenedProjects);
-
-          if (loadedProject.path && moveMap.has(loadedProject.path)) {
-            setLoadedProject({
-              ...loadedProject,
-              path: moveMap.get(loadedProject.path)!,
-            });
-          }
+          workspaceRef.current.moveProjectPaths(
+            moves.map((move) => ({
+              from: move.fromAbsolutePath,
+              to: move.toAbsolutePath,
+            })),
+          );
 
           break;
         }
 
         case 'open-project': {
           try {
-            await openProjectRef.current(event.data.path, { replaceCurrent: Boolean(event.data.replaceCurrent) });
+            const opened = await openProjectRef.current(event.data.path, { replaceCurrent: Boolean(event.data.replaceCurrent) });
+            if (!opened) {
+              break;
+            }
+
             setLoadedRecording(null);
             focusHostedEditorFrame();
             postMessageToDashboard({ type: 'project-opened', path: event.data.path });
@@ -223,10 +191,14 @@ export const EditorMessageBridge: FC = () => {
             const preferredGraphId = getRecordingStartGraphId(recorder);
             const virtualProjectPath = getWorkflowRecordingVirtualProjectPath(event.data.recordingId);
 
-            await openProjectRef.current(virtualProjectPath, {
+            const opened = await openProjectRef.current(virtualProjectPath, {
               replaceCurrent: Boolean(event.data.replaceCurrent),
               preferredGraphId,
             });
+            if (!opened) {
+              break;
+            }
+
             setDefaultExecutor('browser');
             setLoadedRecording(null);
 
@@ -251,13 +223,8 @@ export const EditorMessageBridge: FC = () => {
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
   }, [
-    currentProject.metadata.id,
-    loadedProject,
-    openedProjectIds,
-    openedProjects,
     setLoadedProject,
     setLoadedRecording,
-    setProjects,
     setDefaultExecutor,
   ]);
 

@@ -7,6 +7,7 @@ import {
   deleteWorkflowFolder,
   ensureFolderExpanded,
   requireManagedMutationOptIn,
+  requireManagedStorageMode,
 } from './helpers/workflowLibraryObserve';
 
 function isProjectSaveRequest(request: Request): boolean {
@@ -21,6 +22,7 @@ function isProjectSaveRequest(request: Request): boolean {
 test.describe('Managed special workflow paths', () => {
   test('folder names with % and _ survive rename, save, and reload', async ({ page }) => {
     test.slow();
+    requireManagedStorageMode();
     requireManagedMutationOptIn();
 
     const unique = `codex-special-${Date.now()}`;

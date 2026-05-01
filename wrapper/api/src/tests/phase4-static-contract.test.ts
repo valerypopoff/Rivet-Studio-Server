@@ -184,23 +184,52 @@ test('API images link workflow execution to the embedded Rivet source tree', () 
   assert.match(imageBuildWorkflow, /build-contexts:\s*\|\s*\n\s*rivet_source=\.\/rivet/);
 });
 
-test('hosted editor opened-project overrides follow Rivet 2 project metadata and snapshot state', () => {
+test('hosted editor project commands go through Rivet 2 workspace host seams', () => {
+  const entry = readRepoFile('wrapper/web/entry.tsx');
+  const webPackageJson = readRepoFile('wrapper/web/package.json');
+  const viteConfig = readRepoFile('wrapper/web/vite.config.ts');
+  const hostedEditorApp = readRepoFile('wrapper/web/dashboard/HostedEditorApp.tsx');
+  const hostedProviders = readRepoFile('wrapper/web/dashboard/hostedRivetProviders.ts');
+  const editorMessageBridge = readRepoFile('wrapper/web/dashboard/EditorMessageBridge.tsx');
   const openWorkflowProject = readRepoFile('wrapper/web/dashboard/useOpenWorkflowProject.ts');
   const loadProjectOverride = readRepoFile('wrapper/web/overrides/hooks/useLoadProject.ts');
   const syncOpenedProjectsOverride = readRepoFile('wrapper/web/overrides/hooks/useSyncCurrentStateIntoOpenedProjects.ts');
 
+  assert.match(entry, /rivet\/packages\/app\/src\/host\.css/);
+  assert.doesNotMatch(entry, /rivet\/packages\/app\/src\/index\.css/);
+  assert.doesNotMatch(entry, /rivet\/packages\/app\/src\/colors\.css/);
+  assert.match(webPackageJson, /"github-markdown-css": "5\.9\.0"/);
+  assert.match(viteConfig, /github-markdown-css/);
+  assert.match(hostedEditorApp, /providers=\{hostedRivetProviders\}/);
+  assert.match(hostedProviders, /new HostedIOProvider\(\)/);
+  assert.match(hostedProviders, /datasetProvider/);
+  assert.match(hostedProviders, /getDefaultEnvironmentProvider\(\)/);
+  assert.match(hostedProviders, /getDefaultPathPolicyProvider\(\)/);
+
+  assert.match(editorMessageBridge, /useRivetWorkspaceHost/);
+  assert.match(editorMessageBridge, /workspaceRef\.current\.closeProject\(deletedProjectId\)/);
+  assert.match(editorMessageBridge, /workspaceRef\.current\.moveProjectPaths/);
+  assert.doesNotMatch(editorMessageBridge, /useLoadProject/);
+  assert.doesNotMatch(editorMessageBridge, /setProjects/);
+  assert.doesNotMatch(editorMessageBridge, /setOpenedProjects/);
+
   assert.match(openWorkflowProject, /openedProjectSnapshotsState/);
   assert.match(openWorkflowProject, /useStore/);
+  assert.match(openWorkflowProject, /useRivetWorkspaceHost/);
+  assert.match(openWorkflowProject, /workspace\.openProjectSnapshot/);
+  assert.match(openWorkflowProject, /workspace\.replaceCurrent/);
   assert.match(openWorkflowProject, /activeOpenedProjectIds/);
   assert.match(openWorkflowProject, /resetOpenProjectState/);
-  assert.match(openWorkflowProject, /function removeOpenedProject/);
   assert.match(openWorkflowProject, /withHostedProjectTitle/);
-  assert.match(openWorkflowProject, /title: resolveHostedProjectTitle\(project, filePath\)/);
-  assert.match(openWorkflowProject, /projectId: project\.metadata\.id/);
-  assert.match(openWorkflowProject, /const projectSnapshot = \{/);
-  assert.match(openWorkflowProject, /data: project\.data/);
-  assert.match(openWorkflowProject, /await loadProject\(projectInfo, projectSnapshot\)/);
-  assert.match(openWorkflowProject, /removeOpenedProject\(prev, project\.metadata\.id\)/);
+  assert.match(openWorkflowProject, /resolveHostedProjectTitle\(project, filePath\)/);
+  assert.match(openWorkflowProject, /getOpenedProjectSession/);
+  assert.match(openWorkflowProject, /primeOpenedProjectSession/);
+  assert.match(openWorkflowProject, /canLoadProjectByPath\(ioProvider\)/);
+  assert.match(openWorkflowProject, /retainOnlyOpenedProject/);
+  assert.match(openWorkflowProject, /after the upstream host has opened the requested project/);
+  assert.doesNotMatch(openWorkflowProject, /isPathBasedIOProvider/);
+  assert.doesNotMatch(openWorkflowProject, /useLoadProject/);
+  assert.doesNotMatch(openWorkflowProject, /await loadProject/);
   assert.doesNotMatch(openWorkflowProject, /projectInfo\.project\./);
 
   assert.match(loadProjectOverride, /openedProjectSnapshotsState/);
@@ -282,6 +311,19 @@ test('hosted save shortcuts use upstream save flow and RivetAppHost callbacks', 
   ]) {
     assert.equal(repoFileExists(stalePath), false, `${stalePath} should stay removed in favor of upstream save/menu seams`);
   }
+});
+
+test('hosted clipboard shortcuts keep copy, cut, paste, and duplicate editor-local', () => {
+  const viteAliases = readRepoFile('wrapper/web/vite-aliases.ts');
+  const clipboardHotkeys = readRepoFile('wrapper/web/overrides/hooks/useCopyNodesHotkeys.ts');
+
+  assert.match(viteAliases, /useCopyNodesHotkeys/);
+  assert.match(clipboardHotkeys, /useDeleteNodesCommand/);
+  assert.match(clipboardHotkeys, /function handleCut/);
+  assert.match(clipboardHotkeys, /handleCopy\(event\);\s*deleteNodes\(\{ nodeIds: selectedNodeIds \}\)/);
+  assert.match(clipboardHotkeys, /matchesShortcutKey\(event, 'KeyX', 'x'\)/);
+  assert.match(clipboardHotkeys, /window\.addEventListener\('cut', cutListener, true\)/);
+  assert.match(clipboardHotkeys, /document\.addEventListener\('cut', cutListener, true\)/);
 });
 
 test('hosted web module overrides are scoped to upstream Rivet app importers', () => {

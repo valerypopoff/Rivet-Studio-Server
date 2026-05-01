@@ -1,8 +1,12 @@
 import { type FC, useCallback } from 'react';
-import { RivetAppHost } from '../../../rivet/packages/app/src/host';
+import {
+  RivetAppHost,
+  type RivetAppHostOpenErrorEvent,
+} from '../../../rivet/packages/app/src/host';
 import { EditorMessageBridge } from './EditorMessageBridge';
 import { RIVET_EXECUTOR_WS_URL } from '../../shared/hosted-env';
 import { postMessageToDashboard } from '../../shared/editor-bridge';
+import { hostedRivetProviders } from './hostedRivetProviders';
 
 export const HostedEditorApp: FC = () => {
   const handleProjectSaved = useCallback((event: { path: string | null }) => {
@@ -27,10 +31,16 @@ export const HostedEditorApp: FC = () => {
     });
   }, []);
 
+  const handleOpenError = useCallback((event: RivetAppHostOpenErrorEvent) => {
+    console.error('Rivet host open operation failed:', event);
+  }, []);
+
   return (
     <RivetAppHost
       executor={{ internalExecutorUrl: RIVET_EXECUTOR_WS_URL }}
+      providers={hostedRivetProviders}
       onActiveProjectChanged={handleActiveProjectChanged}
+      onOpenError={handleOpenError}
       onOpenProjectCountChanged={handleOpenProjectCountChanged}
       onProjectSaved={handleProjectSaved}
     >

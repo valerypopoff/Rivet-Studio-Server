@@ -15,8 +15,11 @@ import { connectionsState, nodesByIdState, nodesState } from '../../../../rivet/
 import { clipboardState } from '../../../../rivet/packages/app/src/state/clipboard';
 import { clientToCanvasPosition } from '../../../../rivet/packages/app/src/hooks/useCanvasPositioning';
 import { isNotNull } from '../../../../rivet/packages/app/src/utils/genericUtilFunctions';
+import { useDeleteNodesCommand } from '../../../../rivet/packages/app/src/commands/deleteNodeCommand';
 import { type NodeId, type NodeConnection, newId, globalRivetNodeRegistry } from '@ironclad/rivet-core';
 import { produce } from 'immer';
+
+type DeleteNodes = (args: { nodeIds: NodeId[] }) => void;
 
 const matchesShortcutKey = (event: KeyboardEvent, code: string, key: string) =>
   event.code === code || event.key.toLowerCase() === key;
@@ -74,6 +77,17 @@ function handleCopy(event: Event) {
     nodes: nodeIds.map((id) => nodesById[id]).filter(isNotNull),
     connections: copiedConnections,
   });
+}
+
+function handleCut(event: Event, deleteNodes: DeleteNodes) {
+  const { selectedNodeIds, editingNodeId } = readCopyPasteState();
+
+  if (selectedNodeIds.length === 0 || editingNodeId) {
+    return;
+  }
+
+  handleCopy(event);
+  deleteNodes({ nodeIds: selectedNodeIds });
 }
 
 function handlePaste(event: Event) {
@@ -167,6 +181,8 @@ function handleDuplicate(nodeId: NodeId) {
 }
 
 export function useCopyNodesHotkeys() {
+  const deleteNodes = useDeleteNodesCommand();
+
   useEffect(() => {
     const listener = (event: KeyboardEvent) => {
       if (isEditableElement(document.activeElement) || isEditableElement(event.target as Element | null)) {
@@ -176,6 +192,12 @@ export function useCopyNodesHotkeys() {
       const isCopy = matchesShortcutKey(event, 'KeyC', 'c') && (event.metaKey || event.ctrlKey) && !event.shiftKey;
       if (isCopy) {
         handleCopy(event);
+        return;
+      }
+
+      const isCut = matchesShortcutKey(event, 'KeyX', 'x') && (event.metaKey || event.ctrlKey) && !event.shiftKey;
+      if (isCut) {
+        handleCut(event, deleteNodes);
         return;
       }
 
@@ -207,6 +229,14 @@ export function useCopyNodesHotkeys() {
       handleCopy(event);
     };
 
+    const cutListener = (event: ClipboardEvent) => {
+      if (isEditableElement(document.activeElement) || isEditableElement(event.target as Element | null)) {
+        return;
+      }
+
+      handleCut(event, deleteNodes);
+    };
+
     const pasteListener = (event: ClipboardEvent) => {
       if (isEditableElement(document.activeElement) || isEditableElement(event.target as Element | null)) {
         return;
@@ -219,6 +249,8 @@ export function useCopyNodesHotkeys() {
     document.addEventListener('keydown', listener, true);
     window.addEventListener('copy', copyListener, true);
     document.addEventListener('copy', copyListener, true);
+    window.addEventListener('cut', cutListener, true);
+    document.addEventListener('cut', cutListener, true);
     window.addEventListener('paste', pasteListener, true);
     document.addEventListener('paste', pasteListener, true);
 
@@ -227,8 +259,10 @@ export function useCopyNodesHotkeys() {
       document.removeEventListener('keydown', listener, true);
       window.removeEventListener('copy', copyListener, true);
       document.removeEventListener('copy', copyListener, true);
+      window.removeEventListener('cut', cutListener, true);
+      document.removeEventListener('cut', cutListener, true);
       window.removeEventListener('paste', pasteListener, true);
       document.removeEventListener('paste', pasteListener, true);
     };
-  }, []);
+  }, [deleteNodes]);
 }

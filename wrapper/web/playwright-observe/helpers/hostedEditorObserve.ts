@@ -60,17 +60,34 @@ export async function waitForFocusTag(page: Page, expectedTag: string, label: st
   throw new Error(`${label}: focus did not settle on ${expectedTag}`);
 }
 
-export async function waitForNodeCountIncrease(nodes: Locator, previousCount: number, label: string) {
+async function waitForNodeCountChange(
+  nodes: Locator,
+  previousCount: number,
+  label: string,
+  direction: 'increase' | 'decrease',
+) {
   for (let attempt = 0; attempt < 40; attempt += 1) {
     const currentCount = await nodes.count();
-    if (currentCount > previousCount) {
+    const changed = direction === 'increase'
+      ? currentCount > previousCount
+      : currentCount < previousCount;
+
+    if (changed) {
       return currentCount;
     }
 
     await nodes.page().waitForTimeout(250);
   }
 
-  throw new Error(`${label}: node count did not increase from ${previousCount}`);
+  throw new Error(`${label}: node count did not ${direction} from ${previousCount}`);
+}
+
+export async function waitForNodeCountIncrease(nodes: Locator, previousCount: number, label: string) {
+  return waitForNodeCountChange(nodes, previousCount, label, 'increase');
+}
+
+export async function waitForNodeCountDecrease(nodes: Locator, previousCount: number, label: string) {
+  return waitForNodeCountChange(nodes, previousCount, label, 'decrease');
 }
 
 export async function getVisibleNodeCenters(nodes: Locator, minVisibleX: number, maxVisibleX: number, maxVisibleY: number) {

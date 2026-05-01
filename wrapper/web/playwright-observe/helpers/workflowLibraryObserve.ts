@@ -40,6 +40,13 @@ function getStorageModeFromEnv(): 'filesystem' | 'managed' {
   return value.trim().toLowerCase() === 'managed' ? 'managed' : 'filesystem';
 }
 
+export function requireManagedStorageMode(): void {
+  test.skip(
+    getStorageModeFromEnv() !== 'managed',
+    'Managed workflow-path specs require RIVET_STORAGE_MODE=managed.',
+  );
+}
+
 export function requireManagedMutationOptIn(): void {
   test.skip(
     getStorageModeFromEnv() === 'managed' && process.env.PLAYWRIGHT_ALLOW_MANAGED_MUTATIONS !== '1',

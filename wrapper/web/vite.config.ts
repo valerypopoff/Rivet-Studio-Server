@@ -227,6 +227,10 @@ export default defineConfig({
       alias: [
         ...createTauriShimAliases(shimDir),
         ...wrapperExactDependencyAliases,
+        {
+          find: /^github-markdown-css\/(.+)$/,
+          replacement: resolve(__dirname, 'node_modules/github-markdown-css/$1'),
+        },
         ...createBrowserSubpathAliases(__dirname),
         { find: '@ironclad/rivet-core', replacement: resolve(__dirname, '../../rivet/packages/core/src/index.ts') },
         { find: '@ironclad/trivet', replacement: resolve(__dirname, '../../rivet/packages/trivet/src/index.ts') },

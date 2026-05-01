@@ -206,13 +206,14 @@ Current behavior:
 - `npm run ui:observe` launches Chromium in headed mode with `slowMo`, trace capture, video capture, and HTML reporting enabled
 - the runner loads the same `.env` / `.env.dev` file as the Docker scripts, so UI-gated hosts automatically reuse `RIVET_KEY`
 - unless `PLAYWRIGHT_BASE_URL` is already set, the runner targets `http://127.0.0.1:${RIVET_PORT}` from your env file, defaulting to `8080`
-- the current observable spec opens the first project in the first workflow folder, then visibly exercises the hosted editor focus/clipboard recovery path
+- the current observable spec creates a temporary two-node workflow project, then visibly exercises the hosted editor focus, copy, cut, paste, and cleanup path
 - trace, video, screenshots, and the HTML report are written under `artifacts/playwright/`
 
 Managed-state safety:
 
 - most browser-visible specs should stay non-mutating and prefer mocked API responses when the behavior under test is modal/controller/UI wiring rather than storage persistence
 - mutating workflow specs are blocked against `RIVET_STORAGE_MODE=managed` unless `PLAYWRIGHT_ALLOW_MANAGED_MUTATIONS=1` is set explicitly
+- specs that assert managed virtual workflow paths should call the managed-mode guard and skip under filesystem stacks; filesystem runs should not be expected to produce `/managed/workflows/...` save paths
 - shared Playwright workflow helpers use Playwright's request context for setup and cleanup, not `page.evaluate(fetch(...))`, so they go through the same proxy-auth path as the real browser shell
 - if a mutating spec creates real workflow state in managed mode, it is responsible for explicit cleanup before the run finishes
 
@@ -353,10 +354,14 @@ When adding new code, keep the post-refactor ownership seams explicit instead of
   - page/components should stay mostly render wiring
 - dashboard/editor bridge wiring should stay explicit
   - `DashboardPage.tsx` is the composition root
-  - `HostedEditorApp.tsx` mounts `RivetAppHost` and forwards upstream host callbacks for active project, open-project count, and save completion
+  - `HostedEditorApp.tsx` mounts `RivetAppHost`, passes the hosted provider overrides from `hostedRivetProviders.ts`, and forwards upstream host callbacks for active project, open-project count, and save completion
   - `useEditorCommandQueue.ts` owns pre-ready command buffering
   - `useEditorBridgeEvents.ts` owns dashboard-side message listeners and cross-iframe save shortcut capture
-  - `EditorMessageBridge.tsx` owns editor-side message handling
+  - `EditorMessageBridge.tsx` owns editor-side message handling and should call `RivetWorkspaceHost` for project close and path-move commands instead of rewriting Rivet tab atoms directly
+- hosted provider wiring should stay explicit
+  - import the app shell and CSS through `rivet/packages/app/src/host.tsx` and `rivet/packages/app/src/host.css`
+  - pass `HostedIOProvider`, the shared browser dataset provider, the hosted environment provider, and the hosted path-policy provider through `RivetAppHost.providers`
+  - keep `HostedIOProvider` and Rivet's active dataset provider on the same dataset-provider instance so project file IO and dataset UI/runtime hooks observe the same imported datasets
 - editor executor transport should prefer Rivet's upstream host/session seam
   - mount the editor through `RivetAppHost`
   - pass the hosted executor websocket through `executor.internalExecutorUrl`
@@ -366,11 +371,14 @@ When adding new code, keep the post-refactor ownership seams explicit instead of
 - hosted opened-project hooks should preserve Rivet 2.0's split tab state
   - keep `projectsState.openedProjects` as lightweight tab metadata: project id, title, path, and opened graph
   - keep full in-memory project content in `openedProjectSnapshotsState`
+  - prefer `RivetWorkspaceHost.openProjectSnapshot`, `replaceCurrent`, `closeProject`, and `moveProjectPaths` for the actual workspace transition
+  - wrapper atom reads are acceptable for hosted path lookup, duplicate-project-id checks, and stale-empty-tab cleanup, but do not reimplement tab close fallback or path rewrite transitions in wrapper code when the workspace host exposes them
   - resolve tab titles through the wrapper helper so old projects or legacy persisted tab entries fall back to the project filename instead of rendering missing, `undefined`, or `null` labels
   - when the visible tab strip is empty, the next workflow open must reset opened-project metadata and snapshots instead of merging hidden stale entries from older sessions
+  - run that stale-empty-tab cleanup after `RivetWorkspaceHost` opens the requested snapshot, not before async project loading, so upstream sync effects cannot re-add the previous hidden project while loading is in flight
   - after the tab strip remounts, do not let the previous `projectState` re-add itself unless its project id is already present in the visible opened-project id list
-  - project loading must read the latest atom store at call time, and direct workflow opens should pass their freshly loaded snapshot into the loader instead of depending on a just-written atom value to be visible immediately
-  - if direct workflow activation fails after adding tab metadata, roll back that tab metadata and snapshot so the editor cannot be left with a visible but inactive half-open tab
+  - project loading must read the latest atom store at call time, and direct workflow opens should pass their freshly loaded snapshot into the workspace host instead of depending on a just-written atom value to be visible immediately
+  - if direct workflow activation fails, rely on the workspace host's boolean result and avoid posting `project-opened` to the dashboard
   - when fixing tab close/switch behavior, update the wrapper overrides rather than storing full project objects back into `projectsState.openedProjects`
 - wrapper module overrides should stay scoped to upstream app importers
   - `wrapper/web/vite.config.ts` resolves override files only when the importer is under `rivet/packages/app/src`
@@ -520,10 +528,10 @@ For hosted editor keyboard-node behavior:
 2. validate through `http://localhost:8080` by default, or your configured `RIVET_PORT`
 3. open a workflow in the editor iframe and confirm the workflow-library row that opened it does not keep the visible browser focus outline
 4. confirm the editor iframe receives keyboard focus after open without showing a visible white perimeter
-5. click a node normally and confirm `Ctrl+C` then `Ctrl+V` duplicates it through the internal node clipboard
+5. click a node normally and confirm `Ctrl+C`, `Ctrl+X`, and `Ctrl+V` use the internal node clipboard
 6. deliberately return focus to the workflow library, then confirm `Shift+click` multi-selection inside the editor reclaims iframe focus and still copies multiple nodes
-7. deliberately return focus to the workflow library, then click blank canvas background and confirm `Ctrl+C` / `Ctrl+V` work again without an extra recovery click on a node
-8. open and close an editor context menu or search UI, then confirm `Ctrl+C` and `Ctrl+V` still work after returning to the canvas
+7. deliberately return focus to the workflow library, then click blank canvas background and confirm `Ctrl+C` / `Ctrl+X` / `Ctrl+V` work again without an extra recovery click on a node
+8. open and close an editor context menu or search UI, then confirm `Ctrl+C`, `Ctrl+X`, and `Ctrl+V` still work after returning to the canvas
 9. confirm `Ctrl+S` works while focus is inside the workflow iframe, including on Windows browsers
 10. confirm the browser can still type normally inside real text inputs and that copy/paste/save shortcuts do not hijack active editor form fields
 

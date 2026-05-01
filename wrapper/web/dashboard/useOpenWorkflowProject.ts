@@ -1,23 +1,45 @@
 import { useSetAtom, useStore } from 'jotai';
+import { toast } from 'react-toastify';
+import type { GraphId, NodeGraph, Project, ProjectId } from '@ironclad/rivet-core';
+import type { TrivetData } from '@ironclad/trivet';
 import {
-  loadedProjectState,
-  openedProjectSnapshotsState,
-  projectState,
-  projectsState,
   type OpenedProjectInfo,
   type OpenedProjectsInfo,
+  type OpenedProjectSnapshot,
+  loadedProjectState,
+  openedProjectSnapshotsState,
+  projectDataState,
+  projectState,
+  projectsState,
 } from '../../../rivet/packages/app/src/state/savedGraphs';
-import { ioProvider } from '../../../rivet/packages/app/src/utils/globals';
-import { toast } from 'react-toastify';
-import type { GraphId, NodeGraph, ProjectId } from '@ironclad/rivet-core';
-import { useLoadProject } from '../overrides/hooks/useLoadProject';
-import { primeOpenedProjectSession } from '../io/openedProjectSessionCache';
+import {
+  useIOProvider,
+  useRivetWorkspaceHost,
+  type RivetProjectSnapshotInput,
+} from '../../../rivet/packages/app/src/host';
+import {
+  getOpenedProjectSession,
+  primeOpenedProjectSession,
+} from '../io/openedProjectSessionCache';
 import { resolveHostedProjectTitle, withHostedProjectTitle } from './openedProjectMetadata';
 
 type OpenWorkflowProjectOptions = {
   replaceCurrent?: boolean;
   preferredGraphId?: GraphId;
 };
+
+type ProjectSnapshot = Pick<RivetProjectSnapshotInput, 'project' | 'data'>;
+type ProjectPathLoader = {
+  loadProjectDataNoPrompt(path: string): Promise<{ project: Project; testData: TrivetData }>;
+};
+
+function canLoadProjectByPath(provider: unknown): provider is ProjectPathLoader {
+  return (
+    typeof provider === 'object' &&
+    provider != null &&
+    typeof (provider as Partial<ProjectPathLoader>).loadProjectDataNoPrompt === 'function'
+  );
+}
 
 function getActiveOpenedProjectIds(projects: OpenedProjectsInfo): ProjectId[] {
   return projects.openedProjectsSortedIds.filter((projectId) => projects.openedProjects[projectId] != null);
@@ -27,34 +49,79 @@ function getOpenedProjectsByIds(projects: OpenedProjectsInfo, projectIds: Projec
   return projectIds.map((projectId) => projects.openedProjects[projectId]!);
 }
 
-function retainOpenedProjectsById(projects: OpenedProjectsInfo, projectIds: ProjectId[]): OpenedProjectsInfo['openedProjects'] {
-  return Object.fromEntries(
-    projectIds.map((projectId) => [projectId, projects.openedProjects[projectId]!]),
-  ) as OpenedProjectsInfo['openedProjects'];
-}
-
-function removeOpenedProject(projects: OpenedProjectsInfo, projectIdToRemove: ProjectId): OpenedProjectsInfo {
-  const retainedOpenedProjectIds = projects.openedProjectsSortedIds.filter(
-    (projectId) => projectId !== projectIdToRemove && projects.openedProjects[projectId] != null,
-  );
+function splitProjectSnapshot(project: Project): ProjectSnapshot {
+  const { data, ...projectWithoutData } = project;
 
   return {
-    openedProjects: retainOpenedProjectsById(projects, retainedOpenedProjectIds),
-    openedProjectsSortedIds: retainedOpenedProjectIds,
+    project: projectWithoutData,
+    data,
   };
+}
+
+function getSnapshotForOpenedProject(options: {
+  currentProject: Omit<Project, 'data'>;
+  currentProjectData: Project['data'] | undefined;
+  openedProject: OpenedProjectInfo;
+  snapshots: Record<ProjectId, OpenedProjectSnapshot>;
+}): ProjectSnapshot | null {
+  if (options.currentProject.metadata.id === options.openedProject.projectId) {
+    return {
+      project: options.currentProject,
+      data: options.currentProjectData,
+    };
+  }
+
+  return options.snapshots[options.openedProject.projectId] ?? null;
+}
+
+function resolveOpenedGraph(project: Omit<Project, 'data'>, preferredGraphId?: GraphId): GraphId | undefined {
+  if (preferredGraphId && project.graphs[preferredGraphId]) {
+    return preferredGraphId;
+  }
+
+  if (project.metadata.mainGraphId && project.graphs[project.metadata.mainGraphId]) {
+    return project.metadata.mainGraphId;
+  }
+
+  return (Object.values(project.graphs) as NodeGraph[])
+    .sort((a, b) => (a.metadata?.name ?? '').localeCompare(b.metadata?.name ?? ''))[0]?.metadata?.id;
+}
+
+function retainOnlyOpenedProject(projects: OpenedProjectsInfo, projectId: ProjectId): OpenedProjectsInfo {
+  const projectInfo = projects.openedProjects[projectId];
+  if (!projectInfo) {
+    return projects;
+  }
+
+  return {
+    openedProjects: {
+      [projectId]: projectInfo,
+    } as Record<ProjectId, OpenedProjectInfo>,
+    openedProjectsSortedIds: [projectId],
+  };
+}
+
+function retainOnlySnapshot(
+  snapshots: Record<ProjectId, OpenedProjectSnapshot>,
+  projectId: ProjectId,
+): Record<ProjectId, OpenedProjectSnapshot> {
+  const snapshot = snapshots[projectId];
+  return snapshot ? ({ [projectId]: snapshot } as Record<ProjectId, OpenedProjectSnapshot>) : {};
 }
 
 export function useOpenWorkflowProject() {
   const store = useStore();
-  const loadProject = useLoadProject();
+  const ioProvider = useIOProvider();
+  const workspace = useRivetWorkspaceHost();
   const setProjects = useSetAtom(projectsState);
   const setOpenedProjectSnapshots = useSetAtom(openedProjectSnapshotsState);
 
-  return async (filePath: string, options?: OpenWorkflowProjectOptions) => {
+  return async (filePath: string, options?: OpenWorkflowProjectOptions): Promise<boolean> => {
     const replaceCurrent = options?.replaceCurrent ?? false;
     const preferredGraphId = options?.preferredGraphId;
     const latestLoadedProject = store.get(loadedProjectState);
     const latestCurrentProject = store.get(projectState);
+    const latestCurrentProjectData = store.get(projectDataState);
     const latestProjects = store.get(projectsState);
     const latestOpenedProjectSnapshots = store.get(openedProjectSnapshotsState);
     const activeOpenedProjectIds = getActiveOpenedProjectIds(latestProjects);
@@ -69,118 +136,107 @@ export function useOpenWorkflowProject() {
       );
 
       if (!shouldContinue) {
-        return;
+        return false;
       }
     }
 
     const alreadyOpenByPath = activeOpenedProjects.find((projectInfo) => projectInfo.fsPath === filePath);
 
     if (alreadyOpenByPath) {
-      const alreadyOpenProject = alreadyOpenByPath.projectId === latestCurrentProject.metadata.id
-        ? latestCurrentProject
-        : latestOpenedProjectSnapshots[alreadyOpenByPath.projectId]?.project;
-      const preferredOpenedGraph = preferredGraphId && alreadyOpenProject?.graphs[preferredGraphId]
-        ? preferredGraphId
-        : alreadyOpenByPath.openedGraph;
+      let snapshot = getSnapshotForOpenedProject({
+        currentProject: latestCurrentProject,
+        currentProjectData: latestCurrentProjectData,
+        openedProject: alreadyOpenByPath,
+        snapshots: latestOpenedProjectSnapshots,
+      });
+      let testSuites = getOpenedProjectSession(alreadyOpenByPath.projectId, filePath)?.testSuites;
+      let refreshedTestData: TrivetData | null = null;
 
-      if (replaceCurrent && latestCurrentProject.metadata.id !== alreadyOpenByPath.projectId) {
-        setProjects((prev: OpenedProjectsInfo) => removeOpenedProject(prev, latestCurrentProject.metadata.id));
-        setOpenedProjectSnapshots((prev) => {
-          const nextSnapshots = { ...prev };
-          delete nextSnapshots[latestCurrentProject.metadata.id];
-          return nextSnapshots;
+      if ((!snapshot || !testSuites) && canLoadProjectByPath(ioProvider)) {
+        const loadedProject = await ioProvider.loadProjectDataNoPrompt(filePath);
+        snapshot ??= splitProjectSnapshot(withHostedProjectTitle(loadedProject.project, filePath));
+        testSuites = loadedProject.testData.testSuites;
+        refreshedTestData = loadedProject.testData;
+      }
+
+      if (!snapshot) {
+        throw new Error(`No in-memory snapshot is available for "${alreadyOpenByPath.title}".`);
+      }
+
+      const openedGraph = resolveOpenedGraph(snapshot.project, preferredGraphId) ?? alreadyOpenByPath.openedGraph;
+      const opened = replaceCurrent
+        ? await workspace.replaceCurrent({
+            ...snapshot,
+            path: filePath,
+            openedGraph,
+            testSuites,
+          })
+        : await workspace.openProjectSnapshot({
+            ...snapshot,
+            path: filePath,
+            openedGraph,
+            testSuites,
+          });
+
+      if (!opened) {
+        throw new Error(`Failed to activate "${alreadyOpenByPath.title}".`);
+      }
+
+      if (refreshedTestData) {
+        primeOpenedProjectSession(alreadyOpenByPath.projectId, {
+          fsPath: filePath,
+          testData: refreshedTestData,
         });
       }
 
-      const activated = await loadProject({
-        ...alreadyOpenByPath,
-        openedGraph: preferredOpenedGraph,
-      });
-      if (!activated) {
-        throw new Error(`Failed to activate "${alreadyOpenByPath.title}".`);
-      }
-      return;
+      return true;
+    }
+
+    if (!canLoadProjectByPath(ioProvider)) {
+      throw new Error('The active IO provider does not support opening projects by path.');
     }
 
     const { project: loadedProject, testData } = await ioProvider.loadProjectDataNoPrompt(filePath);
     const project = withHostedProjectTitle(loadedProject, filePath);
-
     const conflictingProject = activeOpenedProjects.find((projectInfo) => projectInfo.projectId === project.metadata.id);
 
     if (conflictingProject) {
       toast.error(
         `"${conflictingProject.title} [${conflictingProject.fsPath?.split('/').pop() ?? 'no path'}]" shares the same ID (${project.metadata.id}) and is already open. Please close that project first.`,
       );
-      return;
+      return false;
     }
 
-    primeOpenedProjectSession(project.metadata.id, {
+    const snapshot = splitProjectSnapshot(project);
+    const openedGraph = resolveOpenedGraph(project, preferredGraphId);
+    const projectId = project.metadata.id as ProjectId;
+    const projectInput = {
+      ...snapshot,
+      path: filePath,
+      openedGraph,
+      testSuites: testData.testSuites,
+    } satisfies RivetProjectSnapshotInput;
+
+    const opened = replaceCurrent
+      ? await workspace.replaceCurrent(projectInput)
+      : await workspace.openProjectSnapshot(projectInput);
+
+    if (!opened) {
+      throw new Error(`Failed to activate "${resolveHostedProjectTitle(project, filePath)}".`);
+    }
+
+    primeOpenedProjectSession(projectId, {
       fsPath: filePath,
       testData,
     });
 
-    const projectGraphs = Object.values(project.graphs) as NodeGraph[];
-
-    const openedGraph = preferredGraphId && project.graphs[preferredGraphId]
-      ? preferredGraphId
-      : project.metadata.mainGraphId && project.graphs[project.metadata.mainGraphId]
-        ? project.metadata.mainGraphId
-        : projectGraphs
-            .sort((a, b) => (a.metadata?.name ?? '').localeCompare(b.metadata?.name ?? ''))[0]?.metadata?.id;
-
-    const projectInfo = {
-      projectId: project.metadata.id,
-      title: resolveHostedProjectTitle(project, filePath),
-      fsPath: filePath,
-      openedGraph,
-    } satisfies OpenedProjectInfo;
-    const projectSnapshot = {
-      project,
-      data: project.data,
-    };
-
-    setOpenedProjectSnapshots((prev) => ({
-      ...(resetOpenProjectState
-        ? {}
-        : replaceCurrent
-        ? Object.fromEntries(
-            Object.entries(prev).filter(([id]) => id !== latestCurrentProject.metadata.id),
-          )
-        : prev),
-      [project.metadata.id]: projectSnapshot,
-    }));
-
-    setProjects((prev: OpenedProjectsInfo) => {
-      const filteredSortedIds = resetOpenProjectState
-        ? []
-        : replaceCurrent
-          ? prev.openedProjectsSortedIds.filter(
-              (id) => id !== latestCurrentProject.metadata.id && prev.openedProjects[id] != null,
-            )
-          : prev.openedProjectsSortedIds.filter((id) => prev.openedProjects[id] != null);
-
-      const nextSortedIds = filteredSortedIds.includes(project.metadata.id)
-        ? filteredSortedIds
-        : [...filteredSortedIds, project.metadata.id];
-
-      return {
-        openedProjects: {
-          ...(resetOpenProjectState ? {} : retainOpenedProjectsById(prev, filteredSortedIds)),
-          [project.metadata.id]: projectInfo,
-        },
-        openedProjectsSortedIds: nextSortedIds,
-      };
-    });
-
-    const activated = await loadProject(projectInfo, projectSnapshot);
-    if (!activated) {
-      setProjects((prev: OpenedProjectsInfo) => removeOpenedProject(prev, project.metadata.id));
-      setOpenedProjectSnapshots((prev) => {
-        const nextSnapshots = { ...prev };
-        delete nextSnapshots[project.metadata.id];
-        return nextSnapshots;
-      });
-      throw new Error(`Failed to activate "${projectInfo.title}".`);
+    if (resetOpenProjectState) {
+      // When the visible tab strip is empty, discard hidden persisted tabs only
+      // after the upstream host has opened the requested project.
+      setProjects((previousProjects) => retainOnlyOpenedProject(previousProjects, projectId));
+      setOpenedProjectSnapshots((previousSnapshots) => retainOnlySnapshot(previousSnapshots, projectId));
     }
+
+    return true;
   };
 }
