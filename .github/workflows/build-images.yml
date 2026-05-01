@@ -3,7 +3,7 @@ name: Build Images
 on:
   push:
     branches:
-      - main-revet2
+      - main-rivet2
     tags:
       - 'v*'
   workflow_dispatch:
@@ -77,7 +77,7 @@ jobs:
         with:
           images: ${{ matrix.image }}
           tags: |
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main-revet2' }}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main-rivet2' }}
             type=ref,event=branch
             type=ref,event=tag
             type=sha,format=short

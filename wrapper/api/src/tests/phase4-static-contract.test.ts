@@ -208,10 +208,10 @@ test('CI publishes Rivet 2 wrapper images from the Rivet 2 fork', () => {
     .filter((scriptName) => scriptName === 'prod' || scriptName.startsWith('prod:'))
     .sort();
 
-  assert.match(imageBuildWorkflow, /branches:\s*\n\s*- main-revet2/);
+  assert.match(imageBuildWorkflow, /branches:\s*\n\s*- main-rivet2/);
   assert.ok(imageBuildWorkflow.includes('RIVET_REPO_URL: https://github.com/valerypopoff/rivet2.0.git'));
   assert.ok(imageBuildWorkflow.includes('RIVET_REPO_REF: main'));
-  assert.ok(imageBuildWorkflow.includes("type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main-revet2' }}"));
+  assert.ok(imageBuildWorkflow.includes("type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main-rivet2' }}"));
   assert.ok(imageBuildWorkflow.includes('type=ref,event=branch'));
 
   assert.match(imageBuildWorkflow, /uses: docker\/setup-qemu-action@v3/);
