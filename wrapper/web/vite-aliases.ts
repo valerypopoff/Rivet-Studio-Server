@@ -26,17 +26,11 @@ export function createModuleOverrideAliases(overrideDir: string) {
     { find: /^\.\.?\/(?:.*\/)?useCheckForUpdate(\.js|\.ts|\.tsx)?$/, replacement: resolve(overrideDir, 'hooks/useCheckForUpdate.tsx') },
     { find: /^\.\.?\/(?:.*\/)?useContextMenu(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'hooks/useContextMenu.ts') },
     { find: /^\.\.?\/(?:.*\/)?useCopyNodesHotkeys(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'hooks/useCopyNodesHotkeys.ts') },
-    { find: /^\.\.?\/(?:.*\/)?useExecutorSession(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'hooks/useHostedExecutorSession.ts') },
     { find: /^\.\.?\/(?:.*\/)?useLoadProject(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'hooks/useLoadProject.ts') },
-    { find: /^\.\.?\/(?:.*\/)?useMenuCommands(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'hooks/useMenuCommands.ts') },
-    { find: /^\.\.?\/(?:.*\/)?useRemoteDebugger(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'hooks/useHostedRemoteDebugger.ts') },
-    { find: /^\.\.?\/(?:.*\/)?useSaveProject(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'hooks/useSaveProject.ts') },
     { find: /^\.\.?\/(?:.*\/)?useWindowsHotkeysFix(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'hooks/useWindowsHotkeysFix.tsx') },
     { find: /^\.\.?\/(?:.*\/)?useLoadPackagePlugin(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'hooks/useLoadPackagePlugin.ts') },
     { find: /^\.\.?\/(?:.*\/)?useSyncCurrentStateIntoOpenedProjects(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'hooks/useSyncCurrentStateIntoOpenedProjects.ts') },
     { find: /^\.\.?\/(?:.*\/)?TauriNativeApi(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'model/native/TauriNativeApi.ts') },
-    { find: /^\.\.?\/(?:.*\/)?TauriProjectReferenceLoader(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'model/TauriProjectReferenceLoader.ts') },
-    { find: /^\.\.?\/(?:.*\/)?datasets(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'io/datasets.ts') },
     { find: /^\.\.?\/(?:.*\/)?TauriIOProvider(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'io/TauriIOProvider.ts') },
   ];
 }

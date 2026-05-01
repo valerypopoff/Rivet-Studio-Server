@@ -9,7 +9,8 @@ See also: [Repo structure](./repo-structure.md)
   - ensures `wrapper/api` and `wrapper/web` dependencies exist
   - clones `rivet/` from the upstream repo if it is missing
   - installs upstream Yarn dependencies and builds `@ironclad/rivet-core` and `@ironclad/rivet-node` when needed
-  - links `wrapper/api/node_modules/@ironclad/rivet-core` and `@ironclad/rivet-node` to the built packages under `rivet/`, so endpoint execution uses the embedded Rivet source instead of the npm fallback package
+  - links `wrapper/api/node_modules/@ironclad/rivet-core` and `@ironclad/rivet-node` to generated package overlays under `wrapper/api/node_modules/.rivet-package-links`; those overlays point `dist` at the built packages under `rivet/` and resolve package dependencies through `rivet/node_modules`
+  - keeps API runtime and TypeScript resolution on symlink-preserved paths, so setup does not need to create helper dependency links inside the external `rivet/` checkout
   - accepts either a Git checkout, a valid upstream snapshot, or a local symlink/junction already present in `rivet/`
 - `npm run setup:k8s-tools`
   - downloads the pinned Helm release into `.data/tools/helm/`
@@ -264,12 +265,15 @@ Current behavior:
 - the browser entrypoint is still `http://localhost:8080` through nginx by default; override it with `RIVET_PORT` if needed
 - the API is also exposed directly on `http://localhost:3100` for diagnostics
 - proxy startup scripts are Linux shell scripts mounted into nginx containers, and the repo pins `*.sh` files to LF line endings so Windows checkouts do not inject CRLF characters into `/bin/sh`
+- proxy startup copies the UI gate prompt from its mounted source into `/tmp/nginx/html` before nginx starts; nginx serves the staged copy instead of reading a Windows bind-mounted HTML file on each gated request
 - standard proxied HTTP routes now default to a `180s` upstream timeout through `RIVET_PROXY_READ_TIMEOUT`; websocket routes stay long-lived separately
 - the local Docker stacks keep `RIVET_API_PROFILE=combined` by default, so `/api/*`, `${RIVET_LATEST_WORKFLOWS_BASE_PATH}`, and `${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH}` all land on the same `api` container there
 - the `web` service runs the Vite dev server inside the container with live bind mounts
 - the `api` and `executor` services rebuild from Dockerfiles, so Node/runtime changes are picked up without a separate manual build step
 - the API image builds `rivet/packages/core` and `rivet/packages/node`, then links `wrapper/api` to those built package directories before compiling the API; this keeps hosted endpoint execution on the same Rivet source tree as the editor and executor
-- the Docker dev API waits for the web service to populate the shared `rivet_node_modules` volume, then copies only `rivet/packages/core` and `rivet/packages/node` into `/app/.rivet-source`, attaches `/workspace/rivet/node_modules` beside that copy, and relinks `@ironclad/rivet-core` / `@ironclad/rivet-node` to the internal copy. That keeps Node package resolution inside the container even when `rivet/` is a Windows junction target, avoids duplicating the upstream dependency install, and avoids writing API helper links into the external Rivet checkout.
+- the Docker dev API waits for the web service to populate the shared `rivet_node_modules` volume, then copies only `rivet/packages/core` and `rivet/packages/node` into `/app/.rivet-source`, attaches `/workspace/rivet/node_modules` beside that copy, and points the generated `@ironclad/rivet-core` / `@ironclad/rivet-node` package overlays at the internal copy. That keeps Node package resolution inside the container even when `rivet/` is a Windows junction target, avoids duplicating the upstream dependency install, and avoids writing API helper links into the external Rivet checkout.
+- local and image API entrypoints run with symlink preservation (`preserveSymlinks` for TypeScript and `--preserve-symlinks` for Node/tsx), while `scripts/link-rivet-node-package.mjs` creates generated package overlays that expose the built Rivet package `dist` folders and route third-party dependency lookup back to `rivet/node_modules`
+- the Docker dev API mounts the repo scripts directory at `/scripts`, matching the `../../scripts/...` path seen from `/app`, so the same `wrapper/api` package scripts run locally and inside Compose
 - Docker image builds receive upstream Rivet through the named `rivet_source` build context instead of `COPY rivet/` from the main repo context; local launchers feed that context from `.data/docker-contexts/rivet-source` so linked Rivet checkouts do not send `node_modules`, `.git`, or Yarn cache artifacts to BuildKit
 - `npm run dev:docker:prepare-rivet-context` refreshes that filtered context without starting Docker, which is useful before manual `docker build --build-context rivet_source=.data/docker-contexts/rivet-source ...` checks
 - the Docker Compose stacks set `HOME=/home/rivet` and keep npm/Yarn caches there so pulled non-root images and locally built images use the same runtime cache contract
@@ -349,6 +353,7 @@ When adding new code, keep the post-refactor ownership seams explicit instead of
   - page/components should stay mostly render wiring
 - dashboard/editor bridge wiring should stay explicit
   - `DashboardPage.tsx` is the composition root
+  - `HostedEditorApp.tsx` mounts `RivetAppHost` and forwards upstream host callbacks for active project, open-project count, and save completion
   - `useEditorCommandQueue.ts` owns pre-ready command buffering
   - `useEditorBridgeEvents.ts` owns dashboard-side message listeners and cross-iframe save shortcut capture
   - `EditorMessageBridge.tsx` owns editor-side message handling
@@ -356,8 +361,8 @@ When adding new code, keep the post-refactor ownership seams explicit instead of
   - mount the editor through `RivetAppHost`
   - pass the hosted executor websocket through `executor.internalExecutorUrl`
   - keep graph execution, upload, abort, pause/resume, and websocket message ownership in upstream Rivet hooks
-  - keep the wrapper shims for `useExecutorSession` and `useRemoteDebugger` limited to hosted UI classification: `/ws/executor/internal` is internal Node executor mode, not a manual Remote Debugger connection
-  - stale wrapper transport override files were removed; do not reintroduce `useGraphExecutor` or `useRemoteExecutor` overrides unless the upstream seam no longer covers hosted behavior
+  - do not alias `useExecutorSession`, `useRemoteDebugger`, `useGraphExecutor`, or `useRemoteExecutor`; upstream Rivet owns internal executor UI classification and debugger handoff for `executor.internalExecutorUrl`
+  - stale wrapper transport override files were removed; do not reintroduce them unless the upstream seam no longer covers hosted behavior
 - hosted opened-project hooks should preserve Rivet 2.0's split tab state
   - keep `projectsState.openedProjects` as lightweight tab metadata: project id, title, path, and opened graph
   - keep full in-memory project content in `openedProjectSnapshotsState`
@@ -367,9 +372,17 @@ When adding new code, keep the post-refactor ownership seams explicit instead of
   - project loading must read the latest atom store at call time, and direct workflow opens should pass their freshly loaded snapshot into the loader instead of depending on a just-written atom value to be visible immediately
   - if direct workflow activation fails after adding tab metadata, roll back that tab metadata and snapshot so the editor cannot be left with a visible but inactive half-open tab
   - when fixing tab close/switch behavior, update the wrapper overrides rather than storing full project objects back into `projectsState.openedProjects`
+- wrapper module overrides should stay scoped to upstream app importers
+  - `wrapper/web/vite.config.ts` resolves override files only when the importer is under `rivet/packages/app/src`
+  - do not put wrapper-owned transport overrides back into `wrapper/web/vite-aliases.ts`
+  - do not alias `useSaveProject` or `useMenuCommands`; upstream `useWorkspaceTransitions` and `RivetAppHost.onProjectSaved` own the save/menu seam, while the wrapper only sends `save-project` when focus is outside the iframe
+  - do not reintroduce wrapper copies of `TauriProjectReferenceLoader` or `io/datasets`; hosted relative-project reads belong in the path policy provider, and hosted project/dataset persistence belongs in `HostedIOProvider`
+  - keep `scripts/update-check.sh` aligned with that boundary: it should check the upstream provider seams, not treat provider-backed upstream modules as wrapper aliases
+  - keep bare-package shims such as `@tauri-apps/api/*` separate from relative Rivet module overrides
 - API workflow execution should resolve `@ironclad/rivet-node` through `scripts/link-rivet-node-package.mjs`
-  - keep local setup and API image builds linking to `rivet/packages/node` plus `rivet/packages/core`
+  - keep local setup and API image builds linking generated package overlays for `rivet/packages/node` plus `rivet/packages/core`
   - do not add direct API imports from `rivet/packages/*/src`; the package-name import remains the stable seam
+  - keep `wrapper/api` symlink-preserved when compiling or running so these package links resolve without writing dependency helper links into `rivet/`
 - Kubernetes template reuse should stay shallow
   - use `_env.tpl` and `_pod.tpl` for genuinely repeated backend/execution blocks
   - keep `proxy` and `web` explicit unless extraction clearly improves readability

@@ -67,6 +67,36 @@ append_space_separated() {
   fi
 }
 
+stage_ui_gate_prompt() {
+  destination_dir="/tmp/nginx/html"
+  destination="$destination_dir/ui-gate-prompt.html"
+  source="${RIVET_UI_GATE_PROMPT_SOURCE:-}"
+
+  if [ -z "$source" ]; then
+    for candidate in /tmp/ui-gate-prompt.html /usr/share/nginx/html/ui-gate-prompt.html; do
+      if [ -f "$candidate" ]; then
+        source="$candidate"
+        break
+      fi
+    done
+  fi
+
+  if [ -z "$source" ] || [ ! -f "$source" ]; then
+    >&2 printf 'Error: could not find ui-gate-prompt.html for nginx UI gate.\n'
+    exit 1
+  fi
+
+  if ! mkdir -p "$destination_dir"; then
+    >&2 printf 'Error: could not create nginx UI gate directory "%s".\n' "$destination_dir"
+    exit 1
+  fi
+
+  if ! cp "$source" "$destination"; then
+    >&2 printf 'Error: could not stage ui-gate-prompt.html from "%s" to "%s".\n' "$source" "$destination"
+    exit 1
+  fi
+}
+
 resolve_proxy_resolver() {
   value="$1"
   trimmed=$(printf '%s' "${value}" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
@@ -181,5 +211,7 @@ export RIVET_UI_TOKEN_FREE_HOSTS_REGEX="$(build_host_regex "${RIVET_UI_TOKEN_FRE
 export RIVET_PROXY_RESOLVER="$(resolve_proxy_resolver "${RIVET_PROXY_RESOLVER:-}")"
 export RIVET_PROXY_AUTH_TOKEN="$(sha256_hex "${RIVET_KEY:-}:proxy-auth")"
 export RIVET_UI_SESSION_TOKEN="$(sha256_hex "${RIVET_KEY:-}:ui-session")"
+
+stage_ui_gate_prompt
 
 exec /docker-entrypoint.sh nginx -g 'daemon off;'

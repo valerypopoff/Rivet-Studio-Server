@@ -22,7 +22,7 @@ import { fetchWorkflowRecordingArtifactText } from './workflowApi';
 import { clearOpenedProjectSession, remapOpenedProjectSessionPaths } from '../io/openedProjectSessionCache';
 import { clearHostedProjectRevisionPath, remapHostedProjectRevisionPaths } from '../io/HostedIOProvider';
 import { useLoadProject } from '../overrides/hooks/useLoadProject';
-import { useSaveProject } from '../overrides/hooks/useSaveProject';
+import { useSaveProject } from '../../../rivet/packages/app/src/hooks/useSaveProject';
 import {
   focusHostedEditorCanvas,
   focusHostedEditorFrame,
@@ -67,24 +67,6 @@ export const EditorMessageBridge: FC = () => {
 
   useEffect(() => {
     postMessageToDashboard({ type: 'editor-ready' });
-  }, []);
-
-  useEffect(() => {
-    const handler = (event: Event) => {
-      const customEvent = event as CustomEvent<{ path?: string }>;
-      const savedPath = customEvent.detail?.path;
-
-      if (!savedPath) {
-        return;
-      }
-
-      postMessageToDashboard({ type: 'project-saved', path: savedPath });
-    };
-
-    window.addEventListener('rivet-project-saved', handler as EventListener);
-    return () => {
-      window.removeEventListener('rivet-project-saved', handler as EventListener);
-    };
   }, []);
 
   useEffect(() => {
@@ -278,23 +260,6 @@ export const EditorMessageBridge: FC = () => {
     setProjects,
     setDefaultExecutor,
   ]);
-
-  useEffect(() => {
-    const activeProjectInfo = openedProjects[currentProject.metadata.id];
-    const activeProjectPath = openedProjectIds.length > 0 ? activeProjectInfo?.fsPath ?? '' : '';
-
-    postMessageToDashboard({
-      type: 'active-project-path-changed',
-      path: activeProjectPath,
-    });
-  }, [currentProject.metadata.id, openedProjectIds, openedProjects]);
-
-  useEffect(() => {
-    postMessageToDashboard({
-      type: 'open-project-count-changed',
-      count: openedProjectIds.length,
-    });
-  }, [openedProjectIds.length]);
 
   return null;
 };

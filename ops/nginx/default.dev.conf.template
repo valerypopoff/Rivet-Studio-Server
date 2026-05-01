@@ -84,7 +84,7 @@ server {
         default_type text/html;
         add_header Cache-Control "no-store, no-cache, must-revalidate" always;
         add_header Pragma "no-cache" always;
-        root /usr/share/nginx/html;
+        root /tmp/nginx/html;
         try_files /ui-gate-prompt.html =500;
     }
 

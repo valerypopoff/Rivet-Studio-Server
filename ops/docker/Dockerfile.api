@@ -62,4 +62,4 @@ ENV RIVET_RUNTIME_PROCESS_ROLE=api
 
 EXPOSE 80
 
-CMD ["sh", "-lc", "NODE_OPTIONS=\"${NODE_OPTIONS:+$NODE_OPTIONS }--import=/opt/proxy-bootstrap/bootstrap.mjs\" node dist/api/src/server.js"]
+CMD ["sh", "-lc", "NODE_OPTIONS=\"${NODE_OPTIONS:+$NODE_OPTIONS }--import=/opt/proxy-bootstrap/bootstrap.mjs\" node --preserve-symlinks dist/api/src/server.js"]

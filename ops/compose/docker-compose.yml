@@ -15,7 +15,7 @@ services:
     volumes:
       - ../nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
       - ../../image/proxy/normalize-workflow-paths.sh:/normalize-workflow-paths.sh:ro
-      - ../../image/proxy/ui-gate-prompt.html:/usr/share/nginx/html/ui-gate-prompt.html:ro
+      - ../../image/proxy/ui-gate-prompt.html:/tmp/ui-gate-prompt.html:ro
     entrypoint: ["/bin/sh", "/normalize-workflow-paths.sh"]
     depends_on:
       web:

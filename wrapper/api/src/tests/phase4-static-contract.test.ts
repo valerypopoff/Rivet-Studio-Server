@@ -56,6 +56,30 @@ test('proxy shell entrypoints stay LF-normalized for Linux containers', () => {
   assert.match(proxyBootstrapBytes.toString('utf8'), /^#!\/bin\/sh\n/);
 });
 
+test('proxy UI gate prompt is staged into container-local storage before nginx serves it', () => {
+  const proxyBootstrap = readRepoFile('image/proxy/normalize-workflow-paths.sh');
+  const imageProxyTemplate = readRepoFile('image/proxy/default.conf.template');
+  const prodProxyTemplate = readRepoFile('ops/nginx/default.conf.template');
+  const devProxyTemplate = readRepoFile('ops/nginx/default.dev.conf.template');
+  const prodCompose = readRepoFile('ops/compose/docker-compose.yml');
+  const devCompose = readRepoFile('ops/compose/docker-compose.dev.yml');
+
+  for (const template of [imageProxyTemplate, prodProxyTemplate, devProxyTemplate]) {
+    assert.match(template, /location @web_with_ui_gate_prompt \{[\s\S]*root \/tmp\/nginx\/html;[\s\S]*try_files \/ui-gate-prompt\.html =500;/);
+    assert.doesNotMatch(template, /root \/usr\/share\/nginx\/html;/);
+  }
+
+  assert.match(proxyBootstrap, /stage_ui_gate_prompt\(\) \{/);
+  assert.match(proxyBootstrap, /destination_dir="\/tmp\/nginx\/html"/);
+  assert.match(proxyBootstrap, /for candidate in \/tmp\/ui-gate-prompt\.html \/usr\/share\/nginx\/html\/ui-gate-prompt\.html; do/);
+  assert.match(proxyBootstrap, /cp "\$source" "\$destination"/);
+
+  for (const composeFile of [prodCompose, devCompose]) {
+    assert.match(composeFile, /image\/proxy\/ui-gate-prompt\.html:\/tmp\/ui-gate-prompt\.html:ro/);
+    assert.doesNotMatch(composeFile, /ui-gate-prompt\.html:\/usr\/share\/nginx\/html\/ui-gate-prompt\.html:ro/);
+  }
+});
+
 test('proxy templates pin standard HTTP upstream routes to the configurable 3 minute timeout while keeping websocket routes long-lived', () => {
   const imageProxyTemplate = readRepoFile('image/proxy/default.conf.template');
   const prodProxyTemplate = readRepoFile('ops/nginx/default.conf.template');
@@ -96,6 +120,7 @@ test('executor production image and compose contracts pin the websocket service 
 
 test('API images link workflow execution to the embedded Rivet source tree', () => {
   const apiDockerfile = readRepoFile('image/api/Dockerfile');
+  const apiEntrypoint = readRepoFile('image/api/entrypoint.sh');
   const composeApiDockerfile = readRepoFile('ops/docker/Dockerfile.api');
   const prodCompose = readRepoFile('ops/compose/docker-compose.yml');
   const devCompose = readRepoFile('ops/compose/docker-compose.dev.yml');
@@ -105,6 +130,10 @@ test('API images link workflow execution to the embedded Rivet source tree', () 
   const rivetContextHelper = readRepoFile('scripts/lib/rivet-source-context.mjs');
   const imageBuildWorkflow = readRepoFile('.github/workflows/build-images.yml');
   const linkScript = readRepoFile('scripts/link-rivet-node-package.mjs');
+  const apiPackageJson = readRepoFile('wrapper/api/package.json');
+  const apiTsconfig = readRepoFile('wrapper/api/tsconfig.json');
+  const preserveSymlinksRunner = readRepoFile('scripts/run-preserve-symlinks.mjs');
+  const ensureDevDeps = readRepoFile('scripts/ensure-dev-deps.mjs');
 
   for (const dockerfile of [apiDockerfile, composeApiDockerfile]) {
     assert.match(dockerfile, /COPY --from=rivet_source \. rivet\//);
@@ -119,6 +148,22 @@ test('API images link workflow execution to the embedded Rivet source tree', () 
   assert.match(apiDockerfile, /COPY --from=builder --chown=10001:10001 \/app\/rivet\/packages\/node \/app\/rivet\/packages\/node/);
   assert.match(linkScript, /@ironclad\/\$\{pkg\.name\}/);
   assert.match(linkScript, /source: path\.join\(rivetRootDir, 'packages', 'node'\)/);
+  assert.match(linkScript, /\.rivet-package-links/);
+  assert.match(linkScript, /const rivetNodeModulesDir = path\.join\(rivetRootDir, 'node_modules'\)/);
+  assert.match(linkScript, /fs\.copyFileSync\(packageJsonPath, path\.join\(packageLinkDir, 'package\.json'\)\)/);
+  assert.match(linkScript, /linkDirectory\(rivetNodeModulesDir, path\.join\(packageLinkDir, 'node_modules'\)\)/);
+  assert.doesNotMatch(linkScript, /packages\[1\]\.source, 'node_modules'/);
+  assert.doesNotMatch(linkScript, /nodePackageCoreDependency/);
+  assert.match(ensureDevDeps, /hasExpectedApiRivetLink\('rivet-core', 'rivet\/packages\/core'\)/);
+  assert.match(ensureDevDeps, /hasExpectedApiRivetLink\('rivet-node', 'rivet\/packages\/node'\)/);
+  assert.match(ensureDevDeps, /\.rivet-package-links\/\$\{packageName\}/);
+  assert.match(ensureDevDeps, /isLinkedTo\(path\.join\(overlayRelPath, 'node_modules'\), 'rivet\/node_modules'\)/);
+  assert.match(apiTsconfig, /"preserveSymlinks": true/);
+  assert.match(apiPackageJson, /run-preserve-symlinks\.mjs tsx/);
+  assert.match(apiPackageJson, /node --preserve-symlinks dist\/api\/src\/server\.js/);
+  assert.match(preserveSymlinksRunner, /--preserve-symlinks/);
+  assert.match(apiEntrypoint, /exec node --preserve-symlinks \/app\/wrapper\/api\/dist\/api\/src\/server\.js/);
+  assert.match(composeApiDockerfile, /node --preserve-symlinks dist\/api\/src\/server\.js/);
   for (const compose of [prodCompose, devCompose]) {
     assert.match(compose, /additional_contexts:\s*\n\s*rivet_source: \$\{RIVET_SOURCE_BUILD_CONTEXT_PATH:-\.\.\/\.\.\/rivet\}/);
   }
@@ -126,6 +171,7 @@ test('API images link workflow execution to the embedded Rivet source tree', () 
   assert.match(devCompose, /api:[\s\S]*- rivet_node_modules:\/workspace\/rivet\/node_modules/);
   assert.match(devCompose, /cp -a \/workspace\/rivet\/packages\/core \/app\/\.rivet-source\/packages\/core/);
   assert.match(devCompose, /ln -s \/workspace\/rivet\/node_modules \/app\/\.rivet-source\/node_modules/);
+  assert.match(devCompose, /\.\.\/\.\.\/scripts:\/scripts:ro/);
   assert.match(devCompose, /RIVET_SOURCE_ROOT=\/app\/\.rivet-source RIVET_API_PACKAGE_ROOT=\/app node \/workspace\/scripts\/link-rivet-node-package\.mjs/);
   assert.match(devCompose, /NODE_OPTIONS='\$\{NODE_OPTIONS:-\} --import=\/opt\/proxy-bootstrap\/bootstrap\.mjs'/);
   assert.match(devDockerLauncher, /prepareRivetDockerContext\(rootDir, mergedEnv\)/);
@@ -180,20 +226,25 @@ test('hosted editor opened-project overrides follow Rivet 2 project metadata and
 
 test('hosted executor integration keeps Rivet 2 transport ownership and removes stale wrapper transport overrides', () => {
   const viteAliases = readRepoFile('wrapper/web/vite-aliases.ts');
-  const hostedExecutorSession = readRepoFile('wrapper/web/overrides/hooks/useHostedExecutorSession.ts');
-  const hostedRemoteDebugger = readRepoFile('wrapper/web/overrides/hooks/useHostedRemoteDebugger.ts');
+  const hostedEditorApp = readRepoFile('wrapper/web/dashboard/HostedEditorApp.tsx');
+  const upstreamExecutorSession = readRepoFile('rivet/packages/app/src/hooks/useExecutorSession.ts');
+  const upstreamRemoteDebugger = readRepoFile('rivet/packages/app/src/hooks/useRemoteDebugger.ts');
   const packageJson = readRepoFile('package.json');
 
-  assert.match(viteAliases, /useExecutorSession[\s\S]*useHostedExecutorSession/);
-  assert.match(viteAliases, /useRemoteDebugger[\s\S]*useHostedRemoteDebugger/);
+  assert.match(hostedEditorApp, /executor=\{\{ internalExecutorUrl: RIVET_EXECUTOR_WS_URL \}\}/);
+  assert.match(upstreamExecutorSession, /runtime\.connectInternal\(hostConfig\.internalExecutorUrl\)/);
+  assert.match(upstreamRemoteDebugger, /shouldRestoreInternalNodeExecutorAfterDebuggerDisconnect/);
+  assert.match(upstreamRemoteDebugger, /runtime\.connectInternal\(hostConfig\?\.internalExecutorUrl\)/);
+  assert.doesNotMatch(viteAliases, /useExecutorSession/);
+  assert.doesNotMatch(viteAliases, /useRemoteDebugger/);
   assert.doesNotMatch(viteAliases, /useGraphExecutor/);
   assert.doesNotMatch(viteAliases, /useRemoteExecutor/);
 
-  assert.match(hostedExecutorSession, /from '\.\.\/state\/settings'/);
-  assert.match(hostedExecutorSession, /markHostedInternalExecutorSession/);
-  assert.match(hostedRemoteDebugger, /markHostedInternalExecutorSession/);
-
   for (const stalePath of [
+    'wrapper/web/overrides/hooks/hostedInternalExecutorSession.ts',
+    'wrapper/web/overrides/hooks/useHostedExecutorSession.ts',
+    'wrapper/web/overrides/hooks/useHostedRemoteDebugger.ts',
+    'wrapper/web/tests/hosted-executor-session.test.ts',
     'wrapper/web/overrides/hooks/useGraphExecutor.ts',
     'wrapper/web/overrides/hooks/useRemoteExecutor.ts',
     'wrapper/web/overrides/hooks/useRemoteDebugger.ts',
@@ -206,6 +257,62 @@ test('hosted executor integration keeps Rivet 2 transport ownership and removes 
 
   assert.doesNotMatch(packageJson, /remote-execution-session\.test/);
   assert.doesNotMatch(packageJson, /remote-executor-protocol\.test/);
+});
+
+test('hosted save shortcuts use upstream save flow and RivetAppHost callbacks', () => {
+  const viteAliases = readRepoFile('wrapper/web/vite-aliases.ts');
+  const hostedEditorApp = readRepoFile('wrapper/web/dashboard/HostedEditorApp.tsx');
+  const editorMessageBridge = readRepoFile('wrapper/web/dashboard/EditorMessageBridge.tsx');
+  const upstreamWorkspaceTransitions = readRepoFile('rivet/packages/app/src/hooks/useWorkspaceTransitions.ts');
+  const windowsHotkeysFix = readRepoFile('wrapper/web/overrides/hooks/useWindowsHotkeysFix.tsx');
+
+  assert.match(hostedEditorApp, /onProjectSaved=\{handleProjectSaved\}/);
+  assert.match(hostedEditorApp, /onActiveProjectChanged=\{handleActiveProjectChanged\}/);
+  assert.match(hostedEditorApp, /onOpenProjectCountChanged=\{handleOpenProjectCountChanged\}/);
+  assert.match(editorMessageBridge, /rivet\/packages\/app\/src\/hooks\/useSaveProject/);
+  assert.doesNotMatch(editorMessageBridge, /rivet-project-saved/);
+  assert.doesNotMatch(viteAliases, /useSaveProject/);
+  assert.doesNotMatch(viteAliases, /useMenuCommands/);
+  assert.match(upstreamWorkspaceTransitions, /hostCallbacks\.onProjectSaved/);
+  assert.match(windowsHotkeysFix, /menuId === 'save_project' && isHostedMode\(\)/);
+
+  for (const stalePath of [
+    'wrapper/web/overrides/hooks/useSaveProject.ts',
+    'wrapper/web/overrides/hooks/useMenuCommands.ts',
+  ]) {
+    assert.equal(repoFileExists(stalePath), false, `${stalePath} should stay removed in favor of upstream save/menu seams`);
+  }
+});
+
+test('hosted web module overrides are scoped to upstream Rivet app importers', () => {
+  const viteConfig = readRepoFile('wrapper/web/vite.config.ts');
+  const viteAliases = readRepoFile('wrapper/web/vite-aliases.ts');
+  const updateCheck = readRepoFile('scripts/update-check.sh');
+  const updateCheckAliasedFiles = updateCheck.match(/ALIASED_FILES=\([\s\S]*?\n\)/)?.[0] ?? '';
+
+  assert.match(viteConfig, /const normalizedUpstreamAppSrc = normalizePath\(resolve\(upstreamApp, 'src'\)\)/);
+  assert.match(viteConfig, /name: 'resolve-rivet-module-override'/);
+  assert.match(viteConfig, /isUpstreamAppSourceImporter\(importer\)/);
+  assert.match(viteConfig, /createModuleOverrideAliases\(overrideDir\)/);
+  assert.doesNotMatch(viteConfig, /\.\.\.createModuleOverrideAliases\(overrideDir\)/);
+  assert.match(viteAliases, /useLoadProject/);
+  assert.match(viteAliases, /useSyncCurrentStateIntoOpenedProjects/);
+  assert.doesNotMatch(viteAliases, /TauriProjectReferenceLoader/);
+  assert.doesNotMatch(viteAliases, /datasets/);
+  assert.doesNotMatch(viteAliases, /useExecutorSession/);
+  assert.doesNotMatch(viteAliases, /useRemoteDebugger/);
+  assert.doesNotMatch(updateCheckAliasedFiles, /model\/TauriProjectReferenceLoader\.ts/);
+  assert.doesNotMatch(updateCheckAliasedFiles, /io\/datasets\.ts/);
+  assert.match(updateCheck, /Checking upstream provider seams/);
+  assert.match(updateCheck, /readRelativeProjectFile/);
+  assert.match(updateCheck, /getDefaultPathPolicyProvider/);
+
+  for (const stalePath of [
+    'wrapper/web/overrides/model/TauriProjectReferenceLoader.ts',
+    'wrapper/web/overrides/io/datasets.ts',
+  ]) {
+    assert.equal(repoFileExists(stalePath), false, `${stalePath} should stay removed in favor of upstream provider seams`);
+  }
 });
 
 test('docker compose files keep runtime caches and executor app-data under /home/rivet to match the non-root image contract', () => {

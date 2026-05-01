@@ -41,6 +41,8 @@ const splitImportSuffix = (specifier: string) => {
   };
 };
 
+const stripImportSuffix = (specifier: string) => splitImportSuffix(specifier).path;
+
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const wrapperPackageJson = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf8')) as {
@@ -138,6 +140,15 @@ const wrapperExactDependencyAliases = wrapperAliasedDependencies.map((dependency
 }));
 
 const browserSafeGoogleModule = resolve(overrideDir, 'core/plugins/google/google.ts');
+const moduleOverrideAliases = createModuleOverrideAliases(overrideDir);
+const normalizedUpstreamAppSrc = normalizePath(resolve(upstreamApp, 'src'));
+
+const isRelativeImport = (specifier: string) => specifier.startsWith('./') || specifier.startsWith('../');
+
+const isUpstreamAppSourceImporter = (importer: string) => {
+  const normalizedImporter = normalizePath(stripImportSuffix(importer));
+  return normalizedImporter === normalizedUpstreamAppSrc || normalizedImporter.startsWith(`${normalizedUpstreamAppSrc}/`);
+};
 
 const resolveBrowserSafeGoogleCoreModule = (): PluginOption => ({
   name: 'resolve-browser-safe-google-core-module',
@@ -155,6 +166,23 @@ const resolveBrowserSafeGoogleCoreModule = (): PluginOption => ({
     }
 
     return null;
+  },
+});
+
+const resolveRivetModuleOverride = (): PluginOption => ({
+  name: 'resolve-rivet-module-override',
+  enforce: 'pre',
+  async resolveId(source, importer) {
+    if (!importer || !isRelativeImport(source) || !isUpstreamAppSourceImporter(importer)) {
+      return null;
+    }
+
+    const override = moduleOverrideAliases.find((candidate) => candidate.find.test(source));
+    if (!override) {
+      return null;
+    }
+
+    return (await this.resolve(override.replacement, importer, { skipSelf: true })) ?? override.replacement;
   },
 });
 
@@ -198,7 +226,6 @@ export default defineConfig({
       preserveSymlinks: true,
       alias: [
         ...createTauriShimAliases(shimDir),
-        ...createModuleOverrideAliases(overrideDir),
         ...wrapperExactDependencyAliases,
         ...createBrowserSubpathAliases(__dirname),
         { find: '@ironclad/rivet-core', replacement: resolve(__dirname, '../../rivet/packages/core/src/index.ts') },
@@ -243,6 +270,7 @@ export default defineConfig({
 
     plugins: [
       resolveBrowserSafeGoogleCoreModule(),
+      resolveRivetModuleOverride(),
       resolveWrapperDependency(),
       react(),
       viteTsconfigPaths({ root: upstreamApp }),

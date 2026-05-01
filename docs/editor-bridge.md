@@ -59,7 +59,7 @@ Save can be initiated from either context:
 
 - inside the iframe, the editor bridge listens for `Ctrl+S` / `Cmd+S` and calls the editor's normal save flow across platforms, including hosted Windows browser sessions
 - outside the iframe, the dashboard captures the save shortcut and sends `save-project`
-- in hosted mode, the tracked wrapper override of the upstream save hook emits the `rivet-project-saved` DOM event after a successful save, and the bridge forwards that as `project-saved`
+- save completion is reported through `RivetAppHost.onProjectSaved`, which the wrapper forwards to the dashboard as `project-saved`; the wrapper does not override upstream save/menu hooks just to observe saves
 - the hosted wrapper also overrides the upstream Windows hotkey fallback so `Ctrl+S` does not trigger a second save via the legacy keyup path
 
 That lets the hosted shell behave like a single app even though the editor lives in an iframe.
@@ -80,10 +80,10 @@ Node copy/paste shortcuts do not cross the editor bridge.
 
 The editor bridge is not the same thing as the executor/debugger websocket transport. In the Rivet 2.0 integration, the hosted shell mounts the editor through `RivetAppHost` and passes the hosted executor websocket as `executor.internalExecutorUrl`.
 
-- the editor-side bridge remains in `wrapper/web/dashboard/EditorMessageBridge.tsx`, and hosted executor UI classification stays in the wrapper's small `useExecutorSession` / `useRemoteDebugger` shims
-- executor transport ownership stays in upstream Rivet app code (`useRemoteExecutor` and the shared executor-session runtime); wrapper `useExecutorSession` / `useRemoteDebugger` shims only normalize hosted UI state
-- hosted wrapper code still owns project-open/save/delete/path-move messages and hosted IO adapters
-- stale wrapper transport override files were removed after the Rivet 2 seam migration; do not restore `useGraphExecutor` or `useRemoteExecutor` aliases unless the upstream seam is removed
+- the editor-side bridge remains in `wrapper/web/dashboard/EditorMessageBridge.tsx`; executor UI classification stays in upstream Rivet's `useExecutorSession` / `useRemoteDebugger` flow through `executor.internalExecutorUrl`
+- executor transport ownership stays in upstream Rivet app code (`useExecutorSession`, `useRemoteDebugger`, `useRemoteExecutor`, and the shared executor-session runtime); the wrapper passes the hosted executor URL and does not alias those transport/debugger hooks
+- hosted wrapper code still owns project-open/delete/path-move messages, parent-page save relay, and hosted IO adapters; upstream Rivet owns the actual save transition
+- stale wrapper transport override files were removed after the Rivet 2 seam migration; do not restore `useExecutorSession`, `useRemoteDebugger`, `useGraphExecutor`, or `useRemoteExecutor` aliases unless the upstream seam is removed
 
 Those execution websocket responsibilities are separate from the dashboard/editor `window.postMessage` bridge. The bridge moves open/save/delete/path-move intent between browsing contexts; the Rivet executor session talks to `/ws/executor*`.
 
@@ -96,11 +96,11 @@ Those execution websocket responsibilities are separate from the dashboard/edito
 - `wrapper/web/dashboard/useEditorCommandQueue.ts` - pre-ready command buffering
 - `wrapper/web/dashboard/editorBridgeFocus.ts` - iframe/canvas focus helpers and save-shortcut detection
 - `wrapper/web/dashboard/EditorMessageBridge.tsx` - editor-side message handling
+- `wrapper/web/dashboard/HostedEditorApp.tsx` - `RivetAppHost` callback forwarding for active project, open project count, and saved project events
 - `wrapper/web/dashboard/useOpenWorkflowProject.ts` - open/replace-current behavior inside the editor
 - `wrapper/web/io/HostedIOProvider.ts` - API-backed project loading/saving plus replay-project loading
 - `wrapper/web/overrides/hooks/useCopyNodesHotkeys.ts` - hosted clipboard hotkey override that reads the latest node state synchronously
 - `wrapper/web/overrides/hooks/useContextMenu.ts` - hosted context-menu override that clears stale focused menu inputs
-- `wrapper/web/overrides/hooks/useSaveProject.ts` - hosted save hook override that dispatches `rivet-project-saved`
 - `wrapper/web/overrides/hooks/useWindowsHotkeysFix.tsx` - hosted Windows hotkey override that suppresses duplicate save fallback
 - `wrapper/web/hosted-editor.css` - hosted global CSS that suppresses visible canvas focus outlines
 - `wrapper/web/vite-aliases.ts` - Vite alias wiring that redirects hosted builds to tracked wrapper overrides

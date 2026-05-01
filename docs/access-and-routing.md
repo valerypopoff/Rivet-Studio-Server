@@ -173,11 +173,14 @@ The browser/editor surface can be protected at the nginx layer:
 
 When the gate is enabled for a host that is not exempt:
 
-- `GET /` serves the prompt page from `image/proxy/ui-gate-prompt.html`
+- proxy startup stages `image/proxy/ui-gate-prompt.html` into container-local `/tmp/nginx/html/ui-gate-prompt.html`
+- `GET /` serves that staged prompt page
 - `POST /__rivet_auth` forwards to the API's internal `/ui-auth` route
 - the API validates the submitted `key` or `token` form field
 - on success the response sets an HTTP-only `rivet_ui_token` cookie
 - the cookie then gates `/`, `/api/*`, `/ws/executor*`, and `/ws/latest-debugger`
+
+The Compose stacks mount the prompt source at `/tmp/ui-gate-prompt.html` and copy it before nginx starts. nginx never serves the host-mounted file directly, so a long-running Windows bind mount cannot turn gated requests into runtime `stat()` failures.
 
 If the gate is enabled but `RIVET_KEY` is empty, nginx/API do not fall back to open access for non-exempt hosts; they deny the gated requests.
 

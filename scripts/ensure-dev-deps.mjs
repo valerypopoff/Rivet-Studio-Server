@@ -19,11 +19,12 @@ function quoteArg(arg) {
 
 function run(command, args, cwd = rootDir) {
   const commandLine = [command, ...args.map(quoteArg)].join(' ');
+  const useShell = process.platform === 'win32' && /\.(cmd|bat)$/i.test(command);
 
-  const result = spawnSync(commandLine, {
+  const result = spawnSync(command, args, {
     cwd,
     stdio: 'inherit',
-    shell: true,
+    shell: useShell,
   });
 
   if (result.error) {
@@ -54,6 +55,18 @@ function isLinkedTo(relPath, targetRelPath) {
   } catch {
     return false;
   }
+}
+
+function hasExpectedApiRivetLink(packageName, sourcePackageRelPath) {
+  const packageRelPath = `wrapper/api/node_modules/@ironclad/${packageName}`;
+  const overlayRelPath = `wrapper/api/node_modules/.rivet-package-links/${packageName}`;
+  const sourceDistRelPath = path.join(sourcePackageRelPath, 'dist');
+
+  return (
+    isLinkedTo(packageRelPath, overlayRelPath) &&
+    isLinkedTo(path.join(overlayRelPath, 'dist'), sourceDistRelPath) &&
+    isLinkedTo(path.join(overlayRelPath, 'node_modules'), 'rivet/node_modules')
+  );
 }
 
 function hasExpectedRivetWorkspace() {
@@ -105,8 +118,8 @@ const needsRivetDeps =
 const needsRivetCoreBuild = !exists('rivet/packages/core/dist/esm/index.js');
 const needsRivetNodeBuild = !exists('rivet/packages/node/dist/esm/index.js');
 const needsApiRivetLinks =
-  !isLinkedTo('wrapper/api/node_modules/@ironclad/rivet-core', 'rivet/packages/core') ||
-  !isLinkedTo('wrapper/api/node_modules/@ironclad/rivet-node', 'rivet/packages/node');
+  !hasExpectedApiRivetLink('rivet-core', 'rivet/packages/core') ||
+  !hasExpectedApiRivetLink('rivet-node', 'rivet/packages/node');
 
 if (
   !needsApiDeps &&

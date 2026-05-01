@@ -3,6 +3,7 @@
 
 import { type RivetPlugin, type Settings, type StringPluginConfigurationSpec } from '@ironclad/rivet-core';
 import { entries } from '../../../../rivet/packages/core/src/utils/typeSafety';
+import type { EnvironmentProvider, PathPolicyProvider } from '../../../../rivet/packages/app/src/providers/ProvidersContext.js';
 import { RIVET_API_BASE_URL, RIVET_HOSTED_MODE } from '../../../shared/hosted-env';
 
 export function isInTauri(): boolean {
@@ -14,6 +15,35 @@ export function isHostedMode(): boolean {
 }
 
 const cachedEnvVars: Record<string, string> = {};
+
+export function getDefaultEnvironmentProvider(): EnvironmentProvider {
+  return {
+    getEnvVar,
+  };
+}
+
+export function getDefaultPathPolicyProvider(): PathPolicyProvider {
+  return {
+    allowDataFileNeighbor,
+    async readRelativeProjectFile(currentProjectPath, projectFilePath) {
+      const response = await fetch(`${RIVET_API_BASE_URL}/native/read-relative`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          relativeFrom: currentProjectPath,
+          projectFilePath,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to read relative project file: ${response.status} ${response.statusText}`);
+      }
+
+      const { contents } = await response.json() as { contents: string };
+      return contents;
+    },
+  };
+}
 
 export async function getEnvVar(name: string): Promise<string | undefined> {
   if (cachedEnvVars[name]) {
@@ -47,13 +77,18 @@ export async function getEnvVar(name: string): Promise<string | undefined> {
 export async function fillMissingSettingsFromEnvironmentVariables(
   settings: Partial<Settings>,
   plugins: RivetPlugin[],
-  extraEnvVarNames: string[] = [],
+  optionsOrExtraEnvVarNames: string[] | { extraEnvVarNames?: string[]; environmentProvider?: EnvironmentProvider } = [],
 ) {
+  const options = Array.isArray(optionsOrExtraEnvVarNames)
+    ? { extraEnvVarNames: optionsOrExtraEnvVarNames }
+    : optionsOrExtraEnvVarNames;
+  const environmentProvider = options.environmentProvider ?? getDefaultEnvironmentProvider();
+  const getProviderEnvVar = (name: string) => environmentProvider.getEnvVar(name);
   const fullSettings: Settings = {
     ...settings,
-    openAiKey: (settings.openAiKey || (await getEnvVar('OPENAI_API_KEY'))) ?? '',
-    openAiOrganization: (settings.openAiOrganization || (await getEnvVar('OPENAI_ORG_ID'))) ?? '',
-    openAiEndpoint: (settings.openAiEndpoint || (await getEnvVar('OPENAI_ENDPOINT'))) ?? '',
+    openAiKey: (settings.openAiKey || (await getProviderEnvVar('OPENAI_API_KEY'))) ?? '',
+    openAiOrganization: (settings.openAiOrganization || (await getProviderEnvVar('OPENAI_ORG_ID'))) ?? '',
+    openAiEndpoint: (settings.openAiEndpoint || (await getProviderEnvVar('OPENAI_ENDPOINT'))) ?? '',
     pluginSettings: settings.pluginSettings,
     pluginEnv: {},
   };
@@ -72,7 +107,7 @@ export async function fillMissingSettingsFromEnvironmentVariables(
               ? configName
               : undefined;
         if (envVarName) {
-          const envVarValue = await getEnvVar(envVarName);
+          const envVarValue = await getProviderEnvVar(envVarName);
           if (envVarValue) {
             fullSettings.pluginEnv![envVarName] = envVarValue;
           }
@@ -81,8 +116,8 @@ export async function fillMissingSettingsFromEnvironmentVariables(
     }
   }
 
-  for (const envVarName of new Set(extraEnvVarNames.map((name) => name.trim()).filter(Boolean))) {
-    const envVarValue = await getEnvVar(envVarName);
+  for (const envVarName of new Set((options.extraEnvVarNames ?? []).map((name) => name.trim()).filter(Boolean))) {
+    const envVarValue = await getProviderEnvVar(envVarName);
     if (envVarValue) {
       fullSettings.pluginEnv![envVarName] = envVarValue;
     }

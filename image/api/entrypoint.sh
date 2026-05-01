@@ -14,4 +14,4 @@ export RIVET_APP_DATA_ROOT="${RIVET_APP_DATA_ROOT:-/data/rivet-app}"
 export RIVET_RUNTIME_LIBRARIES_ROOT="${RIVET_RUNTIME_LIBRARIES_ROOT:-/data/runtime-libraries}"
 export RIVET_RUNTIME_PROCESS_ROLE="${RIVET_RUNTIME_PROCESS_ROLE:-api}"
 
-exec node /app/wrapper/api/dist/api/src/server.js
+exec node --preserve-symlinks /app/wrapper/api/dist/api/src/server.js
