@@ -1,22 +1,29 @@
 services:
   proxy:
-    image: nginx:alpine
+    image: ${RIVET_PROXY_IMAGE:-ghcr.io/valerypopoff/cloud-hosted-rivet2-wrapper/proxy:${RIVET_IMAGE_TAG:-latest}}
+    build:
+      context: ../..
+      dockerfile: image/proxy/Dockerfile
     ports:
-      - "${RIVET_PORT:-8080}:80"
+      - "${RIVET_PORT:-8080}:8080"
     env_file:
       - ../../.env
     environment:
+      - RIVET_WEB_UPSTREAM_HOST=web
+      - RIVET_WEB_UPSTREAM_PORT=3000
+      - RIVET_API_UPSTREAM_HOST=api
+      - RIVET_API_UPSTREAM_PORT=80
+      - RIVET_EXECUTION_UPSTREAM_HOST=api
+      - RIVET_EXECUTION_UPSTREAM_PORT=80
+      - RIVET_EXECUTOR_UPSTREAM_HOST=executor
+      - RIVET_EXECUTOR_UPSTREAM_PORT=21889
+      - RIVET_PROXY_RESOLVER=${RIVET_PROXY_RESOLVER:-127.0.0.11}
       - RIVET_PUBLISHED_WORKFLOWS_BASE_PATH=${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH:-/workflows}
       - RIVET_LATEST_WORKFLOWS_BASE_PATH=${RIVET_LATEST_WORKFLOWS_BASE_PATH:-/workflows-latest}
       - RIVET_PROXY_READ_TIMEOUT=${RIVET_PROXY_READ_TIMEOUT:-180s}
       - RIVET_KEY=${RIVET_KEY:-}
       - RIVET_REQUIRE_UI_GATE_KEY=${RIVET_REQUIRE_UI_GATE_KEY:-false}
       - RIVET_UI_TOKEN_FREE_HOSTS=${RIVET_UI_TOKEN_FREE_HOSTS:-}
-    volumes:
-      - ../nginx/default.conf.template:/etc/nginx/templates/default.conf.template:ro
-      - ../../image/proxy/normalize-workflow-paths.sh:/normalize-workflow-paths.sh:ro
-      - ../../image/proxy/ui-gate-prompt.html:/tmp/ui-gate-prompt.html:ro
-    entrypoint: ["/bin/sh", "/normalize-workflow-paths.sh"]
     depends_on:
       web:
         condition: service_healthy
@@ -27,7 +34,7 @@ services:
     restart: unless-stopped
 
   web:
-    image: ${RIVET_WEB_IMAGE:-ghcr.io/valerypopoff/cloud-hosted-rivet-wrapper/web:${RIVET_IMAGE_TAG:-latest}}
+    image: ${RIVET_WEB_IMAGE:-ghcr.io/valerypopoff/cloud-hosted-rivet2-wrapper/web:${RIVET_IMAGE_TAG:-latest}}
     build:
       context: ../..
       dockerfile: ops/docker/Dockerfile.web
@@ -69,7 +76,7 @@ services:
     restart: unless-stopped
 
   api:
-    image: ${RIVET_API_IMAGE:-ghcr.io/valerypopoff/cloud-hosted-rivet-wrapper/api:${RIVET_IMAGE_TAG:-latest}}
+    image: ${RIVET_API_IMAGE:-ghcr.io/valerypopoff/cloud-hosted-rivet2-wrapper/api:${RIVET_IMAGE_TAG:-latest}}
     build:
       context: ../..
       dockerfile: ops/docker/Dockerfile.api
@@ -143,7 +150,7 @@ services:
     restart: unless-stopped
 
   executor:
-    image: ${RIVET_EXECUTOR_IMAGE:-ghcr.io/valerypopoff/cloud-hosted-rivet-wrapper/executor:${RIVET_IMAGE_TAG:-latest}}
+    image: ${RIVET_EXECUTOR_IMAGE:-ghcr.io/valerypopoff/cloud-hosted-rivet2-wrapper/executor:${RIVET_IMAGE_TAG:-latest}}
     build:
       context: ../..
       dockerfile: ops/docker/Dockerfile.executor

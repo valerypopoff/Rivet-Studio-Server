@@ -3,7 +3,7 @@ name: Build Images
 on:
   push:
     branches:
-      - main
+      - main-revet2
     tags:
       - 'v*'
   workflow_dispatch:
@@ -11,6 +11,10 @@ on:
 permissions:
   contents: read
   packages: write
+
+env:
+  RIVET_REPO_URL: https://github.com/valerypopoff/rivet2.0.git
+  RIVET_REPO_REF: main
 
 jobs:
   build-and-push:
@@ -21,19 +25,19 @@ jobs:
         include:
           - service: proxy
             dockerfile: image/proxy/Dockerfile
-            image: ghcr.io/valerypopoff/cloud-hosted-rivet-wrapper/proxy
+            image: ghcr.io/valerypopoff/cloud-hosted-rivet2-wrapper/proxy
             platforms: linux/amd64,linux/arm64
           - service: web
             dockerfile: image/web/Dockerfile
-            image: ghcr.io/valerypopoff/cloud-hosted-rivet-wrapper/web
+            image: ghcr.io/valerypopoff/cloud-hosted-rivet2-wrapper/web
             platforms: linux/amd64,linux/arm64
           - service: api
             dockerfile: image/api/Dockerfile
-            image: ghcr.io/valerypopoff/cloud-hosted-rivet-wrapper/api
+            image: ghcr.io/valerypopoff/cloud-hosted-rivet2-wrapper/api
             platforms: linux/amd64,linux/arm64
           - service: executor
             dockerfile: image/executor/Dockerfile
-            image: ghcr.io/valerypopoff/cloud-hosted-rivet-wrapper/executor
+            image: ghcr.io/valerypopoff/cloud-hosted-rivet2-wrapper/executor
             platforms: linux/amd64
 
     steps:
@@ -73,7 +77,8 @@ jobs:
         with:
           images: ${{ matrix.image }}
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main-revet2' }}
+            type=ref,event=branch
             type=ref,event=tag
             type=sha,format=short
           labels: |

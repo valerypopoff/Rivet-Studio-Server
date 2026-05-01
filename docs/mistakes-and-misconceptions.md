@@ -30,6 +30,7 @@ It is acceptable to implement hosted fixes or product behavior directly under `r
 ### Reality
 
 - `rivet/` is upstream code that can be replaced by `npm run setup:rivet`
+- by default that setup pulls `https://github.com/valerypopoff/rivet2.0.git` at `main`, not Ironclad's old published Rivet repo
 - this repo consumes that code; it does not own or maintain it
 - even when `rivet/` exists locally as a checkout or snapshot, that is for inspection, compilation, and compatibility work around it, not for committed repo behavior
 - CI builds bootstrap a fresh upstream Rivet snapshot before building images
@@ -71,8 +72,8 @@ If behavior is correct in `npm run dev`, it is effectively verified for `npm run
 ### Reality
 
 - `npm run dev` uses the Docker dev stack with live workspace mounts and the Vite dev server
-- `npm run prod` is `auto` mode and may prefer pulled prebuilt images
-- `npm run prod:local-build` builds a production image from the current workspace
+- `npm run prod` and `npm run prod:prebuilt` pull the published `cloud-hosted-rivet2-wrapper/*` images and force-recreate the stack without building
+- `npm run prod:custom` builds production images from the current wrapper workspace and the current `rivet/` folder
 
 These modes are related, but they are not the same artifact and not the same risk profile.
 
@@ -85,17 +86,16 @@ These modes are related, but they are not the same artifact and not the same ris
 Use the mode that matches the question:
 
 - `npm run dev` for iterative development
-- `npm run prod:local-build` to verify the current workspace as a production image
-- `npm run prod:prebuilt` or `npm run prod:prebuilt:recreate` to verify what was actually published
-- plain `npm run prod` is useful convenience, but not a precise validation command when you need to know exactly which artifact you are running
+- `npm run prod:custom` to verify the current wrapper and current `rivet/` folder as production images
+- `npm run prod` or `npm run prod:prebuilt` to verify what was actually published
 
 ### Prevention
 
 - when dev works and prod does not, suspect an artifact mismatch before blaming caching or browser state
 - when testing a hosted production fix, verify both the local production build and the published image path
-- do not treat `npm run prod` as proof that your local changes are running unless you know whether it built locally or pulled prebuilt images
-- for local unpublished work, prefer `npm run prod:local-build`
-- for deployment verification, prefer `npm run prod:prebuilt:recreate`
+- do not treat `npm run prod` as proof that your local changes are running; it is intentionally the published-image path
+- for local unpublished work, prefer `npm run prod:custom`
+- for deployment verification, prefer `npm run prod` or `npm run prod:prebuilt`
 
 ## 3. Keyboard shortcut bugs are multi-layer problems
 
@@ -158,7 +158,7 @@ For UI changes that affect focus, shortcuts, mouse interactions, or iframe behav
 - inspect Playwright trace, screenshots, and video when behavior differs from expectations
 - keep an observable headed flow available for debugging, but treat automated verification as the default gate
 - encode exact failure sequences in the spec instead of relying on memory
-- if a regression only appears in production-style behavior, run the test against `prod:local-build` or published images rather than only against dev
+- if a regression only appears in production-style behavior, run the test against `prod:custom` or published images rather than only against dev
 
 ## 5. Managed Playwright runs are not disposable by default
 

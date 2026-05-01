@@ -7,7 +7,7 @@ See also: [Repo structure](./repo-structure.md)
 
 - `npm run setup`
   - ensures `wrapper/api` and `wrapper/web` dependencies exist
-  - clones `rivet/` from the upstream repo if it is missing
+  - clones `rivet/` from the configured Rivet 2 repo if it is missing
   - installs upstream Yarn dependencies and builds `@ironclad/rivet-core` and `@ironclad/rivet-node` when needed
   - links `wrapper/api/node_modules/@ironclad/rivet-core` and `@ironclad/rivet-node` to generated package overlays under `wrapper/api/node_modules/.rivet-package-links`; those overlays point `dist` at the built packages under `rivet/` and resolve package dependencies through `rivet/node_modules`
   - keeps API runtime and TypeScript resolution on symlink-preserved paths, so setup does not need to create helper dependency links inside the external `rivet/` checkout
@@ -16,8 +16,10 @@ See also: [Repo structure](./repo-structure.md)
   - downloads the pinned Helm release into `.data/tools/helm/`
   - use this when you want Kubernetes verification or the local Kubernetes launcher to work without a system Helm install
 - `npm run setup:rivet`
-  - downloads the newest stable upstream Rivet tag into `./rivet`
-  - use this when you want a clean versioned upstream snapshot for local Docker builds
+  - downloads the configured Rivet 2 source ref into `./rivet`
+  - defaults to `https://github.com/valerypopoff/rivet2.0.git` at `main`
+  - override the source with `RIVET_REPO_URL` and `RIVET_REPO_REF` when rehearsing a different fork, branch, or tag
+  - use this when you want a clean upstream snapshot for local Docker builds
   - `npm run setup:rivet -- --force` replaces an existing non-empty `rivet/` directory
 
 ## Main commands
@@ -42,12 +44,9 @@ See also: [Repo structure](./repo-structure.md)
 | `npm run dev:local:api` | Starts only the API locally | API debugging |
 | `npm run dev:local:web` | Starts only the Vite web app locally | Frontend work |
 | `npm run dev:local:executor` | Starts only the executor locally | Executor debugging |
-| `npm run prod` | Starts the production-style Docker stack | Smoke-test deployment behavior |
-| `npm run prod:prebuilt` | Pulls prebuilt images and starts without building | Fast deploy verification |
-| `npm run prod:prebuilt:recreate` | Recreates the prebuilt-image production stack from scratch | Verify the published artifact path cleanly |
-| `npm run prod:local-build` | Forces a local production image build | Test custom image changes |
-| `npm run prod:docker:recreate` | Rebuilds and recreates the production-style Docker stack without going through the alias | Useful when you want the exact script name that repo instructions refer to |
-| `npm run prod:docker:config` | Renders the merged production-style Docker Compose config without starting containers | Verify launcher/env/Compose wiring |
+| `npm run prod` | Pulls the prebuilt Rivet 2 images, force-recreates the production-style Docker stack, and waits for health | Normal VM deployment/update path |
+| `npm run prod:prebuilt` | Same prebuilt-image deployment path as `npm run prod` | Explicit published-artifact verification |
+| `npm run prod:custom` | Builds and force-recreates the production-style Docker stack from this repo plus the current `rivet/` folder | Test custom wrapper/Rivet source changes |
 | `npm run verify:filesystem` | Runs the repo-local compatibility baseline for single-host filesystem mode | Check that filesystem mode still has build/test and launcher-contract coverage |
 | `npm run verify:filesystem:docker` | Verifies the filesystem Docker launcher shape with a disposable env/fixture root | Check that Docker launcher config still supports filesystem mode without managed services |
 | `npm run verify:local-docker` | Verifies managed-storage local-Docker launcher shape with a disposable env/fixture root | Check that `managed + local-docker` still enables the expected Postgres/MinIO rehearsal path |
@@ -219,7 +218,7 @@ Managed-state safety:
 
 Typical usage:
 
-1. start the app you want to watch, for example `npm run dev` or `npm run prod:local-build`
+1. start the app you want to watch, for example `npm run dev` or `npm run prod:custom`
 2. if this is the first Playwright run on the machine, run `npm run ui:observe:install`
 3. run `npm run ui:observe`
 4. if you want the Playwright Inspector alongside the browser, run `npm run ui:observe:debug`
@@ -258,19 +257,21 @@ The Docker launchers now render layered Compose files:
 - the executor service sets `RIVET_EXECUTOR_HOST=0.0.0.0` in Docker so the proxy container can connect to it over the compose network; do not change that back to `127.0.0.1` unless the proxy and executor are collapsed into the same process/network namespace
 
 - `npm run dev` / `npm run dev:docker:*` use `ops/compose/docker-compose.managed-services.yml` plus `ops/compose/docker-compose.dev.yml`
-- `npm run prod` / `npm run prod:docker:*` use `ops/compose/docker-compose.managed-services.yml` plus `ops/compose/docker-compose.yml`
+- `npm run prod`, `npm run prod:prebuilt`, and `npm run prod:custom` use `ops/compose/docker-compose.managed-services.yml` plus `ops/compose/docker-compose.yml`
 - the shared file only contributes the managed Postgres/MinIO services, and the launcher auto-enables the `workflow-managed` profile only when `RIVET_STORAGE_MODE=managed`
 
 Current behavior:
 
 - the browser entrypoint is still `http://localhost:8080` through nginx by default; override it with `RIVET_PORT` if needed
+- `npm run prod` and `npm run prod:prebuilt` pull prebuilt images under `ghcr.io/valerypopoff/cloud-hosted-rivet2-wrapper/{proxy,web,api,executor}:${RIVET_IMAGE_TAG:-latest}`, then force-recreate the stack with `--no-build`; set `RIVET_PROXY_IMAGE`, `RIVET_WEB_IMAGE`, `RIVET_API_IMAGE`, or `RIVET_EXECUTOR_IMAGE` to pin any service to a different image
+- `npm run prod:custom` rebuilds the stack from the current wrapper repo and the current `rivet/` source folder, using the filtered `rivet_source` Docker build context
 - the API is also exposed directly on `http://localhost:3100` for diagnostics
-- proxy startup scripts are Linux shell scripts mounted into nginx containers, and the repo pins `*.sh` files to LF line endings so Windows checkouts do not inject CRLF characters into `/bin/sh`
-- proxy startup copies the UI gate prompt from its mounted source into `/tmp/nginx/html` before nginx starts; nginx serves the staged copy instead of reading a Windows bind-mounted HTML file on each gated request
+- proxy startup scripts are Linux shell scripts; dev Compose mounts them from the repo, while production images bake them into the proxy image. The repo pins `*.sh` files to LF line endings so Windows checkouts do not inject CRLF characters into `/bin/sh`
+- proxy startup copies the UI gate prompt from its mounted or baked source into `/tmp/nginx/html` before nginx starts; nginx serves the staged copy instead of repeatedly reading a host-mounted HTML file on each gated request
 - standard proxied HTTP routes now default to a `180s` upstream timeout through `RIVET_PROXY_READ_TIMEOUT`; websocket routes stay long-lived separately
 - the local Docker stacks keep `RIVET_API_PROFILE=combined` by default, so `/api/*`, `${RIVET_LATEST_WORKFLOWS_BASE_PATH}`, and `${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH}` all land on the same `api` container there
 - the `web` service runs the Vite dev server inside the container with live bind mounts
-- the `api` and `executor` services rebuild from Dockerfiles, so Node/runtime changes are picked up without a separate manual build step
+- Docker dev rebuilds the `api` and `executor` services from Dockerfiles while running `web` through Vite; `npm run prod:custom` rebuilds `proxy`, `web`, `api`, and `executor`
 - the API image builds `rivet/packages/core` and `rivet/packages/node`, then links `wrapper/api` to those built package directories before compiling the API; this keeps hosted endpoint execution on the same Rivet source tree as the editor and executor
 - the Docker dev API waits for the web service to populate the shared `rivet_node_modules` volume, then copies only `rivet/packages/core` and `rivet/packages/node` into `/app/.rivet-source`, attaches `/workspace/rivet/node_modules` beside that copy, and points the generated `@ironclad/rivet-core` / `@ironclad/rivet-node` package overlays at the internal copy. That keeps Node package resolution inside the container even when `rivet/` is a Windows junction target, avoids duplicating the upstream dependency install, and avoids writing API helper links into the external Rivet checkout.
 - local and image API entrypoints run with symlink preservation (`preserveSymlinks` for TypeScript and `--preserve-symlinks` for Node/tsx), while `scripts/link-rivet-node-package.mjs` creates generated package overlays that expose the built Rivet package `dist` folders and route third-party dependency lookup back to `rivet/node_modules`
@@ -419,7 +420,7 @@ For wrapper/web changes:
 2. if the change adds or changes pure helper logic under `wrapper/web/dashboard/` or `wrapper/web/overrides/hooks/`, run `npm run verify:web-pure`
 3. if the change affects browser-visible behavior, run `PLAYWRIGHT_HEADLESS=1`, `PLAYWRIGHT_SLOW_MO=0`, then `node scripts/playwright-observe.mjs test`
 4. if the Playwright coverage needs real workflow mutations in `RIVET_STORAGE_MODE=managed`, set `PLAYWRIGHT_ALLOW_MANAGED_MUTATIONS=1` deliberately and keep cleanup explicit; prefer mocked API/browser tests for modal and controller coverage when storage mutation is not the point
-5. if the change lives under `wrapper/web/overrides/` or affects hosted editor save/hotkey behavior, also verify with `npm run prod:local-build`; `npm run prod` may pull already-published images instead of using your local workspace changes
+5. if the change lives under `wrapper/web/overrides/` or affects hosted editor save/hotkey behavior, also verify with `npm run prod:custom`; `npm run prod` deliberately pulls already-published images instead of using your local workspace changes
 
 For workflow-library mutations that change on-disk project state:
 
@@ -537,7 +538,7 @@ For hosted editor keyboard-node behavior:
 
 For hosted editor production-image regressions:
 
-1. remember that `npm run prod` prefers pulled images, while `npm run prod:local-build` uses your current workspace
+1. remember that `npm run prod` and `npm run prod:prebuilt` use pulled images, while `npm run prod:custom` uses your current workspace and `rivet/` folder
 2. if dev works but prod does not, diff the behavior against clean upstream `rivet` and move any hosted-only patch into tracked wrapper code before trusting the local result
 3. for clipboard regressions specifically, check the tracked hosted overrides for `useCopyNodesHotkeys`, `useContextMenu`, and the canvas focus handoff in `EditorMessageBridge.tsx`
 

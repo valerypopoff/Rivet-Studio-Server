@@ -80,7 +80,7 @@ Reference documentation lives under `docs/`, not at the repo root.
 npm run prod
 ```
 
-`npm run prod` automatically pulls prebuilt images from `ghcr.io` when available (fast, works on small VMs with 1 GB RAM). If the pull fails it falls back to a local Docker build (requires 3 GB+ free RAM and the `rivet/` source tree).
+`npm run prod` pulls the prebuilt Rivet 2 wrapper images from `ghcr.io`, force-recreates the Docker stack, and waits for the services to become healthy. This is the normal VM deployment/update path and does not build from the local checkout.
 
 Access the app at `http://localhost:8080` unless `RIVET_PORT` changes it.
 
@@ -92,33 +92,32 @@ docker logout ghcr.io
 
 Public images should pull anonymously. Old or invalid cached Docker credentials for `ghcr.io` can cause authenticated requests to fail even when the package itself is public.
 
-Useful follow-up commands:
+For direct container diagnostics, use Docker Compose with the production files:
 
 ```bash
-npm run prod:docker:ps
-npm run prod:docker:logs
-npm run prod:down
+docker compose --env-file .env -f ops/compose/docker-compose.managed-services.yml -f ops/compose/docker-compose.yml ps
+docker compose --env-file .env -f ops/compose/docker-compose.managed-services.yml -f ops/compose/docker-compose.yml logs -f --tail=120 proxy web api executor
 ```
 
-To pin a specific image tag, set `RIVET_IMAGE_TAG` or override the individual image names in `.env`.
+To pin a specific image tag, set `RIVET_IMAGE_TAG` or override `RIVET_PROXY_IMAGE`, `RIVET_WEB_IMAGE`, `RIVET_API_IMAGE`, or `RIVET_EXECUTOR_IMAGE` in `.env`.
 
 #### Explicit variants
 
 | Command | Behaviour |
 |---|---|
-| `npm run prod` | Auto - pull prebuilt images, fall back to local build |
-| `npm run prod:prebuilt` | Always pull prebuilt images (no build) |
-| `npm run prod:local-build` | Always build locally from source |
+| `npm run prod` | Pull and run the prebuilt `cloud-hosted-rivet2-wrapper/*` images |
+| `npm run prod:prebuilt` | Same as `npm run prod`, kept as the explicit published-image path |
+| `npm run prod:custom` | Build and run images from this wrapper checkout plus the current `rivet/` folder |
 
 #### Building locally from upstream Rivet source
 
-If you need a local build (e.g. to include custom changes), first download the upstream Rivet source into `./rivet`:
+If you need a custom local build, first make sure the upstream Rivet source is available in `./rivet`:
 
 ```bash
 npm run setup:rivet
 ```
 
-The script resolves the newest stable GitHub tag matching `v<major>.<minor>.<patch>` and downloads that release, not the moving `main` branch.
+The script downloads the configured Rivet 2 source ref. By default that is `https://github.com/valerypopoff/rivet2.0.git` at `main`; override it with `RIVET_REPO_URL` and `RIVET_REPO_REF` when rehearsing another fork, branch, or tag.
 
 If `./rivet` is a symlink or Windows junction to another checkout, the repo launchers resolve that link to its real host path for dev bind mounts. Local Docker image builds use a filtered snapshot at `.data/docker-contexts/rivet-source` for the named `rivet_source` build context, so a large upstream working tree does not send `node_modules`, VCS data, or Yarn caches into BuildKit. Direct `docker build` commands need the same build context explicitly; run `npm run dev:docker:prepare-rivet-context`, then use a command such as `docker build --build-context rivet_source=.data/docker-contexts/rivet-source -f image/api/Dockerfile .`.
 
@@ -131,7 +130,7 @@ npm run setup:rivet -- --force
 Then start the local build:
 
 ```bash
-npm run prod:local-build
+npm run prod:custom
 ```
 
 ### Development with Docker

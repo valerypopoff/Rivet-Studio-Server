@@ -138,6 +138,15 @@ Before DevOps installs it, they must replace or confirm:
 - object-storage bucket, region, endpoint, and secret wiring
 - `auth.keySecretName` or equivalent Vault-provided `RIVET_KEY`
 
+The Rivet 2 wrapper image pipeline publishes the default repositories as:
+
+- `ghcr.io/valerypopoff/cloud-hosted-rivet2-wrapper/proxy`
+- `ghcr.io/valerypopoff/cloud-hosted-rivet2-wrapper/web`
+- `ghcr.io/valerypopoff/cloud-hosted-rivet2-wrapper/api`
+- `ghcr.io/valerypopoff/cloud-hosted-rivet2-wrapper/executor`
+
+The `latest` tag is produced from pushes to `main-revet2`; commit SHA and tag-derived image tags are also produced by the same workflow.
+
 The production contract today is:
 
 - `workflowStorage.backend=managed`

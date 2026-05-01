@@ -4,7 +4,8 @@ import { spawnSync } from 'node:child_process';
 
 const rootDir = process.cwd();
 const rivetDir = path.join(rootDir, 'rivet');
-const rivetRepoUrl = process.env.RIVET_REPO_URL || 'https://github.com/Ironclad/rivet.git';
+const rivetRepoUrl = process.env.RIVET_REPO_URL || 'https://github.com/valerypopoff/rivet2.0.git';
+const rivetRepoRef = process.env.RIVET_REPO_REF || process.env.RIVET_BRANCH || 'main';
 
 const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const corepackCmd = process.platform === 'win32' ? 'corepack.cmd' : 'corepack';
@@ -101,8 +102,8 @@ function ensureRivetRepo() {
     }
   }
 
-  console.log(`[predev] Cloning rivet from ${rivetRepoUrl}`);
-  run(gitCmd, ['clone', rivetRepoUrl, 'rivet']);
+  console.log(`[predev] Cloning rivet from ${rivetRepoUrl} (${rivetRepoRef})`);
+  run(gitCmd, ['clone', '--branch', rivetRepoRef, rivetRepoUrl, 'rivet']);
 }
 
 ensureRivetRepo();

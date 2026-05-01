@@ -5,7 +5,8 @@ import { spawn } from 'node:child_process';
 
 const rootDir = process.cwd();
 const targetDir = path.join(rootDir, 'rivet');
-const upstreamRepo = 'https://github.com/Ironclad/rivet.git';
+const upstreamRepo = process.env.RIVET_REPO_URL || 'https://github.com/valerypopoff/rivet2.0.git';
+const upstreamRef = process.env.RIVET_REPO_REF || process.env.RIVET_BRANCH || 'main';
 const metadataFile = '.upstream-version';
 
 function run(command, args, options = {}) {
@@ -47,53 +48,6 @@ function run(command, args, options = {}) {
   });
 }
 
-function parseVersion(tag) {
-  const match = /^v(\d+)\.(\d+)\.(\d+)$/.exec(tag);
-  if (!match) {
-    return null;
-  }
-
-  return match.slice(1).map((segment) => parseInt(segment, 10));
-}
-
-function compareVersions(left, right) {
-  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
-    const diff = (left[index] ?? 0) - (right[index] ?? 0);
-    if (diff !== 0) {
-      return diff;
-    }
-  }
-
-  return 0;
-}
-
-async function resolveLatestStableTag() {
-  const { stdout } = await run('git', ['ls-remote', '--tags', '--refs', upstreamRepo]);
-  const matches = stdout
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => {
-      const [commit, ref] = line.split(/\s+/);
-      const tag = ref?.replace('refs/tags/', '');
-      const version = tag == null ? null : parseVersion(tag);
-
-      if (!commit || !tag || !version) {
-        return null;
-      }
-
-      return { commit, tag, version };
-    })
-    .filter(Boolean);
-
-  if (matches.length === 0) {
-    throw new Error('No stable Rivet tags matching v<major>.<minor>.<patch> were found.');
-  }
-
-  matches.sort((left, right) => compareVersions(left.version, right.version));
-  return matches[matches.length - 1];
-}
-
 function isDirectoryEmpty(dirPath) {
   return fs.readdirSync(dirPath).length === 0;
 }
@@ -123,18 +77,40 @@ function ensureTargetDirReady(force) {
   removeTargetDir();
 }
 
-async function cloneTag(tag) {
+async function resolveRefCommit() {
+  const { stdout } = await run('git', ['ls-remote', upstreamRepo, upstreamRef]);
+  const [line] = stdout
+    .split(/\r?\n/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  const [commit] = line?.split(/\s+/) ?? [];
+
+  if (!commit) {
+    throw new Error(`Could not resolve Rivet ref "${upstreamRef}" from ${upstreamRepo}.`);
+  }
+
+  return commit;
+}
+
+function getCloneRefName() {
+  return upstreamRef
+    .replace(/^refs\/heads\//, '')
+    .replace(/^refs\/tags\//, '');
+}
+
+async function cloneRef(commit) {
   const tempParent = fs.mkdtempSync(path.join(os.tmpdir(), 'rivet-bootstrap-'));
   const tempCloneDir = path.join(tempParent, 'rivet');
+  const cloneRef = getCloneRefName();
 
   try {
-    console.log(`[setup:rivet] Downloading ${tag} from ${upstreamRepo}...`);
-    await run('git', ['clone', '--depth', '1', '--branch', tag, upstreamRepo, tempCloneDir], { stdio: 'inherit' });
+    console.log(`[setup:rivet] Downloading ${cloneRef} (${commit.slice(0, 7)}) from ${upstreamRepo}...`);
+    await run('git', ['clone', '--depth', '1', '--branch', cloneRef, upstreamRepo, tempCloneDir], { stdio: 'inherit' });
 
     fs.rmSync(path.join(tempCloneDir, '.git'), { recursive: true, force: true });
     fs.writeFileSync(
       path.join(tempCloneDir, metadataFile),
-      JSON.stringify({ repo: upstreamRepo, tag }, null, 2) + '\n',
+      JSON.stringify({ repo: upstreamRepo, ref: upstreamRef, commit }, null, 2) + '\n',
       'utf8',
     );
 
@@ -160,10 +136,10 @@ async function main() {
 
   ensureTargetDirReady(force);
 
-  const latest = await resolveLatestStableTag();
-  console.log(`[setup:rivet] Latest stable Rivet tag: ${latest.tag} (${latest.commit.slice(0, 7)})`);
+  const commit = await resolveRefCommit();
+  console.log(`[setup:rivet] Rivet source ref: ${upstreamRef} (${commit.slice(0, 7)})`);
 
-  await cloneTag(latest.tag);
+  await cloneRef(commit);
 
   console.log(`[setup:rivet] Rivet source downloaded to ${targetDir}`);
   console.log('[setup:rivet] You can now run npm run prod');

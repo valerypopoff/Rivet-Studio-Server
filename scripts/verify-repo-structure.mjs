@@ -196,7 +196,9 @@ function main() {
     'verify:repo-structure',
     'verify:kubernetes',
     'dev:docker:config',
-    'prod:docker:config',
+    'prod',
+    'prod:prebuilt',
+    'prod:custom',
     'dev:kubernetes-test:config',
   ];
   const missingScripts = requiredScripts.filter((scriptName) => !packageJson.scripts?.[scriptName]);
