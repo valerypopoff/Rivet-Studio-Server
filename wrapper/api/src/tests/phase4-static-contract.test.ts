@@ -198,6 +198,8 @@ test('CI publishes Rivet 2 wrapper images from the Rivet 2 fork', () => {
   const bootstrapRivet = readRepoFile('scripts/bootstrap-rivet.mjs');
   const ensureDevDeps = readRepoFile('scripts/ensure-dev-deps.mjs');
   const webDockerfile = readRepoFile('image/web/Dockerfile');
+  const webPackageJson = readRepoFile('wrapper/web/package.json');
+  const webPackageLock = readRepoFile('wrapper/web/package-lock.json');
   const apiDockerfile = readRepoFile('image/api/Dockerfile');
   const executorDockerfile = readRepoFile('image/executor/Dockerfile');
   const prodCompose = readRepoFile('ops/compose/docker-compose.yml');
@@ -239,6 +241,8 @@ test('CI publishes Rivet 2 wrapper images from the Rivet 2 fork', () => {
   }
 
   assert.match(webDockerfile, /COPY --from=rivet_source \. rivet\//);
+  assert.doesNotMatch(webPackageJson, /"rivet-studio-server":\s*"file:\.\.\/\.\."/);
+  assert.doesNotMatch(webPackageLock, /"node_modules\/rivet-studio-server"/);
   assert.match(apiDockerfile, /COPY --from=rivet_source \. rivet\//);
   assert.match(executorDockerfile, /COPY --from=rivet_source \. \/app\/rivet\//);
   assert.doesNotMatch(imageBuildWorkflow, /cloud-hosted-rivet-wrapper/);
