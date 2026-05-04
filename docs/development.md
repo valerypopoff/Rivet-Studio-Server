@@ -8,8 +8,9 @@ See also: [Repo structure](./repo-structure.md)
 - `npm run setup`
   - ensures `wrapper/api` and `wrapper/web` dependencies exist
   - clones `rivet/` from the configured Rivet 2 repo if it is missing
-  - installs upstream Yarn dependencies and builds `@ironclad/rivet-core` and `@ironclad/rivet-node` when needed
-  - links `wrapper/api/node_modules/@ironclad/rivet-core` and `@ironclad/rivet-node` to generated package overlays under `wrapper/api/node_modules/.rivet-package-links`; those overlays point `dist` at the built packages under `rivet/` and resolve package dependencies through `rivet/node_modules`
+  - installs upstream Yarn dependencies with `YARN_NODE_LINKER=node-modules` and builds `@valerypopoff/rivet2-core` and `@valerypopoff/rivet2-node` when needed
+  - links `wrapper/api/node_modules/@valerypopoff/rivet2-core`, `@valerypopoff/rivet2-node`, and Rivet 2's `@rivet2/*` runtime aliases to generated package overlays under `wrapper/api/node_modules/.rivet-package-links`; those overlays point `dist` at the built packages under `rivet/` and resolve package dependencies through `rivet/node_modules`
+  - removes retired generated API package links from older setup runs before writing the current Rivet 2 package links
   - keeps API runtime and TypeScript resolution on symlink-preserved paths, so setup does not need to create helper dependency links inside the external `rivet/` checkout
   - accepts either a Git checkout, a valid upstream snapshot, or a local symlink/junction already present in `rivet/`
 - `npm run setup:k8s-tools`
@@ -263,7 +264,7 @@ The Docker launchers now render layered Compose files:
 Current behavior:
 
 - the browser entrypoint is still `http://localhost:8080` through nginx by default; override it with `RIVET_PORT` if needed
-- `npm run prod` and `npm run prod:prebuilt` pull prebuilt images under `ghcr.io/valerypopoff/cloud-hosted-rivet2-wrapper/{proxy,web,api,executor}:${RIVET_IMAGE_TAG:-latest}`, then force-recreate the stack with `--no-build`; set `RIVET_PROXY_IMAGE`, `RIVET_WEB_IMAGE`, `RIVET_API_IMAGE`, or `RIVET_EXECUTOR_IMAGE` to pin any service to a different image
+- `npm run prod` and `npm run prod:prebuilt` pull prebuilt images under `ghcr.io/valerypopoff/cloud-hosted-rivet2-wrapper/{proxy,web,api,executor}:${RIVET_IMAGE_TAG:-latest}`, then force-recreate the stack with `--no-build`; set `RIVET_PROXY_IMAGE`, `RIVET_WEB_IMAGE`, `RIVET_API_IMAGE`, or `RIVET_EXECUTOR_IMAGE` to pin any service to a different image. Keep the image examples in `.env.example` on that same namespace so VM overrides do not accidentally pull the legacy wrapper images.
 - `npm run prod:custom` rebuilds the stack from the current wrapper repo and the current `rivet/` source folder, using the filtered `rivet_source` Docker build context
 - the API is also exposed directly on `http://localhost:3100` for diagnostics
 - proxy startup scripts are Linux shell scripts; dev Compose mounts them from the repo, while production images bake them into the proxy image. The repo pins `*.sh` files to LF line endings so Windows checkouts do not inject CRLF characters into `/bin/sh`
@@ -274,7 +275,7 @@ Current behavior:
 - Docker dev rebuilds the `api` and `executor` services from Dockerfiles while running `web` through Vite; `npm run prod:custom` rebuilds `proxy`, `web`, `api`, and `executor`
 - the production web image copies `wrapper/` and the `rivet_source` build context, not the root launcher package. Keep `wrapper/web/package.json` free of `file:../..` root dependencies so GitHub Actions can build the web image from the same minimal context.
 - the API image builds `rivet/packages/core` and `rivet/packages/node`, then links `wrapper/api` to those built package directories before compiling the API; this keeps hosted endpoint execution on the same Rivet source tree as the editor and executor
-- the Docker dev API waits for the web service to populate the shared `rivet_node_modules` volume, then copies only `rivet/packages/core` and `rivet/packages/node` into `/app/.rivet-source`, attaches `/workspace/rivet/node_modules` beside that copy, and points the generated `@ironclad/rivet-core` / `@ironclad/rivet-node` package overlays at the internal copy. That keeps Node package resolution inside the container even when `rivet/` is a Windows junction target, avoids duplicating the upstream dependency install, and avoids writing API helper links into the external Rivet checkout.
+- the Docker dev API waits for the web service to populate the shared `rivet_node_modules` volume, then copies only `rivet/packages/core` and `rivet/packages/node` into `/app/.rivet-source`, attaches `/workspace/rivet/node_modules` beside that copy, and points the generated `@valerypopoff/rivet2-core`, `@valerypopoff/rivet2-node`, and `@rivet2/*` package overlays at the internal copy. That keeps Node package resolution inside the container even when `rivet/` is a Windows junction target, avoids duplicating the upstream dependency install, and avoids writing API helper links into the external Rivet checkout.
 - local and image API entrypoints run with symlink preservation (`preserveSymlinks` for TypeScript and `--preserve-symlinks` for Node/tsx), while `scripts/link-rivet-node-package.mjs` creates generated package overlays that expose the built Rivet package `dist` folders and route third-party dependency lookup back to `rivet/node_modules`
 - the Docker dev API mounts the repo scripts directory at `/scripts`, matching the `../../scripts/...` path seen from `/app`, so the same `wrapper/api` package scripts run locally and inside Compose
 - Docker image builds receive upstream Rivet through the named `rivet_source` build context instead of `COPY rivet/` from the main repo context; local launchers feed that context from `.data/docker-contexts/rivet-source` so linked Rivet checkouts do not send `node_modules`, `.git`, or Yarn cache artifacts to BuildKit
@@ -389,8 +390,10 @@ When adding new code, keep the post-refactor ownership seams explicit instead of
   - do not reintroduce wrapper copies of `TauriProjectReferenceLoader` or `io/datasets`; hosted relative-project reads belong in the path policy provider, and hosted project/dataset persistence belongs in `HostedIOProvider`
   - keep `scripts/update-check.sh` aligned with that boundary: it should check the upstream provider seams, not treat provider-backed upstream modules as wrapper aliases
   - keep bare-package shims such as `@tauri-apps/api/*` separate from relative Rivet module overrides
-- API workflow execution should resolve `@ironclad/rivet-node` through `scripts/link-rivet-node-package.mjs`
+  - do not keep stale component copies such as `OverlayTabs` in the wrapper; the current Rivet 2 workspace tab row is upstream-owned, and observer coverage should follow its accessible `Workspace navigation` buttons
+- API workflow execution should resolve `@valerypopoff/rivet2-node` through `scripts/link-rivet-node-package.mjs`
   - keep local setup and API image builds linking generated package overlays for `rivet/packages/node` plus `rivet/packages/core`
+  - keep the `@rivet2/rivet-node` and `@rivet2/rivet-core` aliases linked to the same overlays, because older built outputs in a local upstream checkout may still reference those aliases
   - do not add direct API imports from `rivet/packages/*/src`; the package-name import remains the stable seam
   - keep `wrapper/api` symlink-preserved when compiling or running so these package links resolve without writing dependency helper links into `rivet/`
 - Kubernetes template reuse should stay shallow

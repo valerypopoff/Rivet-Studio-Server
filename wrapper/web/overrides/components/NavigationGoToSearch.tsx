@@ -1,7 +1,7 @@
 import clsx from 'clsx';
 import { useAtom, useAtomValue } from 'jotai';
 import { useEffect, type FC } from 'react';
-import { type NodeId } from '@ironclad/rivet-core';
+import { type NodeId } from '@valerypopoff/rivet2-core';
 import {
   goToSearchState,
 } from '../../../../rivet/packages/app/src/state/graphBuilder';

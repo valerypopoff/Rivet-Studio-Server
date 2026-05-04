@@ -4,7 +4,7 @@ import {
   loadProjectAndAttachedDataFromString,
   type AttachedData,
   type Project,
-} from '@ironclad/rivet-node';
+} from '@valerypopoff/rivet2-node';
 
 import {
   getWorkflowDatasetPath,

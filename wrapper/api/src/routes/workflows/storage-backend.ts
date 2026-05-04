@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { loadProjectAndAttachedDataFromFile } from '@ironclad/rivet-node';
+import { loadProjectAndAttachedDataFromFile } from '@valerypopoff/rivet2-node';
 
 import type {
   WorkflowFolderItem,
@@ -48,8 +48,8 @@ import {
   readWorkflowRecordingArtifact,
 } from './recordings.js';
 import { createPublishedWorkflowProjectReferenceLoader } from './publication.js';
-import { NodeDatasetProvider } from '@ironclad/rivet-node';
-import type { AttachedData, Project, CombinedDataset } from '@ironclad/rivet-node';
+import { NodeDatasetProvider } from '@valerypopoff/rivet2-node';
+import type { AttachedData, Project, CombinedDataset } from '@valerypopoff/rivet2-node';
 import { getFilesystemExecutionCache } from './filesystem-execution-cache.js';
 
 function mapHostedProjectFilesystemError(

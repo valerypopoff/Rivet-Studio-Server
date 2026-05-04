@@ -1,7 +1,7 @@
 // Override for rivet/packages/app/src/model/native/TauriNativeApi.ts
 // HostedNativeApi: routes all operations through /api/native/* endpoints
 
-import { type BaseDir, type NativeApi, type ReadDirOptions } from '@ironclad/rivet-core';
+import { type BaseDir, type NativeApi, type ReadDirOptions } from '@valerypopoff/rivet2-core';
 import { RIVET_API_BASE_URL } from '../../../../shared/hosted-env';
 
 const API = RIVET_API_BASE_URL;

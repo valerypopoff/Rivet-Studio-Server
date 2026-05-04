@@ -1,6 +1,6 @@
 import type { Server as HttpServer } from 'node:http';
 import type { Duplex } from 'node:stream';
-import { startDebuggerServer, type RivetDebuggerServer } from '@ironclad/rivet-node';
+import { startDebuggerServer, type RivetDebuggerServer } from '@valerypopoff/rivet2-node';
 import { WebSocketServer } from 'ws';
 import { isTrustedProxyRequest } from './auth.js';
 

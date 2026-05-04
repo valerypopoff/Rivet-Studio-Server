@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { config as loadDotEnv } from 'dotenv';
 
-import { loadProjectFromFile } from '@ironclad/rivet-node';
+import { loadProjectFromFile } from '@valerypopoff/rivet2-node';
 
 import type { WorkflowFolderItem, WorkflowProjectItem } from '../../../shared/workflow-types.js';
 import type { WorkflowRecordingWorkflowSummary } from '../../../shared/workflow-recording-types.js';

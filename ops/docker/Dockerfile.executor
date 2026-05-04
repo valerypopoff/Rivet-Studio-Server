@@ -31,8 +31,8 @@ COPY --from=rivet_source . /app/rivet/
 WORKDIR /app/rivet
 RUN --mount=type=cache,target=/root/.cache/yarn YARN_NODE_LINKER=node-modules YARN_CHECKSUM_BEHAVIOR=ignore yarn install --immutable || YARN_NODE_LINKER=node-modules YARN_CHECKSUM_BEHAVIOR=ignore yarn install
 
-RUN YARN_NODE_LINKER=node-modules yarn workspace @ironclad/rivet-core run build
-RUN YARN_NODE_LINKER=node-modules yarn workspace @ironclad/rivet-node run build
+RUN YARN_NODE_LINKER=node-modules yarn workspace @valerypopoff/rivet2-core run build
+RUN YARN_NODE_LINKER=node-modules yarn workspace @valerypopoff/rivet2-node run build
 
 COPY wrapper/executor/build/bundle-executor.cjs /app/wrapper/executor/build/bundle-executor.cjs
 RUN NODE_PATH=/app/rivet/node_modules node /app/wrapper/executor/build/bundle-executor.cjs
@@ -62,7 +62,7 @@ WORKDIR /app
 COPY --from=builder /opt/proxy-bootstrap /opt/proxy-bootstrap
 COPY --from=builder /app/rivet/packages/app-executor/bin/executor-bundle.cjs ./executor-bundle.cjs
 
-RUN mkdir -p /root/.local/share/com.ironcladapp.rivet/plugins
+RUN mkdir -p /root/.local/share/com.valerypopoff.rivet2/plugins
 
 ENV RIVET_RUNTIME_LIBRARIES_ROOT=/data/runtime-libraries
 ENV RIVET_EXECUTOR_HOST=0.0.0.0

@@ -2,8 +2,8 @@
 // Uses API-backed install + load flow instead of Tauri fs/http/shell/invoke
 
 import { type PackagePluginLoadSpec } from '../../../../rivet/packages/core/src/model/PluginLoadSpec';
-import { type RivetPlugin } from '@ironclad/rivet-core';
-import * as Rivet from '@ironclad/rivet-core';
+import { type RivetPlugin } from '@valerypopoff/rivet2-core';
+import * as Rivet from '@valerypopoff/rivet2-core';
 import { useState } from 'react';
 import { RIVET_API_BASE_URL } from '../../../shared/hosted-env';
 

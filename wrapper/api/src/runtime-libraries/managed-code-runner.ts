@@ -26,8 +26,8 @@ type Outputs = Record<string, DataValue>;
  * runtime-library release. Falls back to standard Node module resolution
  * (NODE_PATH) when no managed release exists.
  *
- * Implements the CodeRunner interface from @ironclad/rivet-core without
- * importing it directly, since the API depends on @ironclad/rivet-node
+ * Implements the CodeRunner interface from @valerypopoff/rivet2-core without
+ * importing it directly, since the API depends on @valerypopoff/rivet2-node
  * which re-exports everything.
  */
 export class ManagedCodeRunner {
@@ -69,7 +69,7 @@ export class ManagedCodeRunner {
     if (options.includeRivet) {
       argNames.push('Rivet');
       // Dynamically import rivet-node so we don't create a hard circular dep
-      const rivet = await import('@ironclad/rivet-node');
+      const rivet = await import('@valerypopoff/rivet2-node');
       args.push(rivet);
     }
 

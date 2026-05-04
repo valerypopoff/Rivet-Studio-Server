@@ -3,7 +3,7 @@ import { Router, type Request, type Response } from 'express';
 import {
   createProcessor,
   ExecutionRecorder,
-} from '@ironclad/rivet-node';
+} from '@valerypopoff/rivet2-node';
 
 import { getLatestWorkflowRemoteDebugger, isLatestWorkflowRemoteDebuggerEnabled } from '../../latestWorkflowRemoteDebugger.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';

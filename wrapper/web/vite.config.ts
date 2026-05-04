@@ -48,10 +48,14 @@ const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\
 const wrapperPackageJson = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf8')) as {
   dependencies?: Record<string, string>;
 };
+const upstreamSourcePackageAliases = new Set([
+  '@valerypopoff/rivet2-core',
+  '@valerypopoff/trivet',
+]);
 
 const wrapperAliasedDependencies = Object.keys(wrapperPackageJson.dependencies ?? {}).filter(
   (dependency) =>
-    !dependency.startsWith('@ironclad/') &&
+    !upstreamSourcePackageAliases.has(dependency) &&
     !dependency.startsWith('@tauri-apps/') &&
     !dependency.startsWith('@types/') &&
     dependency !== 'assemblyai' &&
@@ -198,7 +202,7 @@ const resolveWrapperDependency = (): PluginOption => ({
       return null;
     }
 
-    if (source.startsWith('@ironclad/') || source.startsWith('@tauri-apps/')) {
+    if (upstreamSourcePackageAliases.has(source) || source.startsWith('@tauri-apps/')) {
       return null;
     }
 
@@ -219,7 +223,7 @@ export default defineConfig({
     publicDir: resolve(upstreamApp, 'public'),
 
     optimizeDeps: {
-      exclude: ['@ironclad/rivet-core', '@ironclad/trivet'],
+      exclude: ['@valerypopoff/rivet2-core', '@valerypopoff/trivet'],
     },
 
     resolve: {
@@ -232,8 +236,8 @@ export default defineConfig({
           replacement: resolve(__dirname, 'node_modules/github-markdown-css/$1'),
         },
         ...createBrowserSubpathAliases(__dirname),
-        { find: '@ironclad/rivet-core', replacement: resolve(__dirname, '../../rivet/packages/core/src/index.ts') },
-        { find: '@ironclad/trivet', replacement: resolve(__dirname, '../../rivet/packages/trivet/src/index.ts') },
+        { find: '@valerypopoff/rivet2-core', replacement: resolve(__dirname, '../../rivet/packages/core/src/index.ts') },
+        { find: '@valerypopoff/trivet', replacement: resolve(__dirname, '../../rivet/packages/trivet/src/index.ts') },
       ],
     },
 

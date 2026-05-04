@@ -52,7 +52,7 @@ securityContext:
 # The executor keeps the Rivet desktop-app storage layout on purpose.
 # Do not unify this mount path with the API app-data mount.
 - name: app-data
-  mountPath: /home/rivet/.local/share/com.ironcladapp.rivet
+  mountPath: /home/rivet/.local/share/com.valerypopoff.rivet2
 - name: runtime-libraries
   mountPath: /data/runtime-libraries
 - name: workspace

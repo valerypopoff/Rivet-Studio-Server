@@ -141,13 +141,16 @@ test('API images link workflow execution to the embedded Rivet source tree', () 
   const linkScript = readRepoFile('scripts/link-rivet-node-package.mjs');
   const apiPackageJson = readRepoFile('wrapper/api/package.json');
   const apiTsconfig = readRepoFile('wrapper/api/tsconfig.json');
+  const readme = readRepoFile('README.md');
   const preserveSymlinksRunner = readRepoFile('scripts/run-preserve-symlinks.mjs');
   const ensureDevDeps = readRepoFile('scripts/ensure-dev-deps.mjs');
+  const legacyPackageNamespacePattern = new RegExp('@' + 'iron' + 'clad/');
+  const legacyCompanyPattern = new RegExp('iron' + 'clad', 'i');
 
   for (const dockerfile of [apiDockerfile, composeApiDockerfile]) {
     assert.match(dockerfile, /COPY --from=rivet_source \. rivet\//);
-    assert.match(dockerfile, /yarn workspace @ironclad\/rivet-core run build/);
-    assert.match(dockerfile, /yarn workspace @ironclad\/rivet-node run build/);
+    assert.match(dockerfile, /yarn workspace @valerypopoff\/rivet2-core run build/);
+    assert.match(dockerfile, /yarn workspace @valerypopoff\/rivet2-node run build/);
     assert.match(dockerfile, /COPY scripts\/link-rivet-node-package\.mjs scripts\/link-rivet-node-package\.mjs/);
     assert.match(dockerfile, /RUN node \/app\/scripts\/link-rivet-node-package\.mjs/);
   }
@@ -155,18 +158,37 @@ test('API images link workflow execution to the embedded Rivet source tree', () 
   assert.match(apiDockerfile, /COPY --from=builder --chown=10001:10001 \/app\/rivet\/node_modules \/app\/rivet\/node_modules/);
   assert.match(apiDockerfile, /COPY --from=builder --chown=10001:10001 \/app\/rivet\/packages\/core \/app\/rivet\/packages\/core/);
   assert.match(apiDockerfile, /COPY --from=builder --chown=10001:10001 \/app\/rivet\/packages\/node \/app\/rivet\/packages\/node/);
-  assert.match(linkScript, /@ironclad\/\$\{pkg\.name\}/);
+  assert.match(linkScript, /parsePackageName\(packageJson\.name\)/);
+  assert.match(linkScript, /scope: '@rivet2', name: 'rivet-core'/);
+  assert.match(linkScript, /scope: '@rivet2', name: 'rivet-node'/);
   assert.match(linkScript, /source: path\.join\(rivetRootDir, 'packages', 'node'\)/);
   assert.match(linkScript, /\.rivet-package-links/);
   assert.match(linkScript, /const rivetNodeModulesDir = path\.join\(rivetRootDir, 'node_modules'\)/);
+  assert.match(linkScript, /const retiredScope = \['@', 'iron', 'clad'\]\.join\(''\)/);
+  assert.match(linkScript, /function ensureRivetNodeModulesReady\(\)/);
+  assert.match(linkScript, /Run npm run setup so the embedded Rivet checkout is installed with YARN_NODE_LINKER=node-modules/);
+  assert.match(linkScript, /function removeRetiredPackageAliases\(\)/);
+  assert.match(linkScript, /removeRetiredPackageAliases\(\)/);
+  assert.match(linkScript, /ensureRivetNodeModulesReady\(\)/);
   assert.match(linkScript, /fs\.copyFileSync\(packageJsonPath, path\.join\(packageLinkDir, 'package\.json'\)\)/);
   assert.match(linkScript, /linkDirectory\(rivetNodeModulesDir, path\.join\(packageLinkDir, 'node_modules'\)\)/);
   assert.doesNotMatch(linkScript, /packages\[1\]\.source, 'node_modules'/);
   assert.doesNotMatch(linkScript, /nodePackageCoreDependency/);
-  assert.match(ensureDevDeps, /hasExpectedApiRivetLink\('rivet-core', 'rivet\/packages\/core'\)/);
-  assert.match(ensureDevDeps, /hasExpectedApiRivetLink\('rivet-node', 'rivet\/packages\/node'\)/);
+  assert.match(ensureDevDeps, /hasExpectedApiRivetLink\('rivet-core', 'rivet\/packages\/core', \[/);
+  assert.match(ensureDevDeps, /'@valerypopoff\/rivet2-core'/);
+  assert.match(ensureDevDeps, /'@rivet2\/rivet-core'/);
+  assert.match(ensureDevDeps, /hasExpectedApiRivetLink\('rivet-node', 'rivet\/packages\/node', \[/);
+  assert.match(ensureDevDeps, /'@valerypopoff\/rivet2-node'/);
+  assert.match(ensureDevDeps, /'@rivet2\/rivet-node'/);
+  assert.match(ensureDevDeps, /function hasExpectedRivetNodeModulesInstall\(\)/);
+  assert.match(ensureDevDeps, /YARN_NODE_LINKER: 'node-modules'/);
+  assert.match(ensureDevDeps, /function hasRetiredApiRivetLinks\(\)/);
+  assert.match(ensureDevDeps, /hasRetiredApiRivetLinks\(\)/);
   assert.match(ensureDevDeps, /\.rivet-package-links\/\$\{packageName\}/);
   assert.match(ensureDevDeps, /isLinkedTo\(path\.join\(overlayRelPath, 'node_modules'\), 'rivet\/node_modules'\)/);
+  assert.doesNotMatch(apiPackageJson, legacyPackageNamespacePattern);
+  assert.doesNotMatch(readme, legacyPackageNamespacePattern);
+  assert.doesNotMatch(readme, legacyCompanyPattern);
   assert.match(apiTsconfig, /"preserveSymlinks": true/);
   assert.match(apiPackageJson, /run-preserve-symlinks\.mjs tsx/);
   assert.match(apiPackageJson, /node --preserve-symlinks dist\/api\/src\/server\.js/);
@@ -205,10 +227,13 @@ test('CI publishes Rivet 2 wrapper images from the Rivet 2 fork', () => {
   const prodCompose = readRepoFile('ops/compose/docker-compose.yml');
   const prodDockerLauncher = readRepoFile('scripts/prod-docker.mjs');
   const proxyDockerfile = readRepoFile('image/proxy/Dockerfile');
+  const envExample = readRepoFile('.env.example');
   const packageJson = JSON.parse(readRepoFile('package.json')) as { scripts: Record<string, string> };
   const productionScripts = Object.keys(packageJson.scripts)
     .filter((scriptName) => scriptName === 'prod' || scriptName.startsWith('prod:'))
     .sort();
+  const legacyRepoPattern = new RegExp('Iron' + 'clad\\/rivet');
+  const legacyImageNamespacePattern = new RegExp('cloud-hosted-' + 'rivet-wrapper');
 
   assert.match(imageBuildWorkflow, /branches:\s*\n\s*- main-rivet2/);
   assert.ok(imageBuildWorkflow.includes('RIVET_REPO_URL: https://github.com/valerypopoff/rivet2.0.git'));
@@ -238,6 +263,7 @@ test('CI publishes Rivet 2 wrapper images from the Rivet 2 fork', () => {
       ),
     );
     assert.ok(prodCompose.includes(`ghcr.io/valerypopoff/cloud-hosted-rivet2-wrapper/${service}`));
+    assert.ok(envExample.includes(`ghcr.io/valerypopoff/cloud-hosted-rivet2-wrapper/${service}:latest`));
   }
 
   assert.match(webDockerfile, /COPY --from=rivet_source \. rivet\//);
@@ -245,10 +271,11 @@ test('CI publishes Rivet 2 wrapper images from the Rivet 2 fork', () => {
   assert.doesNotMatch(webPackageLock, /"node_modules\/rivet-studio-server"/);
   assert.match(apiDockerfile, /COPY --from=rivet_source \. rivet\//);
   assert.match(executorDockerfile, /COPY --from=rivet_source \. \/app\/rivet\//);
-  assert.doesNotMatch(imageBuildWorkflow, /cloud-hosted-rivet-wrapper/);
-  assert.doesNotMatch(prodCompose, /cloud-hosted-rivet-wrapper/);
-  assert.doesNotMatch(bootstrapRivet, /Ironclad\/rivet/);
-  assert.doesNotMatch(ensureDevDeps, /Ironclad\/rivet/);
+  assert.doesNotMatch(imageBuildWorkflow, legacyImageNamespacePattern);
+  assert.doesNotMatch(prodCompose, legacyImageNamespacePattern);
+  assert.doesNotMatch(envExample, legacyImageNamespacePattern);
+  assert.doesNotMatch(bootstrapRivet, legacyRepoPattern);
+  assert.doesNotMatch(ensureDevDeps, legacyRepoPattern);
   assert.doesNotMatch(bootstrapRivet, /Latest stable Rivet tag/);
   assert.match(bootstrapRivet, /RIVET_REPO_URL \|\| 'https:\/\/github\.com\/valerypopoff\/rivet2\.0\.git'/);
   assert.match(bootstrapRivet, /RIVET_REPO_REF \|\| process\.env\.RIVET_BRANCH \|\| 'main'/);
@@ -378,6 +405,7 @@ test('hosted executor integration keeps Rivet 2 transport ownership and removes 
 
   assert.doesNotMatch(packageJson, /remote-execution-session\.test/);
   assert.doesNotMatch(packageJson, /remote-executor-protocol\.test/);
+  assert.doesNotMatch(packageJson, /hosted-executor-session\.test/);
 });
 
 test('hosted save shortcuts use upstream save flow and RivetAppHost callbacks', () => {
@@ -444,6 +472,7 @@ test('hosted web module overrides are scoped to upstream Rivet app importers', (
   for (const stalePath of [
     'wrapper/web/overrides/model/TauriProjectReferenceLoader.ts',
     'wrapper/web/overrides/io/datasets.ts',
+    'wrapper/web/overrides/components/OverlayTabs.tsx',
   ]) {
     assert.equal(repoFileExists(stalePath), false, `${stalePath} should stay removed in favor of upstream provider seams`);
   }
@@ -457,11 +486,11 @@ test('docker compose files keep runtime caches and executor app-data under /home
     assert.match(compose, /- HOME=\/home\/rivet/);
     assert.match(compose, /- npm_config_cache=\/home\/rivet\/\.npm/);
     assert.match(compose, /- YARN_CACHE_FOLDER=\/home\/rivet\/\.cache\/yarn/);
-    assert.match(compose, /\/home\/rivet\/\.local\/share\/com\.ironcladapp\.rivet/);
+    assert.match(compose, /\/home\/rivet\/\.local\/share\/com\.valerypopoff\.rivet2/);
     assert.doesNotMatch(compose, /\/root\/\.npm/);
     assert.doesNotMatch(compose, /\/root\/\.cache\/yarn/);
     assert.doesNotMatch(compose, /HOME=\/root/);
-    assert.doesNotMatch(compose, /\/root\/\.local\/share\/com\.ironcladapp\.rivet/);
+    assert.doesNotMatch(compose, /\/root\/\.local\/share\/com\.valerypopoff\.rivet2/);
   }
 });
 
@@ -532,7 +561,7 @@ test('helm env and pod helpers keep env entries split cleanly and preserve the e
     podPartials,
     /The executor keeps the Rivet desktop-app storage layout on purpose\.\s*\n# Do not unify this mount path with the API app-data mount\./,
   );
-  assert.match(podPartials, /mountPath: \/home\/rivet\/\.local\/share\/com\.ironcladapp\.rivet/);
+  assert.match(podPartials, /mountPath: \/home\/rivet\/\.local\/share\/com\.valerypopoff\.rivet2/);
 });
 
 test('chart validation keeps the first Phase 4 split managed-only', () => {

@@ -9,13 +9,13 @@ import {
   deserializeGraph,
   serializeGraph,
   serializeProject,
-} from '@ironclad/rivet-core';
+} from '@valerypopoff/rivet2-core';
 import { type IOProvider } from '../../../rivet/packages/app/src/io/IOProvider.js';
 import {
   type TrivetData,
   deserializeTrivetData,
   serializeTrivetData,
-} from '@ironclad/trivet';
+} from '@valerypopoff/trivet';
 import { getDefaultStore } from 'jotai';
 import { RIVET_API_BASE_URL } from '../../shared/hosted-env';
 import { apiReadBinary, apiReadText } from '../../shared/api';

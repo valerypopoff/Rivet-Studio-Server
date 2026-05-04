@@ -1,6 +1,6 @@
 import { type FC, useEffect, useRef } from 'react';
 import { useOpenWorkflowProject } from './useOpenWorkflowProject';
-import { ExecutionRecorder, getError } from '@ironclad/rivet-core';
+import { ExecutionRecorder, getError } from '@valerypopoff/rivet2-core';
 import { useAtomValue, useSetAtom } from 'jotai';
 import {
   loadedProjectState,

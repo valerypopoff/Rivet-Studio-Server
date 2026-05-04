@@ -38,7 +38,7 @@ const {
   FilesystemExecutionCache,
   resetFilesystemExecutionCacheForTests,
 } = await import('../routes/workflows/filesystem-execution-cache.js');
-const rivetNode = await import('@ironclad/rivet-node');
+const rivetNode = await import('@valerypopoff/rivet2-node');
 
 async function resetFilesystemRoots(): Promise<void> {
   resetFilesystemExecutionCacheForTests();

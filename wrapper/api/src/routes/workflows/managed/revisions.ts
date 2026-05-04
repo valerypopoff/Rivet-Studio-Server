@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { loadProjectAndAttachedDataFromString, serializeProject } from '@ironclad/rivet-node';
+import { loadProjectAndAttachedDataFromString, serializeProject } from '@valerypopoff/rivet2-node';
 import { type Pool, type PoolClient } from 'pg';
 
 import { WORKFLOW_PROJECT_EXTENSION } from '../../../../../shared/workflow-types.js';

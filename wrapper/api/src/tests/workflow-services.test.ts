@@ -22,7 +22,7 @@ const workflowExecution = await import('../routes/workflows/execution.js');
 const workflowRoutes = await import('../routes/workflows/index.js');
 const workflowStorageBackend = await import('../routes/workflows/storage-backend.js');
 const filesystemExecutionCache = await import('../routes/workflows/filesystem-execution-cache.js');
-const rivetNode = await import('@ironclad/rivet-node');
+const rivetNode = await import('@valerypopoff/rivet2-node');
 
 async function resetWorkflowsRoot() {
   filesystemExecutionCache.resetFilesystemExecutionCacheForTests();

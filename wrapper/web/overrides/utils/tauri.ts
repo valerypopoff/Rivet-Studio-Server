@@ -1,7 +1,7 @@
 // Override for rivet/packages/app/src/utils/tauri.ts
 // Adds isHostedMode(), routes getEnvVar() through API backend
 
-import { type RivetPlugin, type Settings, type StringPluginConfigurationSpec } from '@ironclad/rivet-core';
+import { type RivetPlugin, type Settings, type StringPluginConfigurationSpec } from '@valerypopoff/rivet2-core';
 import { entries } from '../../../../rivet/packages/core/src/utils/typeSafety';
 import type { EnvironmentProvider, PathPolicyProvider } from '../../../../rivet/packages/app/src/providers/ProvidersContext.js';
 import { RIVET_API_BASE_URL, RIVET_HOSTED_MODE } from '../../../shared/hosted-env';

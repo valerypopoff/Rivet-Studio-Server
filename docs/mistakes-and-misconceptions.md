@@ -30,7 +30,7 @@ It is acceptable to implement hosted fixes or product behavior directly under `r
 ### Reality
 
 - `rivet/` is upstream code that can be replaced by `npm run setup:rivet`
-- by default that setup pulls `https://github.com/valerypopoff/rivet2.0.git` at `main`, not Ironclad's old published Rivet repo
+- by default that setup pulls `https://github.com/valerypopoff/rivet2.0.git` at `main`, not the original published Rivet repo
 - this repo consumes that code; it does not own or maintain it
 - even when `rivet/` exists locally as a checkout or snapshot, that is for inspection, compilation, and compatibility work around it, not for committed repo behavior
 - CI builds bootstrap a fresh upstream Rivet snapshot before building images

@@ -1,5 +1,5 @@
-import { getError, type Project } from '@ironclad/rivet-core';
-import type { SerializedTrivetData } from '@ironclad/trivet';
+import { getError, type Project } from '@valerypopoff/rivet2-core';
+import type { SerializedTrivetData } from '@valerypopoff/trivet';
 import { nanoid } from 'nanoid';
 
 type PromiseResolvers<T> = {

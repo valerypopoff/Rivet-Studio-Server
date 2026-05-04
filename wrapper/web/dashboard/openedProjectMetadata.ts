@@ -1,4 +1,4 @@
-import type { Project } from '@ironclad/rivet-core';
+import type { Project } from '@valerypopoff/rivet2-core';
 
 const PROJECT_FILE_EXTENSION = /\.rivet-project$/i;
 

@@ -8,7 +8,7 @@ import {
   type AttachedData,
   type CombinedDataset,
   type Project,
-} from '@ironclad/rivet-node';
+} from '@valerypopoff/rivet2-node';
 
 import type {
   WorkflowRecordingFilterStatus,

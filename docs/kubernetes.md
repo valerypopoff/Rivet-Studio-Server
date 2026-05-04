@@ -173,7 +173,7 @@ Chart-maintainer note:
 
 - backend/execution chart reuse is intentionally shallow
 - shared env and pod fragments live in `_env.tpl` and `_pod.tpl`
-- API containers mount app-data at `/data/rivet-app`, while the executor keeps its app-data mount at `/home/rivet/.local/share/com.ironcladapp.rivet` because it still expects the Rivet desktop storage layout
+- API containers mount app-data at `/data/rivet-app`, while the executor keeps its app-data mount at `/home/rivet/.local/share/com.valerypopoff.rivet2` because it still expects the Rivet desktop storage layout
 - `proxy` and `web` remain mostly explicit so rendered pod shape stays operator-readable
 
 ## Repo-local verification
