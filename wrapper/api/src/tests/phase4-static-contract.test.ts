@@ -365,7 +365,13 @@ test('hosted editor project commands go through Rivet 2 workspace host seams', (
   assert.match(syncOpenedProjectsOverride, /resolveHostedProjectTitle/);
   assert.match(syncOpenedProjectsOverride, /withHostedProjectTitle/);
   assert.match(syncOpenedProjectsOverride, /suppressedClosedProjectIdsRef/);
+  assert.match(syncOpenedProjectsOverride, /shouldRegisterCurrentProjectInOpenedProjects/);
+  assert.match(syncOpenedProjectsOverride, /function normalizeOpenedProjects/);
   assert.match(syncOpenedProjectsOverride, /openedProjectIds\.length > 0 && !openedProjectIds\.includes\(currentProjectId\)/);
+  assert.match(syncOpenedProjectsOverride, /openedProjectIds\.length === 0 && !loadedProjectPath/);
+  assert.match(syncOpenedProjectsOverride, /!normalized\.info\.fsPath && !hasActivatableSnapshot/);
+  assert.match(syncOpenedProjectsOverride, /seenProjectIds\.has\(normalized\.projectId\)/);
+  assert.match(syncOpenedProjectsOverride, /!existingInfo\.fsPath && normalized\.info\.fsPath/);
   assert.match(syncOpenedProjectsOverride, /Object\.keys\(previousProjects\.openedProjects\)\.length !== nextOpenedProjectIds\.length/);
   assert.match(syncOpenedProjectsOverride, /openProjectIdSet/);
   assert.match(syncOpenedProjectsOverride, /openedProjectSnapshotsState/);
