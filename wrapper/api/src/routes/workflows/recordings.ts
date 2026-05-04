@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   loadProjectFromFile,
   serializeDatasets,
@@ -77,12 +77,29 @@ type PersistWorkflowExecutionRecordingOptions = {
   errorMessage?: string;
 };
 
+type WorkflowRecordingStorageCounts = {
+  workflowCount: number;
+  runCount: number;
+};
+
+type WorkflowRecordingDiskCounts = WorkflowRecordingStorageCounts & {
+  completedBundleSignature: string;
+};
+
+type WorkflowRecordingMetadataState = {
+  bundleKey: string;
+  mtimeMs: number;
+  size: number;
+};
+
 const workflowRecordingStore = createWorkflowRecordingStore({
   rebuildIndex: rebuildWorkflowRecordingIndex,
   cleanupStorage: cleanupWorkflowRecordingStorage,
   setSchemaVersion: (version) => setWorkflowRecordingStorageState('schema-version', version),
   resetDatabaseForTests: resetWorkflowRecordingDatabaseForTests,
 });
+
+let unresolvedWorkflowRecordingDriftSignature: string | null = null;
 
 export function enqueueWorkflowExecutionRecordingPersistence(task: () => Promise<void>): boolean {
   return workflowRecordingStore.enqueuePersistence(task);
@@ -114,48 +131,139 @@ async function ensureWorkflowRecordingStorage(root?: string): Promise<string> {
   return recordingsRoot;
 }
 
-async function countRecordingBundlesOnDisk(recordingsRoot: string): Promise<{ workflowCount: number; runCount: number }> {
+function getWorkflowRecordingDriftSignature(
+  recordingsRoot: string,
+  diskCounts: WorkflowRecordingDiskCounts,
+  indexedCounts: WorkflowRecordingStorageCounts,
+): string {
+  return [
+    recordingsRoot,
+    diskCounts.workflowCount,
+    diskCounts.runCount,
+    diskCounts.completedBundleSignature,
+    indexedCounts.workflowCount,
+    indexedCounts.runCount,
+  ].join(':');
+}
+
+async function countIndexedWorkflowRecordings(): Promise<WorkflowRecordingStorageCounts> {
+  const indexedWorkflows = await listWorkflowRecordingWorkflowStatsRows();
+  return {
+    workflowCount: indexedWorkflows.length,
+    runCount: indexedWorkflows.reduce((total, workflow) => total + workflow.totalRuns, 0),
+  };
+}
+
+async function getRecordingMetadataState(
+  metadataPath: string,
+): Promise<{ mtimeMs: number; size: number } | null> {
+  try {
+    const stat = await fs.stat(metadataPath);
+    return stat.isFile()
+      ? {
+          mtimeMs: Math.round(stat.mtimeMs),
+          size: stat.size,
+        }
+      : null;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException | undefined)?.code === 'ENOENT') {
+      return null;
+    }
+
+    throw error;
+  }
+}
+
+async function countRecordingBundlesOnDisk(recordingsRoot: string): Promise<WorkflowRecordingDiskCounts> {
   if (!await pathExists(recordingsRoot)) {
-    return { workflowCount: 0, runCount: 0 };
+    return { workflowCount: 0, runCount: 0, completedBundleSignature: '' };
   }
 
   const workflowDirectories = (await fs.readdir(recordingsRoot, { withFileTypes: true }))
-    .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'));
-  const runCounts = await Promise.all(
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+    .sort((left, right) => left.name.localeCompare(right.name));
+  const workflowStates = await Promise.all(
     workflowDirectories.map(async (workflowDirectory) => {
       const workflowRoot = path.join(recordingsRoot, workflowDirectory.name);
-      const bundleDirectories = await fs.readdir(workflowRoot, { withFileTypes: true });
-      const completedBundleFlags = await Promise.all(
-        bundleDirectories
-          .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
-          .map((entry) => pathExists(getWorkflowRecordingMetadataPath(path.join(workflowRoot, entry.name)))),
+      const bundleDirectories = (await fs.readdir(workflowRoot, { withFileTypes: true }))
+        .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+        .sort((left, right) => left.name.localeCompare(right.name));
+      const completedBundleStates = await Promise.all(
+        bundleDirectories.map(async (entry) => {
+          const metadataState = await getRecordingMetadataState(
+            getWorkflowRecordingMetadataPath(path.join(workflowRoot, entry.name)),
+          );
+
+          return metadataState
+            ? {
+                ...metadataState,
+                bundleKey: `${workflowDirectory.name}/${entry.name}`,
+              }
+            : null;
+        }),
       );
-      return completedBundleFlags.filter(Boolean).length;
+      const completedBundles = completedBundleStates.filter(
+        (state): state is WorkflowRecordingMetadataState => state != null,
+      );
+      return {
+        runCount: completedBundles.length,
+        completedBundleSignatures: completedBundles.map((state) => [
+          state.bundleKey,
+          state.mtimeMs,
+          state.size,
+        ].join(':')),
+      };
     }),
   );
+  const completedBundleSignature = createHash('sha256')
+    .update(workflowStates.flatMap((state) => state.completedBundleSignatures).join('|'))
+    .digest('hex');
 
   return {
-    workflowCount: workflowDirectories.length,
-    runCount: runCounts.reduce((total, count) => total + count, 0),
+    workflowCount: workflowStates.filter((state) => state.runCount > 0).length,
+    runCount: workflowStates.reduce((total, state) => total + state.runCount, 0),
+    completedBundleSignature,
   };
 }
 
 async function repairWorkflowRecordingIndexIfDrifted(recordingsRoot: string): Promise<void> {
-  const indexedWorkflows = await listWorkflowRecordingWorkflowStatsRows();
-  const indexedCounts = {
-    workflowCount: indexedWorkflows.length,
-    runCount: indexedWorkflows.reduce((total, workflow) => total + workflow.totalRuns, 0),
-  };
+  const indexedCounts = await countIndexedWorkflowRecordings();
   const diskCounts = await countRecordingBundlesOnDisk(recordingsRoot);
 
   if (
     indexedCounts.workflowCount === diskCounts.workflowCount &&
     indexedCounts.runCount === diskCounts.runCount
   ) {
+    unresolvedWorkflowRecordingDriftSignature = null;
+    return;
+  }
+
+  const driftSignature = getWorkflowRecordingDriftSignature(recordingsRoot, diskCounts, indexedCounts);
+  if (unresolvedWorkflowRecordingDriftSignature === driftSignature) {
     return;
   }
 
   await rebuildWorkflowRecordingIndex(recordingsRoot);
+  const repairedIndexedCounts = await countIndexedWorkflowRecordings();
+
+  if (
+    repairedIndexedCounts.workflowCount === diskCounts.workflowCount &&
+    repairedIndexedCounts.runCount === diskCounts.runCount
+  ) {
+    unresolvedWorkflowRecordingDriftSignature = null;
+    return;
+  }
+
+  unresolvedWorkflowRecordingDriftSignature = getWorkflowRecordingDriftSignature(
+    recordingsRoot,
+    diskCounts,
+    repairedIndexedCounts,
+  );
+  console.warn(
+    '[workflow-recordings] Recording index repair did not converge; ' +
+      'suppressing repeated repair until the on-disk completed-bundle signature or indexed counts change.',
+    { recordingsRoot, diskCounts, indexedCounts: repairedIndexedCounts },
+  );
 }
 
 export async function initializeWorkflowRecordingStorage(root?: string): Promise<void> {
@@ -476,6 +584,7 @@ export async function deleteWorkflowRecordingsByWorkflowId(
 }
 
 export async function resetWorkflowRecordingStorageForTests(): Promise<void> {
+  unresolvedWorkflowRecordingDriftSignature = null;
   await workflowRecordingStore.resetForTests();
 }
 

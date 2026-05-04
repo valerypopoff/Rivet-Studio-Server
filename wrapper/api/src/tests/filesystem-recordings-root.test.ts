@@ -147,6 +147,125 @@ test('recordings listing rebuilds the index when on-disk bundles drift from the 
   assert.equal(repaired.totalRuns, 1);
 });
 
+test('recordings listing ignores empty workflow recording directories during drift repair', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'EmptyRecordingRoots');
+  await workflowMutations.publishWorkflowProjectItem(created.relativePath, {
+    endpointName: 'empty-recording-roots-endpoint',
+  });
+  const [loadedProject, attachedData] = await rivetNode.loadProjectAndAttachedDataFromFile(created.absolutePath);
+
+  await workflowRecordings.persistWorkflowExecutionRecording({
+    workflowsRoot,
+    sourceProject: loadedProject,
+    sourceProjectPath: created.absolutePath,
+    executedProject: loadedProject,
+    executedAttachedData: attachedData,
+    executedDatasets: [],
+    endpointName: 'empty-recording-roots-endpoint',
+    recordingSerialized: JSON.stringify({
+      version: 1,
+      recording: {
+        recordingId: 'empty-recording-roots-recording',
+        events: [],
+        startTs: 1,
+        finishTs: 1,
+      },
+      assets: {},
+      strings: {},
+    }),
+    runKind: 'published',
+    status: 'succeeded',
+    durationMs: 1,
+  });
+
+  await fs.mkdir(path.join(recordingsRoot, 'empty-workflow-recording-root'), { recursive: true });
+  const sentinelUpdatedAt = '2099-01-01T00:00:00.000Z';
+  await workflowRecordingDb.upsertWorkflowRecordingWorkflow({
+    workflowId: loadedProject.metadata.id!,
+    sourceProjectMetadataId: loadedProject.metadata.id!,
+    sourceProjectPath: created.absolutePath,
+    sourceProjectRelativePath: created.relativePath,
+    sourceProjectName: 'EmptyRecordingRoots',
+    updatedAt: sentinelUpdatedAt,
+  });
+
+  const workflows = await workflowRecordings.listWorkflowRecordingWorkflows(workflowsRoot);
+  const indexedWorkflows = await workflowRecordingDb.listWorkflowRecordingWorkflowStatsRows();
+
+  assert.equal(workflows.workflows.length, 1);
+  assert.equal(workflows.workflows[0]?.workflowId, loadedProject.metadata.id);
+  assert.equal(workflows.workflows[0]?.totalRuns, 1);
+  assert.equal(indexedWorkflows.length, 1);
+  assert.equal(indexedWorkflows[0]?.workflowId, loadedProject.metadata.id);
+  assert.equal(indexedWorkflows[0]?.updatedAt, sentinelUpdatedAt);
+});
+
+test('recordings listing does not repeat an unrepairable drift rebuild on every request', async (t) => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'CorruptRecordingMetadata');
+  await workflowMutations.publishWorkflowProjectItem(created.relativePath, {
+    endpointName: 'corrupt-recording-metadata-endpoint',
+  });
+  const [loadedProject, attachedData] = await rivetNode.loadProjectAndAttachedDataFromFile(created.absolutePath);
+
+  await workflowRecordings.persistWorkflowExecutionRecording({
+    workflowsRoot,
+    sourceProject: loadedProject,
+    sourceProjectPath: created.absolutePath,
+    executedProject: loadedProject,
+    executedAttachedData: attachedData,
+    executedDatasets: [],
+    endpointName: 'corrupt-recording-metadata-endpoint',
+    recordingSerialized: JSON.stringify({
+      version: 1,
+      recording: {
+        recordingId: 'corrupt-recording-metadata-valid-recording',
+        events: [],
+        startTs: 1,
+        finishTs: 1,
+      },
+      assets: {},
+      strings: {},
+    }),
+    runKind: 'published',
+    status: 'succeeded',
+    durationMs: 1,
+  });
+
+  const corruptBundleRoot = path.join(recordingsRoot, loadedProject.metadata.id!, 'corrupt-bundle');
+  await fs.mkdir(corruptBundleRoot, { recursive: true });
+  await fs.writeFile(path.join(corruptBundleRoot, 'metadata.json'), '{', 'utf8');
+
+  const warnings: unknown[] = [];
+  const originalConsoleWarn = console.warn;
+  console.warn = (...args: unknown[]) => {
+    warnings.push(args);
+  };
+  t.after(() => {
+    console.warn = originalConsoleWarn;
+  });
+
+  await workflowRecordings.listWorkflowRecordingWorkflows(workflowsRoot);
+
+  const sentinelUpdatedAt = '2099-01-01T00:00:00.000Z';
+  await workflowRecordingDb.upsertWorkflowRecordingWorkflow({
+    workflowId: loadedProject.metadata.id!,
+    sourceProjectMetadataId: loadedProject.metadata.id!,
+    sourceProjectPath: created.absolutePath,
+    sourceProjectRelativePath: created.relativePath,
+    sourceProjectName: 'CorruptRecordingMetadata',
+    updatedAt: sentinelUpdatedAt,
+  });
+
+  await workflowRecordings.listWorkflowRecordingWorkflows(workflowsRoot);
+  const indexedWorkflows = await workflowRecordingDb.listWorkflowRecordingWorkflowStatsRows();
+
+  assert.equal(indexedWorkflows.length, 1);
+  assert.equal(indexedWorkflows[0]?.workflowId, loadedProject.metadata.id);
+  assert.equal(indexedWorkflows[0]?.totalRuns, 1);
+  assert.equal(indexedWorkflows[0]?.updatedAt, sentinelUpdatedAt);
+  assert.equal(warnings.some((args) => String((args as unknown[])[0] ?? '').includes('Recording index repair did not converge')), true);
+});
+
 test('recordings cleanup tolerates a permission failure deleting one stale bundle', async (t) => {
   const created = await workflowMutations.createWorkflowProjectItem('', 'CleanupPermissions');
   const [loadedProject, attachedData] = await rivetNode.loadProjectAndAttachedDataFromFile(created.absolutePath);

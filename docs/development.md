@@ -321,6 +321,19 @@ For host-based API execution, filesystem-mode recording persistence still requir
 
 Filesystem-mode recording startup reconciliation is intentionally non-fatal for stale-bundle cleanup. If an old bundle directory cannot be removed because of host-side permissions, the API logs the cleanup error and still starts; the undeleted bundle simply remains on disk until permissions are corrected.
 
+Filesystem-mode recording list requests also validate `recordings.sqlite` against completed bundle metadata under `RIVET_WORKFLOW_RECORDINGS_ROOT`:
+
+- empty workflow-level recording directories do not count as completed bundles
+- if repair cannot converge, such as when a corrupt `metadata.json` exists, the API logs the mismatch once
+- repeated repair is skipped until the completed-bundle signature or indexed counts change
+
+For slow `GET /api/workflows/recordings/workflows` diagnosis in Docker, compare:
+
+- completed bundle files under `/workflow-recordings`:
+  `find /workflow-recordings -mindepth 3 -maxdepth 3 -name metadata.json -type f | wc -l`
+- indexed run rows in `/data/rivet-app/recordings.sqlite`:
+  `node -e "const {DatabaseSync}=require('node:sqlite'); const db=new DatabaseSync('/data/rivet-app/recordings.sqlite'); console.log(db.prepare('select count(*) n from recording_runs').get())"`
+
 ## Source of truth
 
 - authored source lives under `wrapper/`, `image/`, `ops/`, `charts/`, `scripts/`, `docs/`, and `.github/`
