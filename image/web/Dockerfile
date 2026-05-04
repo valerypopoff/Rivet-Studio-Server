@@ -29,8 +29,8 @@ COPY --from=rivet_source . rivet/
 
 WORKDIR /app/rivet
 RUN --mount=type=cache,target=/root/.cache/yarn YARN_NODE_LINKER=node-modules YARN_CHECKSUM_BEHAVIOR=ignore yarn install --immutable || YARN_NODE_LINKER=node-modules YARN_CHECKSUM_BEHAVIOR=ignore yarn install
-RUN YARN_NODE_LINKER=node-modules yarn workspace @ironclad/rivet-core run build
-RUN YARN_NODE_LINKER=node-modules yarn workspace @ironclad/trivet run build
+RUN YARN_NODE_LINKER=node-modules yarn workspace @valerypopoff/rivet2-core run build
+RUN YARN_NODE_LINKER=node-modules yarn workspace @valerypopoff/trivet run build
 
 WORKDIR /app
 COPY wrapper/ wrapper/

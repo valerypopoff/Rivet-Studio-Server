@@ -30,8 +30,8 @@ COPY --from=rivet_source . /app/rivet/
 
 WORKDIR /app/rivet
 RUN --mount=type=cache,target=/root/.cache/yarn YARN_NODE_LINKER=node-modules YARN_CHECKSUM_BEHAVIOR=ignore yarn install --immutable || YARN_NODE_LINKER=node-modules YARN_CHECKSUM_BEHAVIOR=ignore yarn install
-RUN YARN_NODE_LINKER=node-modules yarn workspace @ironclad/rivet-core run build
-RUN YARN_NODE_LINKER=node-modules yarn workspace @ironclad/rivet-node run build
+RUN YARN_NODE_LINKER=node-modules yarn workspace @valerypopoff/rivet2-core run build
+RUN YARN_NODE_LINKER=node-modules yarn workspace @valerypopoff/rivet2-node run build
 
 COPY wrapper/executor/build/bundle-executor.cjs /app/wrapper/executor/build/bundle-executor.cjs
 RUN NODE_PATH=/app/rivet/node_modules node /app/wrapper/executor/build/bundle-executor.cjs
@@ -58,7 +58,7 @@ ENV no_proxy=$no_proxy
 
 RUN addgroup -g 10001 -S rivet && \
     adduser -u 10001 -S -D -h /home/rivet -G rivet rivet && \
-    mkdir -p /home/rivet/.local/share/com.ironcladapp.rivet/plugins /data/runtime-libraries /opt/rivet/lib /app && \
+    mkdir -p /home/rivet/.local/share/com.valerypopoff.rivet2/plugins /data/runtime-libraries /opt/rivet/lib /app && \
     chown -R 10001:10001 /home/rivet /data /opt/rivet /app
 
 WORKDIR /app

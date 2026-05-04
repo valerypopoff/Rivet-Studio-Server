@@ -28,7 +28,7 @@ const isHostedMode = () => {
 export const useWindowsHotkeysFix = () => {
   const runMenuCommandImpl = useRunMenuCommand();
 
-  // @see https://github.com/Ironclad/rivet/issues/261
+  // Keep the Windows shortcut workaround local to hosted keyboard handling.
   useEffect(() => {
     if (typeof window === 'undefined' || !isWindowsPlatform || window.__tauri_hotkey) {
       return;

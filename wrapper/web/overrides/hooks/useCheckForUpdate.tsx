@@ -7,7 +7,7 @@ import {
   checkForUpdatesState,
   skippedMaxVersionState,
   updateModalOpenState,
-} from '../../../../rivet/packages/app/src/state/settings';
+} from '../state/settings';
 import { lte } from 'semver';
 
 const toastStyle = css`

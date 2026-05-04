@@ -8,7 +8,7 @@ async function handleMessage(event: MessageEvent) {
   const { id, type, data } = event.data;
 
   try {
-    const { deserializeProject } = await import('@ironclad/rivet-core');
+    const { deserializeProject } = await import('@valerypopoff/rivet2-core');
     const payload = typeof data === 'object' && data != null && 'serializedProject' in data
       ? data as { serializedProject: unknown; path?: string }
       : { serializedProject: data, path: undefined };

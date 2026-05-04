@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
 import { authenticateIfNeeded, waitForDashboardReady } from './helpers/hostedEditorObserve';
 
-test.describe('Overlay tabs', () => {
-  test('toggle overlay panels through the shared menu config', async ({ page }) => {
+test.describe('Workspace navigation', () => {
+  test('toggles current Rivet workspace panels through the upstream tab row', async ({ page }) => {
     test.slow();
 
     await page.goto('/', { waitUntil: 'domcontentloaded' });
@@ -21,19 +21,28 @@ test.describe('Overlay tabs', () => {
     await expect(iframe).toBeVisible({ timeout: 120_000 });
 
     const frame = page.frameLocator('iframe.dashboard-editor-frame');
-    const canvasTab = frame.locator('.menu-item.canvas-menu');
-    const pluginsTab = frame.locator('.menu-item.plugins');
-    const dataStudioTab = frame.locator('.menu-item.data-studio');
+    const workspaceNav = frame.getByRole('navigation', { name: 'Workspace navigation' });
+    const trivetTab = workspaceNav.getByRole('button', { name: 'Trivet Tests' });
+    const dataStudioTab = workspaceNav.getByRole('button', { name: 'Data Studio' });
+    const searchTab = workspaceNav.getByRole('button', { name: 'Search' });
+    const dataStudioMenuItem = workspaceNav.locator('.menu-item.data-studio');
+    const trivetMenuItem = workspaceNav.locator('.menu-item.trivet-menu');
 
-    await expect(canvasTab).toHaveClass(/active/);
+    await expect(workspaceNav).toBeVisible({ timeout: 120_000 });
+    await expect(trivetTab).toBeVisible();
+    await expect(dataStudioTab).toBeVisible();
+    await expect(searchTab).toBeVisible();
 
-    await frame.getByRole('button', { name: 'Plugins' }).click();
-    await expect(pluginsTab).toHaveClass(/active/);
+    await dataStudioTab.click();
+    await expect(dataStudioMenuItem).toHaveClass(/active/);
 
-    await frame.getByRole('button', { name: 'Plugins' }).click();
-    await expect(canvasTab).toHaveClass(/active/);
+    await dataStudioTab.click();
+    await expect(dataStudioMenuItem).not.toHaveClass(/active/);
 
-    await frame.getByRole('button', { name: 'Data Studio' }).click();
-    await expect(dataStudioTab).toHaveClass(/active/);
+    await trivetTab.click();
+    await expect(trivetMenuItem).toHaveClass(/active/);
+
+    await searchTab.click();
+    await expect(trivetMenuItem).not.toHaveClass(/active/);
   });
 });

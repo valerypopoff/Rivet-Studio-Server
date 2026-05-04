@@ -1,5 +1,5 @@
-import type { ProjectId } from '@ironclad/rivet-core';
-import type { TrivetData } from '@ironclad/trivet';
+import type { ProjectId } from '@valerypopoff/rivet2-core';
+import type { TrivetData } from '@valerypopoff/trivet';
 
 type OpenedProjectSessionEntry = {
   fsPath: string | null;

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { Project } from '@ironclad/rivet-core';
+import type { Project } from '@valerypopoff/rivet2-core';
 import {
   resolveHostedProjectTitle,
   withHostedProjectTitle,

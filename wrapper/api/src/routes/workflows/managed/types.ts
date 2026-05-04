@@ -1,4 +1,4 @@
-import type { AttachedData, CombinedDataset, Project } from '@ironclad/rivet-node';
+import type { AttachedData, CombinedDataset, Project } from '@valerypopoff/rivet2-node';
 
 import type {
   WorkflowProjectItem,

@@ -18,12 +18,16 @@ function quoteArg(arg) {
   return arg;
 }
 
-function run(command, args, cwd = rootDir) {
+function run(command, args, cwd = rootDir, extraEnv = {}) {
   const commandLine = [command, ...args.map(quoteArg)].join(' ');
   const useShell = process.platform === 'win32' && /\.(cmd|bat)$/i.test(command);
 
   const result = spawnSync(command, args, {
     cwd,
+    env: {
+      ...process.env,
+      ...extraEnv,
+    },
     stdio: 'inherit',
     shell: useShell,
   });
@@ -58,16 +62,24 @@ function isLinkedTo(relPath, targetRelPath) {
   }
 }
 
-function hasExpectedApiRivetLink(packageName, sourcePackageRelPath) {
-  const packageRelPath = `wrapper/api/node_modules/@ironclad/${packageName}`;
+function hasExpectedApiRivetLink(packageName, sourcePackageRelPath, packageAliases) {
   const overlayRelPath = `wrapper/api/node_modules/.rivet-package-links/${packageName}`;
   const sourceDistRelPath = path.join(sourcePackageRelPath, 'dist');
 
   return (
-    isLinkedTo(packageRelPath, overlayRelPath) &&
+    packageAliases.every((packageAlias) => isLinkedTo(`wrapper/api/node_modules/${packageAlias}`, overlayRelPath)) &&
     isLinkedTo(path.join(overlayRelPath, 'dist'), sourceDistRelPath) &&
     isLinkedTo(path.join(overlayRelPath, 'node_modules'), 'rivet/node_modules')
   );
+}
+
+function hasRetiredApiRivetLinks() {
+  const retiredScope = ['@', 'iron', 'clad'].join('');
+
+  return [
+    `wrapper/api/node_modules/${retiredScope}/rivet-core`,
+    `wrapper/api/node_modules/${retiredScope}/rivet-node`,
+  ].some(exists);
 }
 
 function hasExpectedRivetWorkspace() {
@@ -79,6 +91,55 @@ function hasExpectedRivetWorkspace() {
   ];
 
   return requiredEntries.every((relPath) => exists(relPath));
+}
+
+function readJson(relPath) {
+  return JSON.parse(fs.readFileSync(path.join(rootDir, relPath), 'utf8'));
+}
+
+function packageNameToNodeModulesRelPath(packageName) {
+  if (packageName.startsWith('@')) {
+    const [scope, name] = packageName.split('/');
+    return path.join(scope, name);
+  }
+
+  return packageName;
+}
+
+function collectRivetDependencyNames() {
+  const packageJsonRelPaths = [
+    'rivet/packages/core/package.json',
+    'rivet/packages/node/package.json',
+  ];
+  const dependencyNames = new Set([
+    'esbuild',
+    'tsx',
+    'typescript',
+  ]);
+
+  for (const relPath of packageJsonRelPaths) {
+    const packageJson = readJson(relPath);
+
+    for (const dependencyName of Object.keys(packageJson.dependencies ?? {})) {
+      dependencyNames.add(dependencyName);
+    }
+
+    for (const dependencyName of Object.keys(packageJson.devDependencies ?? {})) {
+      dependencyNames.add(dependencyName);
+    }
+  }
+
+  return [...dependencyNames];
+}
+
+function hasExpectedRivetNodeModulesInstall() {
+  if (!exists('rivet/node_modules')) {
+    return false;
+  }
+
+  return collectRivetDependencyNames().every((dependencyName) =>
+    exists(path.join('rivet/node_modules', packageNameToNodeModulesRelPath(dependencyName))),
+  );
 }
 
 function ensureRivetRepo() {
@@ -112,15 +173,19 @@ const needsApiDeps = !exists('wrapper/api/node_modules/.bin/tsx');
 const needsWebDeps =
   !exists('wrapper/web/node_modules/.bin/vite') ||
   !exists('wrapper/web/node_modules/.bin/playwright');
-const needsRivetDeps =
-  !exists('rivet/.pnp.cjs') ||
-  !exists('rivet/.yarn/unplugged') ||
-  !exists('rivet/.yarn/unplugged/esbuild-npm-0.19.5-107ce8536d/node_modules/esbuild');
+const needsRivetDeps = !hasExpectedRivetNodeModulesInstall();
 const needsRivetCoreBuild = !exists('rivet/packages/core/dist/esm/index.js');
 const needsRivetNodeBuild = !exists('rivet/packages/node/dist/esm/index.js');
 const needsApiRivetLinks =
-  !hasExpectedApiRivetLink('rivet-core', 'rivet/packages/core') ||
-  !hasExpectedApiRivetLink('rivet-node', 'rivet/packages/node');
+  !hasExpectedApiRivetLink('rivet-core', 'rivet/packages/core', [
+    '@rivet2/rivet-core',
+    '@valerypopoff/rivet2-core',
+  ]) ||
+  !hasExpectedApiRivetLink('rivet-node', 'rivet/packages/node', [
+    '@rivet2/rivet-node',
+    '@valerypopoff/rivet2-node',
+  ]) ||
+  hasRetiredApiRivetLinks();
 
 if (
   !needsApiDeps &&
@@ -147,17 +212,20 @@ if (needsWebDeps) {
 
 if (needsRivetDeps) {
   console.log('[predev] Installing rivet dependencies with Yarn via Corepack');
-  run(corepackCmd, ['yarn', 'install'], path.join(rootDir, 'rivet'));
+  run(corepackCmd, ['yarn', 'install', '--immutable'], path.join(rootDir, 'rivet'), {
+    YARN_NODE_LINKER: 'node-modules',
+    YARN_CHECKSUM_BEHAVIOR: 'ignore',
+  });
 }
 
 if (needsRivetCoreBuild) {
-  console.log('[predev] Building @ironclad/rivet-core');
-  run(corepackCmd, ['yarn', 'workspace', '@ironclad/rivet-core', 'run', 'build'], path.join(rootDir, 'rivet'));
+  console.log('[predev] Building @valerypopoff/rivet2-core');
+  run(corepackCmd, ['yarn', 'workspace', '@valerypopoff/rivet2-core', 'run', 'build'], path.join(rootDir, 'rivet'));
 }
 
 if (needsRivetNodeBuild) {
-  console.log('[predev] Building @ironclad/rivet-node');
-  run(corepackCmd, ['yarn', 'workspace', '@ironclad/rivet-node', 'run', 'build'], path.join(rootDir, 'rivet'));
+  console.log('[predev] Building @valerypopoff/rivet2-node');
+  run(corepackCmd, ['yarn', 'workspace', '@valerypopoff/rivet2-node', 'run', 'build'], path.join(rootDir, 'rivet'));
 }
 
 if (needsApiRivetLinks || needsApiDeps || needsRivetCoreBuild || needsRivetNodeBuild) {

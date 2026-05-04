@@ -1,5 +1,5 @@
 import fs from 'node:fs/promises';
-import { loadProjectFromString } from '@ironclad/rivet-node';
+import { loadProjectFromString } from '@valerypopoff/rivet2-node';
 
 import type { WorkflowProjectStats } from './types.js';
 

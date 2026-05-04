@@ -16,7 +16,7 @@ import { clipboardState } from '../../../../rivet/packages/app/src/state/clipboa
 import { clientToCanvasPosition } from '../../../../rivet/packages/app/src/hooks/useCanvasPositioning';
 import { isNotNull } from '../../../../rivet/packages/app/src/utils/genericUtilFunctions';
 import { useDeleteNodesCommand } from '../../../../rivet/packages/app/src/commands/deleteNodeCommand';
-import { type NodeId, type NodeConnection, newId, globalRivetNodeRegistry } from '@ironclad/rivet-core';
+import { type NodeId, type NodeConnection, newId, globalRivetNodeRegistry } from '@valerypopoff/rivet2-core';
 import { produce } from 'immer';
 
 type DeleteNodes = (args: { nodeIds: NodeId[] }) => void;

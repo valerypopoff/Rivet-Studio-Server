@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useAtomValue, useSetAtom } from 'jotai';
-import type { GraphId, Project, ProjectId } from '@ironclad/rivet-core';
+import type { GraphId, Project, ProjectId } from '@valerypopoff/rivet2-core';
 import { graphState } from '../../../../rivet/packages/app/src/state/graph';
 import {
   loadedProjectState,

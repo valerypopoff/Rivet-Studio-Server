@@ -1,5 +1,5 @@
-import type { AttachedData, Project } from '@ironclad/rivet-node';
-import type { NodeDatasetProvider } from '@ironclad/rivet-node';
+import type { AttachedData, Project } from '@valerypopoff/rivet2-node';
+import type { NodeDatasetProvider } from '@valerypopoff/rivet2-node';
 
 import type { ManagedEndpointPointerCacheEntry } from './execution-cache.js';
 

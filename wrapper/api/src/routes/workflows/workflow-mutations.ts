@@ -8,7 +8,7 @@ import {
   serializeProject,
   type AttachedData,
   type Project,
-} from '@ironclad/rivet-node';
+} from '@valerypopoff/rivet2-node';
 import type { WorkflowProjectDownloadVersion } from '../../../../shared/workflow-types.js';
 
 import { validatePath } from '../../security.js';

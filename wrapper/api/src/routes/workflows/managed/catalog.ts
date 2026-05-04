@@ -5,7 +5,7 @@ import {
   serializeProject,
   type AttachedData,
   type Project,
-} from '@ironclad/rivet-node';
+} from '@valerypopoff/rivet2-node';
 import { type Pool, type PoolClient, type QueryResultRow } from 'pg';
 
 import type {

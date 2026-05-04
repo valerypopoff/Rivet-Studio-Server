@@ -14,8 +14,8 @@ const wrapperExecutorDir = path.resolve(repoRootDir, 'wrapper', 'executor');
 const resolveRivet = {
   name: 'resolve-rivet',
   setup(build) {
-    build.onResolve({ filter: /^@ironclad\/rivet-/ }, (args) => {
-      const rivetPackage = args.path.replace(/^@ironclad\/rivet-/, '');
+    build.onResolve({ filter: /^@valerypopoff\/rivet2-(core|node)$/ }, (args) => {
+      const rivetPackage = args.path.replace(/^@valerypopoff\/rivet2-/, '');
       return {
         path: path.resolve(appExecutorDir, '..', rivetPackage, 'src', 'index.ts'),
       };

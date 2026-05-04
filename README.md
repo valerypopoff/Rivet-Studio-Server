@@ -1,6 +1,6 @@
 # Rivet Studio Server
 
-This repo exists because [Rivet](https://rivet.ironcladapp.com) does not provide a cloud-hosted platform for editing workflows and serving them directly as hosted endpoints.
+This repo exists because [Rivet 2](https://github.com/valerypopoff/rivet2.0) does not provide a cloud-hosted platform for editing workflows and serving them directly as hosted endpoints.
 
 A typical workflow is manual: install the desktop Rivet app, build the workflow locally, move the `.rivet-project` file into your own backend, write custom code to execute it, and build your own server layer if you want to expose that workflow as an HTTP endpoint. Updating a workflow then usually means going back to a local machine, editing it there, shipping the changed file again, and redeploying the backend that serves it.
 
@@ -70,7 +70,7 @@ Reference documentation lives under `docs/`, not at the repo root.
 
 ### Prerequisites
 
-- Node.js 20+ and npm
+- Node.js 24+ and npm for host-based setup/tests; Docker images carry their own runtime
 - Git
 - Docker and Docker Compose
 
@@ -185,7 +185,7 @@ Internally, the wrapper now keeps the major ownership seams explicit:
 - dashboard-heavy UI state now lives in controller/helpers under `wrapper/web/dashboard/`
 - editor-side Node execution uses Rivet 2.0's `RivetAppHost` external executor seam instead of wrapper-owned remote-executor hook overrides
 - the executor container binds its websocket server to `0.0.0.0:21889` inside Docker so the proxy can reach it as the separate `executor` service; browser access still goes through `/ws/executor*` on the proxy
-- endpoint/API workflow execution imports `@ironclad/rivet-node` through a package-name seam, while setup and image builds link that package to the embedded `rivet/` source tree so replacing `rivet/` upgrades both editor-side and server-side execution
+- endpoint/API workflow execution imports `@valerypopoff/rivet2-node` through a package-name seam, while setup and image builds link that package to the embedded `rivet/` source tree so replacing `rivet/` upgrades both editor-side and server-side execution
 
 ## Security
 

@@ -1,5 +1,5 @@
 import { performance } from 'node:perf_hooks';
-import { NodeDatasetProvider, deserializeDatasets, loadProjectAndAttachedDataFromString, loadProjectFromString, type Project } from '@ironclad/rivet-node';
+import { NodeDatasetProvider, deserializeDatasets, loadProjectAndAttachedDataFromString, loadProjectFromString, type Project } from '@valerypopoff/rivet2-node';
 import type { Pool } from 'pg';
 
 import { createHttpError } from '../../../utils/httpError.js';

@@ -246,7 +246,7 @@ Both execution paths resolve managed libraries from `current/node_modules`:
 
 - the API uses `ManagedCodeRunner`
 - the executor image sets `RIVET_CODE_RUNNER_REQUIRE_ROOT` to the same runtime-library root and relies on Rivet 2.0's app-executor `CodeRunner` seam instead of patching Rivet source
-- the API image links `@ironclad/rivet-node` and `@ironclad/rivet-core` to the built embedded `rivet/` packages before compiling the API, so hosted endpoint execution and editor-side execution use the same Rivet 2.0 runtime behavior
+- the API image links `@valerypopoff/rivet2-node`, `@valerypopoff/rivet2-core`, and Rivet 2's `@rivet2/*` runtime aliases to the built embedded `rivet/` packages before compiling the API, so hosted endpoint execution and editor-side execution use the same Rivet 2.0 runtime behavior
 
 That means newly activated libraries take effect on the next workflow execution without restarting the API container.
 In `managed` mode the executor bootstrap now reconciles the same active release into its own local `current/` cache before code-node `require()` resolution, so it no longer depends on a shared authoritative runtime-library mount.

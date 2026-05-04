@@ -1,4 +1,4 @@
-import { getError } from '@ironclad/rivet-core';
+import { getError } from '@valerypopoff/rivet2-core';
 import {
   loadedProjectState,
   type OpenedProjectSnapshot,

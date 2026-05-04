@@ -1,7 +1,7 @@
 import { useSetAtom, useStore } from 'jotai';
 import { toast } from 'react-toastify';
-import type { GraphId, NodeGraph, Project, ProjectId } from '@ironclad/rivet-core';
-import type { TrivetData } from '@ironclad/trivet';
+import type { GraphId, NodeGraph, Project, ProjectId } from '@valerypopoff/rivet2-core';
+import type { TrivetData } from '@valerypopoff/trivet';
 import {
   type OpenedProjectInfo,
   type OpenedProjectsInfo,

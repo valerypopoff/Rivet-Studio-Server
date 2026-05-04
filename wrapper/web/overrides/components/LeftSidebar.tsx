@@ -4,7 +4,7 @@ import { useAtom, useAtomValue } from 'jotai';
 import { projectState } from '../../../../rivet/packages/app/src/state/savedGraphs.js';
 import CollapseLeftIcon from '../../icons/arrow-collapse-left.svg?react';
 import ExpandRightIcon from 'majesticons/line/menu-expand-right-line.svg?react';
-import { type GraphId } from '@ironclad/rivet-core';
+import { type GraphId } from '@valerypopoff/rivet2-core';
 import { sidebarOpenState } from '../../../../rivet/packages/app/src/state/graphBuilder.js';
 import Tabs, { Tab, TabList, TabPanel } from '@atlaskit/tabs';
 import { GraphList } from '../../../../rivet/packages/app/src/components/GraphList.js';

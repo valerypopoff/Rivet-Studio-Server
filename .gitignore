@@ -25,3 +25,4 @@ rivet/
 .DS_Store
 Thumbs.db
 .vscode/
+.codex/

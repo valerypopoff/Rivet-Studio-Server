@@ -35,7 +35,7 @@ const workflowFs = await import('../routes/workflows/fs-helpers.js');
 const workflowMutations = await import('../routes/workflows/workflow-mutations.js');
 const workflowRecordings = await import('../routes/workflows/recordings.js');
 const workflowRecordingDb = await import('../routes/workflows/recordings-db.js');
-const rivetNode = await import('@ironclad/rivet-node');
+const rivetNode = await import('@valerypopoff/rivet2-node');
 
 async function resetFilesystemRoots(): Promise<void> {
   await workflowRecordings.resetWorkflowRecordingStorageForTests();

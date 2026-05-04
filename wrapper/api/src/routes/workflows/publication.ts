@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { loadProjectFromFile } from '@ironclad/rivet-node';
+import { loadProjectFromFile } from '@valerypopoff/rivet2-node';
 
 import { validatePath } from '../../security.js';
 import { badRequest, conflict } from '../../utils/httpError.js';

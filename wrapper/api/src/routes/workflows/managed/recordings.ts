@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { serializeDatasets, serializeProject, type Project } from '@ironclad/rivet-node';
+import { serializeDatasets, serializeProject, type Project } from '@valerypopoff/rivet2-node';
 import { type Pool, type PoolClient, type QueryResultRow } from 'pg';
 
 import type {
