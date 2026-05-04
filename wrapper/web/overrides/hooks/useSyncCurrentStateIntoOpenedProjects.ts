@@ -5,6 +5,8 @@ import { graphState } from '../../../../rivet/packages/app/src/state/graph';
 import {
   loadedProjectState,
   type OpenedProjectInfo,
+  type OpenedProjectSnapshot,
+  type OpenedProjectsInfo,
   openedProjectSnapshotsState,
   openedProjectsState,
   openedProjectsSortedIdsState,
@@ -21,6 +23,130 @@ type LegacyOpenedProjectInfo = Partial<OpenedProjectInfo> & {
   project?: (Omit<Project, 'data'> & { data?: Project['data'] }) | null;
 };
 
+function shouldRegisterCurrentProjectInOpenedProjects({
+  currentProjectId,
+  loadedProjectPath,
+  openedProjectIds,
+  suppressedClosedProjectIds,
+}: {
+  currentProjectId: ProjectId;
+  loadedProjectPath: string | null | undefined;
+  openedProjectIds: ProjectId[];
+  suppressedClosedProjectIds: ReadonlySet<ProjectId>;
+}) {
+  if (suppressedClosedProjectIds.has(currentProjectId)) {
+    return false;
+  }
+
+  if (openedProjectIds.length > 0 && !openedProjectIds.includes(currentProjectId)) {
+    return false;
+  }
+
+  // After the last tab closes, Rivet can still retain a pathless scratch project
+  // in projectState. Do not resurrect that stale project as a persisted tab.
+  if (openedProjectIds.length === 0 && !loadedProjectPath) {
+    return false;
+  }
+
+  return true;
+}
+
+function normalizeOpenedProjectEntry(previousProjectId: ProjectId, entry: LegacyOpenedProjectInfo) {
+  const legacyProject = entry.project ?? null;
+  const projectId = (entry.projectId ?? legacyProject?.metadata?.id ?? previousProjectId) as ProjectId;
+  const fsPath = entry.fsPath ?? null;
+  const title = resolveHostedProjectTitle(
+    {
+      metadata: {
+        ...legacyProject?.metadata,
+        title: entry.title ?? legacyProject?.metadata?.title,
+      },
+    } as Pick<Project, 'metadata'>,
+    fsPath,
+  );
+  const openedGraph = entry.openedGraph ?? legacyProject?.metadata?.mainGraphId;
+  const info: OpenedProjectInfo = {
+    projectId,
+    title,
+    fsPath,
+    ...(openedGraph ? { openedGraph: openedGraph as GraphId } : {}),
+  };
+
+  return {
+    projectId,
+    info,
+    legacyProject,
+    changed:
+      projectId !== previousProjectId ||
+      entry.projectId !== projectId ||
+      entry.title !== title ||
+      entry.fsPath !== fsPath ||
+      entry.openedGraph !== openedGraph ||
+      'project' in entry,
+  };
+}
+
+function normalizeOpenedProjects(
+  previousProjects: OpenedProjectsInfo,
+  options: {
+    currentProjectId: ProjectId | undefined;
+    openedProjectSnapshots: Record<ProjectId, OpenedProjectSnapshot>;
+  },
+): OpenedProjectsInfo {
+  let changed = false;
+  const seenProjectIds = new Set<ProjectId>();
+  const nextOpenedProjects: Record<ProjectId, OpenedProjectInfo> = {};
+  const nextOpenedProjectIds: ProjectId[] = [];
+
+  for (const previousProjectId of previousProjects.openedProjectsSortedIds) {
+    const entry = previousProjects.openedProjects[previousProjectId] as LegacyOpenedProjectInfo | undefined;
+    if (!entry) {
+      changed = true;
+      continue;
+    }
+
+    const normalized = normalizeOpenedProjectEntry(previousProjectId, entry);
+
+    if (seenProjectIds.has(normalized.projectId)) {
+      changed = true;
+      const existingInfo = nextOpenedProjects[normalized.projectId];
+      if (existingInfo && !existingInfo.fsPath && normalized.info.fsPath) {
+        nextOpenedProjects[normalized.projectId] = normalized.info;
+      }
+      continue;
+    }
+
+    const hasActivatableSnapshot =
+      Boolean(options.openedProjectSnapshots[normalized.projectId]) ||
+      Boolean(normalized.legacyProject) ||
+      options.currentProjectId === normalized.projectId;
+
+    if (!normalized.info.fsPath && !hasActivatableSnapshot) {
+      changed = true;
+      continue;
+    }
+
+    seenProjectIds.add(normalized.projectId);
+    nextOpenedProjects[normalized.projectId] = normalized.info;
+    nextOpenedProjectIds.push(normalized.projectId);
+
+    if (normalized.changed) {
+      changed = true;
+    }
+  }
+
+  if (!changed) {
+    changed = Object.keys(previousProjects.openedProjects).length !== nextOpenedProjectIds.length;
+  }
+
+  return changed
+    ? {
+        openedProjects: nextOpenedProjects,
+        openedProjectsSortedIds: nextOpenedProjectIds,
+      }
+    : previousProjects;
+}
+
 export function useSyncCurrentStateIntoOpenedProjects() {
   const setProjects = useSetAtom(projectsState);
   const setLoadedProject = useSetAtom(loadedProjectState);
@@ -32,6 +158,7 @@ export function useSyncCurrentStateIntoOpenedProjects() {
   const currentGraph = useAtomValue(graphState);
   const currentTrivetState = useAtomValue(trivetState);
   const openedProjects = useAtomValue(openedProjectsState);
+  const openedProjectSnapshots = useAtomValue(openedProjectSnapshotsState);
   const openedProjectIds = useAtomValue(openedProjectsSortedIdsState);
   const currentProjectWithData = useMemo(
     () => ({
@@ -48,66 +175,14 @@ export function useSyncCurrentStateIntoOpenedProjects() {
   }, [openedProjectIds]);
 
   useEffect(() => {
-    setProjects((previousProjects) => {
-      let changed = false;
-      const nextOpenedProjects: Record<ProjectId, OpenedProjectInfo> = {};
-      const nextOpenedProjectIds: ProjectId[] = [];
-
-      for (const previousProjectId of previousProjects.openedProjectsSortedIds) {
-        const entry = previousProjects.openedProjects[previousProjectId] as LegacyOpenedProjectInfo | undefined;
-        if (!entry) {
-          changed = true;
-          continue;
-        }
-
-        const legacyProject = entry.project ?? null;
-        const projectId = (entry.projectId ?? legacyProject?.metadata?.id ?? previousProjectId) as ProjectId;
-        const fsPath = entry.fsPath ?? null;
-        const title = resolveHostedProjectTitle(
-          {
-            metadata: {
-              ...legacyProject?.metadata,
-              title: entry.title ?? legacyProject?.metadata?.title,
-            },
-          } as Pick<Project, 'metadata'>,
-          fsPath,
-        );
-        const openedGraph = entry.openedGraph ?? legacyProject?.metadata?.mainGraphId;
-
-        nextOpenedProjects[projectId] = {
-          projectId,
-          title,
-          fsPath,
-          ...(openedGraph ? { openedGraph: openedGraph as GraphId } : {}),
-        };
-        nextOpenedProjectIds.push(projectId);
-
-        if (
-          projectId !== previousProjectId ||
-          entry.projectId !== projectId ||
-          entry.title !== title ||
-          entry.fsPath !== fsPath ||
-          entry.openedGraph !== openedGraph ||
-          'project' in entry
-        ) {
-          changed = true;
-        }
-      }
-
-      if (!changed) {
-        changed = Object.keys(previousProjects.openedProjects).length !== nextOpenedProjectIds.length;
-      }
-
-      if (!changed) {
-        return previousProjects;
-      }
-
-      return {
-        openedProjects: nextOpenedProjects,
-        openedProjectsSortedIds: nextOpenedProjectIds,
-      };
-    });
-  }, [setProjects]);
+    const currentProjectId = currentProject.metadata.id as ProjectId | undefined;
+    setProjects((previousProjects) =>
+      normalizeOpenedProjects(previousProjects, {
+        currentProjectId,
+        openedProjectSnapshots,
+      }),
+    );
+  }, [currentProject.metadata.id, openedProjectSnapshots, setProjects]);
 
   useEffect(() => {
     setOpenedProjectSnapshots((previousSnapshots) => {
@@ -172,11 +247,18 @@ export function useSyncCurrentStateIntoOpenedProjects() {
   // registry is lightweight tab metadata only.
   useEffect(() => {
     const currentProjectId = currentProject.metadata.id as ProjectId | undefined;
-    if (!currentProjectId || suppressedClosedProjectIdsRef.current.has(currentProjectId)) {
+    if (!currentProjectId) {
       return;
     }
 
-    if (openedProjectIds.length > 0 && !openedProjectIds.includes(currentProjectId)) {
+    if (
+      !shouldRegisterCurrentProjectInOpenedProjects({
+        currentProjectId,
+        loadedProjectPath: loadedProject.path,
+        openedProjectIds,
+        suppressedClosedProjectIds: suppressedClosedProjectIdsRef.current,
+      })
+    ) {
       return;
     }
 
@@ -203,7 +285,14 @@ export function useSyncCurrentStateIntoOpenedProjects() {
 
       return nextProject ? nextProjects : previousProjects;
     });
-  }, [currentGraph?.metadata?.id, currentProject, currentProjectWithData, loadedProject.path, setProjects]);
+  }, [
+    currentGraph?.metadata?.id,
+    currentProject,
+    currentProjectWithData,
+    loadedProject.path,
+    openedProjectIds,
+    setProjects,
+  ]);
 
   useEffect(() => {
     const currentProjectId = currentProject.metadata.id as ProjectId | undefined;
@@ -224,5 +313,11 @@ export function useSyncCurrentStateIntoOpenedProjects() {
         testSuites: currentTrivetState.testSuites,
       },
     });
-  }, [currentProject.metadata.id, currentTrivetState.testSuites, loadedProject.path, openedProjectIds, openedProjects]);
+  }, [
+    currentProject.metadata.id,
+    currentTrivetState.testSuites,
+    loadedProject.path,
+    openedProjectIds,
+    openedProjects,
+  ]);
 }

@@ -484,6 +484,10 @@ The browser does not scan recording bundles directly. The API serves recording l
 - in `filesystem` mode, from `recordings.sqlite` plus `RIVET_WORKFLOW_RECORDINGS_ROOT`
 - in `managed` mode, from Postgres `workflow_recordings` plus recording/replay blobs in object storage
 
+In `filesystem` mode, the API validates the SQLite index against completed recording bundles on disk before serving recording lists and artifacts. A completed bundle is a bundle directory with `metadata.json`; abandoned empty workflow-recording directories under `RIVET_WORKFLOW_RECORDINGS_ROOT` are ignored for drift detection so they do not force every recordings request to rebuild the index.
+
+If repair still cannot converge, for example because a `metadata.json` file exists but cannot be parsed into an index row, the API logs the static mismatch and suppresses repeated repair until the on-disk completed-bundle signature or indexed counts change.
+
 That backend data serves:
 
 - workflow summaries ordered by most recent run
