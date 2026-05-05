@@ -223,6 +223,7 @@ Public route exposure rules:
 - `${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH}` resolves only the actively published endpoint identity
 - `${RIVET_LATEST_WORKFLOWS_BASE_PATH}` resolves the current draft endpoint identity only while the workflow still has active published lineage
 - full unpublish closes both public route families even though the saved draft `endpointName` remains in project settings for later republish convenience
+- endpoint uniqueness follows those same active public identities; a fully unpublished saved draft endpoint does not block another workflow from publishing on that name
 
 Current request/response behavior:
 

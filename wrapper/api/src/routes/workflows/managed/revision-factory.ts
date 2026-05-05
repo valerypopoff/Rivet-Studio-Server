@@ -8,7 +8,7 @@ import {
 } from './blob-store.js';
 import { withManagedDbRetry, type ManagedWorkflowDbClient } from './db.js';
 import { RECORDING_COLUMNS } from './mappers.js';
-import { normalizeWorkflowEndpointLookupName } from '../publication.js';
+import { normalizeWorkflowEndpointLookupName } from '../endpoint-names.js';
 import type {
   ManagedRevisionContents,
   RecordingBlobArtifacts,

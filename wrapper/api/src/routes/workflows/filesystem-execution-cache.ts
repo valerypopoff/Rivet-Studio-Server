@@ -23,7 +23,7 @@ import {
   type PathSignature,
 } from './filesystem-execution-source.js';
 import { getWorkflowDatasetPath } from './fs-helpers.js';
-import { normalizeWorkflowEndpointLookupName } from './publication.js';
+import { normalizeWorkflowEndpointLookupName } from './endpoint-names.js';
 
 export type FilesystemExecutionProjectResult = {
   project: Project;

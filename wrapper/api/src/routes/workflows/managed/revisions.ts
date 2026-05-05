@@ -5,7 +5,7 @@ import { type Pool, type PoolClient } from 'pg';
 
 import { WORKFLOW_PROJECT_EXTENSION } from '../../../../../shared/workflow-types.js';
 import { conflict, createHttpError } from '../../../utils/httpError.js';
-import { normalizeStoredEndpointName } from '../publication.js';
+import { normalizeStoredEndpointName } from '../endpoint-names.js';
 import {
   getManagedWorkflowProjectVirtualPath,
   normalizeManagedWorkflowRelativePath,

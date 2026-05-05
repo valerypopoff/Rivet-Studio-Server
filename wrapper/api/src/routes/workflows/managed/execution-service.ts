@@ -3,7 +3,7 @@ import { NodeDatasetProvider, deserializeDatasets, loadProjectAndAttachedDataFro
 import type { Pool } from 'pg';
 
 import { createHttpError } from '../../../utils/httpError.js';
-import { normalizeWorkflowEndpointLookupName } from '../publication.js';
+import { normalizeWorkflowEndpointLookupName } from '../endpoint-names.js';
 import { getManagedWorkflowProjectVirtualPath, resolveManagedWorkflowRelativeReference } from '../virtual-paths.js';
 import {
   ManagedWorkflowExecutionInvalidationController,
