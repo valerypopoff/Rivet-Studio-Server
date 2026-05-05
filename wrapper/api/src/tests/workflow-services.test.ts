@@ -2139,6 +2139,24 @@ test('workflow recording failed filter includes suspicious runs', async () => {
     failedOnly.runs.map((run) => run.status),
     ['suspicious'],
   );
+  assert.match(
+    await workflowRecordings.readWorkflowRecordingArtifact(workflowsRoot, failedOnly.runs[0]!.id, 'recording'),
+    /suspicious-recording/,
+  );
+
+  const allRuns = await workflowRecordings.listWorkflowRecordingRunsPage(
+    workflowsRoot,
+    workflowId,
+    1,
+    20,
+    'all',
+  );
+  const succeededRun = allRuns.runs.find((run) => run.status === 'succeeded');
+  assert.ok(succeededRun);
+  assert.match(
+    await workflowRecordings.readWorkflowRecordingArtifact(workflowsRoot, succeededRun.id, 'recording'),
+    /successful-recording/,
+  );
   assert.equal(workflowsResponse.workflows[0]?.failedRuns, 0);
   assert.equal(workflowsResponse.workflows[0]?.suspiciousRuns, 1);
 });

@@ -518,6 +518,7 @@ Current browser behavior:
 - lists currently published workflows and workflows that still have recording history from earlier publication
 - sorts workflows by most recent run
 - pages runs from the API instead of materializing the whole history at once
+- sorts runs by newest first with a recording-ID tie-breaker, so same-millisecond runs keep a stable order across pages and filters
 - supports `All` and `Bad only`, where `Bad only` includes both `failed` and `suspicious`
 - lets the user delete individual stored runs
 - opens a run by `recordingId`, not by raw filesystem path
@@ -543,7 +544,10 @@ When a run is opened, the hosted editor:
 - fetches the serialized recorder payload
 - opens a virtual replay project path such as `recording://<recordingId>/replay.rivet-project`
 - loads the replay project and optional dataset through `HostedIOProvider`
-- switches playback to browser replay mode
+- switches the live selected executor to browser replay mode
+- serializes recording/project open commands in the editor iframe so overlapping async loads cannot mix a replay project from one run with a recorder payload from another
+- restores the recorder that belongs to the active virtual replay path when the user switches between open recording tabs
+- refetches and restores the serialized recorder from the virtual replay path after an iframe/page reload, so a replay tab does not fall back to running the graph with default inputs
 - treats the replay snapshot as read-only
 
 ## Project rename, move, and delete behavior

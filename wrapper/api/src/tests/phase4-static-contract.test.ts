@@ -313,6 +313,8 @@ test('hosted editor project commands go through Rivet 2 workspace host seams', (
   const openWorkflowProject = readRepoFile('wrapper/web/dashboard/useOpenWorkflowProject.ts');
   const loadProjectOverride = readRepoFile('wrapper/web/overrides/hooks/useLoadProject.ts');
   const syncOpenedProjectsOverride = readRepoFile('wrapper/web/overrides/hooks/useSyncCurrentStateIntoOpenedProjects.ts');
+  const upstreamGraphExecutor = readRepoFile('rivet/packages/app/src/hooks/useGraphExecutor.ts');
+  const upstreamRemoteExecutor = readRepoFile('rivet/packages/app/src/hooks/useRemoteExecutor.ts');
 
   assert.match(entry, /rivet\/packages\/app\/src\/host\.css/);
   assert.doesNotMatch(entry, /rivet\/packages\/app\/src\/index\.css/);
@@ -328,9 +330,20 @@ test('hosted editor project commands go through Rivet 2 workspace host seams', (
   assert.match(editorMessageBridge, /useRivetWorkspaceHost/);
   assert.match(editorMessageBridge, /workspaceRef\.current\.closeProject\(deletedProjectId\)/);
   assert.match(editorMessageBridge, /workspaceRef\.current\.moveProjectPaths/);
+  assert.match(editorMessageBridge, /openCommandQueueRef/);
+  assert.match(editorMessageBridge, /recordingByProjectPathRef/);
+  assert.match(editorMessageBridge, /getWorkflowRecordingIdFromVirtualProjectPath\(projectPath\)/);
+  assert.match(editorMessageBridge, /fetchLoadedWorkflowRecording\(recordingId\)/);
+  assert.match(editorMessageBridge, /selectedExecutorState/);
+  assert.match(editorMessageBridge, /setSelectedExecutor\('browser'\)/);
+  assert.doesNotMatch(editorMessageBridge, /defaultExecutorState/);
   assert.doesNotMatch(editorMessageBridge, /useLoadProject/);
   assert.doesNotMatch(editorMessageBridge, /setProjects/);
   assert.doesNotMatch(editorMessageBridge, /setOpenedProjects/);
+  assert.match(upstreamGraphExecutor, /selectedExecutorState/);
+  assert.match(upstreamGraphExecutor, /shouldUseRemoteExecutor/);
+  assert.doesNotMatch(upstreamRemoteExecutor, /loadedRecordingState/);
+  assert.doesNotMatch(upstreamRemoteExecutor, /replayRecording/);
 
   assert.match(openWorkflowProject, /openedProjectSnapshotsState/);
   assert.match(openWorkflowProject, /useStore/);

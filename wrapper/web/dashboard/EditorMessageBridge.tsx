@@ -1,4 +1,4 @@
-import { type FC, useEffect, useRef } from 'react';
+import { type FC, useCallback, useEffect, useRef } from 'react';
 import { useOpenWorkflowProject } from './useOpenWorkflowProject';
 import { ExecutionRecorder, getError } from '@valerypopoff/rivet2-core';
 import { useAtomValue, useSetAtom } from 'jotai';
@@ -8,15 +8,19 @@ import {
   projectsState,
 } from '../../../rivet/packages/app/src/state/savedGraphs';
 import { loadedRecordingState } from '../../../rivet/packages/app/src/state/execution';
-import { defaultExecutorState } from '../../../rivet/packages/app/src/state/settings';
+import { selectedExecutorState } from '../../../rivet/packages/app/src/state/settings';
 import { useRivetWorkspaceHost } from '../../../rivet/packages/app/src/host';
 import type { WorkflowProjectPathMove } from './types';
 import {
+  type DashboardToEditorCommand,
   isDashboardToEditorCommand,
   isValidBridgeOrigin,
   postMessageToDashboard,
 } from '../../shared/editor-bridge';
-import { getWorkflowRecordingVirtualProjectPath } from '../../shared/workflow-recording-types';
+import {
+  getWorkflowRecordingIdFromVirtualProjectPath,
+  getWorkflowRecordingVirtualProjectPath,
+} from '../../shared/workflow-recording-types';
 import { fetchWorkflowRecordingArtifactText } from './workflowApi';
 import { clearOpenedProjectSession, remapOpenedProjectSessionPaths } from '../io/openedProjectSessionCache';
 import { clearHostedProjectRevisionPath, remapHostedProjectRevisionPaths } from '../io/HostedIOProvider';
@@ -41,6 +45,20 @@ function getRecordingStartGraphId(recorder: ExecutionRecorder): string | undefin
   return undefined;
 }
 
+type LoadedWorkflowRecording = {
+  path: string;
+  recorder: ExecutionRecorder;
+};
+
+async function fetchLoadedWorkflowRecording(recordingId: string): Promise<LoadedWorkflowRecording> {
+  const serializedRecording = await fetchWorkflowRecordingArtifactText(recordingId, 'recording');
+
+  return {
+    path: `${recordingId}.rivet-recording`,
+    recorder: ExecutionRecorder.deserializeFromString(serializedRecording),
+  };
+}
+
 export const EditorMessageBridge: FC = () => {
   const workspace = useRivetWorkspaceHost();
   const openProject = useOpenWorkflowProject();
@@ -49,12 +67,14 @@ export const EditorMessageBridge: FC = () => {
   const loadedProject = useAtomValue(loadedProjectState);
   const setLoadedProject = useSetAtom(loadedProjectState);
   const setLoadedRecording = useSetAtom(loadedRecordingState);
-  const setDefaultExecutor = useSetAtom(defaultExecutorState);
+  const setSelectedExecutor = useSetAtom(selectedExecutorState);
   const projectsRef = useRef<OpenedProjectsInfo>(projects);
   const loadedProjectRef = useRef(loadedProject);
   const workspaceRef = useRef(workspace);
   const openProjectRef = useRef(openProject);
   const saveProjectRef = useRef(saveProject);
+  const openCommandQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const recordingByProjectPathRef = useRef(new Map<string, LoadedWorkflowRecording>());
   projectsRef.current = projects;
   loadedProjectRef.current = loadedProject;
   workspaceRef.current = workspace;
@@ -64,6 +84,59 @@ export const EditorMessageBridge: FC = () => {
   const saveCurrentProject = async () => {
     await saveProjectRef.current();
   };
+
+  const activateWorkflowRecording = useCallback((loadedRecording: LoadedWorkflowRecording) => {
+    // Current Rivet routes run-button clicks through selectedExecutorState.
+    // The default executor is only a startup preference, so replay must switch
+    // the live executor to browser before the user clicks Play Recording.
+    setSelectedExecutor('browser');
+    setLoadedRecording(loadedRecording);
+  }, [setLoadedRecording, setSelectedExecutor]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const projectPath = loadedProject.path;
+
+    if (!projectPath) {
+      setLoadedRecording(null);
+      return;
+    }
+
+    const cachedRecording = recordingByProjectPathRef.current.get(projectPath);
+    if (cachedRecording) {
+      activateWorkflowRecording(cachedRecording);
+      return;
+    }
+
+    const recordingId = getWorkflowRecordingIdFromVirtualProjectPath(projectPath);
+    if (!recordingId) {
+      setLoadedRecording(null);
+      return;
+    }
+
+    setLoadedRecording(null);
+    void fetchLoadedWorkflowRecording(recordingId)
+      .then((loadedRecording) => {
+        if (cancelled) {
+          return;
+        }
+
+        recordingByProjectPathRef.current.set(projectPath, loadedRecording);
+        activateWorkflowRecording(loadedRecording);
+      })
+      .catch((error) => {
+        if (cancelled) {
+          return;
+        }
+
+        console.error('Failed to restore workflow recording:', error);
+        setLoadedRecording(null);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activateWorkflowRecording, loadedProject.path, setLoadedRecording]);
 
   useEffect(() => {
     postMessageToDashboard({ type: 'editor-ready' });
@@ -109,6 +182,78 @@ export const EditorMessageBridge: FC = () => {
   }, []);
 
   useEffect(() => {
+    type OpenCommand = Extract<DashboardToEditorCommand, { type: 'open-project' | 'open-recording' }>;
+
+    const runOpenCommand = async (command: OpenCommand): Promise<void> => {
+      switch (command.type) {
+        case 'open-project':
+          try {
+            const replacedPath = command.replaceCurrent ? loadedProjectRef.current.path : '';
+            const opened = await openProjectRef.current(command.path, { replaceCurrent: Boolean(command.replaceCurrent) });
+            if (!opened) {
+              break;
+            }
+
+            if (replacedPath && replacedPath !== command.path) {
+              recordingByProjectPathRef.current.delete(replacedPath);
+            }
+            setLoadedRecording(null);
+            focusHostedEditorFrame();
+            postMessageToDashboard({ type: 'project-opened', path: command.path });
+          } catch (error) {
+            const message = getError(error).message;
+            console.error('Failed to open workflow project:', error);
+            postMessageToDashboard({ type: 'project-open-failed', path: command.path, error: message });
+          }
+
+          break;
+
+        case 'open-recording':
+          try {
+            const loadedRecording = await fetchLoadedWorkflowRecording(command.recordingId);
+            const preferredGraphId = getRecordingStartGraphId(loadedRecording.recorder);
+            const virtualProjectPath = getWorkflowRecordingVirtualProjectPath(command.recordingId);
+            const replacedPath = command.replaceCurrent ? loadedProjectRef.current.path : '';
+
+            recordingByProjectPathRef.current.set(virtualProjectPath, loadedRecording);
+            const opened = await openProjectRef.current(virtualProjectPath, {
+              replaceCurrent: Boolean(command.replaceCurrent),
+              preferredGraphId,
+            });
+            if (!opened) {
+              recordingByProjectPathRef.current.delete(virtualProjectPath);
+              if (loadedProjectRef.current.path === virtualProjectPath) {
+                setLoadedRecording(null);
+              }
+              break;
+            }
+
+            if (replacedPath && replacedPath !== virtualProjectPath) {
+              recordingByProjectPathRef.current.delete(replacedPath);
+            }
+            activateWorkflowRecording(loadedRecording);
+
+            focusHostedEditorFrame();
+            postMessageToDashboard({ type: 'project-opened', path: virtualProjectPath });
+          } catch (error) {
+            const message = getError(error).message;
+            console.error('Failed to open workflow recording:', error);
+            postMessageToDashboard({ type: 'project-open-failed', path: command.recordingId, error: message });
+          }
+
+          break;
+      }
+    };
+
+    const enqueueOpenCommand = (command: OpenCommand): void => {
+      const queued = openCommandQueueRef.current
+        .catch(() => undefined)
+        .then(() => runOpenCommand(command));
+      openCommandQueueRef.current = queued.catch((error) => {
+        console.error('Failed to process hosted editor open command:', error);
+      });
+    };
+
     const handler = async (event: MessageEvent) => {
       if (!isValidBridgeOrigin(event, window.parent)) {
         return;
@@ -165,58 +310,10 @@ export const EditorMessageBridge: FC = () => {
           break;
         }
 
-        case 'open-project': {
-          try {
-            const opened = await openProjectRef.current(event.data.path, { replaceCurrent: Boolean(event.data.replaceCurrent) });
-            if (!opened) {
-              break;
-            }
-
-            setLoadedRecording(null);
-            focusHostedEditorFrame();
-            postMessageToDashboard({ type: 'project-opened', path: event.data.path });
-          } catch (error) {
-            const message = getError(error).message;
-            console.error('Failed to open workflow project:', error);
-            postMessageToDashboard({ type: 'project-open-failed', path: event.data.path, error: message });
-          }
-
+        case 'open-project':
+        case 'open-recording':
+          enqueueOpenCommand(event.data);
           break;
-        }
-
-        case 'open-recording': {
-          try {
-            const serializedRecording = await fetchWorkflowRecordingArtifactText(event.data.recordingId, 'recording');
-            const recorder = ExecutionRecorder.deserializeFromString(serializedRecording);
-            const preferredGraphId = getRecordingStartGraphId(recorder);
-            const virtualProjectPath = getWorkflowRecordingVirtualProjectPath(event.data.recordingId);
-
-            const opened = await openProjectRef.current(virtualProjectPath, {
-              replaceCurrent: Boolean(event.data.replaceCurrent),
-              preferredGraphId,
-            });
-            if (!opened) {
-              break;
-            }
-
-            setDefaultExecutor('browser');
-            setLoadedRecording(null);
-
-            setLoadedRecording({
-              path: `${event.data.recordingId}.rivet-recording`,
-              recorder,
-            });
-
-            focusHostedEditorFrame();
-            postMessageToDashboard({ type: 'project-opened', path: virtualProjectPath });
-          } catch (error) {
-            const message = getError(error).message;
-            console.error('Failed to open workflow recording:', error);
-            postMessageToDashboard({ type: 'project-open-failed', path: event.data.recordingId, error: message });
-          }
-
-          break;
-        }
       }
     };
 
@@ -224,8 +321,8 @@ export const EditorMessageBridge: FC = () => {
     return () => window.removeEventListener('message', handler);
   }, [
     setLoadedProject,
+    activateWorkflowRecording,
     setLoadedRecording,
-    setDefaultExecutor,
   ]);
 
   return null;

@@ -303,7 +303,7 @@ export async function listWorkflowRecordingRunRowsByWorkflowId(
       ${RECORDING_RUN_COLUMNS}
     FROM recording_runs
     ${whereClause}
-    ORDER BY created_at DESC
+    ORDER BY created_at DESC, id DESC
     LIMIT ? OFFSET ?
   `).all<Record<string, unknown>>(workflowId, options.pageSize, (options.page - 1) * options.pageSize);
 
@@ -341,7 +341,7 @@ export async function listWorkflowRecordingRunRowsForWorkflow(workflowId: string
       ${RECORDING_RUN_COLUMNS}
     FROM recording_runs
     WHERE workflow_id = ?
-    ORDER BY created_at DESC
+    ORDER BY created_at DESC, id DESC
   `).all<Record<string, unknown>>(workflowId);
 
   return rows.map(normalizeWorkflowRecordingRunRow);
@@ -354,7 +354,7 @@ export async function listWorkflowRecordingRunsOlderThan(createdBefore: string):
       ${RECORDING_RUN_COLUMNS}
     FROM recording_runs
     WHERE created_at < ?
-    ORDER BY created_at ASC
+    ORDER BY created_at ASC, id ASC
   `).all<Record<string, unknown>>(createdBefore);
 
   return rows.map(normalizeWorkflowRecordingRunRow);
@@ -366,7 +366,7 @@ export async function listWorkflowRecordingRunsOldestFirst(): Promise<WorkflowRe
     SELECT
       ${RECORDING_RUN_COLUMNS}
     FROM recording_runs
-    ORDER BY created_at ASC
+    ORDER BY created_at ASC, id ASC
   `).all<Record<string, unknown>>();
 
   return rows.map(normalizeWorkflowRecordingRunRow);
