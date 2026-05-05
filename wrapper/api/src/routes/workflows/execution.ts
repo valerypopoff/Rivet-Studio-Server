@@ -29,7 +29,16 @@ export const publishedWorkflowsRouter = Router();
 export const internalPublishedWorkflowsRouter = Router();
 export const latestWorkflowsRouter = Router();
 
-type WorkflowRequestHeadersContext = Record<string, string | string[]>;
+type WorkflowRequestHeadersContext = Record<string, string>;
+type WorkflowExecutionContext = {
+  headers: {
+    type: 'any';
+    value: WorkflowRequestHeadersContext;
+  };
+};
+
+const WORKFLOW_CONTEXT_HEADER_NAME_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+const UNSAFE_WORKFLOW_CONTEXT_HEADER_NAMES = new Set(['__proto__', 'constructor', 'prototype']);
 
 function isJsonObjectRecord(value: unknown): value is Record<string, unknown> {
   return value != null && typeof value === 'object' && !Array.isArray(value);
@@ -39,18 +48,54 @@ function getWorkflowRequestInput(req: Request): unknown {
   return req.body === undefined ? {} : req.body;
 }
 
-function getWorkflowRequestHeaders(req: Request): WorkflowRequestHeadersContext {
-  const headers: WorkflowRequestHeadersContext = {};
+function normalizeWorkflowContextHeaderName(name: string): string | null {
+  const normalizedName = name.trim().toLowerCase();
+  if (!normalizedName || UNSAFE_WORKFLOW_CONTEXT_HEADER_NAMES.has(normalizedName)) {
+    return null;
+  }
 
-  for (const [name, value] of Object.entries(req.headers)) {
-    if (value === undefined) {
+  return WORKFLOW_CONTEXT_HEADER_NAME_PATTERN.test(normalizedName) ? normalizedName : null;
+}
+
+function normalizeWorkflowContextHeaderValue(value: unknown): string | null {
+  if (typeof value === 'string') {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.length > 0 && value.every((item) => typeof item === 'string') ? value.join(', ') : null;
+  }
+
+  return null;
+}
+
+export function normalizeWorkflowRequestHeadersForContext(
+  rawHeaders: Record<string, unknown> | null | undefined,
+): WorkflowRequestHeadersContext {
+  const headers: WorkflowRequestHeadersContext = {};
+  if (!isJsonObjectRecord(rawHeaders)) {
+    return headers;
+  }
+
+  for (const [rawName, rawValue] of Object.entries(rawHeaders)) {
+    const name = normalizeWorkflowContextHeaderName(rawName);
+    if (!name) {
       continue;
     }
 
-    headers[name] = Array.isArray(value) ? [...value] : value;
+    const value = normalizeWorkflowContextHeaderValue(rawValue);
+    if (value == null) {
+      continue;
+    }
+
+    headers[name] = value;
   }
 
   return headers;
+}
+
+function getWorkflowRequestHeaders(req: Request): WorkflowRequestHeadersContext {
+  return normalizeWorkflowRequestHeadersForContext(req.headers);
 }
 
 function getWorkflowResponsePayload(outputs: Record<string, { type?: string; value?: unknown }>): unknown {
@@ -158,7 +203,7 @@ function shouldEmitWorkflowExecutionDebugHeaders(): boolean {
 
 function getWorkflowExecutionContext(
   req: Request
-): Record<string, { type: 'any'; value: WorkflowRequestHeadersContext }> | undefined {
+): WorkflowExecutionContext {
   return {
     headers: {
       type: 'any',

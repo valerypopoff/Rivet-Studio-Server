@@ -208,6 +208,33 @@ async function writeHeadersContextEchoProject(projectPath: string, projectName: 
   await fs.writeFile(projectPath, serializedProject, 'utf8');
 }
 
+test('workflow request headers context is normalized to a safe string object', () => {
+  const rawHeaders: Record<string, unknown> = Object.create(null);
+  rawHeaders[' Content-Type '] = 'application/json';
+  rawHeaders['X-Storyteller-Header'] = 'published-request-header';
+  rawHeaders['x-forwarded-for'] = ['10.0.0.1', '10.0.0.2'];
+  rawHeaders['x-broken-array'] = ['dropped', 123, undefined, 'also-dropped'];
+  rawHeaders['x-empty-array'] = [];
+  rawHeaders['x-undefined'] = undefined;
+  rawHeaders['bad header'] = 'bad-name';
+  rawHeaders['__proto__'] = 'polluted';
+  rawHeaders['constructor'] = 'polluted';
+  rawHeaders['prototype'] = 'polluted';
+
+  const headers = workflowExecution.normalizeWorkflowRequestHeadersForContext(rawHeaders);
+
+  assert.deepEqual(headers, {
+    'content-type': 'application/json',
+    'x-storyteller-header': 'published-request-header',
+    'x-forwarded-for': '10.0.0.1, 10.0.0.2',
+  });
+  assert.equal(Object.getPrototypeOf(headers), Object.prototype);
+  assert.equal(Object.prototype.hasOwnProperty.call(headers, '__proto__'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(headers, 'constructor'), false);
+  assert.equal(Object.prototype.hasOwnProperty.call(headers, 'prototype'), false);
+  assert.ok(Object.values(headers).every((value) => typeof value === 'string'));
+});
+
 test('workflow project rename and move preserve wrapper sidecars', async () => {
   await workflowMutations.createWorkflowFolderItem('Folder', '');
   const created = await workflowMutations.createWorkflowProjectItem('', 'Example');
@@ -1848,7 +1875,7 @@ test('published workflow responds with any outputs and records the run asynchron
   });
 });
 
-test('published workflow injects request headers into context while latest execution does not', async () => {
+test('published and latest workflows inject request headers into context', async () => {
   const created = await workflowMutations.createWorkflowProjectItem('', 'HeadersContext');
   await writeHeadersContextEchoProject(created.absolutePath, 'HeadersContext');
 
@@ -1884,7 +1911,11 @@ test('published workflow injects request headers into context while latest execu
     });
 
     assert.equal(latestResponse.ok, true);
-    assert.equal(await latestResponse.json(), null);
+
+    const latestBody = await latestResponse.json() as Record<string, unknown>;
+    assert.equal(latestBody['x-storyteller-header'], 'published-request-header');
+    assert.equal(latestBody['content-type'], 'application/json');
+    assert.equal(typeof latestBody.durationMs, 'number');
   });
 });
 
