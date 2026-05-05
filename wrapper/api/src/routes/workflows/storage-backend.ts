@@ -22,6 +22,7 @@ import {
   ensureWorkflowsRoot,
   getWorkflowDatasetPath,
   pathExists,
+  PROJECT_EXTENSION,
   requireProjectPath,
   resolveWorkflowRelativePath,
 } from './fs-helpers.js';
@@ -51,6 +52,7 @@ import { createPublishedWorkflowProjectReferenceLoader } from './publication.js'
 import { NodeDatasetProvider } from '@valerypopoff/rivet2-node';
 import type { AttachedData, Project, CombinedDataset } from '@valerypopoff/rivet2-node';
 import { getFilesystemExecutionCache } from './filesystem-execution-cache.js';
+import { normalizeHostedProjectTitle } from './hosted-project-contents.js';
 
 function mapHostedProjectFilesystemError(
   error: unknown,
@@ -246,8 +248,15 @@ export async function saveHostedProject(options: {
     async (backend) => backend.saveHostedProject(options),
     async () => {
       try {
+        const projectName = path.basename(options.projectPath, PROJECT_EXTENSION);
+        const normalized = normalizeHostedProjectTitle(
+          options.contents,
+          projectName,
+          'Could not save project',
+        );
+
         await fs.mkdir(path.dirname(options.projectPath), { recursive: true });
-        await fs.writeFile(options.projectPath, options.contents, 'utf8');
+        await fs.writeFile(options.projectPath, normalized.contents, 'utf8');
 
         const datasetPath = getWorkflowDatasetPath(options.projectPath);
         if (options.datasetsContents != null) {

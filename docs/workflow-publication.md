@@ -105,6 +105,7 @@ That means:
 Current backend-specific behavior:
 
 - in `filesystem` mode, status is derived from the fresh publication state hash after the save completes
+- in both storage modes, the workflow tree/file name is the hosted project title source of truth; saving rewrites `data.metadata.title` back to the current tree name if the editor changed it
 - in `managed` mode, a no-op save does not create a new draft revision
 - in `managed` mode, if the saved contents match the published revision exactly, the save path reuses that published revision instead of creating a distinct draft revision that would incorrectly appear as `unpublished_changes`
 
@@ -603,6 +604,7 @@ The workflow-publication UI now follows the same controller-versus-view split as
 - `wrapper/api/src/routes/workflows/endpoint-names.ts` - shared endpoint-name validation and case-insensitive lookup normalization
 - `wrapper/api/src/routes/workflows/publication.ts` - filesystem publication logic, status derivation, and endpoint lookup
 - `wrapper/api/src/routes/workflows/execution.ts` - public/latest/internal execution handlers and recording enqueue path
+- `wrapper/api/src/routes/workflows/hosted-project-contents.ts` - hosted project content normalization shared by filesystem and managed saves
 - `wrapper/api/src/routes/workflows/storage-backend.ts` - explicit filesystem-versus-managed dispatch for hosted workflow operations
 - `wrapper/api/src/routes/workflows/managed/backend.ts` - managed workflow facade/composition root
 - `wrapper/api/src/routes/workflows/managed/context.ts` - managed initialization/disposal ordering and shared dependency container

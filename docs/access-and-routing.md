@@ -94,7 +94,7 @@ The wrapper API currently exposes these groups behind `/api`:
   - `GET /api/projects/list`
   - `POST /api/projects/open-dialog`
   - `POST /api/projects/load`
-  - `POST /api/projects/save`
+  - `POST /api/projects/save` - validates the hosted project payload and normalizes the saved `.rivet-project` title to the current workflow tree/file name before persisting
   - `GET /api/projects/workspace-root`
 - `/api/plugins/*`
   - `POST /api/plugins/install-package`

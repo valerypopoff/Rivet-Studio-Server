@@ -1,10 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { loadProjectAndAttachedDataFromString, serializeProject } from '@valerypopoff/rivet2-node';
+import { serializeProject } from '@valerypopoff/rivet2-node';
 import { type Pool, type PoolClient } from 'pg';
 
 import { WORKFLOW_PROJECT_EXTENSION } from '../../../../../shared/workflow-types.js';
 import { conflict, createHttpError } from '../../../utils/httpError.js';
+import { normalizeHostedProjectTitle } from '../hosted-project-contents.js';
 import { normalizeStoredEndpointName } from '../endpoint-names.js';
 import {
   getManagedWorkflowProjectVirtualPath,
@@ -72,13 +73,18 @@ export function createManagedWorkflowRevisionService(options: ManagedWorkflowRev
       const relativePath = parseManagedWorkflowProjectVirtualPath(options.projectPath);
       const projectName = path.posix.basename(relativePath, WORKFLOW_PROJECT_EXTENSION);
       const folderRelativePath = path.posix.dirname(relativePath) === '.' ? '' : path.posix.dirname(relativePath);
-      const [sourceProject, attachedData] = loadProjectAndAttachedDataFromString(options.contents);
+      const normalizedContents = normalizeHostedProjectTitle(
+        options.contents,
+        projectName,
+        'Could not save project',
+      );
+      const { project: sourceProject, attachedData } = normalizedContents;
 
       return deps.withTransaction(async (client, hooks) => {
         await deps.ensureFolderChain(client, folderRelativePath);
 
         let workflow = await deps.getWorkflowByRelativePath(client, relativePath, { forUpdate: true });
-        let contents = options.contents;
+        let contents = normalizedContents.contents;
         let created = false;
         let workflowId = sourceProject.metadata.id ?? (randomUUID() as typeof sourceProject.metadata.id);
 
