@@ -52,7 +52,7 @@ All message types live in `wrapper/shared/editor-bridge.ts`. Both sides import f
 16. Project uploading also does not use the editor bridge. The dashboard opens a browser file picker, posts the selected file to `POST /api/workflows/projects/upload`, refreshes the workflow tree, and leaves selection and open tabs unchanged.
 17. Project downloading also does not use the editor bridge. The dashboard calls `POST /api/workflows/projects/download` directly and only downloads saved server-side project files.
 18. Empty-folder deletion is API-only and does not need special bridge cleanup because no workflow project paths move; the dashboard just refreshes the tree after the delete succeeds.
-19. On `project-saved`, the dashboard refreshes the workflow tree from the API and trusts the server-derived publication status. It does not locally force a `published -> unpublished_changes` status flip first, and the server now keeps published projects in `published` when the save was a true no-op.
+19. On `project-saved`, the hosted editor first reconciles the active project metadata and tab label back to the saved file-tree name without reloading the project, then the dashboard refreshes the workflow tree from the API and trusts the server-derived publication status. It does not locally force a `published -> unpublished_changes` status flip first, and the server now keeps published projects in `published` when the save was a true no-op.
 20. On `project-opened`, both sides of the hosted bridge explicitly move focus to the editor iframe so keyboard shortcuts target the editor instead of the workflow-library row that triggered the open.
 21. If the iframe reloads, `onLoad` resets `editorReady` to `false`, re-enabling the command buffer until `editor-ready` is sent again.
 
@@ -64,6 +64,7 @@ Save can be initiated from either context:
 - outside the iframe, the dashboard captures the save shortcut and sends `save-project`
 - save completion is reported through `RivetAppHost.onProjectSaved`, which the wrapper forwards to the dashboard as `project-saved`; the wrapper does not override upstream save/menu hooks just to observe saves
 - the API validates the saved project payload before persistence and treats the workflow tree/file name as the hosted project title source of truth; if the editor changed `data.metadata.title`, the saved `.rivet-project` is rewritten back to the current tree name
+- after a successful save, the hosted wrapper patches only project-title metadata in the active project, opened-project tab registry, and any cached opened-project snapshot so the visible tab updates to the file-tree name immediately without reopening the project or changing the active graph
 - the hosted wrapper also overrides the upstream Windows hotkey fallback so `Ctrl+S` does not trigger a second save via the legacy keyup path
 
 That lets the hosted shell behave like a single app even though the editor lives in an iframe.
@@ -102,6 +103,7 @@ Those execution websocket responsibilities are separate from the dashboard/edito
 - `wrapper/web/dashboard/editorBridgeFocus.ts` - iframe/canvas focus helpers and save-shortcut detection
 - `wrapper/web/dashboard/EditorMessageBridge.tsx` - editor-side message handling
 - `wrapper/web/dashboard/HostedEditorApp.tsx` - `RivetAppHost` callback forwarding for active project, open project count, and saved project events
+- `wrapper/web/dashboard/useReconcileHostedProjectTitleAfterSave.ts` - save-completion title reconciliation for active project metadata, tab labels, and opened-project snapshots
 - `wrapper/web/dashboard/hostedRivetProviders.ts` - explicit provider overrides passed into `RivetAppHost`
 - `wrapper/web/dashboard/useOpenWorkflowProject.ts` - hosted path loading, duplicate-id checks, and open/replace-current calls into `RivetWorkspaceHost`
 - `wrapper/web/io/HostedIOProvider.ts` - API-backed project loading/saving plus replay-project loading

@@ -31,6 +31,10 @@ function getFileName(path: string | null | undefined): string | null {
   return withoutExtension || fileName;
 }
 
+export function resolveHostedProjectTitleFromPath(fsPath?: string | null): string | null {
+  return getFileName(fsPath);
+}
+
 export function resolveHostedProjectTitle(
   project: Pick<Project, 'metadata'> | null | undefined,
   fsPath?: string | null,

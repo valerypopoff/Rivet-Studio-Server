@@ -2,20 +2,26 @@ import { type FC, useCallback } from 'react';
 import {
   RivetAppHost,
   type RivetAppHostOpenErrorEvent,
+  type RivetAppHostProjectSavedEvent,
 } from '../../../rivet/packages/app/src/host';
 import { EditorMessageBridge } from './EditorMessageBridge';
 import { RIVET_EXECUTOR_WS_URL } from '../../shared/hosted-env';
 import { postMessageToDashboard } from '../../shared/editor-bridge';
 import { hostedRivetProviders } from './hostedRivetProviders';
+import { useReconcileHostedProjectTitleAfterSave } from './useReconcileHostedProjectTitleAfterSave';
 
 export const HostedEditorApp: FC = () => {
-  const handleProjectSaved = useCallback((event: { path: string | null }) => {
+  const reconcileHostedProjectTitleAfterSave = useReconcileHostedProjectTitleAfterSave();
+
+  const handleProjectSaved = useCallback((event: RivetAppHostProjectSavedEvent) => {
+    reconcileHostedProjectTitleAfterSave(event);
+
     if (!event.path) {
       return;
     }
 
     postMessageToDashboard({ type: 'project-saved', path: event.path });
-  }, []);
+  }, [reconcileHostedProjectTitleAfterSave]);
 
   const handleActiveProjectChanged = useCallback((event: { path: string | null }) => {
     postMessageToDashboard({
