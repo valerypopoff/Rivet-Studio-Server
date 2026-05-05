@@ -298,9 +298,11 @@ Current request/response behavior for all execution routes:
 
 - the incoming JSON request body becomes the workflow `input`
 - an empty body is treated as `{}`
-- published execution routes (`${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH:-/workflows}` and `/internal/workflows`) also expose the incoming request headers as `context.headers`
+- published, internal published, and latest execution routes expose the incoming request headers as `context.headers`
   - header names follow Node/Express lowercase normalization
-  - latest-route executions do not receive request headers in graph context
+  - `context.headers` is always a plain JSON object with string values
+  - duplicate or multi-value headers are joined with `, `
+  - invalid header names, unsafe prototype keys, undefined values, and non-string internal values are omitted
 - if the final `output` port is typed as `any`, the response body is that raw output value
 - otherwise the response body is the full outputs object
 - every response sets `x-duration-ms`
@@ -516,6 +518,7 @@ Current browser behavior:
 - lists currently published workflows and workflows that still have recording history from earlier publication
 - sorts workflows by most recent run
 - pages runs from the API instead of materializing the whole history at once
+- sorts runs by newest first with a recording-ID tie-breaker, so same-millisecond runs keep a stable order across pages and filters
 - supports `All` and `Bad only`, where `Bad only` includes both `failed` and `suspicious`
 - lets the user delete individual stored runs
 - opens a run by `recordingId`, not by raw filesystem path
@@ -541,7 +544,10 @@ When a run is opened, the hosted editor:
 - fetches the serialized recorder payload
 - opens a virtual replay project path such as `recording://<recordingId>/replay.rivet-project`
 - loads the replay project and optional dataset through `HostedIOProvider`
-- switches playback to browser replay mode
+- switches the live selected executor to browser replay mode
+- serializes recording/project open commands in the editor iframe so overlapping async loads cannot mix a replay project from one run with a recorder payload from another
+- restores the recorder that belongs to the active virtual replay path when the user switches between open recording tabs
+- refetches and restores the serialized recorder from the virtual replay path after an iframe/page reload, so a replay tab does not fall back to running the graph with default inputs
 - treats the replay snapshot as read-only
 
 ## Project rename, move, and delete behavior

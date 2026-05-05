@@ -236,5 +236,6 @@ test.describe('Run recordings modal', () => {
 
     await modal.locator('.run-recordings-run').first().locator('.run-recordings-run-open-button').click();
     await expect.poll(() => recordingFetches.length).toBe(1);
+    expect(recordingFetches[0]).toBe('recording-b-2');
   });
 });

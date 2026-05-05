@@ -181,7 +181,7 @@ export function createManagedWorkflowRecordingService(options: ManagedWorkflowRe
           SELECT ${deps.recordingColumns}
           FROM workflow_recordings
           WHERE workflow_id = $1 ${filterClause}
-          ORDER BY created_at DESC
+          ORDER BY created_at DESC, recording_id DESC
           LIMIT $2 OFFSET $3
         `,
         [workflowId, normalizedPageSize, offset],
