@@ -158,10 +158,6 @@ test('API images link workflow execution to the embedded Rivet source tree', () 
   assert.match(apiDockerfile, /COPY --from=builder --chown=10001:10001 \/app\/rivet\/node_modules \/app\/rivet\/node_modules/);
   assert.match(apiDockerfile, /COPY --from=builder --chown=10001:10001 \/app\/rivet\/packages\/core \/app\/rivet\/packages\/core/);
   assert.match(apiDockerfile, /COPY --from=builder --chown=10001:10001 \/app\/rivet\/packages\/node \/app\/rivet\/packages\/node/);
-  assert.match(apiDockerfile, /FROM --platform=\$BUILDPLATFORM \$\{NODE_IMAGE\} AS builder/);
-  assert.match(apiDockerfile, /FROM --platform=\$TARGETPLATFORM \$\{NODE_IMAGE\}/);
-  assert.match(apiDockerfile, /yarn workspaces focus @valerypopoff\/rivet2-core @valerypopoff\/rivet2-node --production/);
-  assert.match(apiDockerfile, /RUN npm prune --omit=dev && node \/app\/scripts\/link-rivet-node-package\.mjs/);
   assert.match(linkScript, /parsePackageName\(packageJson\.name\)/);
   assert.match(linkScript, /scope: '@rivet2', name: 'rivet-core'/);
   assert.match(linkScript, /scope: '@rivet2', name: 'rivet-node'/);

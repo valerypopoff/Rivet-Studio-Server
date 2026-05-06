@@ -1,7 +1,5 @@
 # syntax=docker/dockerfile:1.7
-ARG NODE_IMAGE=node:24-alpine
-
-FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS builder
+FROM node:24-alpine AS builder
 
 ARG HTTP_PROXY
 ARG HTTPS_PROXY
@@ -29,14 +27,13 @@ RUN corepack enable && \
 WORKDIR /app
 
 COPY wrapper/bootstrap/proxy-bootstrap/ /opt/proxy-bootstrap/
-RUN --mount=type=cache,target=/root/.npm npm --prefix /opt/proxy-bootstrap ci --omit=dev
+RUN --mount=type=cache,target=/root/.npm npm --prefix /opt/proxy-bootstrap ci
 
 COPY --from=rivet_source . rivet/
 WORKDIR /app/rivet
 RUN --mount=type=cache,target=/root/.cache/yarn YARN_NODE_LINKER=node-modules YARN_CHECKSUM_BEHAVIOR=ignore yarn install --immutable || YARN_NODE_LINKER=node-modules YARN_CHECKSUM_BEHAVIOR=ignore yarn install
 RUN YARN_NODE_LINKER=node-modules yarn workspace @valerypopoff/rivet2-core run build
 RUN YARN_NODE_LINKER=node-modules yarn workspace @valerypopoff/rivet2-node run build
-RUN YARN_NODE_LINKER=node-modules YARN_CHECKSUM_BEHAVIOR=ignore yarn workspaces focus @valerypopoff/rivet2-core @valerypopoff/rivet2-node --production
 
 WORKDIR /app
 COPY scripts/link-rivet-node-package.mjs scripts/link-rivet-node-package.mjs
@@ -47,9 +44,8 @@ WORKDIR /app/wrapper/api
 RUN --mount=type=cache,target=/root/.npm npm ci
 RUN node /app/scripts/link-rivet-node-package.mjs
 RUN npm run build
-RUN npm prune --omit=dev && node /app/scripts/link-rivet-node-package.mjs
 
-FROM --platform=$TARGETPLATFORM ${NODE_IMAGE}
+FROM node:24-alpine
 
 ARG HTTP_PROXY
 ARG HTTPS_PROXY
