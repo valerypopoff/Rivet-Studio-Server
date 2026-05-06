@@ -21,7 +21,6 @@ export function createModuleOverrideAliases(overrideDir: string) {
   return [
     { find: /^\.\.?\/(?:.*\/)?tauri(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'utils/tauri.ts') },
     { find: /^\.\.?\/(?:.*\/)?deserializeProject(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'utils/deserializeProject.ts') },
-    { find: /^\.\.?\/(?:.*\/)?ioProvider(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'utils/globals/ioProvider.ts') },
     { find: /^\.\.?\/(?:.*\/)?settings(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'state/settings.ts') },
     { find: /^\.\.?\/(?:.*\/)?useCheckForUpdate(\.js|\.ts|\.tsx)?$/, replacement: resolve(overrideDir, 'hooks/useCheckForUpdate.tsx') },
     { find: /^\.\.?\/(?:.*\/)?useContextMenu(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'hooks/useContextMenu.ts') },
@@ -31,7 +30,6 @@ export function createModuleOverrideAliases(overrideDir: string) {
     { find: /^\.\.?\/(?:.*\/)?useLoadPackagePlugin(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'hooks/useLoadPackagePlugin.ts') },
     { find: /^\.\.?\/(?:.*\/)?useSyncCurrentStateIntoOpenedProjects(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'hooks/useSyncCurrentStateIntoOpenedProjects.ts') },
     { find: /^\.\.?\/(?:.*\/)?TauriNativeApi(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'model/native/TauriNativeApi.ts') },
-    { find: /^\.\.?\/(?:.*\/)?TauriIOProvider(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'io/TauriIOProvider.ts') },
   ];
 }
 

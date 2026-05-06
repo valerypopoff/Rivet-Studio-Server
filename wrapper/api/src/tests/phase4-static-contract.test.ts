@@ -309,6 +309,7 @@ test('hosted editor project commands go through Rivet 2 workspace host seams', (
   const viteConfig = readRepoFile('wrapper/web/vite.config.ts');
   const hostedEditorApp = readRepoFile('wrapper/web/dashboard/HostedEditorApp.tsx');
   const hostedProviders = readRepoFile('wrapper/web/dashboard/hostedRivetProviders.ts');
+  const hostedIOProvider = readRepoFile('wrapper/web/io/HostedIOProvider.ts');
   const editorMessageBridge = readRepoFile('wrapper/web/dashboard/EditorMessageBridge.tsx');
   const openWorkflowProject = readRepoFile('wrapper/web/dashboard/useOpenWorkflowProject.ts');
   const loadProjectOverride = readRepoFile('wrapper/web/overrides/hooks/useLoadProject.ts');
@@ -322,12 +323,25 @@ test('hosted editor project commands go through Rivet 2 workspace host seams', (
   assert.match(webPackageJson, /"github-markdown-css": "5\.9\.0"/);
   assert.match(viteConfig, /github-markdown-css/);
   assert.match(hostedEditorApp, /providers=\{hostedRivetProviders\}/);
-  assert.match(hostedProviders, /new HostedIOProvider\(\)/);
-  assert.match(hostedProviders, /datasetProvider/);
+  assert.match(hostedEditorApp, /onWorkspaceHostReady=\{handleWorkspaceHostReady\}/);
+  assert.match(hostedEditorApp, /onWorkspaceHostDisposed=\{handleWorkspaceHostDisposed\}/);
+  assert.match(hostedEditorApp, /<EditorMessageBridge workspaceHost=\{workspaceHost\} \/>/);
+  assert.match(hostedProviders, /new BrowserDatasetProvider\(\)/);
+  assert.match(hostedProviders, /new HostedIOProvider\(hostedDatasetProvider\)/);
+  assert.match(hostedProviders, /datasets: hostedDatasetProvider/);
+  assert.doesNotMatch(hostedProviders, /utils\/globals\/datasetProvider/);
+  assert.match(hostedIOProvider, /type HostedDatasetProvider = AppDatasetProvider &/);
+  assert.match(hostedIOProvider, /constructor\(datasetProvider: HostedDatasetProvider\)/);
+  assert.match(hostedIOProvider, /this\.#datasetProvider\.exportDatasetsForProject/);
+  assert.match(hostedIOProvider, /this\.#datasetProvider\.importDatasetsForProject/);
+  assert.doesNotMatch(hostedIOProvider, /importDatasetsForProject\?\./);
+  assert.doesNotMatch(hostedIOProvider, /utils\/globals\/datasetProvider/);
   assert.match(hostedProviders, /getDefaultEnvironmentProvider\(\)/);
   assert.match(hostedProviders, /getDefaultPathPolicyProvider\(\)/);
 
-  assert.match(editorMessageBridge, /useRivetWorkspaceHost/);
+  assert.match(editorMessageBridge, /workspaceHost: RivetWorkspaceHost/);
+  assert.doesNotMatch(editorMessageBridge, /useRivetWorkspaceHost/);
+  assert.match(editorMessageBridge, /useOpenWorkflowProject\(workspaceHost\)/);
   assert.match(editorMessageBridge, /workspaceRef\.current\.closeProject\(deletedProjectId\)/);
   assert.match(editorMessageBridge, /workspaceRef\.current\.moveProjectPaths/);
   assert.match(editorMessageBridge, /openCommandQueueRef/);
@@ -347,7 +361,8 @@ test('hosted editor project commands go through Rivet 2 workspace host seams', (
 
   assert.match(openWorkflowProject, /openedProjectSnapshotsState/);
   assert.match(openWorkflowProject, /useStore/);
-  assert.match(openWorkflowProject, /useRivetWorkspaceHost/);
+  assert.match(openWorkflowProject, /workspace: RivetWorkspaceHost/);
+  assert.doesNotMatch(openWorkflowProject, /useRivetWorkspaceHost/);
   assert.match(openWorkflowProject, /workspace\.openProjectSnapshot/);
   assert.match(openWorkflowProject, /workspace\.replaceCurrent/);
   assert.match(openWorkflowProject, /activeOpenedProjectIds/);
@@ -395,13 +410,18 @@ test('hosted executor integration keeps Rivet 2 transport ownership and removes 
   const viteAliases = readRepoFile('wrapper/web/vite-aliases.ts');
   const hostedEditorApp = readRepoFile('wrapper/web/dashboard/HostedEditorApp.tsx');
   const upstreamExecutorSession = readRepoFile('rivet/packages/app/src/hooks/useExecutorSession.ts');
+  const upstreamExecutorSessionCoordinator = readRepoFile('rivet/packages/app/src/hooks/useExecutorSessionCoordinator.ts');
   const upstreamRemoteDebugger = readRepoFile('rivet/packages/app/src/hooks/useRemoteDebugger.ts');
   const packageJson = readRepoFile('package.json');
 
   assert.match(hostedEditorApp, /executor=\{\{ internalExecutorUrl: RIVET_EXECUTOR_WS_URL \}\}/);
-  assert.match(upstreamExecutorSession, /runtime\.connectInternal\(hostConfig\.internalExecutorUrl\)/);
-  assert.match(upstreamRemoteDebugger, /shouldRestoreInternalNodeExecutorAfterDebuggerDisconnect/);
-  assert.match(upstreamRemoteDebugger, /runtime\.connectInternal\(hostConfig\?\.internalExecutorUrl\)/);
+  assert.match(upstreamExecutorSession, /useExecutorSessionCoordinator/);
+  assert.match(upstreamExecutorSessionCoordinator, /connectInternalHostedExecutor\(internalExecutorUrl\)/);
+  assert.match(upstreamExecutorSessionCoordinator, /shouldRestoreInternalNodeExecutorAfterExternalDebuggerDisconnect/);
+  assert.match(upstreamExecutorSessionCoordinator, /event\.target\?\.type === 'external-debugger'/);
+  assert.match(upstreamExecutorSessionCoordinator, /hostConfig\?\.internalExecutorUrl/);
+  assert.match(upstreamRemoteDebugger, /runtime\.connectExternalDebugger\(url\)/);
+  assert.doesNotMatch(upstreamRemoteDebugger, /connectInternal/);
   assert.doesNotMatch(viteAliases, /useExecutorSession/);
   assert.doesNotMatch(viteAliases, /useRemoteDebugger/);
   assert.doesNotMatch(viteAliases, /useGraphExecutor/);
@@ -482,18 +502,25 @@ test('hosted web module overrides are scoped to upstream Rivet app importers', (
   assert.match(viteAliases, /useLoadProject/);
   assert.match(viteAliases, /useSyncCurrentStateIntoOpenedProjects/);
   assert.doesNotMatch(viteAliases, /TauriProjectReferenceLoader/);
+  assert.doesNotMatch(viteAliases, /TauriIOProvider/);
   assert.doesNotMatch(viteAliases, /datasets/);
+  assert.doesNotMatch(viteAliases, /ioProvider/);
   assert.doesNotMatch(viteAliases, /useExecutorSession/);
   assert.doesNotMatch(viteAliases, /useRemoteDebugger/);
   assert.doesNotMatch(updateCheckAliasedFiles, /model\/TauriProjectReferenceLoader\.ts/);
   assert.doesNotMatch(updateCheckAliasedFiles, /io\/datasets\.ts/);
+  assert.doesNotMatch(updateCheckAliasedFiles, /utils\/globals\/ioProvider\.ts/);
+  assert.doesNotMatch(updateCheckAliasedFiles, /io\/TauriIOProvider\.ts/);
   assert.match(updateCheck, /Checking upstream provider seams/);
   assert.match(updateCheck, /readRelativeProjectFile/);
   assert.match(updateCheck, /getDefaultPathPolicyProvider/);
+  assert.match(updateCheck, /utils\/globals\/ioProvider\\.ts/);
 
   for (const stalePath of [
     'wrapper/web/overrides/model/TauriProjectReferenceLoader.ts',
     'wrapper/web/overrides/io/datasets.ts',
+    'wrapper/web/overrides/io/TauriIOProvider.ts',
+    'wrapper/web/overrides/utils/globals/ioProvider.ts',
     'wrapper/web/overrides/components/OverlayTabs.tsx',
   ]) {
     assert.equal(repoFileExists(stalePath), false, `${stalePath} should stay removed in favor of upstream provider seams`);

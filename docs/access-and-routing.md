@@ -54,7 +54,7 @@ The browser transport seams now match the backend route split more explicitly:
 
 - `/?editor` prefers `/ws/executor/internal` for the hosted executor websocket and keeps `/ws/executor` only for upstream-compatible clients
 - the editor mounts through Rivet 2.0's `RivetAppHost` and passes `/ws/executor/internal` as `executor.internalExecutorUrl`
-- upstream Rivet owns the executor session, upload, run, abort, pause/resume, and request-scoped websocket event handling; the wrapper only normalizes `/ws/executor/internal` as an internal executor URL for hosted UI labels
+- upstream Rivet owns the executor session, upload, run, abort, pause/resume, internal-executor UI classification, and request-scoped websocket event handling; the wrapper only passes `/ws/executor/internal` through `executor.internalExecutorUrl`
 - wrapper code still owns dashboard/editor `window.postMessage` commands and hosted project IO
 
 Those executor websocket responsibilities are separate from the dashboard/editor `window.postMessage` bridge. The bridge coordinates project-open/save/delete/path-move behavior between browsing contexts; the executor session talks to executor routes.
@@ -298,7 +298,7 @@ In `RIVET_STORAGE_MODE=managed`, workflow execution stays authoritative through 
 - pointer-cache invalidation comes from same-process post-commit clearing plus Postgres `LISTEN/NOTIFY`
 - if the invalidation listener is degraded, pointer caches are cleared and bypassed until listener health is restored
 
-The refactor work kept that route and cache contract intact while making the ownership boundaries clearer: control-plane versus execution-plane routing still stays explicit at the API layer, and the hosted browser editor delegates executor session/run transport to upstream Rivet 2 hooks. Wrapper code only classifies the proxied internal executor URL for UI labels and keeps dashboard/editor messages separate from websocket execution.
+The refactor work kept that route and cache contract intact while making the ownership boundaries clearer: control-plane versus execution-plane routing still stays explicit at the API layer, and the hosted browser editor delegates executor session/run transport plus internal executor UI classification to upstream Rivet 2 hooks. Wrapper code passes the proxied internal executor URL into `RivetAppHost` and keeps dashboard/editor messages separate from websocket execution.
 
 Managed runtime-library sync is part of that execution path too:
 
