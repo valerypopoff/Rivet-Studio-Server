@@ -1,11 +1,8 @@
-import { type PoolClient } from 'pg';
-
 import type { WorkflowProjectItem, WorkflowProjectSettingsDraft } from '../../../../../shared/workflow-types.js';
 import { badRequest, createHttpError } from '../../../utils/httpError.js';
-import { normalizeStoredEndpointName } from '../publication.js';
+import { normalizeStoredEndpointName } from '../endpoint-names.js';
 import { normalizeManagedWorkflowRelativePath } from '../virtual-paths.js';
 import type { ManagedWorkflowContext } from './context.js';
-import type { TransactionHooks, WorkflowRow } from './types.js';
 
 type ManagedWorkflowPublicationServiceDependencies = {
   context: ManagedWorkflowContext;

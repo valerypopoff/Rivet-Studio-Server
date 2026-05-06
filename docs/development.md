@@ -402,7 +402,7 @@ When adding new code, keep the post-refactor ownership seams explicit instead of
 - wrapper module overrides should stay scoped to upstream app importers
   - `wrapper/web/vite.config.ts` resolves override files only when the importer is under `rivet/packages/app/src`
   - do not put wrapper-owned transport overrides back into `wrapper/web/vite-aliases.ts`
-  - do not alias `useSaveProject` or `useMenuCommands`; upstream `useWorkspaceTransitions` and `RivetAppHost.onProjectSaved` own the save/menu seam, while the wrapper only sends `save-project` when focus is outside the iframe
+  - do not alias `useSaveProject` or `useMenuCommands`; upstream `useWorkspaceTransitions` and `RivetAppHost.onProjectSaved` own the save/menu seam, while the wrapper sends `save-project` when focus is outside the iframe and reconciles hosted title metadata after successful saves
   - do not reintroduce wrapper copies of `TauriProjectReferenceLoader` or `io/datasets`; hosted relative-project reads belong in the path policy provider, and hosted project/dataset persistence belongs in `HostedIOProvider`
   - keep `scripts/update-check.sh` aligned with that boundary: it should check the upstream provider seams, not treat provider-backed upstream modules as wrapper aliases
   - keep bare-package shims such as `@tauri-apps/api/*` separate from relative Rivet module overrides

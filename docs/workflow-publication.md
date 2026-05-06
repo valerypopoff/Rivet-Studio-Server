@@ -51,6 +51,7 @@ Important current behavior:
 - publishing also updates `lastPublishedAt`
 - unpublishing clears only the `published*` fields and keeps `endpointName` as the saved draft/default
 - that saved draft endpoint does not keep either public execution route open after full unpublish
+- fully unpublished saved draft endpoints do not reserve the endpoint name; another workflow can publish on that endpoint, and the old project must choose a free endpoint before republishing
 - unpublishing keeps `lastPublishedAt`, so the UI can still show when the project was last published once it becomes published again
 - endpoint lookup is case-insensitive, but the stored/public casing is preserved
 
@@ -80,7 +81,7 @@ In Project Settings:
 2. Server validates the name:
    - non-empty
    - letters, numbers, and hyphens only
-   - unique across all workflow projects, case-insensitively
+   - unique across active published and latest endpoint identities, case-insensitively
 3. Server computes a SHA-256 hash of `endpointName + project file + dataset state`.
 4. Server writes or overwrites `.published/<snapshotId>.rivet-project` and its dataset sidecar.
 5. Server writes the settings sidecar with `endpointName`, `publishedEndpointName`, `publishedSnapshotId`, `publishedStateHash`, and `lastPublishedAt`.
@@ -104,6 +105,7 @@ That means:
 Current backend-specific behavior:
 
 - in `filesystem` mode, status is derived from the fresh publication state hash after the save completes
+- in both storage modes, the workflow tree/file name is the hosted project title source of truth; saving rewrites `data.metadata.title` back to the current tree name if the editor changed it, and the hosted editor reconciles the visible open tab title immediately after save without reopening the project
 - in `managed` mode, a no-op save does not create a new draft revision
 - in `managed` mode, if the saved contents match the published revision exactly, the save path reuses that published revision instead of creating a distinct draft revision that would incorrectly appear as `unpublished_changes`
 
@@ -112,6 +114,7 @@ Current backend-specific behavior:
 1. Server deletes the published snapshot and its dataset sidecar.
 2. Server clears `publishedEndpointName`, `publishedSnapshotId`, and `publishedStateHash`.
 3. Server keeps `endpointName` in the settings sidecar as the saved draft endpoint name.
+4. The saved draft endpoint no longer participates in endpoint uniqueness until the project is published again.
 
 In the current dashboard UI, the project-row context menu exposes `Rename project`, `Download`, `Duplicate`, and `Delete project`.
 
@@ -358,6 +361,8 @@ In local Docker, `/workflows` is usually a host bind mount. On Windows/Docker De
 In `managed` mode, shared services remain authoritative, but steady-state endpoint execution is intentionally local on each API replica that serves workflow execution:
 
 - the endpoint-pointer cache stores `runKind + normalizedEndpointName -> workflow id + relative path + revision id`
+- `workflow_endpoints` stores ownership only for active published/latest public identities, not for fully unpublished saved draft endpoint names
+- endpoint sync prunes stale `workflow_endpoints` rows whose lookup no longer matches the owning workflow's active latest or published endpoint identity
 - the revision-materialization cache stores immutable raw project and dataset contents by `revisionId`
 - the API rebuilds a fresh per-request `Project`, attached data, and `NodeDatasetProvider` from cached raw contents so request isolation is preserved
 - publish, save, unpublish, rename, move, and delete operations invalidate the affected endpoint-pointer entries immediately
@@ -596,8 +601,10 @@ The workflow-publication UI now follows the same controller-versus-view split as
 
 ## Key files
 
-- `wrapper/api/src/routes/workflows/publication.ts` - publication logic, status derivation, endpoint lookup, and route-level endpoint normalization
+- `wrapper/api/src/routes/workflows/endpoint-names.ts` - shared endpoint-name validation and case-insensitive lookup normalization
+- `wrapper/api/src/routes/workflows/publication.ts` - filesystem publication logic, status derivation, and endpoint lookup
 - `wrapper/api/src/routes/workflows/execution.ts` - public/latest/internal execution handlers and recording enqueue path
+- `wrapper/api/src/routes/workflows/hosted-project-contents.ts` - hosted project content normalization shared by filesystem and managed saves
 - `wrapper/api/src/routes/workflows/storage-backend.ts` - explicit filesystem-versus-managed dispatch for hosted workflow operations
 - `wrapper/api/src/routes/workflows/managed/backend.ts` - managed workflow facade/composition root
 - `wrapper/api/src/routes/workflows/managed/context.ts` - managed initialization/disposal ordering and shared dependency container

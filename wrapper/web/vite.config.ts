@@ -190,6 +190,35 @@ const resolveRivetModuleOverride = (): PluginOption => ({
   },
 });
 
+const normalizeHostedProjectTabLabels = (): PluginOption => {
+  const projectSelectorPath = normalizePath(resolve(upstreamApp, 'src/components/ProjectSelector.tsx'));
+
+  return {
+    name: 'normalize-hosted-project-tab-labels',
+    enforce: 'pre',
+    transform(code, id) {
+      if (normalizePath(stripImportSuffix(id)) !== projectSelectorPath) {
+        return null;
+      }
+
+      const original = [
+        "  const fileName = unsaved ? 'Unsaved' : project.fsPath!.split('/').pop();",
+        "  const projectDisplayName = `${project?.title}${fileName ? ` [${fileName}]` : ''}`;",
+      ].join('\n');
+      const replacement = "  const projectDisplayName = project?.title?.trim() || 'Untitled Project';";
+
+      if (!code.includes(original)) {
+        this.error('Expected upstream ProjectSelector tab label expression was not found.');
+      }
+
+      return {
+        code: code.replace(original, replacement),
+        map: null,
+      };
+    },
+  };
+};
+
 const resolveWrapperDependency = (): PluginOption => ({
   name: 'resolve-wrapper-dependency',
   async resolveId(source, importer) {
@@ -279,6 +308,7 @@ export default defineConfig({
     plugins: [
       resolveBrowserSafeGoogleCoreModule(),
       resolveRivetModuleOverride(),
+      normalizeHostedProjectTabLabels(),
       resolveWrapperDependency(),
       react(),
       viteTsconfigPaths({ root: upstreamApp }),

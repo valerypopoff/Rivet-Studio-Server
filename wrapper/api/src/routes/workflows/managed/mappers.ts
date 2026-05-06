@@ -3,7 +3,7 @@ import type {
   WorkflowProjectItem,
   WorkflowProjectStatus,
 } from '../../../../../shared/workflow-types.js';
-import { normalizeWorkflowEndpointLookupName } from '../publication.js';
+import { normalizeWorkflowEndpointLookupName } from '../endpoint-names.js';
 import {
   getManagedWorkflowFolderVirtualPath,
   getManagedWorkflowProjectVirtualPath,

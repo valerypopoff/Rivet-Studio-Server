@@ -1,14 +1,8 @@
-- When I unpublish the project, the endpoint is still occupied and can't be used by other projects
-
-- In the open project tab, let's show the name that we see in the project tree. Now, there's project name (from theproject yaml file + full file name with the extension)
-
-- The project name (in the yaml file) and the project name in the project trea - are they the same? Or not necessarily? Should the mirror?
 
 - Do we need /health enpoint for k8s?
 
 - Убедиться, что RIVET_RECORDINGS_MAX_PENDING_WRITES работает правильно — на каждую реплику
 
-- Убедиться, что filesystem mode не сломался
 
 
 

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { Project } from '@valerypopoff/rivet2-core';
 import {
+  resolveHostedProjectTitleFromPath,
   resolveHostedProjectTitle,
   withHostedProjectTitle,
 } from '../dashboard/openedProjectMetadata';
@@ -26,6 +27,15 @@ test('resolveHostedProjectTitle falls back to the project filename when metadata
   assert.equal(resolveHostedProjectTitle(makeProject('   '), 'D:\\Programming\\workflows\\Windows Demo.rivet-project'), 'Windows Demo');
   assert.equal(resolveHostedProjectTitle(makeProject('undefined'), '/workflows/bad-title.rivet-project'), 'bad-title');
   assert.equal(resolveHostedProjectTitle(makeProject('null'), '/workflows/null-title.rivet-project'), 'null-title');
+});
+
+test('resolveHostedProjectTitleFromPath resolves the file-tree project title without consulting metadata', () => {
+  assert.equal(resolveHostedProjectTitleFromPath('/workflows/My Flow.rivet-project'), 'My Flow');
+  assert.equal(resolveHostedProjectTitleFromPath('D:\\Programming\\workflows\\Windows Demo.rivet-project'), 'Windows Demo');
+  assert.equal(resolveHostedProjectTitleFromPath('/workflows/No Extension'), 'No Extension');
+  assert.equal(resolveHostedProjectTitleFromPath('/workflows/readme.md'), 'readme.md');
+  assert.equal(resolveHostedProjectTitleFromPath('   '), null);
+  assert.equal(resolveHostedProjectTitleFromPath(null), null);
 });
 
 test('withHostedProjectTitle normalizes missing project metadata titles without changing titled projects', () => {

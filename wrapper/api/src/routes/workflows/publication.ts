@@ -1,7 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
-import { loadProjectFromFile } from '@valerypopoff/rivet2-node';
 
 import { validatePath } from '../../security.js';
 import { badRequest, conflict } from '../../utils/httpError.js';
@@ -22,6 +21,16 @@ import type {
   WorkflowProjectSettingsDraft,
   WorkflowProjectStatus,
 } from './types.js';
+import { normalizeStoredEndpointName, normalizeWorkflowEndpointLookupName } from './endpoint-names.js';
+
+export { normalizeStoredEndpointName, normalizeWorkflowEndpointLookupName } from './endpoint-names.js';
+
+let rivetNodeImport: Promise<typeof import('@valerypopoff/rivet2-node')> | null = null;
+
+function getRivetNode() {
+  rivetNodeImport ??= import('@valerypopoff/rivet2-node');
+  return rivetNodeImport;
+}
 
 export async function getWorkflowProjectSettings(projectPath: string, projectName: string): Promise<WorkflowProjectSettings> {
   const storedSettings = await readStoredWorkflowProjectSettings(projectPath, projectName);
@@ -146,24 +155,6 @@ async function resolveWorkflowLastPublishedAt(
   }
 }
 
-export function normalizeStoredEndpointName(value: string): string {
-  const trimmed = value.trim();
-
-  if (!trimmed) {
-    return '';
-  }
-
-  if (!/^[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*$/.test(trimmed)) {
-    throw badRequest('Endpoint name must contain only letters, numbers, and hyphens');
-  }
-
-  return trimmed;
-}
-
-export function normalizeWorkflowEndpointLookupName(value: string): string {
-  return normalizeStoredEndpointName(value).toLowerCase();
-}
-
 export function hasPublishedWorkflowLineage(settings: StoredWorkflowProjectSettings): boolean {
   if (settings.publishedStateHash || settings.publishedSnapshotId) {
     return true;
@@ -184,6 +175,20 @@ export function isWorkflowEndpointPublished(settings: StoredWorkflowProjectSetti
   return settings.legacyStatus === 'published' || settings.legacyStatus === 'unpublished_changes';
 }
 
+export function getReservedWorkflowEndpointLookupNames(settings: StoredWorkflowProjectSettings): Set<string> {
+  const lookupNames = new Set<string>();
+
+  if (settings.endpointName && hasPublishedWorkflowLineage(settings)) {
+    lookupNames.add(normalizeWorkflowEndpointLookupName(settings.endpointName));
+  }
+
+  if (settings.publishedEndpointName && isWorkflowEndpointPublished(settings, settings.publishedEndpointName)) {
+    lookupNames.add(normalizeWorkflowEndpointLookupName(settings.publishedEndpointName));
+  }
+
+  return lookupNames;
+}
+
 export async function ensureWorkflowEndpointNameIsUnique(root: string, currentProjectPath: string, endpointName: string): Promise<void> {
   if (!endpointName) {
     throw badRequest('Endpoint name is required');
@@ -201,10 +206,7 @@ export async function ensureWorkflowEndpointNameIsUnique(root: string, currentPr
     const projectName = path.basename(projectPath, PROJECT_EXTENSION);
     const settings = await readStoredWorkflowProjectSettings(projectPath, projectName);
 
-    if (
-      normalizeWorkflowEndpointLookupName(settings.endpointName) === requestedLookupName ||
-      normalizeWorkflowEndpointLookupName(settings.publishedEndpointName) === requestedLookupName
-    ) {
+    if (getReservedWorkflowEndpointLookupNames(settings).has(requestedLookupName)) {
       throw conflict(`Endpoint name is already used by ${path.basename(projectPath)}`);
     }
   }
@@ -380,6 +382,7 @@ export async function loadPublishedOrLiveProjectFromFilesystem(root: string, res
   const projectName = path.basename(resolvedProjectPath, PROJECT_EXTENSION);
   const settings = await readStoredWorkflowProjectSettings(resolvedProjectPath, projectName);
   const publishedProjectPath = await resolvePublishedWorkflowProjectPath(root, resolvedProjectPath, settings);
+  const { loadProjectFromFile } = await getRivetNode();
   return loadProjectFromFile(publishedProjectPath ?? resolvedProjectPath);
 }
 
@@ -391,6 +394,7 @@ export function createPublishedWorkflowProjectReferenceLoader(root: string, root
     if (!pendingResolution) {
       pendingResolution = (async () => {
         const projectPaths = await listProjectPathsRecursive(root);
+        const { loadProjectFromFile } = await getRivetNode();
 
         for (const candidateProjectPath of projectPaths) {
           try {

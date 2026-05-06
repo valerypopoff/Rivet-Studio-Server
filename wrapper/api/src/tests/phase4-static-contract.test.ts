@@ -478,6 +478,9 @@ test('hosted web module overrides are scoped to upstream Rivet app importers', (
   assert.match(viteConfig, /const normalizedUpstreamAppSrc = normalizePath\(resolve\(upstreamApp, 'src'\)\)/);
   assert.match(viteConfig, /name: 'resolve-rivet-module-override'/);
   assert.match(viteConfig, /isUpstreamAppSourceImporter\(importer\)/);
+  assert.match(viteConfig, /name: 'normalize-hosted-project-tab-labels'/);
+  assert.match(viteConfig, /src\/components\/ProjectSelector\.tsx/);
+  assert.match(viteConfig, /const projectDisplayName = project\?\.title\?\.trim\(\) \|\| 'Untitled Project';/);
   assert.match(viteConfig, /createModuleOverrideAliases\(overrideDir\)/);
   assert.doesNotMatch(viteConfig, /\.\.\.createModuleOverrideAliases\(overrideDir\)/);
   assert.match(viteAliases, /useLoadProject/);
