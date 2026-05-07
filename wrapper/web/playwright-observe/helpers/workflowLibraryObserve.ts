@@ -126,6 +126,25 @@ export async function deleteWorkflowFolder(page: Page, relativePath: string): Pr
   });
 }
 
+export async function renameWorkflowFolderInline(
+  page: Page,
+  currentName: string,
+  nextName: string,
+): Promise<void> {
+  const folderRow = page.locator('.folder-row', { hasText: currentName });
+  await expect(folderRow).toBeVisible({ timeout: 30_000 });
+
+  await folderRow.click({ button: 'right' });
+  await page.getByRole('menuitem', { name: 'Rename folder' }).click();
+
+  const renameInput = page.getByRole('textbox', { name: `Rename ${currentName}` });
+  await expect(renameInput).toBeVisible({ timeout: 30_000 });
+  await renameInput.fill(nextName);
+  await renameInput.press('Enter');
+
+  await expect(page.locator('.folder-row', { hasText: nextName })).toBeVisible({ timeout: 30_000 });
+}
+
 export async function ensureFolderExpanded(page: Page, folderName: string, projectName?: string): Promise<void> {
   const folderRow = page.locator('.folder-row', { hasText: folderName });
   await expect(folderRow).toBeVisible({ timeout: 30_000 });

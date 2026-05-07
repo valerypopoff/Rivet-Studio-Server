@@ -218,3 +218,59 @@ export const applyFolderMoveToTree = (
     rootProjects,
   };
 };
+
+const replaceProjectInFolders = (
+  folders: WorkflowFolderItem[],
+  sourceProject: WorkflowProjectItem,
+  destinationProject: WorkflowProjectItem,
+): WorkflowFolderItem[] => {
+  let changed = false;
+
+  const nextFolders = folders.map((folder) => {
+    let folderChanged = false;
+    const nextProjects = folder.projects.map((project) => {
+      if (project.absolutePath !== sourceProject.absolutePath) {
+        return project;
+      }
+
+      folderChanged = true;
+      return destinationProject;
+    });
+    const nextChildFolders = replaceProjectInFolders(folder.folders, sourceProject, destinationProject);
+    if (nextChildFolders !== folder.folders) {
+      folderChanged = true;
+    }
+
+    if (!folderChanged) {
+      return folder;
+    }
+
+    changed = true;
+    return {
+      ...folder,
+      folders: nextChildFolders,
+      projects: nextProjects,
+    };
+  });
+
+  return changed ? nextFolders : folders;
+};
+
+export const applyProjectMoveToTree = (
+  folders: WorkflowFolderItem[],
+  rootProjects: WorkflowProjectItem[],
+  sourceProject: WorkflowProjectItem,
+  destinationProject: WorkflowProjectItem,
+): {
+  folders: WorkflowFolderItem[];
+  rootProjects: WorkflowProjectItem[];
+} => {
+  const nextRootProjects = rootProjects.map((project) =>
+    project.absolutePath === sourceProject.absolutePath ? destinationProject : project);
+  const rootChanged = nextRootProjects.some((project, index) => project !== rootProjects[index]);
+
+  return {
+    folders: replaceProjectInFolders(folders, sourceProject, destinationProject),
+    rootProjects: rootChanged ? nextRootProjects : rootProjects,
+  };
+};

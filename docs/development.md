@@ -484,10 +484,14 @@ For workflow-library folder rename behavior:
 1. `npm run dev`
 2. validate the browser flow through `http://localhost:8080` by default, or your configured `RIVET_PORT`
 3. right-click a folder in the left panel and run `Rename folder`
-4. enter a new folder name when prompted
-5. confirm the folder remains in the tree under the new name
-6. if the folder contained projects that are open in the editor, confirm those tabs still point at the renamed paths and save correctly afterward
-7. try renaming to an existing sibling folder name and confirm the UI shows the API conflict
+4. confirm the folder row turns into an inline edit field with the current name selected
+5. press `Esc`, then repeat and click elsewhere, and confirm both paths cancel without renaming
+6. enter a new folder name and press `Enter`
+7. confirm the edit field closes immediately and the old folder name shows a preloader while the rename is saving
+8. confirm the folder remains in the tree under the new name
+9. if the folder was collapsed before pressing `Enter`, confirm it stays collapsed after the renamed row appears
+10. if the folder contained projects that are open in the editor, confirm those tabs still point at the renamed paths and save correctly afterward
+11. try renaming to an existing sibling folder name and confirm the preloader clears and the UI shows the API conflict without leaving a stale edit field open
 
 For workflow-library folder deletion behavior:
 
@@ -547,9 +551,14 @@ For workflow-library project rename entry behavior:
 1. `npm run dev`
 2. validate the browser flow through `http://localhost:8080` by default, or your configured `RIVET_PORT`
 3. right-click a project in the left panel and run `Rename project`
-4. confirm the context-menu action opens Project Settings for that project instead of renaming immediately
-5. confirm the rename still completes only through the existing Project Settings flow
-6. confirm the menu action does not change the current selection or open a different project on its own
+4. confirm the project row turns into an inline edit field with the current name selected
+5. select the same project row again, press `F2`, and confirm it starts the same inline edit field
+6. press `Esc`, then repeat and click elsewhere, and confirm both paths cancel without renaming
+7. enter a new project name and press `Enter`
+8. confirm the edit field closes immediately and the old project name shows a preloader while the rename is saving
+9. confirm the renamed row keeps the previous selection/open editor tab by following the returned `movedProjectPaths`
+10. try renaming to an existing sibling project name and confirm the preloader clears and the UI shows the API conflict without leaving a stale edit field open
+11. open Project Settings separately and confirm there is no modal-level rename button or title edit field
 
 For hosted editor keyboard-node behavior:
 

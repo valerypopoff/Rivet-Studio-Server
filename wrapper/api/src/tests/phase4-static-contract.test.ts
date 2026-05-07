@@ -462,6 +462,108 @@ test('hosted editor project commands go through Rivet 2 workspace host seams', (
   assert.doesNotMatch(syncOpenedProjectsOverride, /project: currentProject/);
 });
 
+test('workflow folder and project rename stay inline in the hosted dashboard tree', () => {
+  const workflowController = readRepoFile('wrapper/web/dashboard/useWorkflowLibraryController.ts');
+  const workflowFolderTree = readRepoFile('wrapper/web/dashboard/WorkflowFolderTree.tsx');
+  const workflowInlineRenameInput = readRepoFile('wrapper/web/dashboard/WorkflowInlineRenameInput.tsx');
+  const workflowProjectRow = readRepoFile('wrapper/web/dashboard/WorkflowProjectRow.tsx');
+  const projectSettingsModal = readRepoFile('wrapper/web/dashboard/ProjectSettingsModal.tsx');
+  const projectSettingsActions = readRepoFile('wrapper/web/dashboard/useProjectSettingsActions.ts');
+  const projectSettingsForm = readRepoFile('wrapper/web/dashboard/projectSettingsForm.ts');
+  const workflowLibraryPanelCss = readRepoFile('wrapper/web/dashboard/WorkflowLibraryPanel.css');
+  const workflowLibraryObserve = readRepoFile('wrapper/web/playwright-observe/helpers/workflowLibraryObserve.ts');
+  const folderInlineRenameSpec = readRepoFile('wrapper/web/playwright-observe/folder-inline-rename.spec.ts');
+  const projectInlineRenameSpec = readRepoFile('wrapper/web/playwright-observe/project-inline-rename.spec.ts');
+  const projectSettingsSpec = readRepoFile('wrapper/web/playwright-observe/project-settings-modal.spec.ts');
+  const workflowDocs = readRepoFile('docs/workflow-publication.md');
+  const developmentDocs = readRepoFile('docs/development.md');
+  const architectureDocs = readRepoFile('docs/architecture.md');
+  const accessDocs = readRepoFile('docs/access-and-routing.md');
+
+  assert.doesNotMatch(workflowController, /prompt\('Rename folder:/);
+  assert.match(workflowController, /const \[editingFolderId, setEditingFolderId\]/);
+  assert.match(workflowController, /const \[renamingFolderId, setRenamingFolderId\]/);
+  assert.match(workflowController, /const \[editingProjectPath, setEditingProjectPath\]/);
+  assert.match(workflowController, /const \[renamingProjectPath, setRenamingProjectPath\]/);
+  assert.match(workflowController, /lastAutoExpandedActivePathRef/);
+  assert.match(workflowController, /suppressedActiveAncestorExpansionIdsRef/);
+  assert.match(workflowController, /handleSubmitFolderRename/);
+  assert.match(workflowController, /handleSubmitProjectRename/);
+  assert.match(workflowController, /const applyWorkflowProjectPathMoves = useCallback/);
+  assert.match(workflowController, /applyWorkflowProjectPathMoves\(result\.movedProjectPaths\)/);
+  assert.match(workflowController, /const handleProjectRowKeyDown = useCallback/);
+  assert.match(workflowController, /event\.key !== 'F2'/);
+  assert.match(workflowController, /project\.absolutePath !== activePath/);
+  assert.match(workflowController, /handleStartProjectRename\(project\)/);
+  assert.match(workflowController, /setRenamingFolderId\(folder\.id\)/);
+  assert.match(workflowController, /setRenamingProjectPath\(project\.absolutePath\)/);
+  assert.match(workflowController, /getRenamedFolderIds\(folder, folder\.relativePath, result\.folder\.relativePath\)/);
+  assert.match(workflowController, /renameWorkflowFolder\(folder\.relativePath, newName\)/);
+  assert.match(workflowController, /renameWorkflowProject\(project\.relativePath, newName\)/);
+  assert.match(workflowController, /applyProjectMoveToTree\(folders, rootProjects, project, result\.project\)/);
+  assert.match(workflowController, /handleStartProjectRename\(targetProject\)/);
+  assert.match(
+    workflowController,
+    /const handleRenameProjectFromContextMenu = useCallback\(\(\) => \{[\s\S]*?closeProjectContextMenu\(\);\s*handleStartProjectRename\(targetProject\);[\s\S]*?\}, \[/,
+  );
+  assert.doesNotMatch(
+    workflowController,
+    /const handleRenameProjectFromContextMenu = useCallback\(\(\) => \{[\s\S]*?closeProjectContextMenu\(\);\s*openProjectSettingsModal\(targetProject\);[\s\S]*?\}, \[/,
+  );
+  assert.match(workflowFolderTree, /WorkflowInlineRenameInput/);
+  assert.match(workflowFolderTree, /classNamePrefix="folder"/);
+  assert.match(workflowFolderTree, /onSubmit=\{\(value\) => onSubmit\(folder, value\)\}/);
+  assert.match(workflowFolderTree, /className="folder-rename-spinner"/);
+  assert.match(workflowFolderTree, /aria-busy=\{isRenaming \? true : undefined\}/);
+  assert.match(workflowFolderTree, /onProjectKeyDown/);
+  assert.match(workflowProjectRow, /WorkflowInlineRenameInput/);
+  assert.match(workflowProjectRow, /classNamePrefix="project"/);
+  assert.match(workflowProjectRow, /onSubmit=\{\(value\) => onSubmit\(project, value\)\}/);
+  assert.match(workflowProjectRow, /className="project-rename-spinner"/);
+  assert.match(workflowProjectRow, /onKeyDown=\{onKeyDown\(project\)\}/);
+  assert.match(workflowProjectRow, /aria-busy=\{renaming \? true : undefined\}/);
+  assert.match(workflowInlineRenameInput, /className=\{`\$\{classNamePrefix\}-rename-form`\}/);
+  assert.match(workflowInlineRenameInput, /className=\{`\$\{classNamePrefix\}-rename-input`\}/);
+  assert.match(workflowInlineRenameInput, /onBlur=\{onCancel\}/);
+  assert.match(workflowInlineRenameInput, /event\.key !== 'Escape'/);
+  assert.match(workflowInlineRenameInput, /void onSubmit\(value\)/);
+  assert.doesNotMatch(projectSettingsModal, /project-settings-rename-button/);
+  assert.doesNotMatch(projectSettingsModal, /aria-label="Rename project"/);
+  assert.doesNotMatch(projectSettingsModal, /project-settings-title-input/);
+  assert.doesNotMatch(projectSettingsActions, /renameWorkflowProject/);
+  assert.doesNotMatch(projectSettingsActions, /handleCommitProjectRename/);
+  assert.doesNotMatch(projectSettingsForm, /validateProjectName/);
+  assert.match(workflowLibraryPanelCss, /\.folder-rename-input/);
+  assert.match(workflowLibraryPanelCss, /\.folder-rename-spinner/);
+  assert.match(workflowLibraryPanelCss, /\.project-rename-input/);
+  assert.match(workflowLibraryPanelCss, /\.project-rename-spinner/);
+  assert.doesNotMatch(workflowLibraryPanelCss, /\.project-settings-rename-button/);
+  assert.doesNotMatch(workflowLibraryPanelCss, /\.project-settings-title-input/);
+  assert.match(workflowLibraryObserve, /renameWorkflowFolderInline/);
+  assert.match(folderInlineRenameSpec, /saves with Enter and cancels with Escape or click-away/);
+  assert.match(folderInlineRenameSpec, /does not reopen a collapsed folder after retargeting an active project path/);
+  assert.match(folderInlineRenameSpec, /keeps the row in saving state until the API rejects the rename/);
+  assert.match(projectInlineRenameSpec, /starts from F2 or context menu, saves with Enter, keeps the active row, and cancels cleanly/);
+  assert.match(projectInlineRenameSpec, /originalProject\.press\('F2'\)/);
+  assert.match(projectInlineRenameSpec, /keeps the row in saving state until the API rejects the rename/);
+  assert.match(projectSettingsSpec, /without modal rename controls/);
+  assert.match(projectSettingsSpec, /getByRole\('button', \{ name: 'Rename project' \}\)\)\.toHaveCount\(0\)/);
+  assert.match(workflowDocs, /inline edit field/);
+  assert.match(workflowDocs, /preloader/);
+  assert.match(workflowDocs, /keeps its previous expanded or collapsed state after rename/);
+  assert.match(workflowDocs, /pressing `F2` while the selected project row has focus/);
+  assert.match(workflowDocs, /`useProjectSettingsActions\.ts` owns publish, unpublish, and guarded delete flows/);
+  assert.match(developmentDocs, /press `Esc`, then repeat and click elsewhere/);
+  assert.match(developmentDocs, /project row turns into an inline edit field/);
+  assert.match(developmentDocs, /press `F2`, and confirm it starts the same inline edit field/);
+  assert.match(developmentDocs, /no modal-level rename button or title edit field/);
+  assert.match(architectureDocs, /`F2` while the selected project row has focus/);
+  assert.match(architectureDocs, /Project Settings intentionally does not expose a second rename control/);
+  assert.match(accessDocs, /Current rename-project route behavior/);
+  assert.match(accessDocs, /selected-row `F2` shortcut edit inline in the workflow library/);
+  assert.match(accessDocs, /Project Settings does not expose a second rename control/);
+});
+
 test('hosted executor integration keeps Rivet 2 transport ownership and removes stale wrapper transport overrides', () => {
   const viteAliases = readRepoFile('wrapper/web/vite-aliases.ts');
   const hostedEditorApp = readRepoFile('wrapper/web/dashboard/HostedEditorApp.tsx');

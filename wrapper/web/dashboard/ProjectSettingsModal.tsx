@@ -1,5 +1,4 @@
 import Button, { LoadingButton } from '@atlaskit/button';
-import EditIcon from '@atlaskit/icon/glyph/editor/edit';
 import ModalDialog, { ModalBody, ModalTransition } from '@atlaskit/modal-dialog';
 import TextField from '@atlaskit/textfield';
 import { type FC, useMemo, type ReactNode } from 'react';
@@ -14,7 +13,6 @@ import {
 } from './projectSettingsForm';
 import type {
   WorkflowProjectItem,
-  WorkflowProjectPathMove,
   WorkflowProjectStatus,
 } from './types';
 import { useProjectSettingsActions } from './useProjectSettingsActions';
@@ -69,7 +67,6 @@ type ProjectSettingsModalProps = {
   onClose: () => void;
   onRefresh: () => void | Promise<void>;
   onDeleteProject: (path: string, projectId?: string | null) => void;
-  onWorkflowPathsMoved: (moves: WorkflowProjectPathMove[]) => void;
 };
 
 export const ProjectSettingsModal: FC<ProjectSettingsModalProps> = ({
@@ -79,26 +76,17 @@ export const ProjectSettingsModal: FC<ProjectSettingsModalProps> = ({
   onClose,
   onRefresh,
   onDeleteProject,
-  onWorkflowPathsMoved,
 }) => {
   const {
     settingsDraft,
-    projectNameDraft,
-    editingProjectName,
     showPublishSettings,
-    renamingProject,
     savingSettings,
     deletingProject,
     handleSettingsDraftChange,
-    handleProjectNameDraftChange,
-    handleStartProjectRename,
-    handleCommitProjectRename,
-    handleProjectNameKeyDown,
     handleShowPublishSettings,
     handlePublishProject,
     handleUnpublishProject,
     handleDeleteActiveProject,
-    projectNameValidationError,
     endpointValidationError,
   } = useProjectSettingsActions({
     activeProject,
@@ -107,7 +95,6 @@ export const ProjectSettingsModal: FC<ProjectSettingsModalProps> = ({
     onClose,
     onDeleteProject,
     onRefresh,
-    onWorkflowPathsMoved,
   });
 
   const displayedProjectStatus: WorkflowProjectStatus = activeProject.settings.status;
@@ -124,7 +111,7 @@ export const ProjectSettingsModal: FC<ProjectSettingsModalProps> = ({
     [activeProject.settings.lastPublishedAt, displayedProjectStatus],
   );
   const shouldShowPublishSettings = isUnpublishedProject && showPublishSettings;
-  const canCloseModal = !savingSettings && !deletingProject && !editingProjectName && !renamingProject;
+  const canCloseModal = !savingSettings && !deletingProject;
   const disablePublishAction = savingSettings || deletingProject || endpointValidationError != null;
   const disablePublishChangesAction = savingSettings || deletingProject;
   const disableUnpublishAction = savingSettings || deletingProject;
@@ -145,41 +132,11 @@ export const ProjectSettingsModal: FC<ProjectSettingsModalProps> = ({
             <div className="project-settings-modal-shell">
               <div className="project-settings-modal-header-row">
                 <div className="project-settings-modal-heading">
-                  <div className={`project-settings-title-display${editingProjectName ? ' editing' : ''}`} title={baseFileName}>
+                  <div className="project-settings-title-display" title={baseFileName}>
                     <div className="project-settings-title-field">
-                      <span className={`project-settings-modal-title${editingProjectName ? ' editing' : ''}`}>{baseFileName}</span>
-                      {editingProjectName ? (
-                        <div className="project-settings-title-input-overlay">
-                          <TextField
-                            className="project-settings-title-input"
-                            value={projectNameDraft}
-                            onChange={handleProjectNameDraftChange}
-                            onBlur={() => void handleCommitProjectRename()}
-                            onKeyDown={handleProjectNameKeyDown}
-                            isInvalid={projectNameValidationError != null}
-                            isDisabled={renamingProject || savingSettings || deletingProject}
-                            isCompact
-                            autoFocus
-                            spellCheck={false}
-                          />
-                        </div>
-                      ) : null}
+                      <span className="project-settings-modal-title">{baseFileName}</span>
                     </div>
-                    {!editingProjectName ? (
-                      <Button
-                        appearance="subtle"
-                        spacing="compact"
-                        className="project-settings-rename-button button-size-m"
-                        onClick={handleStartProjectRename}
-                        isDisabled={renamingProject || savingSettings || deletingProject}
-                        iconBefore={<EditIcon label="" size="medium" />}
-                        aria-label="Rename project"
-                      >
-                        Edit
-                      </Button>
-                    ) : null}
                   </div>
-                  {projectNameValidationError ? <div className="project-settings-error">{projectNameValidationError}</div> : null}
                 </div>
                 <button
                   type="button"

@@ -142,6 +142,14 @@ Current create-project route behavior:
 - folder-level project creation currently exists only in that custom folder context menu, not in an inline row button
 - if the target folder already contains that exact project name, the route returns `409`
 
+Current rename-project route behavior:
+
+- `PATCH /api/workflows/projects` accepts `{ "relativePath": string, "newName": string }`
+- it returns `{ "project": WorkflowProjectItem, "movedProjectPaths": WorkflowProjectPathMove[] }`
+- the dashboard calls this route from the project-row context menu; Project Settings does not expose a second rename control
+- the project-row context-menu flow and selected-row `F2` shortcut edit inline in the workflow library, hide the edit field immediately on `Enter`, show a row preloader while the route is pending, and retarget selected/open project paths through `movedProjectPaths`
+- if the target sibling project name already exists, the route returns `409` and the inline preloader clears without leaving the edit field open
+
 Current upload-route behavior:
 
 - `POST /api/workflows/projects/upload` accepts `{ "folderRelativePath"?: string, "fileName": string, "contents": string }`

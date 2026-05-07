@@ -83,7 +83,7 @@ async function installProjectSettingsRoutes(page: Page, project: MockWorkflowPro
 }
 
 test.describe('Project settings modal', () => {
-  test('rename validation, publish validation, unpublish flow, and delete availability stay intact', async ({ page }) => {
+  test('publish validation, unpublish flow, and delete availability stay intact without modal rename controls', async ({ page }) => {
     test.slow();
 
     const unique = 'codex-project-settings-fixture';
@@ -103,17 +103,9 @@ test.describe('Project settings modal', () => {
     await page.getByRole('button', { name: 'Settings', exact: true }).click();
     const modal = page.getByTestId('workflow-project-settings-modal');
     await expect(modal).toBeVisible();
-
-    await expect(modal.locator('.project-settings-rename-button')).toBeVisible();
-    await modal.locator('.project-settings-rename-button').click();
-    const titleInput = modal.locator('.project-settings-title-input input');
-    await titleInput.fill('');
-    await titleInput.press('Enter');
-    await expect(modal.locator('.project-settings-error')).toContainText('Project name is required.');
-
-    await titleInput.fill(unique);
-    await titleInput.press('Enter');
-    await expect(titleInput).toHaveCount(0);
+    await expect(modal.locator('.project-settings-modal-title')).toHaveText(unique);
+    await expect(modal.getByRole('button', { name: 'Rename project' })).toHaveCount(0);
+    await expect(modal.locator('.project-settings-title-input input')).toHaveCount(0);
 
     const deleteButton = modal.getByRole('button', { name: 'Delete project' });
     await expect(deleteButton).toBeVisible();

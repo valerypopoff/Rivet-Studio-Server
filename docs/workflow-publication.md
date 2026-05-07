@@ -118,11 +118,11 @@ Current backend-specific behavior:
 
 In the current dashboard UI, the project-row context menu exposes `Rename project`, `Download`, `Duplicate`, and `Delete project`.
 
-- `Rename project` opens Project Settings for that workflow and reuses the existing rename flow there
+- `Rename project` edits the project name inline in the tree; `Enter` closes the edit field and shows a preloader on the project name while the API saves, while `Esc` or focus leaving the edit field cancels without calling the API
 
 The folder-row context menu exposes `Rename folder`, `Create project`, `Upload project`, and `Delete folder`.
 
-- `Rename folder` prompts immediately and retargets already-open project tabs through the editor bridge path-move flow
+- `Rename folder` edits the folder name inline in the tree; `Enter` closes the edit field and shows a preloader on the folder name while the API saves, while `Esc` or focus leaving the edit field cancels without calling the API
 - `Delete folder` is enabled only for empty folders in the dashboard, and the API still rejects non-empty folder deletion if called directly
 
 `Delete project` is still guarded:
@@ -143,7 +143,9 @@ Workflow folders are managed through:
 Current folder behavior:
 
 - the workflow library's `+ New folder` action creates new folders at the root level
-- `Rename folder` prompts for the new name, renames the folder on the backend, returns `movedProjectPaths`, and lets the dashboard retarget open editor tabs without closing them
+- `Rename folder` shows the shared inline edit field on the selected folder row, hides that field immediately when the user presses `Enter`, shows a preloader on the folder name while the backend rename is pending, returns `movedProjectPaths`, and lets the dashboard retarget open editor tabs without closing them
+- pressing `Esc` or clicking away from the inline folder edit field cancels without calling the rename API
+- a folder keeps its previous expanded or collapsed state after rename, even when the active project path inside that folder is retargeted
 - folder rename preserves expanded-state intent by remapping the saved expanded-folder ids to the new relative path
 - `Delete folder` is restricted to empty folders only
 - the dashboard shows `Delete folder` as disabled for non-empty folders, and the API enforces the same rule with `409 Only empty folders can be deleted`
@@ -164,6 +166,12 @@ Current creation behavior:
 - after successful creation, the dashboard expands the folder, refreshes the tree, and opens the new project in the editor
 - unlike upload/duplicate/download, creation is intentionally disruptive to the current editor session because opening the new project is part of the UX
 - if the folder already contains that exact project name, the API returns `409` instead of auto-numbering or overwriting
+
+## Project rename
+
+Projects are renamed from the workflow-library project context menu or by pressing `F2` while the selected project row has focus, not from Project Settings. The project row uses the same shared inline edit field as folder rename, with the current name selected. `Esc` or click-away cancels without an API call, and `Enter` hides the field immediately while a row preloader remains until `PATCH /api/workflows/projects` resolves.
+
+When the API returns `movedProjectPaths`, the dashboard retargets the selected project, open editor tabs, and Project Settings state to the new absolute path without opening a different project. If the API rejects the rename, the preloader clears and the tree returns to the original row name while the error toast reports the server message.
 
 ## Project duplication
 
@@ -595,8 +603,8 @@ The workflow-publication UI now follows the same controller-versus-view split as
 
 - `WorkflowLibraryPanel.tsx` renders the shell, while `useWorkflowLibraryController.ts` owns refresh, selection, drag/drop, duplicate/download/upload, and modal orchestration
 - `ProjectSettingsModal.tsx` is mostly presentational
-- `useProjectSettingsActions.ts` owns rename, publish, unpublish, and guarded delete flows
-- `projectSettingsForm.ts` owns project-name normalization, endpoint validation, last-published labels, and status labels
+- `useProjectSettingsActions.ts` owns publish, unpublish, and guarded delete flows
+- `projectSettingsForm.ts` owns endpoint validation, last-published labels, and status labels
 - `workflowApi.ts` keeps endpoint-specific calls flat while `apiRequest.ts` owns shared JSON/text parsing and error extraction
 
 ## Key files
@@ -633,6 +641,7 @@ The workflow-publication UI now follows the same controller-versus-view split as
 - `wrapper/api/src/routes/workflows/managed-virtual-io.ts` - managed virtual-path helpers used by hosted native IO
 - `wrapper/api/src/scripts/measure-workflow-execution.ts` - read-only filesystem/managed endpoint measurement helper for route-timing diagnosis
 - `wrapper/web/dashboard/useWorkflowLibraryController.ts` - workflow-tree controller
+- `wrapper/web/dashboard/WorkflowInlineRenameInput.tsx` - shared inline rename input used by folder and project tree rows
 - `wrapper/web/dashboard/useProjectSettingsActions.ts` - project-settings mutations
 - `wrapper/web/dashboard/projectSettingsForm.ts` - project-settings validation and label helpers
 - `wrapper/web/dashboard/useRunRecordingsController.ts` - run-recordings controller

@@ -1,22 +1,15 @@
-import { useEffect, useMemo, useState, type ChangeEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useEffect, useMemo, useState, type ChangeEvent } from 'react';
 import { toast } from 'react-toastify';
 import {
   deleteWorkflowProject,
   publishWorkflowProject,
-  renameWorkflowProject,
   unpublishWorkflowProject,
 } from './workflowApi';
-import {
-  normalizeProjectNameDraft,
-  validateEndpointName,
-  validateProjectName,
-} from './projectSettingsForm';
+import { validateEndpointName } from './projectSettingsForm';
 import type {
   WorkflowProjectItem,
-  WorkflowProjectPathMove,
   WorkflowProjectSettingsDraft,
 } from './types';
-import { getParentRelativePath } from './workflowLibraryHelpers';
 
 type UseProjectSettingsActionsOptions = {
   activeProject: WorkflowProjectItem;
@@ -25,7 +18,6 @@ type UseProjectSettingsActionsOptions = {
   onClose: () => void;
   onDeleteProject: (path: string, projectId?: string | null) => void;
   onRefresh: () => void | Promise<void>;
-  onWorkflowPathsMoved: (moves: WorkflowProjectPathMove[]) => void;
 };
 
 export function useProjectSettingsActions(options: UseProjectSettingsActionsOptions) {
@@ -36,20 +28,14 @@ export function useProjectSettingsActions(options: UseProjectSettingsActionsOpti
     onClose,
     onDeleteProject,
     onRefresh,
-    onWorkflowPathsMoved,
   } = options;
   const [settingsDraft, setSettingsDraft] = useState<WorkflowProjectSettingsDraft>({ endpointName: '' });
-  const [projectNameDraft, setProjectNameDraft] = useState('');
-  const [editingProjectName, setEditingProjectName] = useState(false);
   const [showPublishSettings, setShowPublishSettings] = useState(false);
-  const [renamingProject, setRenamingProject] = useState(false);
   const [savingSettings, setSavingSettings] = useState(false);
   const [deletingProject, setDeletingProject] = useState(false);
 
   useEffect(() => {
     setSettingsDraft({ endpointName: activeProject.settings.endpointName });
-    setProjectNameDraft(activeProject.name);
-    setEditingProjectName(false);
     setShowPublishSettings(false);
   }, [activeProject, isOpen]);
 
@@ -68,38 +54,6 @@ export function useProjectSettingsActions(options: UseProjectSettingsActionsOpti
     ) ?? null;
   }, [activeProject.absolutePath, allProjects, endpointLookupName]);
 
-  const normalizedProjectNameDraft = useMemo(
-    () => normalizeProjectNameDraft(projectNameDraft),
-    [projectNameDraft],
-  );
-
-  const duplicateProjectNameInFolder = useMemo(() => {
-    if (!normalizedProjectNameDraft) {
-      return null;
-    }
-
-    const activeParentRelativePath = getParentRelativePath(activeProject.relativePath);
-
-    return allProjects.find((project) => {
-      if (project.absolutePath === activeProject.absolutePath) {
-        return false;
-      }
-
-      return (
-        getParentRelativePath(project.relativePath) === activeParentRelativePath &&
-        project.name.toLowerCase() === normalizedProjectNameDraft.toLowerCase()
-      );
-    }) ?? null;
-  }, [activeProject, allProjects, normalizedProjectNameDraft]);
-
-  const projectNameValidationError = useMemo(() => {
-    return validateProjectName(
-      normalizedProjectNameDraft,
-      duplicateProjectNameInFolder?.fileName ?? null,
-      { enabled: editingProjectName },
-    );
-  }, [duplicateProjectNameInFolder, editingProjectName, normalizedProjectNameDraft]);
-
   const endpointValidationError = useMemo(() => {
     return validateEndpointName(
       trimmedDraftEndpointName,
@@ -116,54 +70,6 @@ export function useProjectSettingsActions(options: UseProjectSettingsActionsOpti
         [key]: value,
       }));
     };
-
-  const handleProjectNameDraftChange = (event: ChangeEvent<HTMLInputElement>) => {
-    setProjectNameDraft(event.target.value);
-  };
-
-  const handleStartProjectRename = () => {
-    if (savingSettings || deletingProject || renamingProject) {
-      return;
-    }
-
-    setProjectNameDraft(activeProject.name);
-    setEditingProjectName(true);
-  };
-
-  const handleCommitProjectRename = async () => {
-    const normalizedName = normalizedProjectNameDraft;
-    if (!normalizedName || projectNameValidationError) {
-      return;
-    }
-
-    if (normalizedName === activeProject.name) {
-      setEditingProjectName(false);
-      setProjectNameDraft(activeProject.name);
-      return;
-    }
-
-    setRenamingProject(true);
-
-    try {
-      const result = await renameWorkflowProject(activeProject.relativePath, normalizedName);
-      if (result.movedProjectPaths.length > 0) {
-        onWorkflowPathsMoved(result.movedProjectPaths);
-      }
-      await onRefresh();
-      setEditingProjectName(false);
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to rename project');
-    } finally {
-      setRenamingProject(false);
-    }
-  };
-
-  const handleProjectNameKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      void handleCommitProjectRename();
-    }
-  };
 
   const handleShowPublishSettings = () => {
     if (savingSettings || deletingProject) {
@@ -229,21 +135,12 @@ export function useProjectSettingsActions(options: UseProjectSettingsActionsOpti
 
   return {
     settingsDraft,
-    projectNameDraft,
-    editingProjectName,
     showPublishSettings,
-    renamingProject,
     savingSettings,
     deletingProject,
     trimmedDraftEndpointName,
-    normalizedProjectNameDraft,
-    projectNameValidationError,
     endpointValidationError,
     handleSettingsDraftChange,
-    handleProjectNameDraftChange,
-    handleStartProjectRename,
-    handleCommitProjectRename,
-    handleProjectNameKeyDown,
     handleShowPublishSettings,
     handlePublishProject,
     handleUnpublishProject,

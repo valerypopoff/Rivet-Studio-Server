@@ -9,6 +9,7 @@ import {
   fetchWorkflowTree,
   moveWorkflowItem,
   renameWorkflowFolder,
+  renameWorkflowProject,
   uploadWorkflowProject,
 } from './workflowApi';
 import type {
@@ -25,7 +26,12 @@ import {
   normalizeWorkflowPath,
   ROOT_DROP_TARGET,
 } from './workflowLibraryHelpers';
-import { applyFolderMoveToTree, remapExpandedFolderIds } from './workflowTreeOps';
+import {
+  applyFolderMoveToTree,
+  applyProjectMoveToTree,
+  remapExpandedFolderIds,
+  rewriteWorkflowPathPrefix,
+} from './workflowTreeOps';
 
 const PROJECT_SAVE_REFRESH_DELAY_MS = 150;
 
@@ -74,6 +80,15 @@ function normalizePromptValue(value: string | null): string | null {
 
   const normalizedValue = value.trim();
   return normalizedValue || null;
+}
+
+function getRenamedFolderIds(
+  folder: WorkflowFolderItem,
+  sourceRelativePath: string,
+  destinationRelativePath: string,
+): string[] {
+  return flattenFolders([folder]).map((childFolder) =>
+    rewriteWorkflowPathPrefix(childFolder.id, sourceRelativePath, destinationRelativePath));
 }
 
 async function pickWorkflowProjectFile(): Promise<File | null> {
@@ -157,7 +172,7 @@ export function useWorkflowLibraryController(options: {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
-  const projectRowRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const projectRowRefs = useRef<Record<string, HTMLElement | null>>({});
   const [dragState, setDragState] = useState<WorkflowDragState>({
     draggedItem: null,
     dropTargetFolderPath: null,
@@ -170,6 +185,10 @@ export function useWorkflowLibraryController(options: {
   const [folderContextMenuState, setFolderContextMenuState] = useState<WorkflowFolderContextMenuState | null>(null);
   const [projectContextMenuState, setProjectContextMenuState] = useState<WorkflowProjectContextMenuState | null>(null);
   const [uploadingFolderPath, setUploadingFolderPath] = useState<string | null>(null);
+  const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
+  const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null);
+  const [editingProjectPath, setEditingProjectPath] = useState<string | null>(null);
+  const [renamingProjectPath, setRenamingProjectPath] = useState<string | null>(null);
   const [projectModalState, setProjectModalState] = useState<WorkflowProjectModalState | null>(null);
   const [downloadState, setDownloadState] = useState<WorkflowActionState>({
     projectPath: null,
@@ -181,6 +200,8 @@ export function useWorkflowLibraryController(options: {
   });
   const refreshRequestIdRef = useRef(0);
   const projectSaveRefreshTimeoutRef = useRef<number | null>(null);
+  const lastAutoExpandedActivePathRef = useRef<string | null>(null);
+  const suppressedActiveAncestorExpansionIdsRef = useRef<Set<string>>(new Set());
 
   const { draggedItem, dropTargetFolderPath, dragOverRoot } = dragState;
   const downloadingProjectPath = downloadState.projectPath;
@@ -365,7 +386,28 @@ export function useWorkflowLibraryController(options: {
   }, [activePath, flattenedFolders]);
 
   useEffect(() => {
+    const normalizedActivePath = normalizeWorkflowPath(activePath);
+    if (!normalizedActivePath) {
+      lastAutoExpandedActivePathRef.current = null;
+      return;
+    }
+
     if (activeAncestorFolderIds.length === 0) {
+      return;
+    }
+
+    if (lastAutoExpandedActivePathRef.current === normalizedActivePath) {
+      return;
+    }
+
+    lastAutoExpandedActivePathRef.current = normalizedActivePath;
+
+    const suppressedFolderIds = suppressedActiveAncestorExpansionIdsRef.current;
+    if (activeAncestorFolderIds.some((folderId) => suppressedFolderIds.has(folderId))) {
+      for (const folderId of activeAncestorFolderIds) {
+        suppressedFolderIds.delete(folderId);
+      }
+
       return;
     }
 
@@ -382,7 +424,7 @@ export function useWorkflowLibraryController(options: {
 
       return changed ? next : prev;
     });
-  }, [activeAncestorFolderIds]);
+  }, [activeAncestorFolderIds, activePath]);
 
   useEffect(() => {
     if (!activePath || loading) {
@@ -434,6 +476,23 @@ export function useWorkflowLibraryController(options: {
     setExpandedFolders((prev) => ({ ...prev, [folderId]: !(prev[folderId] ?? false) }));
   }, []);
 
+  const applyWorkflowProjectPathMoves = useCallback((moves: WorkflowProjectPathMove[]) => {
+    if (moves.length === 0) {
+      return;
+    }
+
+    setSelectedProjectPath((prev) => moves.find((move) => move.fromAbsolutePath === prev)?.toAbsolutePath ?? prev);
+    setSettingsModalProject((prev) => {
+      if (!prev) {
+        return prev;
+      }
+
+      const nextPath = moves.find((move) => move.fromAbsolutePath === prev.absolutePath)?.toAbsolutePath;
+      return nextPath ? { ...prev, absolutePath: nextPath } : prev;
+    });
+    onWorkflowPathsMoved(moves);
+  }, [onWorkflowPathsMoved]);
+
   const handleMoveDraggedItem = useCallback(async (destinationFolderRelativePath: string) => {
     if (!canDropIntoFolder(draggedItem, destinationFolderRelativePath) || !draggedItem) {
       return;
@@ -470,18 +529,7 @@ export function useWorkflowLibraryController(options: {
         }
       }
 
-      if (result.movedProjectPaths.length > 0) {
-        setSelectedProjectPath((prev) => result.movedProjectPaths.find((move) => move.fromAbsolutePath === prev)?.toAbsolutePath ?? prev);
-        setSettingsModalProject((prev) => {
-          if (!prev) {
-            return prev;
-          }
-
-          const nextPath = result.movedProjectPaths.find((move) => move.fromAbsolutePath === prev.absolutePath)?.toAbsolutePath;
-          return nextPath ? { ...prev, absolutePath: nextPath } : prev;
-        });
-        onWorkflowPathsMoved(result.movedProjectPaths);
-      }
+      applyWorkflowProjectPathMoves(result.movedProjectPaths);
 
       if (draggedItem.itemType === 'folder' && result.folder && sourceFolder) {
         reconcileWorkflowTreeInBackground('Workflow moved, but failed to refresh the tree');
@@ -494,11 +542,11 @@ export function useWorkflowLibraryController(options: {
       resetDragState();
     }
   }, [
+    applyWorkflowProjectPathMoves,
     canDropIntoFolder,
     draggedItem,
     flattenedFolders,
     folders,
-    onWorkflowPathsMoved,
     reconcileWorkflowTreeInBackground,
     refresh,
     resetDragState,
@@ -583,35 +631,84 @@ export function useWorkflowLibraryController(options: {
     }
   }, [refresh]);
 
-  const handleRenameFolder = useCallback(async (folder: WorkflowFolderItem) => {
-    const newName = normalizePromptValue(prompt('Rename folder:', folder.name));
+  const handleStartFolderRename = useCallback((folder: WorkflowFolderItem) => {
+    setEditingProjectPath(null);
+    setEditingFolderId(folder.id);
+  }, []);
+
+  const handleCancelFolderRename = useCallback((folder: WorkflowFolderItem) => {
+    setEditingFolderId((currentFolderId) => currentFolderId === folder.id ? null : currentFolderId);
+  }, []);
+
+  const handleSubmitFolderRename = useCallback(async (folder: WorkflowFolderItem, rawName: string) => {
+    const newName = normalizePromptValue(rawName);
     if (!newName || newName === folder.name) {
+      setEditingFolderId(null);
       return;
     }
 
+    setEditingFolderId(null);
+    setRenamingFolderId(folder.id);
+
     try {
       const result = await renameWorkflowFolder(folder.relativePath, newName);
+      const activeProjectPathMove = result.movedProjectPaths.find((move) => move.fromAbsolutePath === activePath);
+      if (activeProjectPathMove) {
+        suppressedActiveAncestorExpansionIdsRef.current = new Set([
+          ...suppressedActiveAncestorExpansionIdsRef.current,
+          ...getRenamedFolderIds(folder, folder.relativePath, result.folder.relativePath),
+        ]);
+      }
+
       const nextTree = applyFolderMoveToTree(folders, rootProjects, folder, result.folder);
       setFolders(nextTree.folders);
       setRootProjects(nextTree.rootProjects);
       setExpandedFolders((prev) => remapExpandedFolderIds(prev, folder.relativePath, result.folder.relativePath));
-      if (result.movedProjectPaths.length > 0) {
-        setSelectedProjectPath((prev) => result.movedProjectPaths.find((move) => move.fromAbsolutePath === prev)?.toAbsolutePath ?? prev);
-        setSettingsModalProject((prev) => {
-          if (!prev) {
-            return prev;
-          }
-
-          const nextPath = result.movedProjectPaths.find((move) => move.fromAbsolutePath === prev.absolutePath)?.toAbsolutePath;
-          return nextPath ? { ...prev, absolutePath: nextPath } : prev;
-        });
-        onWorkflowPathsMoved(result.movedProjectPaths);
-      }
+      applyWorkflowProjectPathMoves(result.movedProjectPaths);
       reconcileWorkflowTreeInBackground('Folder renamed, but failed to refresh the tree');
     } catch (err: any) {
       toast.error(err.message || 'Failed to rename folder');
+    } finally {
+      setRenamingFolderId((currentFolderId) => currentFolderId === folder.id ? null : currentFolderId);
     }
-  }, [folders, onWorkflowPathsMoved, reconcileWorkflowTreeInBackground, rootProjects]);
+  }, [activePath, applyWorkflowProjectPathMoves, folders, reconcileWorkflowTreeInBackground, rootProjects]);
+
+  const handleStartProjectRename = useCallback((project: WorkflowProjectItem) => {
+    setEditingFolderId(null);
+    setEditingProjectPath(project.absolutePath);
+  }, []);
+
+  const handleCancelProjectRename = useCallback((project: WorkflowProjectItem) => {
+    setEditingProjectPath((currentProjectPath) =>
+      currentProjectPath === project.absolutePath ? null : currentProjectPath);
+  }, []);
+
+  const handleSubmitProjectRename = useCallback(async (project: WorkflowProjectItem, rawName: string) => {
+    const newName = normalizePromptValue(rawName);
+    if (!newName || newName === project.name) {
+      setEditingProjectPath(null);
+      return;
+    }
+
+    setEditingProjectPath(null);
+    setRenamingProjectPath(project.absolutePath);
+
+    try {
+      const result = await renameWorkflowProject(project.relativePath, newName);
+      const nextTree = applyProjectMoveToTree(folders, rootProjects, project, result.project);
+      setFolders(nextTree.folders);
+      setRootProjects(nextTree.rootProjects);
+
+      applyWorkflowProjectPathMoves(result.movedProjectPaths);
+
+      reconcileWorkflowTreeInBackground('Project renamed, but failed to refresh the tree');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to rename project');
+    } finally {
+      setRenamingProjectPath((currentProjectPath) =>
+        currentProjectPath === project.absolutePath ? null : currentProjectPath);
+    }
+  }, [applyWorkflowProjectPathMoves, folders, reconcileWorkflowTreeInBackground, rootProjects]);
 
   const handleAddProject = useCallback(async (folder: WorkflowFolderItem) => {
     const name = normalizePromptValue(prompt(`New Rivet project name in folder "${folder.name}":`));
@@ -664,6 +761,8 @@ export function useWorkflowLibraryController(options: {
     event.preventDefault();
     event.stopPropagation();
 
+    setEditingFolderId(null);
+    setEditingProjectPath(null);
     setProjectContextMenuState(null);
     setFolderContextMenuState({
       folder,
@@ -674,7 +773,7 @@ export function useWorkflowLibraryController(options: {
 
   const handleProjectContextMenu = useCallback((
     project: WorkflowProjectItem,
-    event: MouseEvent<HTMLButtonElement>,
+    event: MouseEvent<HTMLElement>,
   ) => {
     if (duplicatingProjectPath || downloadingProjectPath || uploadingFolderPath) {
       event.preventDefault();
@@ -685,6 +784,8 @@ export function useWorkflowLibraryController(options: {
     event.preventDefault();
     event.stopPropagation();
 
+    setEditingFolderId(null);
+    setEditingProjectPath(null);
     setFolderContextMenuState(null);
     setProjectContextMenuState({
       project,
@@ -762,13 +863,13 @@ export function useWorkflowLibraryController(options: {
     }
 
     closeFolderContextMenu();
-    await handleRenameFolder(targetFolder);
+    handleStartFolderRename(targetFolder);
   }, [
     closeFolderContextMenu,
     downloadingProjectPath,
     duplicatingProjectPath,
     folderContextMenuState,
-    handleRenameFolder,
+    handleStartFolderRename,
     uploadingFolderPath,
   ]);
 
@@ -960,32 +1061,15 @@ export function useWorkflowLibraryController(options: {
     }
 
     closeProjectContextMenu();
-    openProjectSettingsModal(targetProject);
+    handleStartProjectRename(targetProject);
   }, [
     closeProjectContextMenu,
     downloadingProjectPath,
     duplicatingProjectPath,
-    openProjectSettingsModal,
+    handleStartProjectRename,
     projectContextMenuState,
     uploadingFolderPath,
   ]);
-
-  const handleWorkflowProjectPathsMoved = useCallback((moves: WorkflowProjectPathMove[]) => {
-    if (moves.length === 0) {
-      return;
-    }
-
-    setSelectedProjectPath((prev) => moves.find((move) => move.fromAbsolutePath === prev)?.toAbsolutePath ?? prev);
-    setSettingsModalProject((prev) => {
-      if (!prev) {
-        return prev;
-      }
-
-      const nextPath = moves.find((move) => move.fromAbsolutePath === prev.absolutePath)?.toAbsolutePath;
-      return nextPath ? { ...prev, absolutePath: nextPath } : prev;
-    });
-    onWorkflowPathsMoved(moves);
-  }, [onWorkflowPathsMoved]);
 
   const closeSettingsModal = useCallback(() => {
     setSettingsModalProject(null);
@@ -1025,16 +1109,24 @@ export function useWorkflowLibraryController(options: {
     void startDuplicateProject(projectModalProject, 'live', { closeModal: true });
   }, [projectModalMode, projectModalProject, startDownloadProject, startDuplicateProject]);
 
-  const setProjectRowRef = useCallback((projectPath: string, node: HTMLButtonElement | null) => {
+  const setProjectRowRef = useCallback((projectPath: string, node: HTMLElement | null) => {
     projectRowRefs.current[projectPath] = node;
   }, []);
 
   const handleFolderRowClick = useCallback((folder: WorkflowFolderItem) => (_event: MouseEvent<HTMLElement>) => {
+    if (editingFolderId === folder.id || renamingFolderId === folder.id) {
+      return;
+    }
+
     toggleFolderExpanded(folder.id);
-  }, [toggleFolderExpanded]);
+  }, [editingFolderId, renamingFolderId, toggleFolderExpanded]);
 
   const handleFolderRowKeyDown = useCallback(
     (folder: WorkflowFolderItem) => (event: KeyboardEvent<HTMLDivElement>) => {
+      if (editingFolderId === folder.id || renamingFolderId === folder.id) {
+        return;
+      }
+
       if (event.key !== 'Enter' && event.key !== ' ') {
         return;
       }
@@ -1042,7 +1134,39 @@ export function useWorkflowLibraryController(options: {
       event.preventDefault();
       toggleFolderExpanded(folder.id);
     },
-    [toggleFolderExpanded],
+    [editingFolderId, renamingFolderId, toggleFolderExpanded],
+  );
+
+  const handleProjectRowKeyDown = useCallback(
+    (project: WorkflowProjectItem) => (event: KeyboardEvent<HTMLElement>) => {
+      if (event.key !== 'F2') {
+        return;
+      }
+
+      if (
+        project.absolutePath !== activePath ||
+        editingProjectPath === project.absolutePath ||
+        renamingProjectPath === project.absolutePath ||
+        downloadingProjectPath ||
+        duplicatingProjectPath ||
+        uploadingFolderPath
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      handleStartProjectRename(project);
+    },
+    [
+      activePath,
+      downloadingProjectPath,
+      duplicatingProjectPath,
+      editingProjectPath,
+      handleStartProjectRename,
+      renamingProjectPath,
+      uploadingFolderPath,
+    ],
   );
 
   return {
@@ -1061,6 +1185,10 @@ export function useWorkflowLibraryController(options: {
     downloadingProjectPath,
     duplicatingProjectPath,
     uploadingFolderPath,
+    editingFolderId,
+    renamingFolderId,
+    editingProjectPath,
+    renamingProjectPath,
     settingsModalOpen,
     settingsModalProject,
     runtimeLibsOpen,
@@ -1084,6 +1212,7 @@ export function useWorkflowLibraryController(options: {
     handleDragEnd,
     handleFolderRowClick,
     handleFolderRowKeyDown,
+    handleProjectRowKeyDown,
     handleFolderDragOver,
     handleFolderDrop,
     handleFolderDragLeave,
@@ -1093,8 +1222,12 @@ export function useWorkflowLibraryController(options: {
     handleUploadProjectFromFolder,
     handleCreateProjectFromContextMenu,
     handleRenameFolderFromContextMenu,
+    handleSubmitFolderRename,
+    handleCancelFolderRename,
     handleDeleteFolderFromContextMenu,
     handleRenameProjectFromContextMenu,
+    handleSubmitProjectRename,
+    handleCancelProjectRename,
     handleDownloadProject,
     handleDuplicateProject,
     handleDeleteProjectFromContextMenu,
@@ -1108,7 +1241,7 @@ export function useWorkflowLibraryController(options: {
     },
     onProjectSelect: setSelectedProjectPath,
     onProjectOpen: onOpenProject,
-    onWorkflowPathsMoved: handleWorkflowProjectPathsMoved,
+    onWorkflowPathsMoved: applyWorkflowProjectPathMoves,
     onDeleteProject,
     setProjectRowRef,
     isFolderEmpty,

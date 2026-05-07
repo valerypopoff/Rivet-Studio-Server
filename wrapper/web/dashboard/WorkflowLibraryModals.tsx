@@ -17,7 +17,6 @@ export const WorkflowLibraryModals: FC<{
     closeSettingsModal,
     refresh,
     onDeleteProject,
-    onWorkflowPathsMoved,
     runtimeLibsOpen,
     setRuntimeLibsOpen,
     runRecordingsOpen,
@@ -41,7 +40,6 @@ export const WorkflowLibraryModals: FC<{
           onClose={closeSettingsModal}
           onRefresh={() => refresh(false)}
           onDeleteProject={onDeleteProject}
-          onWorkflowPathsMoved={onWorkflowPathsMoved}
         />
       ) : null}
       <RuntimeLibrariesModal
