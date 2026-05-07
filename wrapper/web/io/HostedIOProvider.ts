@@ -22,7 +22,7 @@ import { apiReadBinary, apiReadText } from '../../shared/api';
 import { MANAGED_WORKFLOW_VIRTUAL_ROOT } from '../../shared/workflow-types';
 import { getWorkflowRecordingIdFromVirtualProjectPath } from '../../shared/workflow-recording-types';
 import { loadedProjectState } from '../../../rivet/packages/app/src/state/savedGraphs.js';
-import { datasetProvider } from '../../../rivet/packages/app/src/utils/globals/datasetProvider.js';
+import type { AppDatasetProvider } from '../../../rivet/packages/app/src/host';
 import { fetchWorkflowRecordingArtifactText } from '../dashboard/workflowApi';
 import { getEnvVar } from '../overrides/utils/tauri';
 import { deserializeHostedProjectPayloadAsync } from '../overrides/utils/deserializeProject';
@@ -31,6 +31,10 @@ const API = RIVET_API_BASE_URL;
 const jotaiStore = getDefaultStore();
 const projectRevisionIdByPath = new Map<string, string | null>();
 let workflowStorageBackendPromise: Promise<'filesystem' | 'managed'> | null = null;
+
+type HostedDatasetProvider = AppDatasetProvider & {
+  importDatasetsForProject: NonNullable<AppDatasetProvider['importDatasetsForProject']>;
+};
 
 export function clearHostedProjectRevisionPath(path: string | null | undefined): void {
   if (!path) {
@@ -208,6 +212,12 @@ async function deserializeHostedProjectPayload(
 }
 
 export class HostedIOProvider implements IOProvider {
+  readonly #datasetProvider: HostedDatasetProvider;
+
+  constructor(datasetProvider: HostedDatasetProvider) {
+    this.#datasetProvider = datasetProvider;
+  }
+
   static isSupported(): boolean {
     return true;
   }
@@ -249,7 +259,7 @@ export class HostedIOProvider implements IOProvider {
     const data = serializeProject(project, {
       trivet: serializeTrivetData(testData),
     }) as string;
-    const datasets = await datasetProvider.exportDatasetsForProject(project.metadata.id);
+    const datasets = await this.#datasetProvider.exportDatasetsForProject(project.metadata.id);
     const saved = await apiSaveProject({
       path: filePath,
       contents: data,
@@ -270,7 +280,7 @@ export class HostedIOProvider implements IOProvider {
     const data = serializeProject(project, {
       trivet: serializeTrivetData(testData),
     }) as string;
-    const datasets = await datasetProvider.exportDatasetsForProject(project.metadata.id);
+    const datasets = await this.#datasetProvider.exportDatasetsForProject(project.metadata.id);
     const saved = await apiSaveProject({
       path,
       contents: data,
@@ -369,9 +379,9 @@ export class HostedIOProvider implements IOProvider {
 
       if (replayDatasetResult.datasetsText) {
         const datasets = deserializeDatasets(replayDatasetResult.datasetsText);
-        await datasetProvider.importDatasetsForProject(projectData.metadata.id, datasets);
+        await this.#datasetProvider.importDatasetsForProject(projectData.metadata.id, datasets);
       } else {
-        await datasetProvider.importDatasetsForProject(projectData.metadata.id, []);
+        await this.#datasetProvider.importDatasetsForProject(projectData.metadata.id, []);
       }
 
       return { project: projectData, testData: trivetData };
@@ -384,9 +394,9 @@ export class HostedIOProvider implements IOProvider {
 
     if (loaded.datasetsContents) {
       const datasets = deserializeDatasets(loaded.datasetsContents);
-      await datasetProvider.importDatasetsForProject(projectData.metadata.id, datasets);
+      await this.#datasetProvider.importDatasetsForProject(projectData.metadata.id, datasets);
     } else {
-      await datasetProvider.importDatasetsForProject(projectData.metadata.id, []);
+      await this.#datasetProvider.importDatasetsForProject(projectData.metadata.id, []);
     }
 
     return { project: projectData, testData: trivetData };

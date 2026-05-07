@@ -34,22 +34,21 @@ fi
 echo "[2/7] Checking aliased upstream file paths..."
 ALIASED_FILES=(
   "utils/tauri.ts"
-  "utils/globals/ioProvider.ts"
   "state/settings.ts"
   "hooks/useLoadPackagePlugin.ts"
   "model/native/TauriNativeApi.ts"
-  "io/TauriIOProvider.ts"
 )
 
+ALIASED_MISSING_COUNT=0
 for f in "${ALIASED_FILES[@]}"; do
   if [ ! -f "$RIVET_APP_SRC/$f" ]; then
     echo "  FAIL: Aliased file missing: $RIVET_APP_SRC/$f"
     ERRORS=$((ERRORS + 1))
+    ALIASED_MISSING_COUNT=$((ALIASED_MISSING_COUNT + 1))
   fi
 done
 
-MISSING_COUNT=$(for f in "${ALIASED_FILES[@]}"; do [ ! -f "$RIVET_APP_SRC/$f" ] && echo 1; done | wc -l)
-if [ "$MISSING_COUNT" -eq 0 ]; then
+if [ "${ALIASED_MISSING_COUNT:-0}" -eq 0 ]; then
   echo "  OK: All aliased files exist"
 fi
 
@@ -67,16 +66,16 @@ else
   echo "  OK: No hardcoded localhost WebSocket URLs"
 fi
 
-# 4. Check for new direct instantiation of classes we override
-echo "[4/7] Checking for new TauriNativeApi/TauriIOProvider usage..."
+# 4. Check for direct native/API constructors that provider seams do not cover
+echo "[4/7] Checking for direct native API usage and unexpected TauriIOProvider construction..."
 DIRECT_USAGE=$(grep -rn "new TauriNativeApi\|new TauriIOProvider" "$RIVET_APP_SRC" 2>/dev/null | \
   grep -v "node_modules" | \
-  grep -vE "(TauriNativeApi\.ts|TauriIOProvider\.ts)" || true)
+  grep -vE "(TauriNativeApi\.ts|TauriIOProvider\.ts|providers/ProvidersContext\.tsx|utils/globals/ioProvider\.ts)" || true)
 
 if [ -n "$DIRECT_USAGE" ]; then
-  echo "  WARN: Direct instantiation found in files not covered by aliases:"
+  echo "  WARN: Direct instantiation found outside the expected host/provider seams:"
   echo "$DIRECT_USAGE" | sed 's/^/    /'
-  echo "  Review whether these files are covered by Vite aliases"
+  echo "  Review whether these files need a native API shim or provider override"
 else
   echo "  OK: No unexpected direct instantiation"
 fi

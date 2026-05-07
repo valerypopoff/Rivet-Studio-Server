@@ -14,8 +14,8 @@ import {
 } from '../../../rivet/packages/app/src/state/savedGraphs';
 import {
   useIOProvider,
-  useRivetWorkspaceHost,
   type RivetProjectSnapshotInput,
+  type RivetWorkspaceHost,
 } from '../../../rivet/packages/app/src/host';
 import {
   getOpenedProjectSession,
@@ -109,10 +109,9 @@ function retainOnlySnapshot(
   return snapshot ? ({ [projectId]: snapshot } as Record<ProjectId, OpenedProjectSnapshot>) : {};
 }
 
-export function useOpenWorkflowProject() {
+export function useOpenWorkflowProject(workspace: RivetWorkspaceHost) {
   const store = useStore();
   const ioProvider = useIOProvider();
-  const workspace = useRivetWorkspaceHost();
   const setProjects = useSetAtom(projectsState);
   const setOpenedProjectSnapshots = useSetAtom(openedProjectSnapshotsState);
 

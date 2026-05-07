@@ -282,6 +282,7 @@ Current behavior:
 - `npm run dev:docker:prepare-rivet-context` refreshes that filtered context without starting Docker, which is useful before manual `docker build --build-context rivet_source=.data/docker-contexts/rivet-source ...` checks
 - the Docker Compose stacks set `HOME=/home/rivet` and keep npm/Yarn caches there so pulled non-root images and locally built images use the same runtime cache contract
 - the launcher waits for healthy services; `RIVET_DOCKER_WAIT_TIMEOUT` controls the wait window
+- on Windows/Docker Desktop, if Compose fails before containers start with `error while creating mount source path '/run/desktop/mnt/host/<drive>/...'` and `file exists`, first verify the host folder exists, then run `wsl --shutdown` from PowerShell to reset Docker Desktop's WSL file-sharing bridge before retrying `npm run dev:docker`
 - in `RIVET_STORAGE_MODE=managed`, both workflow state and runtime-library releases come from managed services, while `/data/runtime-libraries` remains only an extracted local cache/workspace inside each container
 - in `RIVET_STORAGE_MODE=managed`, published/latest endpoint execution also keeps API-local warm caches for endpoint pointers and immutable revision contents; the first hit after startup or after a workflow mutation can still be slower, but repeated hits for the same unchanged trivial workflow should settle onto the warm local path
 - a later cleanup pass did not change that behavior; it extracted the managed execution invalidation/service code, replaced brittle source assertions with behavioral tests, added a measurement tool, and hardened listener startup/shutdown plus same-process self-notify handling without changing the public execution contract
@@ -370,14 +371,14 @@ When adding new code, keep the post-refactor ownership seams explicit instead of
   - page/components should stay mostly render wiring
 - dashboard/editor bridge wiring should stay explicit
   - `DashboardPage.tsx` is the composition root
-  - `HostedEditorApp.tsx` mounts `RivetAppHost`, passes the hosted provider overrides from `hostedRivetProviders.ts`, and forwards upstream host callbacks for active project, open-project count, and save completion
+  - `HostedEditorApp.tsx` mounts `RivetAppHost`, passes the hosted provider overrides from `hostedRivetProviders.ts`, captures the upstream `RivetWorkspaceHost` through `onWorkspaceHostReady`, and forwards upstream host callbacks for active project, open-project count, and save completion
   - `useEditorCommandQueue.ts` owns pre-ready command buffering
   - `useEditorBridgeEvents.ts` owns dashboard-side message listeners and cross-iframe save shortcut capture
-  - `EditorMessageBridge.tsx` owns editor-side message handling and should call `RivetWorkspaceHost` for project close and path-move commands instead of rewriting Rivet tab atoms directly
+  - `EditorMessageBridge.tsx` owns editor-side message handling after the workspace host handle is ready, and should pass that `RivetWorkspaceHost` through to project open, replace-current, close, and path-move commands instead of rewriting Rivet tab atoms directly
 - hosted provider wiring should stay explicit
   - import the app shell and CSS through `rivet/packages/app/src/host.tsx` and `rivet/packages/app/src/host.css`
-  - pass `HostedIOProvider`, the shared browser dataset provider, the hosted environment provider, and the hosted path-policy provider through `RivetAppHost.providers`
-  - keep `HostedIOProvider` and Rivet's active dataset provider on the same dataset-provider instance so project file IO and dataset UI/runtime hooks observe the same imported datasets
+  - pass `HostedIOProvider`, an injected `BrowserDatasetProvider`, the hosted environment provider, and the hosted path-policy provider through `RivetAppHost.providers`
+  - keep `HostedIOProvider` and Rivet's active dataset provider on the same import/export-capable dataset-provider instance so project file IO, dataset UI, and runtime hooks observe the same imported datasets
 - editor executor transport should prefer Rivet's upstream host/session seam
   - mount the editor through `RivetAppHost`
   - pass the hosted executor websocket through `executor.internalExecutorUrl`
@@ -402,7 +403,7 @@ When adding new code, keep the post-refactor ownership seams explicit instead of
   - `wrapper/web/vite.config.ts` resolves override files only when the importer is under `rivet/packages/app/src`
   - do not put wrapper-owned transport overrides back into `wrapper/web/vite-aliases.ts`
   - do not alias `useSaveProject` or `useMenuCommands`; upstream `useWorkspaceTransitions` and `RivetAppHost.onProjectSaved` own the save/menu seam, while the wrapper sends `save-project` when focus is outside the iframe and reconciles hosted title metadata after successful saves
-  - do not reintroduce wrapper copies of `TauriProjectReferenceLoader` or `io/datasets`; hosted relative-project reads belong in the path policy provider, and hosted project/dataset persistence belongs in `HostedIOProvider`
+  - do not reintroduce wrapper copies of `TauriProjectReferenceLoader`, `io/datasets`, `io/TauriIOProvider`, or `utils/globals/ioProvider`; hosted relative-project reads belong in the path policy provider, and hosted project/dataset persistence belongs in `RivetAppHost.providers` plus `HostedIOProvider`
   - keep `scripts/update-check.sh` aligned with that boundary: it should check the upstream provider seams, not treat provider-backed upstream modules as wrapper aliases
   - keep bare-package shims such as `@tauri-apps/api/*` separate from relative Rivet module overrides
   - do not keep stale component copies such as `OverlayTabs` in the wrapper; the current Rivet 2 workspace tab row is upstream-owned, and observer coverage should follow its accessible `Workspace navigation` buttons

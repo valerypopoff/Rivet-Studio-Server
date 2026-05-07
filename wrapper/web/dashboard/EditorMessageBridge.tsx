@@ -9,7 +9,7 @@ import {
 } from '../../../rivet/packages/app/src/state/savedGraphs';
 import { loadedRecordingState } from '../../../rivet/packages/app/src/state/execution';
 import { selectedExecutorState } from '../../../rivet/packages/app/src/state/settings';
-import { useRivetWorkspaceHost } from '../../../rivet/packages/app/src/host';
+import type { RivetWorkspaceHost } from '../../../rivet/packages/app/src/host';
 import type { WorkflowProjectPathMove } from './types';
 import {
   type DashboardToEditorCommand,
@@ -59,9 +59,12 @@ async function fetchLoadedWorkflowRecording(recordingId: string): Promise<Loaded
   };
 }
 
-export const EditorMessageBridge: FC = () => {
-  const workspace = useRivetWorkspaceHost();
-  const openProject = useOpenWorkflowProject();
+type EditorMessageBridgeProps = {
+  workspaceHost: RivetWorkspaceHost;
+};
+
+export const EditorMessageBridge: FC<EditorMessageBridgeProps> = ({ workspaceHost }) => {
+  const openProject = useOpenWorkflowProject(workspaceHost);
   const { saveProject } = useSaveProject();
   const projects = useAtomValue(projectsState);
   const loadedProject = useAtomValue(loadedProjectState);
@@ -70,14 +73,14 @@ export const EditorMessageBridge: FC = () => {
   const setSelectedExecutor = useSetAtom(selectedExecutorState);
   const projectsRef = useRef<OpenedProjectsInfo>(projects);
   const loadedProjectRef = useRef(loadedProject);
-  const workspaceRef = useRef(workspace);
+  const workspaceRef = useRef(workspaceHost);
   const openProjectRef = useRef(openProject);
   const saveProjectRef = useRef(saveProject);
   const openCommandQueueRef = useRef<Promise<void>>(Promise.resolve());
   const recordingByProjectPathRef = useRef(new Map<string, LoadedWorkflowRecording>());
   projectsRef.current = projects;
   loadedProjectRef.current = loadedProject;
-  workspaceRef.current = workspace;
+  workspaceRef.current = workspaceHost;
   openProjectRef.current = openProject;
   saveProjectRef.current = saveProject;
 

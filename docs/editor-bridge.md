@@ -85,10 +85,10 @@ Node copy/paste shortcuts do not cross the editor bridge.
 
 The editor bridge is not the same thing as the executor/debugger websocket transport. In the Rivet 2.0 integration, the hosted shell mounts the editor through `RivetAppHost` and passes the hosted executor websocket as `executor.internalExecutorUrl`.
 
-- the editor-side bridge remains in `wrapper/web/dashboard/EditorMessageBridge.tsx`; executor UI classification stays in upstream Rivet's `useExecutorSession` / `useRemoteDebugger` flow through `executor.internalExecutorUrl`
+- the iframe app captures the upstream `RivetWorkspaceHost` through `RivetAppHost.onWorkspaceHostReady`, then renders `wrapper/web/dashboard/EditorMessageBridge.tsx` with that handle; executor UI classification stays in upstream Rivet's `useExecutorSession` / `useRemoteDebugger` flow through `executor.internalExecutorUrl`
 - executor transport ownership stays in upstream Rivet app code (`useExecutorSession`, `useRemoteDebugger`, `useRemoteExecutor`, and the shared executor-session runtime); the wrapper passes the hosted executor URL and does not alias those transport/debugger hooks
 - hosted wrapper code still owns project-open/delete/path-move messages, parent-page save relay, and hosted IO adapters; upstream Rivet owns workspace transitions, tab close fallback, path moves, and the actual save transition
-- hosted provider wiring is explicit in `hostedRivetProviders`: the wrapper passes `HostedIOProvider`, the shared browser dataset provider, hosted environment lookup, and hosted path-policy reads into `RivetAppHost.providers`
+- hosted provider wiring is explicit in `hostedRivetProviders`: the wrapper passes `HostedIOProvider`, an injected import/export-capable `BrowserDatasetProvider`, hosted environment lookup, and hosted path-policy reads into `RivetAppHost.providers`; stale `ioProvider` and `TauriIOProvider` module aliases should stay removed
 - stale wrapper transport override files were removed after the Rivet 2 seam migration; do not restore `useExecutorSession`, `useRemoteDebugger`, `useGraphExecutor`, or `useRemoteExecutor` aliases unless the upstream seam is removed
 
 Those execution websocket responsibilities are separate from the dashboard/editor `window.postMessage` bridge. The bridge moves open/save/delete/path-move intent between browsing contexts; the Rivet executor session talks to `/ws/executor*`.
@@ -102,10 +102,10 @@ Those execution websocket responsibilities are separate from the dashboard/edito
 - `wrapper/web/dashboard/useEditorCommandQueue.ts` - pre-ready command buffering
 - `wrapper/web/dashboard/editorBridgeFocus.ts` - iframe/canvas focus helpers and save-shortcut detection
 - `wrapper/web/dashboard/EditorMessageBridge.tsx` - editor-side message handling
-- `wrapper/web/dashboard/HostedEditorApp.tsx` - `RivetAppHost` callback forwarding for active project, open project count, and saved project events
+- `wrapper/web/dashboard/HostedEditorApp.tsx` - `RivetAppHost` callback forwarding for active project, open project count, saved project events, and workspace-host readiness
 - `wrapper/web/dashboard/useReconcileHostedProjectTitleAfterSave.ts` - save-completion title reconciliation for active project metadata, tab labels, and opened-project snapshots
 - `wrapper/web/dashboard/hostedRivetProviders.ts` - explicit provider overrides passed into `RivetAppHost`
-- `wrapper/web/dashboard/useOpenWorkflowProject.ts` - hosted path loading, duplicate-id checks, and open/replace-current calls into `RivetWorkspaceHost`
+- `wrapper/web/dashboard/useOpenWorkflowProject.ts` - hosted path loading, duplicate-id checks, and open/replace-current calls through the captured `RivetWorkspaceHost`
 - `wrapper/web/io/HostedIOProvider.ts` - API-backed project loading/saving plus replay-project loading
 - `wrapper/web/overrides/hooks/useCopyNodesHotkeys.ts` - hosted clipboard hotkey override that reads the latest node state synchronously
 - `wrapper/web/overrides/hooks/useContextMenu.ts` - hosted context-menu override that clears stale focused menu inputs

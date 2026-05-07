@@ -1,8 +1,9 @@
-import { type FC, useCallback } from 'react';
+import { type FC, useCallback, useState } from 'react';
 import {
   RivetAppHost,
   type RivetAppHostOpenErrorEvent,
   type RivetAppHostProjectSavedEvent,
+  type RivetWorkspaceHost,
 } from '../../../rivet/packages/app/src/host';
 import { EditorMessageBridge } from './EditorMessageBridge';
 import { RIVET_EXECUTOR_WS_URL } from '../../shared/hosted-env';
@@ -11,6 +12,7 @@ import { hostedRivetProviders } from './hostedRivetProviders';
 import { useReconcileHostedProjectTitleAfterSave } from './useReconcileHostedProjectTitleAfterSave';
 
 export const HostedEditorApp: FC = () => {
+  const [workspaceHost, setWorkspaceHost] = useState<RivetWorkspaceHost | null>(null);
   const reconcileHostedProjectTitleAfterSave = useReconcileHostedProjectTitleAfterSave();
 
   const handleProjectSaved = useCallback((event: RivetAppHostProjectSavedEvent) => {
@@ -41,6 +43,14 @@ export const HostedEditorApp: FC = () => {
     console.error('Rivet host open operation failed:', event);
   }, []);
 
+  const handleWorkspaceHostReady = useCallback((host: RivetWorkspaceHost) => {
+    setWorkspaceHost(host);
+  }, []);
+
+  const handleWorkspaceHostDisposed = useCallback((host: RivetWorkspaceHost) => {
+    setWorkspaceHost((currentHost) => currentHost === host ? null : currentHost);
+  }, []);
+
   return (
     <RivetAppHost
       executor={{ internalExecutorUrl: RIVET_EXECUTOR_WS_URL }}
@@ -49,8 +59,10 @@ export const HostedEditorApp: FC = () => {
       onOpenError={handleOpenError}
       onOpenProjectCountChanged={handleOpenProjectCountChanged}
       onProjectSaved={handleProjectSaved}
+      onWorkspaceHostDisposed={handleWorkspaceHostDisposed}
+      onWorkspaceHostReady={handleWorkspaceHostReady}
     >
-      <EditorMessageBridge />
+      {workspaceHost ? <EditorMessageBridge workspaceHost={workspaceHost} /> : null}
     </RivetAppHost>
   );
 };
