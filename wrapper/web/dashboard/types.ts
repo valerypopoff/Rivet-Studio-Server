@@ -1,5 +1,6 @@
 import type {
   WorkflowFolderItem,
+  WorkflowProjectDeleteResponse,
   WorkflowProjectDownloadVersion,
   WorkflowProjectItem,
   WorkflowProjectPathMove,
@@ -19,6 +20,7 @@ import type {
 
 export type {
   WorkflowFolderItem,
+  WorkflowProjectDeleteResponse,
   WorkflowProjectDownloadVersion,
   WorkflowProjectItem,
   WorkflowProjectPathMove,

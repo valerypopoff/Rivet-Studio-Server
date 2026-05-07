@@ -23,7 +23,7 @@ type UseProjectSettingsActionsOptions = {
   allProjects: WorkflowProjectItem[];
   isOpen: boolean;
   onClose: () => void;
-  onDeleteProject: (path: string) => void;
+  onDeleteProject: (path: string, projectId?: string | null) => void;
   onRefresh: () => void | Promise<void>;
   onWorkflowPathsMoved: (moves: WorkflowProjectPathMove[]) => void;
 };
@@ -216,8 +216,8 @@ export function useProjectSettingsActions(options: UseProjectSettingsActionsOpti
     setDeletingProject(true);
 
     try {
-      await deleteWorkflowProject(activeProject.relativePath);
-      onDeleteProject(activeProject.absolutePath);
+      const deletedProject = await deleteWorkflowProject(activeProject.relativePath);
+      onDeleteProject(activeProject.absolutePath, deletedProject.projectId);
       onClose();
       await onRefresh();
     } catch (err: any) {

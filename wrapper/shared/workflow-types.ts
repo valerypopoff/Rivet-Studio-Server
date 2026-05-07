@@ -70,6 +70,11 @@ export type WorkflowProjectItem = {
   stats?: WorkflowProjectStats;
 };
 
+export type WorkflowProjectDeleteResponse = {
+  deleted: true;
+  projectId: string | null;
+};
+
 export type WorkflowFolderItem = {
   id: string;
   name: string;

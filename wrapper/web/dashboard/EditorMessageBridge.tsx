@@ -1,12 +1,13 @@
 import { type FC, useCallback, useEffect, useRef } from 'react';
 import { useOpenWorkflowProject } from './useOpenWorkflowProject';
-import { ExecutionRecorder, getError } from '@valerypopoff/rivet2-core';
+import { getError, type ExecutionRecorder, type ProjectId } from '@valerypopoff/rivet2-core';
 import { useAtomValue, useSetAtom } from 'jotai';
 import {
   loadedProjectState,
   type OpenedProjectsInfo,
   projectsState,
 } from '../../../rivet/packages/app/src/state/savedGraphs';
+import { deleteHostedProjectContextState } from '../overrides/state/savedGraphs';
 import { loadedRecordingState } from '../../../rivet/packages/app/src/state/execution';
 import { selectedExecutorState } from '../../../rivet/packages/app/src/state/settings';
 import type { RivetWorkspaceHost } from '../../../rivet/packages/app/src/host';
@@ -30,6 +31,7 @@ import {
   focusHostedEditorFrame,
   isSaveShortcutEvent,
 } from './editorBridgeFocus';
+import { clearHostedDatasetsForProject } from './hostedRivetProviders';
 
 function getRecordingStartGraphId(recorder: ExecutionRecorder): string | undefined {
   for (const event of recorder.events) {
@@ -43,6 +45,20 @@ function getRecordingStartGraphId(recorder: ExecutionRecorder): string | undefin
   }
 
   return undefined;
+}
+
+async function clearDeletedHostedProjectState(projectIds: Iterable<ProjectId>): Promise<void> {
+  for (const projectId of projectIds) {
+    deleteHostedProjectContextState(projectId);
+
+    try {
+      await clearHostedDatasetsForProject(projectId);
+    } catch (error) {
+      console.error('Failed to clear hosted datasets for deleted project:', error);
+    }
+
+    clearOpenedProjectSession(projectId);
+  }
 }
 
 type LoadedWorkflowRecording = {
@@ -278,18 +294,28 @@ export const EditorMessageBridge: FC<EditorMessageBridgeProps> = ({ workspaceHos
           const openedProjects = latestProjects.openedProjects;
           const openedProjectIds = latestProjects.openedProjectsSortedIds.filter((projectId) => openedProjects[projectId] != null);
           const deletedProjectId = openedProjectIds.find((projectId) => openedProjects[projectId]?.fsPath === deletedPath);
+          const deletedProjectIds = new Set<ProjectId>();
+          if (event.data.projectId) {
+            deletedProjectIds.add(event.data.projectId as ProjectId);
+          }
+          if (deletedProjectId) {
+            deletedProjectIds.add(deletedProjectId);
+          }
           clearHostedProjectRevisionPath(deletedPath);
 
-          if (!deletedProjectId) {
-            if (loadedProjectRef.current.path === deletedPath) {
-              setLoadedProject({ loaded: false, path: '' });
+          let closed = false;
+          if (deletedProjectId) {
+            try {
+              closed = await workspaceRef.current.closeProject(deletedProjectId);
+            } catch (error) {
+              console.error('Failed to close deleted workflow project:', error);
             }
-            break;
           }
 
-          const closed = await workspaceRef.current.closeProject(deletedProjectId);
-          if (closed) {
-            clearOpenedProjectSession(deletedProjectId);
+          await clearDeletedHostedProjectState(deletedProjectIds);
+
+          if (!closed && loadedProjectRef.current.path === deletedPath) {
+            setLoadedProject({ loaded: false, path: '' });
           }
 
           break;

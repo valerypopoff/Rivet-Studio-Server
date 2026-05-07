@@ -1,6 +1,7 @@
 import { RIVET_API_BASE_URL } from '../../shared/hosted-env';
 import type {
   WorkflowFolderItem,
+  WorkflowProjectDeleteResponse,
   WorkflowProjectDownloadVersion,
   WorkflowMoveResponse,
   WorkflowProjectItem,
@@ -280,12 +281,12 @@ export async function unpublishWorkflowProject(relativePath: string): Promise<Wo
   return data.project;
 }
 
-export async function deleteWorkflowProject(relativePath: string): Promise<void> {
+export async function deleteWorkflowProject(relativePath: string): Promise<WorkflowProjectDeleteResponse> {
   const response = await fetch(`${API}/workflows/projects`, {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ relativePath }),
   });
 
-  await workflowJsonResponse<{ deleted: true }>(response);
+  return workflowJsonResponse<WorkflowProjectDeleteResponse>(response);
 }

@@ -69,6 +69,7 @@ The wrapper API currently exposes these groups behind `/api`:
   - `POST /api/workflows/move`
   - `POST|PATCH|DELETE /api/workflows/folders`
   - `POST|PATCH|DELETE /api/workflows/projects`
+    - `DELETE /api/workflows/projects` returns `{ deleted: true, projectId }` so the hosted editor bridge can clear editor-owned state for that workflow id even when its tab is already closed.
   - `POST /api/workflows/projects/duplicate`
   - `POST /api/workflows/projects/upload`
   - `POST /api/workflows/projects/download`

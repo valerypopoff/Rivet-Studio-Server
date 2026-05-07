@@ -466,8 +466,9 @@ export async function deleteWorkflowProjectItemWithBackend(relativePath: unknown
         allowProjectFile: true,
       }));
 
-      await deleteWorkflowProjectItem(relativePath);
+      const projectId = await deleteWorkflowProjectItem(relativePath);
       markFilesystemExecutionStructureDirty([resolvedPath]);
+      return projectId;
     },
   );
 }

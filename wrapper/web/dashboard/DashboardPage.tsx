@@ -63,9 +63,9 @@ export const DashboardPage: FC = () => {
     focusIframeElement(iframeRef.current);
   }, []);
 
-  const handleDeleteProject = useCallback((path: string) => {
+  const handleDeleteProject = useCallback((path: string, projectId?: string | null) => {
     setOpenedProjectPath((prev) => (prev === path ? '' : prev));
-    postEditorCommand({ type: 'delete-workflow-project', path });
+    postEditorCommand({ type: 'delete-workflow-project', path, projectId });
   }, [postEditorCommand]);
 
   const handleWorkflowPathsMoved = useCallback(

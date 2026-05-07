@@ -685,12 +685,13 @@ test('workflow routes support folder/project create, move, rename, and delete fl
     assert.deepEqual(tree.folders.map((folder) => folder.relativePath), ['Folder']);
     assert.deepEqual(tree.projects.map((project) => project.relativePath), ['Renamed.rivet-project']);
 
-    const deleteProjectResponse = await readJson<{ deleted: true }>(await fetch(`${baseUrl}/projects`, {
+    const deleteProjectResponse = await readJson<{ deleted: true; projectId: string | null }>(await fetch(`${baseUrl}/projects`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ relativePath: 'Renamed.rivet-project' }),
     }));
     assert.equal(deleteProjectResponse.deleted, true);
+    assert.equal(typeof deleteProjectResponse.projectId, 'string');
 
     const deleteFolderResponse = await readJson<{ deleted: true }>(await fetch(`${baseUrl}/folders`, {
       method: 'DELETE',
@@ -1365,8 +1366,9 @@ test('delete workflow project removes project and sidecars', async () => {
   await fs.writeFile(sidecars.dataset, '{}', 'utf8');
   await fs.writeFile(sidecars.settings, '{}', 'utf8');
 
-  await workflowMutations.deleteWorkflowProjectItem(created.relativePath);
+  const deletedProjectId = await workflowMutations.deleteWorkflowProjectItem(created.relativePath);
 
+  assert.equal(typeof deletedProjectId, 'string');
   assert.equal(await workflowFs.pathExists(created.absolutePath), false);
   assert.equal(await workflowFs.pathExists(sidecars.dataset), false);
   assert.equal(await workflowFs.pathExists(sidecars.settings), false);

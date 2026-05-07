@@ -149,7 +149,7 @@ export class ManagedWorkflowBackend {
     return this.#publication.unpublishWorkflowProjectItem(relativePath);
   }
 
-  async deleteWorkflowProjectItem(relativePath: unknown): Promise<void> {
+  async deleteWorkflowProjectItem(relativePath: unknown): Promise<string | null> {
     return this.#catalog.deleteWorkflowProjectItem(relativePath);
   }
 

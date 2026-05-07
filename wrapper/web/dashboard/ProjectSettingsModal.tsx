@@ -68,7 +68,7 @@ type ProjectSettingsModalProps = {
   isOpen: boolean;
   onClose: () => void;
   onRefresh: () => void | Promise<void>;
-  onDeleteProject: (path: string) => void;
+  onDeleteProject: (path: string, projectId?: string | null) => void;
   onWorkflowPathsMoved: (moves: WorkflowProjectPathMove[]) => void;
 };
 

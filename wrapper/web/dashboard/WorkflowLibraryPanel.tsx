@@ -14,7 +14,7 @@ interface WorkflowLibraryPanelProps {
   onOpenProject: (path: string, options?: { replaceCurrent?: boolean }) => void;
   onOpenRecording: (recordingId: string, options?: { replaceCurrent?: boolean }) => void;
   onSaveProject: () => void;
-  onDeleteProject: (path: string) => void;
+  onDeleteProject: (path: string, projectId?: string | null) => void;
   onWorkflowPathsMoved: (moves: WorkflowProjectPathMove[]) => void;
   onActiveWorkflowProjectPathChange: (path: string) => void;
   openedProjectPath: string;

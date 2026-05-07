@@ -219,8 +219,8 @@ workflowsRouter.post('/projects/unpublish', validateBody(pathOnlySchema), asyncH
 
 workflowsRouter.delete('/projects', validateBody(pathOnlySchema), asyncHandler(async (req, res) => {
   const { relativePath } = req.body as z.infer<typeof pathOnlySchema>;
-  await deleteWorkflowProjectItemWithBackend(relativePath);
-  res.json({ deleted: true });
+  const projectId = await deleteWorkflowProjectItemWithBackend(relativePath);
+  res.json({ deleted: true, projectId });
 }));
 
 export { internalPublishedWorkflowsRouter, latestWorkflowsRouter, publishedWorkflowsRouter };

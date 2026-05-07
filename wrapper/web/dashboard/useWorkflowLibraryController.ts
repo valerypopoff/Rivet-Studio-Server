@@ -136,7 +136,7 @@ async function pickWorkflowProjectFile(): Promise<File | null> {
 export function useWorkflowLibraryController(options: {
   onOpenProject: (path: string, nextOptions?: { replaceCurrent?: boolean }) => void;
   onOpenRecording: (recordingId: string, nextOptions?: { replaceCurrent?: boolean }) => void;
-  onDeleteProject: (path: string) => void;
+  onDeleteProject: (path: string, projectId?: string | null) => void;
   onWorkflowPathsMoved: (moves: WorkflowProjectPathMove[]) => void;
   onActiveWorkflowProjectPathChange: (path: string) => void;
   openedProjectPath: string;
