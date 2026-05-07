@@ -87,7 +87,8 @@ The editor bridge is not the same thing as the executor/debugger websocket trans
 
 - the iframe app captures the upstream `RivetWorkspaceHost` through `RivetAppHost.onWorkspaceHostReady`, then renders `wrapper/web/dashboard/EditorMessageBridge.tsx` with that handle; executor UI classification stays in upstream Rivet's `useExecutorSession` / `useRemoteDebugger` flow through `executor.internalExecutorUrl`
 - executor transport ownership stays in upstream Rivet app code (`useExecutorSession`, `useRemoteDebugger`, `useRemoteExecutor`, and the shared executor-session runtime); the wrapper passes the hosted executor URL and does not alias those transport/debugger hooks
-- hosted wrapper code still owns project-open/delete/path-move messages, parent-page save relay, and hosted IO adapters; upstream Rivet owns workspace transitions, tab close fallback, path moves, and the actual save transition
+- hosted wrapper code still owns project-open/delete/path-move messages, parent-page save relay, hosted IO adapters, and the hosted File menu visibility policy; upstream Rivet owns workspace transitions, tab close fallback, path moves, command behavior, and the actual save transition
+- hosted File menu visibility uses the upstream `RivetAppHost.ui.fileMenu.visibleItems` seam. The wrapper currently exposes only `import_graph`, `export_graph`, and `settings` in the iframe File menu, preserving Rivet's command layer while hiding wrapper-owned project create/open/save commands.
 - hosted provider wiring is explicit in `hostedRivetProviders`: the wrapper passes `HostedIOProvider`, an injected import/export-capable `HostedDatasetProvider`, hosted environment lookup, and hosted path-policy reads into `RivetAppHost.providers`; stale `ioProvider` and `TauriIOProvider` module aliases should stay removed
 - hosted builds override only `clearProjectContextState` from `savedGraphs` so closing or replacing an editor tab forgets the atom instance without deleting stored project context values; project ids must remain stable because context persistence is keyed by `project.metadata.id`. `deleteHostedProjectContextState` is reserved for the dashboard delete-workflow command, which receives the deleted project id from the API so it can also clean closed-tab state.
 - `HostedDatasetProvider` extends Rivet's browser dataset provider and prunes the previous IndexedDB dataset rows for the project before importing the authoritative dataset payload from the project load response, so deleted datasets do not reappear from stale app storage
@@ -104,7 +105,7 @@ Those execution websocket responsibilities are separate from the dashboard/edito
 - `wrapper/web/dashboard/useEditorCommandQueue.ts` - pre-ready command buffering
 - `wrapper/web/dashboard/editorBridgeFocus.ts` - iframe/canvas focus helpers and save-shortcut detection
 - `wrapper/web/dashboard/EditorMessageBridge.tsx` - editor-side message handling
-- `wrapper/web/dashboard/HostedEditorApp.tsx` - `RivetAppHost` callback forwarding for active project, open project count, saved project events, and workspace-host readiness
+- `wrapper/web/dashboard/HostedEditorApp.tsx` - `RivetAppHost` UI policy, callback forwarding for active project, open project count, saved project events, and workspace-host readiness
 - `wrapper/web/dashboard/useReconcileHostedProjectTitleAfterSave.ts` - save-completion title reconciliation for active project metadata, tab labels, and opened-project snapshots
 - `wrapper/web/dashboard/hostedRivetProviders.ts` - explicit provider overrides passed into `RivetAppHost`
 - `wrapper/web/overrides/state/savedGraphs.ts` - hosted preservation of editor-owned `projectContext__"<projectId>"` storage across tab close/reopen

@@ -333,6 +333,16 @@ test('hosted editor project commands go through Rivet 2 workspace host seams', (
   assert.match(hostedEditorApp, /onWorkspaceHostReady=\{handleWorkspaceHostReady\}/);
   assert.match(hostedEditorApp, /onWorkspaceHostDisposed=\{handleWorkspaceHostDisposed\}/);
   assert.match(hostedEditorApp, /<EditorMessageBridge workspaceHost=\{workspaceHost\} \/>/);
+  assert.match(hostedEditorApp, /type FileMenuItemId/);
+  assert.match(hostedEditorApp, /type RivetAppHostUiConfig/);
+  assert.match(hostedEditorApp, /const HOSTED_FILE_MENU_VISIBLE_ITEMS = \[/);
+  assert.match(hostedEditorApp, /'import_graph'/);
+  assert.match(hostedEditorApp, /'export_graph'/);
+  assert.match(hostedEditorApp, /'settings'/);
+  assert.match(hostedEditorApp, /as const satisfies readonly FileMenuItemId\[\]/);
+  assert.doesNotMatch(hostedEditorApp, /'open_project'/);
+  assert.doesNotMatch(hostedEditorApp, /'save_project'/);
+  assert.match(hostedEditorApp, /ui=\{HOSTED_RIVET_UI\}/);
   assert.match(hostedProviders, /new HostedDatasetProvider\(\)/);
   assert.match(hostedProviders, /clearHostedDatasetsForProject\(projectId: ProjectId\)/);
   assert.match(hostedProviders, /new HostedIOProvider\(hostedDatasetProvider\)/);

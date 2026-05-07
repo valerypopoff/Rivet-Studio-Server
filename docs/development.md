@@ -372,6 +372,7 @@ When adding new code, keep the post-refactor ownership seams explicit instead of
 - dashboard/editor bridge wiring should stay explicit
   - `DashboardPage.tsx` is the composition root
   - `HostedEditorApp.tsx` mounts `RivetAppHost`, passes the hosted provider overrides from `hostedRivetProviders.ts`, captures the upstream `RivetWorkspaceHost` through `onWorkspaceHostReady`, and forwards upstream host callbacks for active project, open-project count, and save completion
+  - `HostedEditorApp.tsx` also passes `RivetAppHost.ui.fileMenu.visibleItems` so the iframe File menu shows only `import_graph`, `export_graph`, and `settings`; keep this on the upstream host UI policy seam instead of hiding menu DOM or aliasing menu command hooks
   - `useEditorCommandQueue.ts` owns pre-ready command buffering
   - `useEditorBridgeEvents.ts` owns dashboard-side message listeners and cross-iframe save shortcut capture
   - `EditorMessageBridge.tsx` owns editor-side message handling after the workspace host handle is ready, and should pass that `RivetWorkspaceHost` through to project open, replace-current, close, and path-move commands instead of rewriting Rivet tab atoms directly
@@ -387,6 +388,7 @@ When adding new code, keep the post-refactor ownership seams explicit instead of
 - editor executor transport should prefer Rivet's upstream host/session seam
   - mount the editor through `RivetAppHost`
   - pass the hosted executor websocket through `executor.internalExecutorUrl`
+  - use `RivetAppHost.ui.fileMenu.visibleItems` for hosted File menu visibility and leave command execution in upstream `useMenuCommands`
   - keep graph execution, upload, abort, pause/resume, and websocket message ownership in upstream Rivet hooks
   - do not alias `useExecutorSession`, `useRemoteDebugger`, `useGraphExecutor`, or `useRemoteExecutor`; upstream Rivet owns internal executor UI classification and debugger handoff for `executor.internalExecutorUrl`
   - stale wrapper transport override files were removed; do not reintroduce them unless the upstream seam no longer covers hosted behavior
@@ -408,7 +410,7 @@ When adding new code, keep the post-refactor ownership seams explicit instead of
   - `wrapper/web/vite.config.ts` resolves override files only when the importer is under `rivet/packages/app/src`
   - keep the `savedGraphs` override narrow: it re-exports upstream state, changes only `clearProjectContextState` for normal tab close/reopen, and exposes an explicit delete helper for actual workflow deletion
   - do not put wrapper-owned transport overrides back into `wrapper/web/vite-aliases.ts`
-  - do not alias `useSaveProject` or `useMenuCommands`; upstream `useWorkspaceTransitions` and `RivetAppHost.onProjectSaved` own the save/menu seam, while the wrapper sends `save-project` when focus is outside the iframe and reconciles hosted title metadata after successful saves
+  - do not alias `useSaveProject` or `useMenuCommands`; upstream `useWorkspaceTransitions`, `RivetAppHost.onProjectSaved`, and `RivetAppHost.ui.fileMenu.visibleItems` own the save/menu seam, while the wrapper sends `save-project` when focus is outside the iframe and reconciles hosted title metadata after successful saves
   - do not reintroduce wrapper copies of `TauriProjectReferenceLoader`, `io/datasets`, `io/TauriIOProvider`, or `utils/globals/ioProvider`; hosted relative-project reads belong in the path policy provider, and hosted project/dataset persistence belongs in `RivetAppHost.providers` plus `HostedIOProvider`
   - keep `scripts/update-check.sh` aligned with that boundary: it should check the upstream provider seams, not treat provider-backed upstream modules as wrapper aliases
   - keep bare-package shims such as `@tauri-apps/api/*` separate from relative Rivet module overrides
