@@ -77,6 +77,8 @@ The wrapper API currently exposes these groups behind `/api`:
   - `POST /api/workflows/projects/unpublish`
   - `GET /api/workflows/recordings/workflows`
   - `GET /api/workflows/recordings/workflows/:workflowId/runs?page=1&pageSize=20&status=all|failed`
+    - optional input filter query: `inputPath=$.foo&inputOperator=%3D%3D&inputValue=bar`
+    - `$` is the captured workflow request input root from Rivet's `inputs.input.value`
   - `GET /api/workflows/recordings/:recordingId/recording`
   - `GET /api/workflows/recordings/:recordingId/replay-project`
   - `GET /api/workflows/recordings/:recordingId/replay-dataset`

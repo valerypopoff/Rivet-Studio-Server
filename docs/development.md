@@ -335,6 +335,8 @@ For slow `GET /api/workflows/recordings/workflows` diagnosis in Docker, compare:
 - indexed run rows in `/data/rivet-app/recordings.sqlite`:
   `node -e "const {DatabaseSync}=require('node:sqlite'); const db=new DatabaseSync('/data/rivet-app/recordings.sqlite'); console.log(db.prepare('select count(*) n from recording_runs').get())"`
 
+The `Run recordings` modal can also filter a workflow's runs by recorded request input. Use the `Input JSON path` control with a path such as `$.foo`, an operator such as `==`, and a value such as `bar`. The API evaluates `$` against the root workflow request body stored in the recording's `inputs.input.value` event. This filter reads existing recording artifacts after workflow/status narrowing, so it is best for targeted inspection rather than high-cardinality analytics.
+
 ## Source of truth
 
 - authored source lives under `wrapper/`, `image/`, `ops/`, `charts/`, `scripts/`, `docs/`, and `.github/`

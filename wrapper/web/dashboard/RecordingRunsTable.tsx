@@ -1,10 +1,14 @@
+import Select from '@atlaskit/select';
 import { type FC } from 'react';
 
-import type {
-  WorkflowRecordingFilterStatus,
-  WorkflowRecordingRunSummary,
-  WorkflowRecordingStatus,
-  WorkflowRecordingWorkflowSummary,
+import {
+  WORKFLOW_RECORDING_INPUT_FILTER_OPERATORS,
+  type WorkflowRecordingFilterStatus,
+  type WorkflowRecordingInputFilter,
+  type WorkflowRecordingInputFilterOperator,
+  type WorkflowRecordingRunSummary,
+  type WorkflowRecordingStatus,
+  type WorkflowRecordingWorkflowSummary,
 } from './types';
 
 const timestampFormatter = new Intl.DateTimeFormat(undefined, {
@@ -23,6 +27,15 @@ const RUN_STATUS_LABELS: Record<WorkflowRecordingStatus, string> = {
 };
 
 const runsPerPageOptions = [10, 20, 50, 100] as const;
+const INPUT_FILTER_OPERATOR_LABELS: Partial<Record<WorkflowRecordingInputFilterOperator, string>> = {
+  not_exists: 'not exists',
+};
+
+const inputFilterOperatorOptions: Array<{ value: WorkflowRecordingInputFilterOperator; label: string }> =
+  WORKFLOW_RECORDING_INPUT_FILTER_OPERATORS.map((operator) => ({
+    value: operator,
+    label: INPUT_FILTER_OPERATOR_LABELS[operator] ?? operator,
+  }));
 
 function formatDuration(durationMs: number): string {
   if (durationMs < 1000) {
@@ -125,10 +138,22 @@ type RecordingRunsTableProps = {
   page: number;
   runsPerPage: number;
   statusFilter: WorkflowRecordingFilterStatus;
+  inputFilterVisible: boolean;
+  inputFilterPath: string;
+  inputFilterOperator: WorkflowRecordingInputFilterOperator;
+  inputFilterValue: string;
+  appliedInputFilter: WorkflowRecordingInputFilter | null;
+  inputFilterError: string | null;
   runsLoading: boolean;
   visibleRuns: WorkflowRecordingRunSummary[];
   deletingRecordingId: string | null;
   onSetStatusFilter: (status: WorkflowRecordingFilterStatus) => void;
+  onSetInputFilterVisible: (visible: boolean) => void;
+  onSetInputFilterPath: (path: string) => void;
+  onSetInputFilterOperator: (operator: WorkflowRecordingInputFilterOperator) => void;
+  onSetInputFilterValue: (value: string) => void;
+  onApplyInputFilter: () => void;
+  onClearInputFilter: () => void;
   onSetRunsPerPage: (pageSize: number) => void;
   onSetPage: (page: number | ((current: number) => number)) => void;
   onDeleteRecording: (recordingId: string) => void;
@@ -146,10 +171,22 @@ export const RecordingRunsTable: FC<RecordingRunsTableProps> = ({
   page,
   runsPerPage,
   statusFilter,
+  inputFilterVisible,
+  inputFilterPath,
+  inputFilterOperator,
+  inputFilterValue,
+  appliedInputFilter,
+  inputFilterError,
   runsLoading,
   visibleRuns,
   deletingRecordingId,
   onSetStatusFilter,
+  onSetInputFilterVisible,
+  onSetInputFilterPath,
+  onSetInputFilterOperator,
+  onSetInputFilterValue,
+  onApplyInputFilter,
+  onClearInputFilter,
   onSetRunsPerPage,
   onSetPage,
   onDeleteRecording,
@@ -157,6 +194,9 @@ export const RecordingRunsTable: FC<RecordingRunsTableProps> = ({
 }) => {
   const allRunsLabel = overallRunsCount > 0 ? `All (${overallRunsCount})` : 'All';
   const badRunsLabel = badRunsCount > 0 ? `Bad only (${badRunsCount})` : 'Bad only';
+  const valueInputDisabled = inputFilterOperator === 'exists' || inputFilterOperator === 'not_exists';
+  const selectedInputFilterOperator = inputFilterOperatorOptions.find((option) => option.value === inputFilterOperator) ??
+    inputFilterOperatorOptions[0]!;
 
   return (
     <section className="run-recordings-details">
@@ -212,6 +252,14 @@ export const RecordingRunsTable: FC<RecordingRunsTableProps> = ({
                 {badRunsLabel}
               </button>
             </div>
+            <button
+              type="button"
+              className={`run-recordings-filter-link${inputFilterVisible ? ' active' : ''}`}
+              onClick={() => onSetInputFilterVisible(!inputFilterVisible)}
+              aria-pressed={inputFilterVisible}
+            >
+              Input filter
+            </button>
           </div>
 
           <div className="run-recordings-runs-controls">
@@ -236,12 +284,80 @@ export const RecordingRunsTable: FC<RecordingRunsTableProps> = ({
           </div>
         </div>
 
+        {inputFilterVisible ? (
+          <form
+            className="run-recordings-input-filter"
+            onSubmit={(event) => {
+              event.preventDefault();
+              onApplyInputFilter();
+            }}
+          >
+            <label className="run-recordings-input-filter-field">
+              <span className="run-recordings-field-label">Input JSON path</span>
+              <input
+                type="text"
+                value={inputFilterPath}
+                onChange={(event) => onSetInputFilterPath(event.target.value)}
+                placeholder="$.foo"
+                aria-label="Input JSON path"
+              />
+            </label>
+
+            <label className="run-recordings-input-filter-field run-recordings-input-filter-operator">
+              <span className="run-recordings-field-label">Operator</span>
+              <Select
+                inputId="run-recordings-input-filter-operator"
+                options={inputFilterOperatorOptions}
+                value={selectedInputFilterOperator}
+                onChange={(option: { value: WorkflowRecordingInputFilterOperator; label: string } | null) => {
+                  onSetInputFilterOperator(option?.value ?? '==');
+                }}
+                isSearchable={false}
+                classNamePrefix="run-recordings-select"
+                aria-label="Operator"
+              />
+            </label>
+
+            <label className="run-recordings-input-filter-field">
+              <span className="run-recordings-field-label">Value</span>
+              <input
+                type="text"
+                value={valueInputDisabled ? '' : inputFilterValue}
+                onChange={(event) => onSetInputFilterValue(event.target.value)}
+                placeholder="bar"
+                aria-label="Value"
+                disabled={valueInputDisabled}
+              />
+            </label>
+
+            <div className="run-recordings-input-filter-actions">
+              <button type="submit" className="run-recordings-filter-apply-button" disabled={runsLoading}>
+                Apply
+              </button>
+              <button
+                type="button"
+                className="run-recordings-page-button"
+                onClick={onClearInputFilter}
+                disabled={runsLoading && !appliedInputFilter}
+              >
+                Clear
+              </button>
+            </div>
+
+            {inputFilterError ? (
+              <div className="run-recordings-input-filter-error">{inputFilterError}</div>
+            ) : null}
+          </form>
+        ) : null}
+
         <div className="run-recordings-runs-body">
           {runsLoading ? (
             <div className="run-recordings-empty-group">Loading runs...</div>
           ) : filteredRunsCount === 0 ? (
             <div className="run-recordings-empty-group">
-              {statusFilter === 'failed' ? 'No bad runs for this workflow.' : 'No recorded runs yet.'}
+              {appliedInputFilter
+                ? 'No runs match this input filter.'
+                : statusFilter === 'failed' ? 'No bad runs for this workflow.' : 'No recorded runs yet.'}
             </div>
           ) : (
             <div className="run-recordings-list">

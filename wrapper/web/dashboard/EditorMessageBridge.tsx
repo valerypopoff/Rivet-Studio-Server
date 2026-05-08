@@ -1,6 +1,6 @@
 import { type FC, useCallback, useEffect, useRef } from 'react';
 import { useOpenWorkflowProject } from './useOpenWorkflowProject';
-import { getError, type ExecutionRecorder, type ProjectId } from '@valerypopoff/rivet2-core';
+import { ExecutionRecorder, getError, type ProjectId } from '@valerypopoff/rivet2-core';
 import { useAtomValue, useSetAtom } from 'jotai';
 import {
   loadedProjectState,
@@ -228,10 +228,10 @@ export const EditorMessageBridge: FC<EditorMessageBridgeProps> = ({ workspaceHos
           break;
 
         case 'open-recording':
+          const virtualProjectPath = getWorkflowRecordingVirtualProjectPath(command.recordingId);
           try {
             const loadedRecording = await fetchLoadedWorkflowRecording(command.recordingId);
             const preferredGraphId = getRecordingStartGraphId(loadedRecording.recorder);
-            const virtualProjectPath = getWorkflowRecordingVirtualProjectPath(command.recordingId);
             const replacedPath = command.replaceCurrent ? loadedProjectRef.current.path : '';
 
             recordingByProjectPathRef.current.set(virtualProjectPath, loadedRecording);
@@ -255,6 +255,11 @@ export const EditorMessageBridge: FC<EditorMessageBridgeProps> = ({ workspaceHos
             focusHostedEditorFrame();
             postMessageToDashboard({ type: 'project-opened', path: virtualProjectPath });
           } catch (error) {
+            recordingByProjectPathRef.current.delete(virtualProjectPath);
+            if (loadedProjectRef.current.path === virtualProjectPath) {
+              setLoadedRecording(null);
+            }
+
             const message = getError(error).message;
             console.error('Failed to open workflow recording:', error);
             postMessageToDashboard({ type: 'project-open-failed', path: command.recordingId, error: message });

@@ -10,6 +10,8 @@ import type {
 } from '../../shared/workflow-types';
 import type {
   WorkflowRecordingFilterStatus,
+  WorkflowRecordingInputFilter,
+  WorkflowRecordingInputFilterOperator,
   WorkflowRecordingRunsPageResponse,
   WorkflowRecordingRunKind,
   WorkflowRecordingRunSummary,
@@ -17,6 +19,7 @@ import type {
   WorkflowRecordingWorkflowListResponse,
   WorkflowRecordingWorkflowSummary,
 } from '../../shared/workflow-recording-types';
+export { WORKFLOW_RECORDING_INPUT_FILTER_OPERATORS } from '../../shared/workflow-recording-types';
 
 export type {
   WorkflowFolderItem,
@@ -28,6 +31,8 @@ export type {
   WorkflowProjectSettingsDraft,
   WorkflowProjectStatus,
   WorkflowRecordingFilterStatus,
+  WorkflowRecordingInputFilter,
+  WorkflowRecordingInputFilterOperator,
   WorkflowRecordingRunsPageResponse,
   WorkflowRecordingRunKind,
   WorkflowRecordingRunSummary,

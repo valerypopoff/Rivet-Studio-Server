@@ -58,6 +58,12 @@ export const RunRecordingsModal: FC<RunRecordingsModalProps> = ({
     runsPerPage,
     page,
     statusFilter,
+    inputFilterVisible,
+    inputFilterPath,
+    inputFilterOperator,
+    inputFilterValue,
+    appliedInputFilter,
+    inputFilterError,
     deletingRecordingId,
     overallRunsCount,
     badRunsCount,
@@ -68,6 +74,12 @@ export const RunRecordingsModal: FC<RunRecordingsModalProps> = ({
     setRunsPerPage,
     setPage,
     setStatusFilter,
+    setInputFilterVisible,
+    setInputFilterPath,
+    setInputFilterOperator,
+    setInputFilterValue,
+    handleApplyInputFilter,
+    handleClearInputFilter,
     handleDeleteRecording,
   } = useRunRecordingsController(isOpen);
 
@@ -160,10 +172,22 @@ export const RunRecordingsModal: FC<RunRecordingsModalProps> = ({
                       page={page}
                       runsPerPage={runsPerPage}
                       statusFilter={statusFilter}
+                      inputFilterVisible={inputFilterVisible}
+                      inputFilterPath={inputFilterPath}
+                      inputFilterOperator={inputFilterOperator}
+                      inputFilterValue={inputFilterValue}
+                      appliedInputFilter={appliedInputFilter}
+                      inputFilterError={inputFilterError}
                       runsLoading={runsLoading}
                       visibleRuns={visibleRuns}
                       deletingRecordingId={deletingRecordingId}
                       onSetStatusFilter={setStatusFilter}
+                      onSetInputFilterVisible={setInputFilterVisible}
+                      onSetInputFilterPath={setInputFilterPath}
+                      onSetInputFilterOperator={setInputFilterOperator}
+                      onSetInputFilterValue={setInputFilterValue}
+                      onApplyInputFilter={handleApplyInputFilter}
+                      onClearInputFilter={handleClearInputFilter}
                       onSetRunsPerPage={setRunsPerPage}
                       onSetPage={setPage}
                       onDeleteRecording={handleDeleteRecording}

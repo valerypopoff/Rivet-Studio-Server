@@ -2163,6 +2163,83 @@ test('workflow recording failed filter includes suspicious runs', async () => {
   assert.equal(workflowsResponse.workflows[0]?.suspiciousRuns, 1);
 });
 
+test('workflow recording input filter evaluates JSON paths against the request input root', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'Input Filtered');
+  const [loadedProject, attachedData] = await rivetNode.loadProjectAndAttachedDataFromFile(created.absolutePath);
+  const workflowId = loadedProject.metadata.id!;
+
+  const persistRecording = (recordingId: string, input: unknown, durationMs: number) =>
+    workflowRecordings.persistWorkflowExecutionRecording({
+      workflowsRoot,
+      sourceProject: loadedProject,
+      sourceProjectPath: created.absolutePath,
+      executedProject: loadedProject,
+      executedAttachedData: attachedData,
+      executedDatasets: [],
+      endpointName: 'input-filtered',
+      recordingSerialized: JSON.stringify({
+        version: 1,
+        recording: {
+          recordingId,
+          events: [
+            {
+              type: 'start',
+              data: {
+                inputs: {
+                  input: {
+                    type: 'any',
+                    value: input,
+                  },
+                },
+              },
+              ts: durationMs,
+            },
+          ],
+          startTs: durationMs,
+          finishTs: durationMs,
+        },
+        assets: {},
+        strings: {},
+      }),
+      runKind: 'published',
+      status: 'succeeded',
+      durationMs,
+    });
+
+  await persistRecording('input-filter-bar', { foo: 'bar', score: 5 }, 1);
+  await persistRecording('input-filter-baz', { foo: 'baz', score: 12 }, 2);
+
+  const equalsBar = await workflowRecordings.listWorkflowRecordingRunsPage(
+    workflowsRoot,
+    workflowId,
+    1,
+    20,
+    'all',
+    { path: '$.foo', operator: '==', value: 'bar' },
+  );
+
+  assert.equal(equalsBar.totalRuns, 1);
+  assert.match(
+    await workflowRecordings.readWorkflowRecordingArtifact(workflowsRoot, equalsBar.runs[0]!.id, 'recording'),
+    /input-filter-bar/,
+  );
+
+  const greaterThanTen = await workflowRecordings.listWorkflowRecordingRunsPage(
+    workflowsRoot,
+    workflowId,
+    1,
+    20,
+    'all',
+    { path: '$.score', operator: '>', value: '10' },
+  );
+
+  assert.equal(greaterThanTen.totalRuns, 1);
+  assert.match(
+    await workflowRecordings.readWorkflowRecordingArtifact(workflowsRoot, greaterThanTen.runs[0]!.id, 'recording'),
+    /input-filter-baz/,
+  );
+});
+
 test('workflow recording delete route removes a single recording and updates totals', async () => {
   const created = await workflowMutations.createWorkflowProjectItem('', 'DeleteOneRecording');
   await workflowMutations.publishWorkflowProjectItem(created.relativePath, {

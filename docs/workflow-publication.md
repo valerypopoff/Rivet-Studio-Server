@@ -508,13 +508,14 @@ That backend data serves:
 - workflow summaries ordered by most recent run
 - per-workflow run pagination
 - bad-only filtering, where `status=failed` includes both `failed` and `suspicious`
+- optional input filtering against each recording's captured workflow request input
 - artifact lookup by `recordingId`
 - single-run deletion by `recordingId`
 
 The main recordings routes are:
 
 - `GET /api/workflows/recordings/workflows`
-- `GET /api/workflows/recordings/workflows/:workflowId/runs?page=1&pageSize=20&status=all|failed`
+- `GET /api/workflows/recordings/workflows/:workflowId/runs?page=1&pageSize=20&status=all|failed&inputPath=$.foo&inputOperator=%3D%3D&inputValue=bar`
 - `GET /api/workflows/recordings/:recordingId/recording`
 - `GET /api/workflows/recordings/:recordingId/replay-project`
 - `GET /api/workflows/recordings/:recordingId/replay-dataset`
@@ -533,10 +534,13 @@ Current browser behavior:
 - pages runs from the API instead of materializing the whole history at once
 - sorts runs by newest first with a recording-ID tie-breaker, so same-millisecond runs keep a stable order across pages and filters
 - supports `All` and `Bad only`, where `Bad only` includes both `failed` and `suspicious`
+- supports an optional input filter. The filter uses a JSON path where `$` is the workflow request input object recorded under Rivet's `inputs.input.value`; for example, request input `{ "foo": "bar" }` matches `$.foo == bar`.
 - lets the user delete individual stored runs
 - opens a run by `recordingId`, not by raw filesystem path
 - `useRunRecordingsController.ts` owns workflow loading, run paging/filtering, and delete flow
 - `RecordingWorkflowSelect.tsx` and `RecordingRunsTable.tsx` render the focused UI slices instead of leaving all of that state and rendering in `RunRecordingsModal.tsx`
+
+Input filtering does not change how recordings are created. When `inputPath` is present, the API reads the existing serialized recording artifact for each candidate run after the workflow/status filter, restores Rivet string-table references from the serialized recording payload, extracts the recorded root request input from the `start` or `graphStart` event, applies the JSON-path/operator/value predicate, and then paginates the matching rows. This keeps old recordings readable and avoids adding wrapper-specific fields to the recording write path. Supported operators are `==`, `!=`, `>`, `>=`, `<`, `<=`, `contains`, `exists`, and `not_exists`.
 
 Deleting a run removes both:
 
@@ -555,12 +559,14 @@ If that was the last run for the workflow:
 When a run is opened, the hosted editor:
 
 - fetches the serialized recorder payload
+- deserializes that payload with the runtime `ExecutionRecorder` export before setting Rivet's loaded-recording state
 - opens a virtual replay project path such as `recording://<recordingId>/replay.rivet-project`
 - loads the replay project and optional dataset through `HostedIOProvider`
 - switches the live selected executor to browser replay mode
 - serializes recording/project open commands in the editor iframe so overlapping async loads cannot mix a replay project from one run with a recorder payload from another
 - restores the recorder that belongs to the active virtual replay path when the user switches between open recording tabs
 - refetches and restores the serialized recorder from the virtual replay path after an iframe/page reload, so a replay tab does not fall back to running the graph with default inputs
+- clears any staged recorder cache if the replay project fails to open, so a later retry cannot inherit a stale recorder
 - treats the replay snapshot as read-only
 
 ## Project rename, move, and delete behavior
