@@ -69,6 +69,7 @@ The wrapper API currently exposes these groups behind `/api`:
   - `POST /api/workflows/move`
   - `POST|PATCH|DELETE /api/workflows/folders`
   - `POST|PATCH|DELETE /api/workflows/projects`
+    - `DELETE /api/workflows/projects` returns `{ deleted: true, projectId }` so the hosted editor bridge can clear editor-owned state for that workflow id even when its tab is already closed.
   - `POST /api/workflows/projects/duplicate`
   - `POST /api/workflows/projects/upload`
   - `POST /api/workflows/projects/download`
@@ -76,6 +77,8 @@ The wrapper API currently exposes these groups behind `/api`:
   - `POST /api/workflows/projects/unpublish`
   - `GET /api/workflows/recordings/workflows`
   - `GET /api/workflows/recordings/workflows/:workflowId/runs?page=1&pageSize=20&status=all|failed`
+    - optional input filter query: `inputPath=$.foo&inputOperator=%3D%3D&inputValue=bar`
+    - `$` is the captured workflow request input root from Rivet's `inputs.input.value`
   - `GET /api/workflows/recordings/:recordingId/recording`
   - `GET /api/workflows/recordings/:recordingId/replay-project`
   - `GET /api/workflows/recordings/:recordingId/replay-dataset`
@@ -140,6 +143,14 @@ Current create-project route behavior:
 - the dashboard currently calls this route from the folder-row context menu's `Create project` action
 - folder-level project creation currently exists only in that custom folder context menu, not in an inline row button
 - if the target folder already contains that exact project name, the route returns `409`
+
+Current rename-project route behavior:
+
+- `PATCH /api/workflows/projects` accepts `{ "relativePath": string, "newName": string }`
+- it returns `{ "project": WorkflowProjectItem, "movedProjectPaths": WorkflowProjectPathMove[] }`
+- the dashboard calls this route from the project-row context menu; Project Settings does not expose a second rename control
+- the project-row context-menu flow and selected-row `F2` shortcut edit inline in the workflow library, hide the edit field immediately on `Enter`, show a row preloader while the route is pending, and retarget selected/open project paths through `movedProjectPaths`
+- if the target sibling project name already exists, the route returns `409` and the inline preloader clears without leaving the edit field open
 
 Current upload-route behavior:
 

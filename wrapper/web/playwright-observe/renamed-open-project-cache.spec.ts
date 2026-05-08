@@ -6,6 +6,7 @@ import {
   createWorkflowProject,
   deleteWorkflowFolder,
   ensureFolderExpanded,
+  renameWorkflowFolderInline,
   requireManagedMutationOptIn,
 } from './helpers/workflowLibraryObserve';
 
@@ -50,10 +51,7 @@ test.describe('Hosted open-project cache after rename', () => {
       await expect(page.locator('.active-project-name')).toHaveText(rootProjectName, { timeout: 120_000 });
       await expect(page.locator('.active-project-save-button')).toHaveText('Save', { timeout: 120_000 });
 
-      page.once('dialog', (dialog) => dialog.accept(renamedFolderName));
-      await page.locator('.folder-row', { hasText: initialFolderName }).click({ button: 'right' });
-      await page.getByRole('menuitem', { name: 'Rename folder' }).click();
-      await expect(page.locator('.folder-row', { hasText: renamedFolderName })).toBeVisible({ timeout: 30_000 });
+      await renameWorkflowFolderInline(page, initialFolderName, renamedFolderName);
 
       folderRelativePath = renamedFolderName;
       nestedProjectRelativePath = `${renamedFolderName}/${nestedProjectName}.rivet-project`;

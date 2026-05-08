@@ -685,12 +685,13 @@ test('workflow routes support folder/project create, move, rename, and delete fl
     assert.deepEqual(tree.folders.map((folder) => folder.relativePath), ['Folder']);
     assert.deepEqual(tree.projects.map((project) => project.relativePath), ['Renamed.rivet-project']);
 
-    const deleteProjectResponse = await readJson<{ deleted: true }>(await fetch(`${baseUrl}/projects`, {
+    const deleteProjectResponse = await readJson<{ deleted: true; projectId: string | null }>(await fetch(`${baseUrl}/projects`, {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ relativePath: 'Renamed.rivet-project' }),
     }));
     assert.equal(deleteProjectResponse.deleted, true);
+    assert.equal(typeof deleteProjectResponse.projectId, 'string');
 
     const deleteFolderResponse = await readJson<{ deleted: true }>(await fetch(`${baseUrl}/folders`, {
       method: 'DELETE',
@@ -1365,8 +1366,9 @@ test('delete workflow project removes project and sidecars', async () => {
   await fs.writeFile(sidecars.dataset, '{}', 'utf8');
   await fs.writeFile(sidecars.settings, '{}', 'utf8');
 
-  await workflowMutations.deleteWorkflowProjectItem(created.relativePath);
+  const deletedProjectId = await workflowMutations.deleteWorkflowProjectItem(created.relativePath);
 
+  assert.equal(typeof deletedProjectId, 'string');
   assert.equal(await workflowFs.pathExists(created.absolutePath), false);
   assert.equal(await workflowFs.pathExists(sidecars.dataset), false);
   assert.equal(await workflowFs.pathExists(sidecars.settings), false);
@@ -2159,6 +2161,83 @@ test('workflow recording failed filter includes suspicious runs', async () => {
   );
   assert.equal(workflowsResponse.workflows[0]?.failedRuns, 0);
   assert.equal(workflowsResponse.workflows[0]?.suspiciousRuns, 1);
+});
+
+test('workflow recording input filter evaluates JSON paths against the request input root', async () => {
+  const created = await workflowMutations.createWorkflowProjectItem('', 'Input Filtered');
+  const [loadedProject, attachedData] = await rivetNode.loadProjectAndAttachedDataFromFile(created.absolutePath);
+  const workflowId = loadedProject.metadata.id!;
+
+  const persistRecording = (recordingId: string, input: unknown, durationMs: number) =>
+    workflowRecordings.persistWorkflowExecutionRecording({
+      workflowsRoot,
+      sourceProject: loadedProject,
+      sourceProjectPath: created.absolutePath,
+      executedProject: loadedProject,
+      executedAttachedData: attachedData,
+      executedDatasets: [],
+      endpointName: 'input-filtered',
+      recordingSerialized: JSON.stringify({
+        version: 1,
+        recording: {
+          recordingId,
+          events: [
+            {
+              type: 'start',
+              data: {
+                inputs: {
+                  input: {
+                    type: 'any',
+                    value: input,
+                  },
+                },
+              },
+              ts: durationMs,
+            },
+          ],
+          startTs: durationMs,
+          finishTs: durationMs,
+        },
+        assets: {},
+        strings: {},
+      }),
+      runKind: 'published',
+      status: 'succeeded',
+      durationMs,
+    });
+
+  await persistRecording('input-filter-bar', { foo: 'bar', score: 5 }, 1);
+  await persistRecording('input-filter-baz', { foo: 'baz', score: 12 }, 2);
+
+  const equalsBar = await workflowRecordings.listWorkflowRecordingRunsPage(
+    workflowsRoot,
+    workflowId,
+    1,
+    20,
+    'all',
+    { path: '$.foo', operator: '==', value: 'bar' },
+  );
+
+  assert.equal(equalsBar.totalRuns, 1);
+  assert.match(
+    await workflowRecordings.readWorkflowRecordingArtifact(workflowsRoot, equalsBar.runs[0]!.id, 'recording'),
+    /input-filter-bar/,
+  );
+
+  const greaterThanTen = await workflowRecordings.listWorkflowRecordingRunsPage(
+    workflowsRoot,
+    workflowId,
+    1,
+    20,
+    'all',
+    { path: '$.score', operator: '>', value: '10' },
+  );
+
+  assert.equal(greaterThanTen.totalRuns, 1);
+  assert.match(
+    await workflowRecordings.readWorkflowRecordingArtifact(workflowsRoot, greaterThanTen.runs[0]!.id, 'recording'),
+    /input-filter-baz/,
+  );
 });
 
 test('workflow recording delete route removes a single recording and updates totals', async () => {

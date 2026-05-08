@@ -4,7 +4,7 @@ export type DashboardToEditorCommand =
   | { type: 'open-project'; path: string; replaceCurrent: boolean }
   | { type: 'open-recording'; recordingId: string; replaceCurrent: boolean }
   | { type: 'save-project' }
-  | { type: 'delete-workflow-project'; path: string }
+  | { type: 'delete-workflow-project'; path: string; projectId?: string | null }
   | { type: 'workflow-paths-moved'; moves: WorkflowProjectPathMove[] };
 
 export type EditorToDashboardEvent =
@@ -45,7 +45,7 @@ export function isDashboardToEditorCommand(value: unknown): value is DashboardTo
     case 'save-project':
       return true;
     case 'delete-workflow-project':
-      return typeof value.path === 'string';
+      return typeof value.path === 'string' && (value.projectId == null || typeof value.projectId === 'string');
     case 'workflow-paths-moved':
       return Array.isArray(value.moves) && value.moves.every(isWorkflowMove);
     default:

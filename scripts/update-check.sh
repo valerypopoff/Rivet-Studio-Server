@@ -34,6 +34,7 @@ fi
 echo "[2/7] Checking aliased upstream file paths..."
 ALIASED_FILES=(
   "utils/tauri.ts"
+  "state/savedGraphs.ts"
   "state/settings.ts"
   "hooks/useLoadPackagePlugin.ts"
   "model/native/TauriNativeApi.ts"

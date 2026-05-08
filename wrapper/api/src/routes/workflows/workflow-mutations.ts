@@ -488,4 +488,6 @@ export async function deleteWorkflowProjectItem(relativePath: unknown) {
   await deleteProjectWithSidecars(projectPath);
   await deleteWorkflowRecordingsByWorkflowId(root, projectMetadataId);
   await deleteWorkflowRecordingsBySourceProjectPath(root, projectPath);
+
+  return projectMetadataId;
 }

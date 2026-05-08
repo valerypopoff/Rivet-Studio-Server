@@ -14,7 +14,7 @@ interface WorkflowLibraryPanelProps {
   onOpenProject: (path: string, options?: { replaceCurrent?: boolean }) => void;
   onOpenRecording: (recordingId: string, options?: { replaceCurrent?: boolean }) => void;
   onSaveProject: () => void;
-  onDeleteProject: (path: string) => void;
+  onDeleteProject: (path: string, projectId?: string | null) => void;
   onWorkflowPathsMoved: (moves: WorkflowProjectPathMove[]) => void;
   onActiveWorkflowProjectPathChange: (path: string) => void;
   openedProjectPath: string;
@@ -56,6 +56,10 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     expandedFolders,
     draggedItem,
     dropTargetFolderPath,
+    editingFolderId,
+    renamingFolderId,
+    editingProjectPath,
+    renamingProjectPath,
     dragOverRoot,
     isActiveProjectOpen,
     handleCreateFolder,
@@ -66,6 +70,11 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     handleDragEnd,
     handleFolderRowClick,
     handleFolderRowKeyDown,
+    handleProjectRowKeyDown,
+    handleSubmitFolderRename,
+    handleCancelFolderRename,
+    handleSubmitProjectRename,
+    handleCancelProjectRename,
     handleFolderDragOver,
     handleFolderDrop,
     handleFolderDragLeave,
@@ -94,6 +103,10 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
         activePath={activePath}
         draggedItem={draggedItem}
         dropTargetFolderPath={dropTargetFolderPath}
+        editingFolderId={editingFolderId}
+        renamingFolderId={renamingFolderId}
+        editingProjectPath={editingProjectPath}
+        renamingProjectPath={renamingProjectPath}
         expandedFolders={expandedFolders}
         editorReady={editorReady}
         setProjectRowRef={setProjectRowRef}
@@ -105,6 +118,11 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
         onDragEnd={handleDragEnd}
         onFolderClick={handleFolderRowClick}
         onFolderKeyDown={handleFolderRowKeyDown}
+        onProjectKeyDown={handleProjectRowKeyDown}
+        onFolderRenameSubmit={handleSubmitFolderRename}
+        onFolderRenameCancel={handleCancelFolderRename}
+        onProjectRenameSubmit={handleSubmitProjectRename}
+        onProjectRenameCancel={handleCancelProjectRename}
         onFolderDragOver={handleFolderDragOver}
         onFolderDrop={(folder) => (event) => void handleFolderDrop(folder)(event)}
         onFolderDragLeave={handleFolderDragLeave}

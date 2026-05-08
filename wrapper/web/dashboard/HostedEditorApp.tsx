@@ -1,6 +1,8 @@
 import { type FC, useCallback, useState } from 'react';
 import {
+  type FileMenuItemId,
   RivetAppHost,
+  type RivetAppHostUiConfig,
   type RivetAppHostOpenErrorEvent,
   type RivetAppHostProjectSavedEvent,
   type RivetWorkspaceHost,
@@ -10,6 +12,18 @@ import { RIVET_EXECUTOR_WS_URL } from '../../shared/hosted-env';
 import { postMessageToDashboard } from '../../shared/editor-bridge';
 import { hostedRivetProviders } from './hostedRivetProviders';
 import { useReconcileHostedProjectTitleAfterSave } from './useReconcileHostedProjectTitleAfterSave';
+
+const HOSTED_FILE_MENU_VISIBLE_ITEMS = [
+  'import_graph',
+  'export_graph',
+  'settings',
+] as const satisfies readonly FileMenuItemId[];
+
+const HOSTED_RIVET_UI = {
+  fileMenu: {
+    visibleItems: HOSTED_FILE_MENU_VISIBLE_ITEMS,
+  },
+} satisfies RivetAppHostUiConfig;
 
 export const HostedEditorApp: FC = () => {
   const [workspaceHost, setWorkspaceHost] = useState<RivetWorkspaceHost | null>(null);
@@ -55,6 +69,7 @@ export const HostedEditorApp: FC = () => {
     <RivetAppHost
       executor={{ internalExecutorUrl: RIVET_EXECUTOR_WS_URL }}
       providers={hostedRivetProviders}
+      ui={HOSTED_RIVET_UI}
       onActiveProjectChanged={handleActiveProjectChanged}
       onOpenError={handleOpenError}
       onOpenProjectCountChanged={handleOpenProjectCountChanged}

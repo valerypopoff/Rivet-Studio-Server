@@ -21,6 +21,7 @@ export function createModuleOverrideAliases(overrideDir: string) {
   return [
     { find: /^\.\.?\/(?:.*\/)?tauri(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'utils/tauri.ts') },
     { find: /^\.\.?\/(?:.*\/)?deserializeProject(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'utils/deserializeProject.ts') },
+    { find: /^\.\.?\/(?:.*\/)?savedGraphs(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'state/savedGraphs.ts') },
     { find: /^\.\.?\/(?:.*\/)?settings(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'state/settings.ts') },
     { find: /^\.\.?\/(?:.*\/)?useCheckForUpdate(\.js|\.ts|\.tsx)?$/, replacement: resolve(overrideDir, 'hooks/useCheckForUpdate.tsx') },
     { find: /^\.\.?\/(?:.*\/)?useContextMenu(\.js|\.ts)?$/, replacement: resolve(overrideDir, 'hooks/useContextMenu.ts') },

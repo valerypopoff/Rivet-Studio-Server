@@ -581,6 +581,26 @@
   cursor: pointer;
 }
 
+.workflow-library-panel .folder-row.editing {
+  cursor: default;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.workflow-library-panel .folder-row.renaming {
+  cursor: progress;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.workflow-library-panel .project-row.editing {
+  cursor: default;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.workflow-library-panel .project-row.renaming {
+  cursor: progress;
+  background: rgba(255, 255, 255, 0.08);
+}
+
 .workflow-library-panel .folder-row:hover,
 .workflow-library-panel .project-row:hover,
 .workflow-library-panel .folder-row.active,
@@ -641,6 +661,14 @@
   line-height: inherit;
 }
 
+.workflow-library-panel .folder-row.editing .folder-name-button {
+  cursor: default;
+}
+
+.workflow-library-panel .folder-row.renaming .folder-name-button {
+  cursor: progress;
+}
+
 .workflow-library-panel .folder-main,
 .workflow-library-panel .project-main {
   flex: 1;
@@ -648,6 +676,68 @@
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+.workflow-library-panel .folder-label-wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.workflow-library-panel .project-label-wrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.workflow-library-panel .folder-rename-spinner,
+.workflow-library-panel .project-rename-spinner {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.22);
+  border-top-color: #9bb8ff;
+  border-radius: 50%;
+  animation: workflow-library-rename-spin 0.75s linear infinite;
+}
+
+@keyframes workflow-library-rename-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.workflow-library-panel .folder-rename-form,
+.workflow-library-panel .project-rename-form {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+.workflow-library-panel .folder-rename-input,
+.workflow-library-panel .project-rename-input {
+  width: 100%;
+  min-width: 0;
+  height: 24px;
+  box-sizing: border-box;
+  border: 1px solid rgba(125, 166, 255, 0.72);
+  border-radius: 4px;
+  background: rgba(11, 15, 26, 0.96);
+  color: var(--grey-lightest);
+  font: inherit;
+  line-height: 1.2;
+  padding: 2px 6px;
+  outline: none;
+}
+
+.workflow-library-panel .folder-rename-input:focus,
+.workflow-library-panel .project-rename-input:focus {
+  border-color: #9bb8ff;
+  box-shadow: 0 0 0 2px rgba(125, 166, 255, 0.22);
 }
 
 .workflow-library-panel .folder-project-count {
@@ -927,10 +1017,6 @@
   text-overflow: ellipsis;
 }
 
-.project-settings-modal-title.editing {
-  visibility: hidden;
-}
-
 .project-settings-modal-heading {
   display: flex;
   flex-direction: column;
@@ -941,8 +1027,6 @@
   min-height: 32px;
 }
 
-
-
 .project-settings-title-display {
   display: inline-flex;
   align-items: flex-start;
@@ -950,38 +1034,6 @@
   min-height: 32px;
   width: auto;
   max-width: 100%;
-}
-
-.project-settings-title-display.editing {
-  display: flex;
-  gap: 8px;
-  width: 100%;
-}
-
-.project-settings-rename-button {
-  width: var(--workflow-button-height-s);
-  margin-left: 2px;
-}
-
-.project-settings-rename-button span {
-  color: white !important;
-  transform: scaleX(-1);
-}
-
-.project-settings-title-button {
-  border: none;
-  background: transparent;
-  padding: 0;
-  margin: 0;
-  color: inherit;
-  cursor: pointer;
-  text-align: left;
-  max-width: 100%;
-}
-
-.project-settings-title-button:hover .project-settings-modal-title,
-.project-settings-title-button:focus-visible .project-settings-modal-title {
-  text-decoration: underline;
 }
 
 .project-settings-title-field {
@@ -993,37 +1045,6 @@
   flex-direction: column;
   justify-content: flex-start;
   min-height: 32px;
-}
-
-.project-settings-title-display.editing .project-settings-title-field {
-  width: 100%;
-  flex: 1 1 auto;
-}
-
-.project-settings-title-input-overlay {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: flex-start;
-}
-
-.project-settings-title-input {
-  width: 100%;
-}
-
-.project-settings-title-input > div,
-.project-settings-title-input [data-ds--text-field--container] {
-  width: 100%;
-}
-
-.project-settings-title-input input {
-  font-size: var(--workflow-library-font-size-2xl) !important;
-  font-weight: 700 !important;
-  line-height: 1.25 !important;
-  min-height: 32px !important;
-  height: 32px !important;
-  padding-top: 0 !important;
-  padding-bottom: 0 !important;
 }
 
 .project-settings-close-button {

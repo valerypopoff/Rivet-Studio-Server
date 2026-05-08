@@ -1,18 +1,24 @@
-import { type FC } from 'react';
+import type { FC } from 'react';
 import type { WorkflowProjectItem } from './types';
+import { WorkflowInlineRenameInput } from './WorkflowInlineRenameInput';
 import type { DraggedWorkflowItem } from './workflowLibraryHelpers';
 
 type WorkflowProjectRowProps = {
   project: WorkflowProjectItem;
   activePath: string;
   draggedItem: DraggedWorkflowItem | null;
+  editing: boolean;
+  renaming: boolean;
   editorReady: boolean;
-  setProjectRowRef: (path: string, node: HTMLButtonElement | null) => void;
+  setProjectRowRef: (path: string, node: HTMLElement | null) => void;
   onDragStart: (item: DraggedWorkflowItem) => (event: React.DragEvent<HTMLElement>) => void;
   onDragEnd: () => void;
   onSelect: (path: string) => void;
   onOpen: (path: string) => void;
-  onContextMenu: (project: WorkflowProjectItem, event: React.MouseEvent<HTMLButtonElement>) => void;
+  onContextMenu: (project: WorkflowProjectItem, event: React.MouseEvent<HTMLElement>) => void;
+  onKeyDown: (project: WorkflowProjectItem) => (event: React.KeyboardEvent<HTMLElement>) => void;
+  onRenameSubmit: (project: WorkflowProjectItem, name: string) => void | Promise<void>;
+  onRenameCancel: (project: WorkflowProjectItem) => void;
   getParentRelativePath: (relativePath: string) => string;
 };
 
@@ -20,6 +26,8 @@ export const WorkflowProjectRow: FC<WorkflowProjectRowProps> = ({
   project,
   activePath,
   draggedItem,
+  editing,
+  renaming,
   editorReady,
   setProjectRowRef,
   onDragStart,
@@ -27,15 +35,51 @@ export const WorkflowProjectRow: FC<WorkflowProjectRowProps> = ({
   onSelect,
   onOpen,
   onContextMenu,
+  onKeyDown,
+  onRenameSubmit,
+  onRenameCancel,
   getParentRelativePath,
 }) => {
+  const rowClassName = [
+    'project-row',
+    `project-row-status-${project.settings.status}`,
+    activePath === project.absolutePath ? 'active' : null,
+    editing ? 'editing' : null,
+    renaming ? 'renaming' : null,
+    draggedItem?.itemType === 'project' && draggedItem.absolutePath === project.absolutePath ? 'dragging' : null,
+  ].filter(Boolean).join(' ');
+  const projectRowContent = (
+    <ProjectRowContent
+      project={project}
+      editing={editing}
+      renaming={renaming}
+      onRenameSubmit={onRenameSubmit}
+      onRenameCancel={onRenameCancel}
+    />
+  );
+
+  if (editing || renaming) {
+    return (
+      <div
+        ref={(node) => {
+          setProjectRowRef(project.absolutePath, node);
+        }}
+        className={rowClassName}
+        aria-busy={renaming ? true : undefined}
+        aria-label={`Renaming ${project.name}`}
+        title={project.fileName}
+      >
+        {projectRowContent}
+      </div>
+    );
+  }
+
   return (
     <button
-      key={project.id}
       ref={(node) => {
         setProjectRowRef(project.absolutePath, node);
       }}
-      className={`project-row project-row-status-${project.settings.status}${activePath === project.absolutePath ? ' active' : ''}${draggedItem?.itemType === 'project' && draggedItem.absolutePath === project.absolutePath ? ' dragging' : ''}`}
+      className={rowClassName}
       draggable={editorReady}
       disabled={!editorReady}
       onDragStart={onDragStart({
@@ -48,12 +92,63 @@ export const WorkflowProjectRow: FC<WorkflowProjectRowProps> = ({
       onClick={() => onSelect(project.absolutePath)}
       onDoubleClick={() => onOpen(project.absolutePath)}
       onContextMenu={(event) => onContextMenu(project, event)}
+      onKeyDown={onKeyDown(project)}
       title={editorReady ? project.fileName : 'Loading editor...'}
     >
-      <div className="project-main">
-        {project.settings.status !== 'unpublished' ? <span className={`project-status-dot ${project.settings.status}`} aria-hidden="true" /> : null}
-        <div className="label">{project.name}</div>
-      </div>
+      {projectRowContent}
     </button>
   );
 };
+
+type ProjectRowContentProps = {
+  project: WorkflowProjectItem;
+  editing: boolean;
+  renaming: boolean;
+  onRenameSubmit: (project: WorkflowProjectItem, name: string) => void | Promise<void>;
+  onRenameCancel: (project: WorkflowProjectItem) => void;
+};
+
+const ProjectRowContent: FC<ProjectRowContentProps> = ({
+  project,
+  editing,
+  renaming,
+  onRenameSubmit,
+  onRenameCancel,
+}) => (
+  <div className="project-main">
+    {project.settings.status !== 'unpublished' ? <span className={`project-status-dot ${project.settings.status}`} aria-hidden="true" /> : null}
+    {editing ? (
+      <ProjectRenameInput
+        project={project}
+        onSubmit={onRenameSubmit}
+        onCancel={onRenameCancel}
+      />
+    ) : (
+      <div className="project-label-wrap">
+        {renaming ? <span className="project-rename-spinner" aria-hidden="true" /> : null}
+        <div className="label">{project.name}</div>
+      </div>
+    )}
+  </div>
+);
+
+type ProjectRenameInputProps = {
+  project: WorkflowProjectItem;
+  onSubmit: (project: WorkflowProjectItem, name: string) => void | Promise<void>;
+  onCancel: (project: WorkflowProjectItem) => void;
+};
+
+const ProjectRenameInput: FC<ProjectRenameInputProps> = ({
+  project,
+  onSubmit,
+  onCancel,
+}) => (
+  <WorkflowInlineRenameInput
+    classNamePrefix="project"
+    initialValue={project.name}
+    identityKey={project.id}
+    ariaLabel={`Rename ${project.name}`}
+    onSubmit={(value) => onSubmit(project, value)}
+    onCancel={() => onCancel(project)}
+  />
+);

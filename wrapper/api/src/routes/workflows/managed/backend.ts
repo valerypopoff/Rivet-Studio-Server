@@ -6,6 +6,7 @@ import type {
 } from '../../../../../shared/workflow-types.js';
 import type {
   WorkflowRecordingFilterStatus,
+  WorkflowRecordingInputFilter,
   WorkflowRecordingRunsPageResponse,
   WorkflowRecordingWorkflowListResponse,
 } from '../../../../../shared/workflow-recording-types.js';
@@ -149,7 +150,7 @@ export class ManagedWorkflowBackend {
     return this.#publication.unpublishWorkflowProjectItem(relativePath);
   }
 
-  async deleteWorkflowProjectItem(relativePath: unknown): Promise<void> {
+  async deleteWorkflowProjectItem(relativePath: unknown): Promise<string | null> {
     return this.#catalog.deleteWorkflowProjectItem(relativePath);
   }
 
@@ -180,8 +181,9 @@ export class ManagedWorkflowBackend {
     page: number,
     pageSize: number,
     statusFilter: WorkflowRecordingFilterStatus,
+    inputFilter: WorkflowRecordingInputFilter | null = null,
   ): Promise<WorkflowRecordingRunsPageResponse> {
-    return this.#recordings.listWorkflowRecordingRunsPage(workflowId, page, pageSize, statusFilter);
+    return this.#recordings.listWorkflowRecordingRunsPage(workflowId, page, pageSize, statusFilter, inputFilter);
   }
 
   async readWorkflowRecordingArtifact(recordingId: string, artifact: 'recording' | 'replay-project' | 'replay-dataset'): Promise<string> {

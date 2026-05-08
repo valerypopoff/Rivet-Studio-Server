@@ -335,6 +335,8 @@ For slow `GET /api/workflows/recordings/workflows` diagnosis in Docker, compare:
 - indexed run rows in `/data/rivet-app/recordings.sqlite`:
   `node -e "const {DatabaseSync}=require('node:sqlite'); const db=new DatabaseSync('/data/rivet-app/recordings.sqlite'); console.log(db.prepare('select count(*) n from recording_runs').get())"`
 
+The `Run recordings` modal can also filter a workflow's runs by recorded request input. Use the `Input JSON path` control with a path such as `$.foo`, an operator such as `==`, and a value such as `bar`. The API evaluates `$` against the root workflow request body stored in the recording's `inputs.input.value` event. This filter reads existing recording artifacts after workflow/status narrowing, so it is best for targeted inspection rather than high-cardinality analytics.
+
 ## Source of truth
 
 - authored source lives under `wrapper/`, `image/`, `ops/`, `charts/`, `scripts/`, `docs/`, and `.github/`
@@ -372,16 +374,23 @@ When adding new code, keep the post-refactor ownership seams explicit instead of
 - dashboard/editor bridge wiring should stay explicit
   - `DashboardPage.tsx` is the composition root
   - `HostedEditorApp.tsx` mounts `RivetAppHost`, passes the hosted provider overrides from `hostedRivetProviders.ts`, captures the upstream `RivetWorkspaceHost` through `onWorkspaceHostReady`, and forwards upstream host callbacks for active project, open-project count, and save completion
+  - `HostedEditorApp.tsx` also passes `RivetAppHost.ui.fileMenu.visibleItems` so the iframe File menu shows only `import_graph`, `export_graph`, and `settings`; keep this on the upstream host UI policy seam instead of hiding menu DOM or aliasing menu command hooks
   - `useEditorCommandQueue.ts` owns pre-ready command buffering
   - `useEditorBridgeEvents.ts` owns dashboard-side message listeners and cross-iframe save shortcut capture
   - `EditorMessageBridge.tsx` owns editor-side message handling after the workspace host handle is ready, and should pass that `RivetWorkspaceHost` through to project open, replace-current, close, and path-move commands instead of rewriting Rivet tab atoms directly
 - hosted provider wiring should stay explicit
   - import the app shell and CSS through `rivet/packages/app/src/host.tsx` and `rivet/packages/app/src/host.css`
-  - pass `HostedIOProvider`, an injected `BrowserDatasetProvider`, the hosted environment provider, and the hosted path-policy provider through `RivetAppHost.providers`
+  - pass `HostedIOProvider`, an injected `HostedDatasetProvider`, the hosted environment provider, and the hosted path-policy provider through `RivetAppHost.providers`
   - keep `HostedIOProvider` and Rivet's active dataset provider on the same import/export-capable dataset-provider instance so project file IO, dataset UI, and runtime hooks observe the same imported datasets
+  - keep `HostedDatasetProvider` pruning old per-project IndexedDB dataset rows before importing a project payload, otherwise datasets removed from a project can reappear from stale browser app storage
+- hosted project context values are editor-owned app state, not `.rivet-project` file contents
+  - Rivet stores them under `projectContext__"<projectId>"`, so hosted open/reopen persistence depends on stable `project.metadata.id` values
+  - keep `wrapper/web/overrides/state/savedGraphs.ts` overriding only `clearProjectContextState` so `RivetWorkspaceHost.closeProject()` and `replaceCurrent()` can close tabs without deleting those stored values
+  - actual dashboard workflow deletion should forward the project id returned by `DELETE /api/workflows/projects`, then call `deleteHostedProjectContextState` and `clearHostedDatasetsForProject` from the iframe delete handler so stale editor-owned browser state does not remain even when the tab was already closed
 - editor executor transport should prefer Rivet's upstream host/session seam
   - mount the editor through `RivetAppHost`
   - pass the hosted executor websocket through `executor.internalExecutorUrl`
+  - use `RivetAppHost.ui.fileMenu.visibleItems` for hosted File menu visibility and leave command execution in upstream `useMenuCommands`
   - keep graph execution, upload, abort, pause/resume, and websocket message ownership in upstream Rivet hooks
   - do not alias `useExecutorSession`, `useRemoteDebugger`, `useGraphExecutor`, or `useRemoteExecutor`; upstream Rivet owns internal executor UI classification and debugger handoff for `executor.internalExecutorUrl`
   - stale wrapper transport override files were removed; do not reintroduce them unless the upstream seam no longer covers hosted behavior
@@ -401,8 +410,9 @@ When adding new code, keep the post-refactor ownership seams explicit instead of
   - when fixing tab close/switch behavior, update the wrapper overrides rather than storing full project objects back into `projectsState.openedProjects`
 - wrapper module overrides should stay scoped to upstream app importers
   - `wrapper/web/vite.config.ts` resolves override files only when the importer is under `rivet/packages/app/src`
+  - keep the `savedGraphs` override narrow: it re-exports upstream state, changes only `clearProjectContextState` for normal tab close/reopen, and exposes an explicit delete helper for actual workflow deletion
   - do not put wrapper-owned transport overrides back into `wrapper/web/vite-aliases.ts`
-  - do not alias `useSaveProject` or `useMenuCommands`; upstream `useWorkspaceTransitions` and `RivetAppHost.onProjectSaved` own the save/menu seam, while the wrapper sends `save-project` when focus is outside the iframe and reconciles hosted title metadata after successful saves
+  - do not alias `useSaveProject` or `useMenuCommands`; upstream `useWorkspaceTransitions`, `RivetAppHost.onProjectSaved`, and `RivetAppHost.ui.fileMenu.visibleItems` own the save/menu seam, while the wrapper sends `save-project` when focus is outside the iframe and reconciles hosted title metadata after successful saves
   - do not reintroduce wrapper copies of `TauriProjectReferenceLoader`, `io/datasets`, `io/TauriIOProvider`, or `utils/globals/ioProvider`; hosted relative-project reads belong in the path policy provider, and hosted project/dataset persistence belongs in `RivetAppHost.providers` plus `HostedIOProvider`
   - keep `scripts/update-check.sh` aligned with that boundary: it should check the upstream provider seams, not treat provider-backed upstream modules as wrapper aliases
   - keep bare-package shims such as `@tauri-apps/api/*` separate from relative Rivet module overrides
@@ -476,10 +486,14 @@ For workflow-library folder rename behavior:
 1. `npm run dev`
 2. validate the browser flow through `http://localhost:8080` by default, or your configured `RIVET_PORT`
 3. right-click a folder in the left panel and run `Rename folder`
-4. enter a new folder name when prompted
-5. confirm the folder remains in the tree under the new name
-6. if the folder contained projects that are open in the editor, confirm those tabs still point at the renamed paths and save correctly afterward
-7. try renaming to an existing sibling folder name and confirm the UI shows the API conflict
+4. confirm the folder row turns into an inline edit field with the current name selected
+5. press `Esc`, then repeat and click elsewhere, and confirm both paths cancel without renaming
+6. enter a new folder name and press `Enter`
+7. confirm the edit field closes immediately and the old folder name shows a preloader while the rename is saving
+8. confirm the folder remains in the tree under the new name
+9. if the folder was collapsed before pressing `Enter`, confirm it stays collapsed after the renamed row appears
+10. if the folder contained projects that are open in the editor, confirm those tabs still point at the renamed paths and save correctly afterward
+11. try renaming to an existing sibling folder name and confirm the preloader clears and the UI shows the API conflict without leaving a stale edit field open
 
 For workflow-library folder deletion behavior:
 
@@ -539,9 +553,14 @@ For workflow-library project rename entry behavior:
 1. `npm run dev`
 2. validate the browser flow through `http://localhost:8080` by default, or your configured `RIVET_PORT`
 3. right-click a project in the left panel and run `Rename project`
-4. confirm the context-menu action opens Project Settings for that project instead of renaming immediately
-5. confirm the rename still completes only through the existing Project Settings flow
-6. confirm the menu action does not change the current selection or open a different project on its own
+4. confirm the project row turns into an inline edit field with the current name selected
+5. select the same project row again, press `F2`, and confirm it starts the same inline edit field
+6. press `Esc`, then repeat and click elsewhere, and confirm both paths cancel without renaming
+7. enter a new project name and press `Enter`
+8. confirm the edit field closes immediately and the old project name shows a preloader while the rename is saving
+9. confirm the renamed row keeps the previous selection/open editor tab by following the returned `movedProjectPaths`
+10. try renaming to an existing sibling project name and confirm the preloader clears and the UI shows the API conflict without leaving a stale edit field open
+11. open Project Settings separately and confirm there is no modal-level rename button or title edit field
 
 For hosted editor keyboard-node behavior:
 

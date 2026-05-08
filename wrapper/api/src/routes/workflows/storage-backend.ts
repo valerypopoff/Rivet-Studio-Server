@@ -11,6 +11,7 @@ import type {
 } from '../../../../shared/workflow-types.js';
 import type {
   WorkflowRecordingFilterStatus,
+  WorkflowRecordingInputFilter,
   WorkflowRecordingRunsPageResponse,
   WorkflowRecordingWorkflowListResponse,
 } from '../../../../shared/workflow-recording-types.js';
@@ -316,10 +317,11 @@ export async function listWorkflowRecordingRunsPageWithBackend(
   page: number,
   pageSize: number,
   statusFilter: WorkflowRecordingFilterStatus,
+  inputFilter: WorkflowRecordingInputFilter | null = null,
 ): Promise<WorkflowRecordingRunsPageResponse> {
   return delegateWithWorkflowsRoot(
-    async (backend) => backend.listWorkflowRecordingRunsPage(workflowId, page, pageSize, statusFilter),
-    async (root) => listWorkflowRecordingRunsPage(root, workflowId, page, pageSize, statusFilter),
+    async (backend) => backend.listWorkflowRecordingRunsPage(workflowId, page, pageSize, statusFilter, inputFilter),
+    async (root) => listWorkflowRecordingRunsPage(root, workflowId, page, pageSize, statusFilter, inputFilter),
   );
 }
 
@@ -466,8 +468,9 @@ export async function deleteWorkflowProjectItemWithBackend(relativePath: unknown
         allowProjectFile: true,
       }));
 
-      await deleteWorkflowProjectItem(relativePath);
+      const projectId = await deleteWorkflowProjectItem(relativePath);
       markFilesystemExecutionStructureDirty([resolvedPath]);
+      return projectId;
     },
   );
 }

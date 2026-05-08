@@ -5,6 +5,25 @@ export type WorkflowRecordingRunKind = 'published' | 'latest';
 export type WorkflowRecordingStatus = 'succeeded' | 'failed' | 'suspicious';
 
 export type WorkflowRecordingFilterStatus = 'all' | 'failed';
+export const WORKFLOW_RECORDING_INPUT_FILTER_OPERATORS = [
+  '==',
+  '!=',
+  '>',
+  '>=',
+  '<',
+  '<=',
+  'contains',
+  'exists',
+  'not_exists',
+] as const;
+export type WorkflowRecordingInputFilterOperator =
+  typeof WORKFLOW_RECORDING_INPUT_FILTER_OPERATORS[number];
+
+export type WorkflowRecordingInputFilter = {
+  path: string;
+  operator: WorkflowRecordingInputFilterOperator;
+  value: string;
+};
 
 export type WorkflowRecordingBlobEncoding = 'identity' | 'gzip';
 
@@ -45,6 +64,7 @@ export type WorkflowRecordingRunsPageResponse = {
   pageSize: number;
   totalRuns: number;
   statusFilter: WorkflowRecordingFilterStatus;
+  inputFilter?: WorkflowRecordingInputFilter | null;
   runs: WorkflowRecordingRunSummary[];
 };
 

@@ -118,11 +118,11 @@ Current backend-specific behavior:
 
 In the current dashboard UI, the project-row context menu exposes `Rename project`, `Download`, `Duplicate`, and `Delete project`.
 
-- `Rename project` opens Project Settings for that workflow and reuses the existing rename flow there
+- `Rename project` edits the project name inline in the tree; `Enter` closes the edit field and shows a preloader on the project name while the API saves, while `Esc` or focus leaving the edit field cancels without calling the API
 
 The folder-row context menu exposes `Rename folder`, `Create project`, `Upload project`, and `Delete folder`.
 
-- `Rename folder` prompts immediately and retargets already-open project tabs through the editor bridge path-move flow
+- `Rename folder` edits the folder name inline in the tree; `Enter` closes the edit field and shows a preloader on the folder name while the API saves, while `Esc` or focus leaving the edit field cancels without calling the API
 - `Delete folder` is enabled only for empty folders in the dashboard, and the API still rejects non-empty folder deletion if called directly
 
 `Delete project` is still guarded:
@@ -143,7 +143,9 @@ Workflow folders are managed through:
 Current folder behavior:
 
 - the workflow library's `+ New folder` action creates new folders at the root level
-- `Rename folder` prompts for the new name, renames the folder on the backend, returns `movedProjectPaths`, and lets the dashboard retarget open editor tabs without closing them
+- `Rename folder` shows the shared inline edit field on the selected folder row, hides that field immediately when the user presses `Enter`, shows a preloader on the folder name while the backend rename is pending, returns `movedProjectPaths`, and lets the dashboard retarget open editor tabs without closing them
+- pressing `Esc` or clicking away from the inline folder edit field cancels without calling the rename API
+- a folder keeps its previous expanded or collapsed state after rename, even when the active project path inside that folder is retargeted
 - folder rename preserves expanded-state intent by remapping the saved expanded-folder ids to the new relative path
 - `Delete folder` is restricted to empty folders only
 - the dashboard shows `Delete folder` as disabled for non-empty folders, and the API enforces the same rule with `409 Only empty folders can be deleted`
@@ -164,6 +166,12 @@ Current creation behavior:
 - after successful creation, the dashboard expands the folder, refreshes the tree, and opens the new project in the editor
 - unlike upload/duplicate/download, creation is intentionally disruptive to the current editor session because opening the new project is part of the UX
 - if the folder already contains that exact project name, the API returns `409` instead of auto-numbering or overwriting
+
+## Project rename
+
+Projects are renamed from the workflow-library project context menu or by pressing `F2` while the selected project row has focus, not from Project Settings. The project row uses the same shared inline edit field as folder rename, with the current name selected. `Esc` or click-away cancels without an API call, and `Enter` hides the field immediately while a row preloader remains until `PATCH /api/workflows/projects` resolves.
+
+When the API returns `movedProjectPaths`, the dashboard retargets the selected project, open editor tabs, and Project Settings state to the new absolute path without opening a different project. If the API rejects the rename, the preloader clears and the tree returns to the original row name while the error toast reports the server message.
 
 ## Project duplication
 
@@ -500,13 +508,14 @@ That backend data serves:
 - workflow summaries ordered by most recent run
 - per-workflow run pagination
 - bad-only filtering, where `status=failed` includes both `failed` and `suspicious`
+- optional input filtering against each recording's captured workflow request input
 - artifact lookup by `recordingId`
 - single-run deletion by `recordingId`
 
 The main recordings routes are:
 
 - `GET /api/workflows/recordings/workflows`
-- `GET /api/workflows/recordings/workflows/:workflowId/runs?page=1&pageSize=20&status=all|failed`
+- `GET /api/workflows/recordings/workflows/:workflowId/runs?page=1&pageSize=20&status=all|failed&inputPath=$.foo&inputOperator=%3D%3D&inputValue=bar`
 - `GET /api/workflows/recordings/:recordingId/recording`
 - `GET /api/workflows/recordings/:recordingId/replay-project`
 - `GET /api/workflows/recordings/:recordingId/replay-dataset`
@@ -525,10 +534,13 @@ Current browser behavior:
 - pages runs from the API instead of materializing the whole history at once
 - sorts runs by newest first with a recording-ID tie-breaker, so same-millisecond runs keep a stable order across pages and filters
 - supports `All` and `Bad only`, where `Bad only` includes both `failed` and `suspicious`
+- supports an optional input filter. The filter uses a JSON path where `$` is the workflow request input object recorded under Rivet's `inputs.input.value`; for example, request input `{ "foo": "bar" }` matches `$.foo == bar`.
 - lets the user delete individual stored runs
 - opens a run by `recordingId`, not by raw filesystem path
 - `useRunRecordingsController.ts` owns workflow loading, run paging/filtering, and delete flow
 - `RecordingWorkflowSelect.tsx` and `RecordingRunsTable.tsx` render the focused UI slices instead of leaving all of that state and rendering in `RunRecordingsModal.tsx`
+
+Input filtering does not change how recordings are created. When `inputPath` is present, the API reads the existing serialized recording artifact for each candidate run after the workflow/status filter, restores Rivet string-table references from the serialized recording payload, extracts the recorded root request input from the `start` or `graphStart` event, applies the JSON-path/operator/value predicate, and then paginates the matching rows. This keeps old recordings readable and avoids adding wrapper-specific fields to the recording write path. Supported operators are `==`, `!=`, `>`, `>=`, `<`, `<=`, `contains`, `exists`, and `not_exists`.
 
 Deleting a run removes both:
 
@@ -547,12 +559,14 @@ If that was the last run for the workflow:
 When a run is opened, the hosted editor:
 
 - fetches the serialized recorder payload
+- deserializes that payload with the runtime `ExecutionRecorder` export before setting Rivet's loaded-recording state
 - opens a virtual replay project path such as `recording://<recordingId>/replay.rivet-project`
 - loads the replay project and optional dataset through `HostedIOProvider`
 - switches the live selected executor to browser replay mode
 - serializes recording/project open commands in the editor iframe so overlapping async loads cannot mix a replay project from one run with a recorder payload from another
 - restores the recorder that belongs to the active virtual replay path when the user switches between open recording tabs
 - refetches and restores the serialized recorder from the virtual replay path after an iframe/page reload, so a replay tab does not fall back to running the graph with default inputs
+- clears any staged recorder cache if the replay project fails to open, so a later retry cannot inherit a stale recorder
 - treats the replay snapshot as read-only
 
 ## Project rename, move, and delete behavior
@@ -595,8 +609,8 @@ The workflow-publication UI now follows the same controller-versus-view split as
 
 - `WorkflowLibraryPanel.tsx` renders the shell, while `useWorkflowLibraryController.ts` owns refresh, selection, drag/drop, duplicate/download/upload, and modal orchestration
 - `ProjectSettingsModal.tsx` is mostly presentational
-- `useProjectSettingsActions.ts` owns rename, publish, unpublish, and guarded delete flows
-- `projectSettingsForm.ts` owns project-name normalization, endpoint validation, last-published labels, and status labels
+- `useProjectSettingsActions.ts` owns publish, unpublish, and guarded delete flows
+- `projectSettingsForm.ts` owns endpoint validation, last-published labels, and status labels
 - `workflowApi.ts` keeps endpoint-specific calls flat while `apiRequest.ts` owns shared JSON/text parsing and error extraction
 
 ## Key files
@@ -633,6 +647,7 @@ The workflow-publication UI now follows the same controller-versus-view split as
 - `wrapper/api/src/routes/workflows/managed-virtual-io.ts` - managed virtual-path helpers used by hosted native IO
 - `wrapper/api/src/scripts/measure-workflow-execution.ts` - read-only filesystem/managed endpoint measurement helper for route-timing diagnosis
 - `wrapper/web/dashboard/useWorkflowLibraryController.ts` - workflow-tree controller
+- `wrapper/web/dashboard/WorkflowInlineRenameInput.tsx` - shared inline rename input used by folder and project tree rows
 - `wrapper/web/dashboard/useProjectSettingsActions.ts` - project-settings mutations
 - `wrapper/web/dashboard/projectSettingsForm.ts` - project-settings validation and label helpers
 - `wrapper/web/dashboard/useRunRecordingsController.ts` - run-recordings controller

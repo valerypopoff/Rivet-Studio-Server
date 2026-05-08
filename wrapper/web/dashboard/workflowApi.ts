@@ -1,11 +1,13 @@
 import { RIVET_API_BASE_URL } from '../../shared/hosted-env';
 import type {
   WorkflowFolderItem,
+  WorkflowProjectDeleteResponse,
   WorkflowProjectDownloadVersion,
   WorkflowMoveResponse,
   WorkflowProjectItem,
   WorkflowProjectSettingsDraft,
   WorkflowRecordingFilterStatus,
+  WorkflowRecordingInputFilter,
   WorkflowRecordingRunsPageResponse,
   WorkflowRecordingWorkflowListResponse,
   WorkflowTreeResponse,
@@ -101,6 +103,7 @@ export async function fetchWorkflowRecordingRuns(
     page: number;
     pageSize: number;
     status: WorkflowRecordingFilterStatus;
+    inputFilter?: WorkflowRecordingInputFilter | null;
   },
 ): Promise<WorkflowRecordingRunsPageResponse> {
   const query = new URLSearchParams({
@@ -108,6 +111,11 @@ export async function fetchWorkflowRecordingRuns(
     pageSize: String(options.pageSize),
     status: options.status,
   });
+  if (options.inputFilter) {
+    query.set('inputPath', options.inputFilter.path);
+    query.set('inputOperator', options.inputFilter.operator);
+    query.set('inputValue', options.inputFilter.value);
+  }
   const response = await fetch(`${API}/workflows/recordings/workflows/${encodeURIComponent(workflowId)}/runs?${query}`, {
     cache: 'no-store',
   });
@@ -280,12 +288,12 @@ export async function unpublishWorkflowProject(relativePath: string): Promise<Wo
   return data.project;
 }
 
-export async function deleteWorkflowProject(relativePath: string): Promise<void> {
+export async function deleteWorkflowProject(relativePath: string): Promise<WorkflowProjectDeleteResponse> {
   const response = await fetch(`${API}/workflows/projects`, {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ relativePath }),
   });
 
-  await workflowJsonResponse<{ deleted: true }>(response);
+  return workflowJsonResponse<WorkflowProjectDeleteResponse>(response);
 }

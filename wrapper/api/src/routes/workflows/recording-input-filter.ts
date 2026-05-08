@@ -1,0 +1,382 @@
+import {
+  WORKFLOW_RECORDING_INPUT_FILTER_OPERATORS,
+  type WorkflowRecordingInputFilter,
+  type WorkflowRecordingInputFilterOperator,
+} from '../../../../shared/workflow-recording-types.js';
+
+type PathToken = string | number;
+
+const INPUT_FILTER_OPERATORS = new Set<WorkflowRecordingInputFilterOperator>(
+  WORKFLOW_RECORDING_INPUT_FILTER_OPERATORS,
+);
+
+export function normalizeWorkflowRecordingInputFilter(options: {
+  path?: string | null;
+  operator?: string | null;
+  value?: string | null;
+}): WorkflowRecordingInputFilter | null {
+  const path = options.path?.trim();
+  if (!path) {
+    return null;
+  }
+
+  const operator = options.operator?.trim() || '==';
+  if (!INPUT_FILTER_OPERATORS.has(operator as WorkflowRecordingInputFilterOperator)) {
+    throw new Error(`Unsupported recording input filter operator: ${operator}`);
+  }
+
+  parseJsonPath(path);
+  return {
+    path,
+    operator: operator as WorkflowRecordingInputFilterOperator,
+    value: options.value ?? '',
+  };
+}
+
+export function matchesWorkflowRecordingSerializedInputFilter(
+  recordingSerialized: string,
+  filter: WorkflowRecordingInputFilter | null | undefined,
+): boolean {
+  if (!filter) {
+    return true;
+  }
+
+  const input = extractWorkflowInputFromSerializedRecording(recordingSerialized);
+  if (!input.exists) {
+    return false;
+  }
+
+  return matchesWorkflowRecordingInputFilter(input.value, filter);
+}
+
+export async function filterRowsBySerializedRecordingInput<T>(
+  rows: T[],
+  filter: WorkflowRecordingInputFilter,
+  readSerializedRecording: (row: T) => Promise<string | null>,
+): Promise<T[]> {
+  const matches = Array.from({ length: rows.length }, () => false);
+  let nextIndex = 0;
+
+  const workerCount = Math.min(8, rows.length);
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (nextIndex < rows.length) {
+      const rowIndex = nextIndex;
+      nextIndex += 1;
+
+      try {
+        const serializedRecording = await readSerializedRecording(rows[rowIndex]!);
+        matches[rowIndex] = serializedRecording != null &&
+          matchesWorkflowRecordingSerializedInputFilter(serializedRecording, filter);
+      } catch {
+        matches[rowIndex] = false;
+      }
+    }
+  }));
+
+  return rows.filter((_, index) => matches[index]);
+}
+
+function extractWorkflowInputFromSerializedRecording(recordingSerialized: string): { exists: boolean; value: unknown } {
+  let serialized: unknown;
+  try {
+    serialized = JSON.parse(recordingSerialized);
+  } catch {
+    return { exists: false, value: undefined };
+  }
+
+  if (serialized == null || typeof serialized !== 'object' || Array.isArray(serialized)) {
+    return { exists: false, value: undefined };
+  }
+
+  const serializedObject = serialized as Record<string, unknown>;
+  const strings = serializedObject.strings != null &&
+    typeof serializedObject.strings === 'object' &&
+    !Array.isArray(serializedObject.strings)
+    ? serializedObject.strings as Record<string, unknown>
+    : {};
+  const recording = restoreSerializedReferences(serializedObject.recording, strings);
+
+  if (recording == null || typeof recording !== 'object' || Array.isArray(recording)) {
+    return { exists: false, value: undefined };
+  }
+
+  const events = (recording as Record<string, unknown>).events;
+  if (!Array.isArray(events)) {
+    return { exists: false, value: undefined };
+  }
+
+  for (const event of events) {
+    if (event == null || typeof event !== 'object' || Array.isArray(event)) {
+      continue;
+    }
+
+    const eventRecord = event as Record<string, unknown>;
+    if (eventRecord.type !== 'start' && eventRecord.type !== 'graphStart') {
+      continue;
+    }
+
+    const data = eventRecord.data;
+    if (data == null || typeof data !== 'object' || Array.isArray(data)) {
+      continue;
+    }
+
+    const inputs = (data as Record<string, unknown>).inputs;
+    const extractedInput = extractInputPortValue(inputs);
+    if (extractedInput.exists) {
+      return extractedInput;
+    }
+  }
+
+  return { exists: false, value: undefined };
+}
+
+export function matchesWorkflowRecordingInputFilter(
+  input: unknown,
+  filter: WorkflowRecordingInputFilter | null | undefined,
+): boolean {
+  if (!filter) {
+    return true;
+  }
+
+  const resolved = readJsonPath(input, filter.path);
+  if (filter.operator === 'exists') {
+    return resolved.exists;
+  }
+
+  if (filter.operator === 'not_exists') {
+    return !resolved.exists;
+  }
+
+  if (!resolved.exists) {
+    return false;
+  }
+
+  const expected = parseFilterValue(filter.value);
+  switch (filter.operator) {
+    case '==':
+      return valuesEqual(resolved.value, expected);
+    case '!=':
+      return !valuesEqual(resolved.value, expected);
+    case '>':
+      return compareValues(resolved.value, expected) > 0;
+    case '>=':
+      return compareValues(resolved.value, expected) >= 0;
+    case '<':
+      return compareValues(resolved.value, expected) < 0;
+    case '<=':
+      return compareValues(resolved.value, expected) <= 0;
+    case 'contains':
+      return valueContains(resolved.value, expected);
+  }
+
+  return false;
+}
+
+function restoreSerializedReferences(value: unknown, strings: Record<string, unknown>): unknown {
+  if (typeof value === 'string' && value.startsWith('$STRING:')) {
+    const stringValue = strings[value.slice('$STRING:'.length)];
+    return typeof stringValue === 'string' ? stringValue : value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => restoreSerializedReferences(item, strings));
+  }
+
+  if (value != null && typeof value === 'object') {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, restoreSerializedReferences(item, strings)]),
+    );
+  }
+
+  return value;
+}
+
+function extractInputPortValue(inputs: unknown): { exists: boolean; value: unknown } {
+  if (inputs == null || typeof inputs !== 'object' || Array.isArray(inputs)) {
+    return { exists: false, value: undefined };
+  }
+
+  const inputPort = (inputs as Record<string, unknown>).input;
+  if (inputPort == null || typeof inputPort !== 'object' || Array.isArray(inputPort)) {
+    return { exists: Object.prototype.hasOwnProperty.call(inputs, 'input'), value: inputPort };
+  }
+
+  if (Object.prototype.hasOwnProperty.call(inputPort, 'value')) {
+    return { exists: true, value: (inputPort as Record<string, unknown>).value };
+  }
+
+  return { exists: true, value: inputPort };
+}
+
+function parseJsonPath(path: string): PathToken[] {
+  if (!path.startsWith('$')) {
+    throw new Error('Recording input filter path must start with $');
+  }
+
+  const tokens: PathToken[] = [];
+  let index = 1;
+
+  while (index < path.length) {
+    const char = path[index];
+    if (char === '.') {
+      index += 1;
+      const start = index;
+      while (index < path.length && /[A-Za-z0-9_$-]/.test(path[index]!)) {
+        index += 1;
+      }
+
+      if (start === index) {
+        throw new Error(`Invalid recording input filter path: ${path}`);
+      }
+
+      tokens.push(path.slice(start, index));
+      continue;
+    }
+
+    if (char === '[') {
+      const closeIndex = path.indexOf(']', index);
+      if (closeIndex < 0) {
+        throw new Error(`Invalid recording input filter path: ${path}`);
+      }
+
+      const rawToken = path.slice(index + 1, closeIndex).trim();
+      if (/^\d+$/.test(rawToken)) {
+        tokens.push(Number(rawToken));
+      } else if (
+        (rawToken.startsWith('"') && rawToken.endsWith('"')) ||
+        (rawToken.startsWith("'") && rawToken.endsWith("'"))
+      ) {
+        tokens.push(rawToken.slice(1, -1));
+      } else {
+        throw new Error(`Invalid recording input filter path: ${path}`);
+      }
+
+      index = closeIndex + 1;
+      continue;
+    }
+
+    throw new Error(`Invalid recording input filter path: ${path}`);
+  }
+
+  return tokens;
+}
+
+function readJsonPath(input: unknown, path: string): { exists: boolean; value: unknown } {
+  const tokens = parseJsonPath(path);
+  let current = input;
+
+  for (const token of tokens) {
+    if (typeof token === 'number') {
+      if (!Array.isArray(current) || token >= current.length) {
+        return { exists: false, value: undefined };
+      }
+
+      current = current[token];
+      continue;
+    }
+
+    if (current == null || typeof current !== 'object' || !Object.prototype.hasOwnProperty.call(current, token)) {
+      return { exists: false, value: undefined };
+    }
+
+    current = (current as Record<string, unknown>)[token];
+  }
+
+  return { exists: true, value: current };
+}
+
+function parseFilterValue(value: string): unknown {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return '';
+  }
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return trimmed;
+  }
+}
+
+function valuesEqual(left: unknown, right: unknown): boolean {
+  if (left === right) {
+    return true;
+  }
+
+  if (typeof left === 'number' && typeof right === 'string' && right.trim() !== '') {
+    return left === Number(right);
+  }
+
+  if (typeof left === 'string' && typeof right !== 'object') {
+    return left === String(right);
+  }
+
+  if (isJsonLikeObject(left) && isJsonLikeObject(right)) {
+    return jsonLikeValuesEqual(left, right);
+  }
+
+  return false;
+}
+
+function isJsonLikeObject(value: unknown): value is Record<string, unknown> | unknown[] {
+  return value != null && typeof value === 'object';
+}
+
+function jsonLikeValuesEqual(left: Record<string, unknown> | unknown[], right: Record<string, unknown> | unknown[]): boolean {
+  if (Array.isArray(left) || Array.isArray(right)) {
+    if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) {
+      return false;
+    }
+
+    return left.every((item, index) => valuesEqual(item, right[index]));
+  }
+
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) {
+    return false;
+  }
+
+  return leftKeys.every((key) =>
+    Object.prototype.hasOwnProperty.call(right, key) &&
+    valuesEqual(left[key], right[key]));
+}
+
+function compareValues(left: unknown, right: unknown): number {
+  const leftNumber = toComparableNumber(left);
+  const rightNumber = toComparableNumber(right);
+  if (leftNumber != null && rightNumber != null) {
+    return leftNumber - rightNumber;
+  }
+
+  return String(left).localeCompare(String(right));
+}
+
+function toComparableNumber(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === 'string' && value.trim() !== '') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+function valueContains(value: unknown, expected: unknown): boolean {
+  if (typeof value === 'string') {
+    return value.includes(String(expected));
+  }
+
+  if (Array.isArray(value)) {
+    return value.some((item) => valuesEqual(item, expected));
+  }
+
+  if (value != null && typeof value === 'object' && typeof expected === 'string') {
+    return Object.prototype.hasOwnProperty.call(value, expected);
+  }
+
+  return false;
+}

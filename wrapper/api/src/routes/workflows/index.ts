@@ -5,10 +5,12 @@ import { validateBody } from '../../middleware/validate.js';
 import { asyncHandler } from '../../utils/asyncHandler.js';
 import { badRequest } from '../../utils/httpError.js';
 import { createResponseTimingMiddleware } from '../../utils/responseTiming.js';
+import { WORKFLOW_RECORDING_INPUT_FILTER_OPERATORS } from '../../../../shared/workflow-recording-types.js';
 import {
   PROJECT_EXTENSION,
 } from './fs-helpers.js';
 import { internalPublishedWorkflowsRouter, latestWorkflowsRouter, publishedWorkflowsRouter } from './execution.js';
+import { normalizeWorkflowRecordingInputFilter } from './recording-input-filter.js';
 import {
   createWorkflowFolderItemWithBackend,
   createWorkflowProjectItemWithBackend,
@@ -101,6 +103,9 @@ const recordingsRunsQuerySchema = z.object({
   page: z.coerce.number().int().min(1).optional().default(1),
   pageSize: z.coerce.number().int().min(1).max(100).optional().default(20),
   status: z.enum(['all', 'failed']).optional().default('all'),
+  inputPath: z.string().optional(),
+  inputOperator: z.enum(WORKFLOW_RECORDING_INPUT_FILTER_OPERATORS).optional(),
+  inputValue: z.string().optional(),
 });
 
 workflowsRouter.get('/tree', timing, asyncHandler(async (_req, res) => {
@@ -117,11 +122,23 @@ workflowsRouter.get('/recordings/workflows', asyncHandler(async (_req, res) => {
 
 workflowsRouter.get('/recordings/workflows/:workflowId/runs', asyncHandler(async (req, res) => {
   const parsedQuery = recordingsRunsQuerySchema.parse(req.query);
+  let inputFilter: ReturnType<typeof normalizeWorkflowRecordingInputFilter> = null;
+  try {
+    inputFilter = normalizeWorkflowRecordingInputFilter({
+      path: parsedQuery.inputPath,
+      operator: parsedQuery.inputOperator,
+      value: parsedQuery.inputValue,
+    });
+  } catch (error) {
+    throw badRequest(error instanceof Error ? error.message : 'Invalid recording input filter');
+  }
+
   res.json(await listWorkflowRecordingRunsPageWithBackend(
     String(req.params.workflowId ?? ''),
     parsedQuery.page,
     parsedQuery.pageSize,
     parsedQuery.status,
+    inputFilter,
   ));
 }));
 
@@ -219,8 +236,8 @@ workflowsRouter.post('/projects/unpublish', validateBody(pathOnlySchema), asyncH
 
 workflowsRouter.delete('/projects', validateBody(pathOnlySchema), asyncHandler(async (req, res) => {
   const { relativePath } = req.body as z.infer<typeof pathOnlySchema>;
-  await deleteWorkflowProjectItemWithBackend(relativePath);
-  res.json({ deleted: true });
+  const projectId = await deleteWorkflowProjectItemWithBackend(relativePath);
+  res.json({ deleted: true, projectId });
 }));
 
 export { internalPublishedWorkflowsRouter, latestWorkflowsRouter, publishedWorkflowsRouter };

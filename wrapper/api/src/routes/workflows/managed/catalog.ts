@@ -597,10 +597,10 @@ export function createManagedWorkflowCatalogService(options: ManagedWorkflowCata
       };
     },
 
-    async deleteWorkflowProjectItem(relativePath: unknown): Promise<void> {
+    async deleteWorkflowProjectItem(relativePath: unknown): Promise<string | null> {
       const normalizedRelativePath = normalizeManagedWorkflowRelativePath(relativePath, { allowProjectFile: true });
 
-      await deps.withTransaction(async (client, hooks) => {
+      return deps.withTransaction(async (client, hooks) => {
         const workflow = await deps.getWorkflowByRelativePath(client, normalizedRelativePath, { forUpdate: true });
         if (!workflow) {
           throw createHttpError(404, 'Project not found');
@@ -634,6 +634,8 @@ export function createManagedWorkflowCatalogService(options: ManagedWorkflowCata
             ]),
           ],
         ));
+
+        return workflow.workflow_id;
       });
     },
   };

@@ -6,6 +6,7 @@ import {
   createWorkflowProject,
   deleteWorkflowFolder,
   ensureFolderExpanded,
+  renameWorkflowFolderInline,
   requireManagedMutationOptIn,
   requireManagedStorageMode,
 } from './helpers/workflowLibraryObserve';
@@ -54,9 +55,7 @@ test.describe('Managed special workflow paths', () => {
       await expect(page.locator('.active-project-name')).toHaveText(nestedProjectName, { timeout: 120_000 });
       await expect(page.locator('.active-project-save-button')).toHaveText('Save', { timeout: 120_000 });
 
-      page.once('dialog', (dialog) => dialog.accept(renamedFolderName));
-      await page.locator('.folder-row', { hasText: initialFolderName }).click({ button: 'right' });
-      await page.getByRole('menuitem', { name: 'Rename folder' }).click();
+      await renameWorkflowFolderInline(page, initialFolderName, renamedFolderName);
 
       await expect(page.locator('.folder-row', { hasText: renamedFolderName })).toBeVisible({ timeout: 30_000 });
       await expect(page.locator('.active-project-name')).toHaveText(nestedProjectName, { timeout: 30_000 });
