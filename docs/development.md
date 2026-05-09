@@ -375,7 +375,7 @@ When adding new code, keep the post-refactor ownership seams explicit instead of
 - dashboard/editor bridge wiring should stay explicit
   - `DashboardPage.tsx` is the composition root
   - `HostedEditorApp.tsx` mounts `RivetAppHost`, passes the hosted provider overrides from `hostedRivetProviders.ts`, captures the upstream `RivetWorkspaceHost` through `onWorkspaceHostReady`, and forwards upstream host callbacks for active project, open-project count, and save completion
-  - `HostedEditorApp.tsx` also passes `RivetAppHost.ui.fileMenu.visibleItems` so the iframe File menu shows only `import_graph`, `export_graph`, and `settings`; keep this on the upstream host UI policy seam instead of hiding menu DOM or aliasing menu command hooks
+  - `HostedEditorApp.tsx` also passes `RivetAppHost.ui.fileMenu.visibleItems` so the iframe File menu shows only `import_graph`, `export_graph`, `settings`, and `get_help`; keep this on the upstream host UI policy seam instead of hiding menu DOM or aliasing menu command hooks
   - `useEditorCommandQueue.ts` owns pre-ready command buffering
   - `useEditorBridgeEvents.ts` owns dashboard-side message listeners and cross-iframe save shortcut capture
   - `EditorMessageBridge.tsx` owns editor-side message handling after the workspace host handle is ready, and should pass that `RivetWorkspaceHost` through to project open, replace-current, close, and path-move commands instead of rewriting Rivet tab atoms directly
