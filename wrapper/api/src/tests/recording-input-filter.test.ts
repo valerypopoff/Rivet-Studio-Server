@@ -58,6 +58,30 @@ test('recording input filters use the workflow request input as the JSON path ro
     true,
   );
   assert.equal(
+    matchesWorkflowRecordingSerializedInputFilter(serializedRecording, { path: '$.missing', operator: '!=', value: 'bar' }),
+    true,
+  );
+  assert.equal(
+    matchesWorkflowRecordingSerializedInputFilter(serializedRecording, { path: '$.missing', operator: '==', value: 'undefined' }),
+    true,
+  );
+  assert.equal(
+    matchesWorkflowRecordingSerializedInputFilter(serializedRecording, { path: '$.missing', operator: '!=', value: 'undefined' }),
+    false,
+  );
+  assert.equal(
+    matchesWorkflowRecordingSerializedInputFilter(serializedRecording, { path: '$.missing', operator: 'contains', value: 'undefined' }),
+    false,
+  );
+  assert.equal(
+    matchesWorkflowRecordingSerializedInputFilter(serializedRecording, { path: '$.missing', operator: '>', value: '0' }),
+    false,
+  );
+  assert.equal(
+    matchesWorkflowRecordingSerializedInputFilter(serializedRecording, { path: '$.missing', operator: '>=', value: 'undefined' }),
+    false,
+  );
+  assert.equal(
     matchesWorkflowRecordingSerializedInputFilter(
       serializedRecording,
       { path: '$', operator: '==', value: '{"score":12,"foo":"bar"}' },

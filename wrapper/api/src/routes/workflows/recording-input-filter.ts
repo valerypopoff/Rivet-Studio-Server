@@ -147,24 +147,21 @@ export function matchesWorkflowRecordingInputFilter(
     return !resolved.exists;
   }
 
-  if (!resolved.exists) {
-    return false;
-  }
-
   const expected = parseFilterValue(filter.value);
+
   switch (filter.operator) {
     case '==':
       return valuesEqual(resolved.value, expected);
     case '!=':
       return !valuesEqual(resolved.value, expected);
     case '>':
-      return compareValues(resolved.value, expected) > 0;
+      return matchesComparison(resolved.value, expected, (comparison) => comparison > 0);
     case '>=':
-      return compareValues(resolved.value, expected) >= 0;
+      return matchesComparison(resolved.value, expected, (comparison) => comparison >= 0);
     case '<':
-      return compareValues(resolved.value, expected) < 0;
+      return matchesComparison(resolved.value, expected, (comparison) => comparison < 0);
     case '<=':
-      return compareValues(resolved.value, expected) <= 0;
+      return matchesComparison(resolved.value, expected, (comparison) => comparison <= 0);
     case 'contains':
       return valueContains(resolved.value, expected);
   }
@@ -291,6 +288,10 @@ function parseFilterValue(value: string): unknown {
     return '';
   }
 
+  if (trimmed === 'undefined') {
+    return undefined;
+  }
+
   try {
     return JSON.parse(trimmed);
   } catch {
@@ -342,7 +343,20 @@ function jsonLikeValuesEqual(left: Record<string, unknown> | unknown[], right: R
     valuesEqual(left[key], right[key]));
 }
 
-function compareValues(left: unknown, right: unknown): number {
+function matchesComparison(
+  left: unknown,
+  right: unknown,
+  predicate: (comparison: number) => boolean,
+): boolean {
+  const comparison = compareValues(left, right);
+  return comparison != null && predicate(comparison);
+}
+
+function compareValues(left: unknown, right: unknown): number | null {
+  if (left === undefined || right === undefined) {
+    return null;
+  }
+
   const leftNumber = toComparableNumber(left);
   const rightNumber = toComparableNumber(right);
   if (leftNumber != null && rightNumber != null) {

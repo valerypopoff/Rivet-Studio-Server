@@ -335,7 +335,7 @@ For slow `GET /api/workflows/recordings/workflows` diagnosis in Docker, compare:
 - indexed run rows in `/data/rivet-app/recordings.sqlite`:
   `node -e "const {DatabaseSync}=require('node:sqlite'); const db=new DatabaseSync('/data/rivet-app/recordings.sqlite'); console.log(db.prepare('select count(*) n from recording_runs').get())"`
 
-The `Run recordings` modal can also filter a workflow's runs by recorded request input. Use the `Input JSON path` control with a path such as `$.foo`, an operator such as `==`, and a value such as `bar`. The API evaluates `$` against the root workflow request body stored in the recording's `inputs.input.value` event. This filter reads existing recording artifacts after workflow/status narrowing, so it is best for targeted inspection rather than high-cardinality analytics.
+The `Run recordings` modal can also filter a workflow's runs by recorded request input. Use the `Input JSON path` control with a path such as `$.foo`, an operator such as `==`, and a value such as `bar`. The API evaluates `$` against the root workflow request body stored in the recording's `inputs.input.value` event. Missing paths match `not_exists`, do not match `exists`, and resolve to actual `undefined` for the other operators; the filter value literal `undefined` also parses as `undefined`. Ordering comparisons with `undefined` do not match. This filter reads existing recording artifacts after workflow/status narrowing, so it is best for targeted inspection rather than high-cardinality analytics.
 
 ## Source of truth
 
@@ -369,6 +369,7 @@ When adding new code, keep the post-refactor ownership seams explicit instead of
   - `useWorkflowLibraryController.ts`, `useRunRecordingsController.ts`, `useProjectSettingsActions.ts`, `useDashboardSidebar.ts`, and `useEditorBridgeEvents.ts` should own orchestration
   - keep project-settings validation and labels in `projectSettingsForm.ts`
   - keep run-recordings modal shell logic in `RunRecordingsModal.tsx` and its focused UI slices in `RecordingWorkflowSelect.tsx` and `RecordingRunsTable.tsx`
+  - portal run-recordings dropdown menus that can open inside the scrollable modal body, such as the input-filter operator select, so option lists are not clipped by modal overflow
   - keep `RuntimeLibrariesModal.tsx` as the shell, `useRuntimeLibrariesModalState.ts` as the public controller, and `runtimeLibrariesJobStream.ts` as the SSE/log-state helper layer
   - page/components should stay mostly render wiring
 - dashboard/editor bridge wiring should stay explicit
