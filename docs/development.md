@@ -367,6 +367,7 @@ When adding new code, keep the post-refactor ownership seams explicit instead of
   - do not hide `filesystem` versus `managed` behavior behind a generic abstraction layer
 - dashboard controllers belong in `wrapper/web/dashboard/`
   - `useWorkflowLibraryController.ts`, `useRunRecordingsController.ts`, `useProjectSettingsActions.ts`, `useDashboardSidebar.ts`, and `useEditorBridgeEvents.ts` should own orchestration
+  - keep the workflow-library header block at `37px` high so the left panel stays aligned with the dashboard chrome
   - keep project-settings validation and labels in `projectSettingsForm.ts`
   - keep run-recordings modal shell logic in `RunRecordingsModal.tsx` and its focused UI slices in `RecordingWorkflowSelect.tsx` and `RecordingRunsTable.tsx`
   - portal run-recordings dropdown menus that can open inside the scrollable modal body, such as the input-filter operator select, so option lists are not clipped by modal overflow
