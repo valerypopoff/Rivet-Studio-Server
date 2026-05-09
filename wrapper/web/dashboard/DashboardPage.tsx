@@ -9,14 +9,12 @@ import { useDashboardSidebar } from './useDashboardSidebar';
 import { useEditorBridgeEvents } from './useEditorBridgeEvents';
 import './DashboardPage.css';
 
-const WORKFLOW_DASHBOARD_SIDEBAR_WIDTH = '300px';
+const WORKFLOW_DASHBOARD_COLLAPSED_SIDEBAR_WIDTH = 37;
 const MIN_SIDEBAR_WIDTH = 240;
 const MAX_SIDEBAR_WIDTH = 560;
-const SIDEBAR_COLLAPSE_DURATION_MS = 260;
 
 export const DashboardPage: FC = () => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const restoreButtonRef = useRef<HTMLButtonElement>(null);
   const [openedProjectPath, setOpenedProjectPath] = useState('');
   const [activeWorkflowProjectPath, setActiveWorkflowProjectPath] = useState('');
   const [editorReady, setEditorReady] = useState(false);
@@ -24,20 +22,13 @@ export const DashboardPage: FC = () => {
   const [projectSaveSequence, setProjectSaveSequence] = useState(0);
   const postEditorCommand = useEditorCommandQueue(iframeRef, editorReady);
   const {
-    handleCollapseSidebar,
-    handleRestoreSidebar,
-    showRestoreButton,
-    showSidebar,
+    handleToggleSidebar,
     sidebarCollapsed,
-    sidebarGhost,
     sidebarResizing,
     sidebarWidth,
   } = useDashboardSidebar({
-    collapseDurationMs: SIDEBAR_COLLAPSE_DURATION_MS,
     maxWidth: MAX_SIDEBAR_WIDTH,
     minWidth: MIN_SIDEBAR_WIDTH,
-    openProjectCount,
-    restoreButtonRef,
   });
 
   const handleOpenProject = useCallback((path: string, options?: { replaceCurrent?: boolean }) => {
@@ -107,32 +98,34 @@ export const DashboardPage: FC = () => {
   });
 
   const showEditorLoading = !editorReady;
+  const visibleSidebarWidth = sidebarCollapsed ? WORKFLOW_DASHBOARD_COLLAPSED_SIDEBAR_WIDTH : sidebarWidth;
 
   return (
-    <div className="dashboard-page" style={{ ['--workflow-dashboard-sidebar-width' as string]: `${sidebarWidth}px` }}>
+    <div className="dashboard-page" style={{ ['--workflow-dashboard-sidebar-width' as string]: `${visibleSidebarWidth}px` }}>
       {showEditorLoading ? (
         <div className="dashboard-app-loading">
           <div className="dashboard-editor-loading-spinner" aria-hidden="true" />
           <div className="dashboard-editor-loading-message">Loading...</div>
         </div>
       ) : null}
-      {showSidebar ? (
-        <aside className="dashboard-sidebar">
-          <WorkflowLibraryPanel
-            onOpenProject={handleOpenProject}
-            onOpenRecording={handleOpenRecording}
-            onSaveProject={handleSaveProject}
-            onDeleteProject={handleDeleteProject}
-            onWorkflowPathsMoved={handleWorkflowPathsMoved}
-            onActiveWorkflowProjectPathChange={setActiveWorkflowProjectPath}
-            openedProjectPath={openedProjectPath}
-            editorReady={editorReady}
-            projectSaveSequence={projectSaveSequence}
-            onCollapse={openProjectCount === 0 ? undefined : handleCollapseSidebar}
-          />
+      <aside className="dashboard-sidebar">
+        <WorkflowLibraryPanel
+          onOpenProject={handleOpenProject}
+          onOpenRecording={handleOpenRecording}
+          onSaveProject={handleSaveProject}
+          onDeleteProject={handleDeleteProject}
+          onWorkflowPathsMoved={handleWorkflowPathsMoved}
+          onActiveWorkflowProjectPathChange={setActiveWorkflowProjectPath}
+          openedProjectPath={openedProjectPath}
+          editorReady={editorReady}
+          projectSaveSequence={projectSaveSequence}
+          collapsed={sidebarCollapsed}
+          onToggleCollapse={handleToggleSidebar}
+        />
+        {!sidebarCollapsed ? (
           <div className="dashboard-sidebar-resizer" role="separator" aria-orientation="vertical" aria-label="Resize folders pane" />
-        </aside>
-      ) : null}
+        ) : null}
+      </aside>
       <main className="dashboard-main">
         {openProjectCount === 0 ? (
           <div className="dashboard-empty-state">
@@ -147,32 +140,6 @@ export const DashboardPage: FC = () => {
         />
       </main>
       {sidebarResizing ? <div className="dashboard-resize-overlay" aria-hidden="true" /> : null}
-      {sidebarGhost ? (
-        <div
-          aria-hidden="true"
-          className={`dashboard-sidebar-ghost${sidebarGhost.active ? ' dashboard-sidebar-ghost-active' : ''}`}
-          style={{
-            left: `${sidebarGhost.fromX}px`,
-            top: `${sidebarGhost.fromY}px`,
-            width: `${sidebarGhost.fromWidth}px`,
-            height: `${sidebarGhost.fromHeight}px`,
-            ['--dashboard-sidebar-ghost-translate-x' as string]: `${sidebarGhost.toX - sidebarGhost.fromX}px`,
-            ['--dashboard-sidebar-ghost-translate-y' as string]: `${sidebarGhost.toY - sidebarGhost.fromY}px`,
-            ['--dashboard-sidebar-ghost-scale-x' as string]: `${sidebarGhost.toWidth / Math.max(sidebarGhost.fromWidth, 1)}`,
-            ['--dashboard-sidebar-ghost-scale-y' as string]: `${sidebarGhost.toHeight / Math.max(sidebarGhost.fromHeight, 1)}`,
-          }}
-        />
-      ) : null}
-      {showRestoreButton ? (
-        <button
-          ref={restoreButtonRef}
-          type="button"
-          className={`dashboard-restore-sidebar-button${sidebarCollapsed ? ' dashboard-restore-sidebar-button-visible' : ''}`}
-          onClick={handleRestoreSidebar}
-        >
-          Show main panel
-        </button>
-      ) : null}
       <ToastContainer
         position="bottom-center"
         hideProgressBar

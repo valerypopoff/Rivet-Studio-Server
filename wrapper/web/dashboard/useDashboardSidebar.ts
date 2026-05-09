@@ -1,46 +1,18 @@
-import { useCallback, useEffect, useState, type RefObject } from 'react';
-
-export type SidebarGhostState = {
-  fromX: number;
-  fromY: number;
-  fromWidth: number;
-  fromHeight: number;
-  toX: number;
-  toY: number;
-  toWidth: number;
-  toHeight: number;
-  active: boolean;
-} | null;
+import { useCallback, useEffect, useState } from 'react';
 
 type UseDashboardSidebarOptions = {
-  collapseDurationMs: number;
   maxWidth: number;
   minWidth: number;
-  openProjectCount: number;
-  restoreButtonRef: RefObject<HTMLButtonElement | null>;
 };
 
 export function useDashboardSidebar(options: UseDashboardSidebarOptions) {
   const {
-    collapseDurationMs,
     maxWidth,
     minWidth,
-    openProjectCount,
-    restoreButtonRef,
   } = options;
   const [sidebarWidth, setSidebarWidth] = useState(300);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [sidebarResizing, setSidebarResizing] = useState(false);
-  const [sidebarAnimating, setSidebarAnimating] = useState(false);
-  const [sidebarGhost, setSidebarGhost] = useState<SidebarGhostState>(null);
-
-  useEffect(() => {
-    if (openProjectCount === 0) {
-      setSidebarCollapsed(false);
-      setSidebarAnimating(false);
-      setSidebarGhost(null);
-    }
-  }, [openProjectCount]);
 
   useEffect(() => {
     if (sidebarCollapsed) {
@@ -78,60 +50,13 @@ export function useDashboardSidebar(options: UseDashboardSidebarOptions) {
     };
   }, [maxWidth, minWidth, sidebarCollapsed]);
 
-  useEffect(() => {
-    if (!sidebarAnimating) {
-      return;
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      setSidebarAnimating(false);
-      setSidebarGhost(null);
-    }, collapseDurationMs);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [collapseDurationMs, sidebarAnimating]);
-
-  const handleCollapseSidebar = useCallback(() => {
-    const restoreButtonRect = restoreButtonRef.current?.getBoundingClientRect();
-
-    if (restoreButtonRect) {
-      setSidebarGhost({
-        fromX: 0,
-        fromY: 0,
-        fromWidth: sidebarWidth,
-        fromHeight: window.innerHeight,
-        toX: restoreButtonRect.left,
-        toY: restoreButtonRect.top,
-        toWidth: restoreButtonRect.width,
-        toHeight: restoreButtonRect.height,
-        active: false,
-      });
-      window.requestAnimationFrame(() => {
-        window.requestAnimationFrame(() => {
-          setSidebarGhost((prev) => prev ? { ...prev, active: true } : prev);
-        });
-      });
-    }
-
-    setSidebarAnimating(true);
-    setSidebarCollapsed(true);
-  }, [restoreButtonRef, sidebarWidth]);
-
-  const handleRestoreSidebar = useCallback(() => {
-    setSidebarCollapsed(false);
-    setSidebarAnimating(false);
-    setSidebarGhost(null);
+  const handleToggleSidebar = useCallback(() => {
+    setSidebarCollapsed((prev) => !prev);
   }, []);
 
   return {
-    handleCollapseSidebar,
-    handleRestoreSidebar,
-    showRestoreButton: openProjectCount > 0,
-    showSidebar: openProjectCount === 0 || !sidebarCollapsed,
+    handleToggleSidebar,
     sidebarCollapsed,
-    sidebarGhost,
     sidebarResizing,
     sidebarWidth,
   };

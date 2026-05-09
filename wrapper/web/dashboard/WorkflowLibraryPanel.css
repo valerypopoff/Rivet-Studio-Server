@@ -27,20 +27,35 @@
 }
 
 .workflow-library-panel .collapse-button {
-  width: 60px;
-  min-width: 60px;
-  background: rgba(255, 255, 255, 0.06);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 29px;
+  height: 29px;
+  min-width: 29px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--grey-lightest);
+  cursor: pointer;
 }
 
 .workflow-library-panel .header {
   box-sizing: border-box;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  flex: 0 0 38px;
-  height: 38px;
-  padding: 0 12px;
-  border-bottom: 1px solid var(--grey);
+  gap: 8px;
+  justify-content: flex-start;
+  flex: 0 0 37px;
+  height: 37px;
+  padding: 0 6px;
+  /* border-bottom: 1px solid var(--grey); */
+}
+
+.workflow-library-panel.collapsed .header {
+  justify-content: center;
+  padding: 0;
 }
 
 .workflow-library-panel .header-title {
@@ -49,12 +64,6 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--grey-lightest);
-}
-
-.workflow-library-panel .header-actions {
-  display: flex;
-  gap: 6px;
-  align-items: center;
 }
 
 [data-testid='workflow-project-settings-modal--blanket'] {
@@ -319,6 +328,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 100%;
+  margin-top: 0.15em;
 }
 
 .workflow-library-panel .active-project-name-row {
@@ -349,7 +359,7 @@
 }
 
 .project-settings-status-block .project-status-badge {
-  zoom: 1.3;
+  zoom: 1.2;
 }
 
 .project-settings-last-published-at {
@@ -379,18 +389,20 @@
 .workflow-library-panel .active-project-more-button,
 .workflow-library-panel .project-settings-delete-button,
 .workflow-library-panel .project-settings-primary-button,
-.workflow-library-panel .project-settings-close-button,
-.workflow-library-panel .collapse-button {
+.workflow-library-panel .project-settings-close-button {
   justify-content: center;
 }
 
 .workflow-library-panel .collapse-button,
 .workflow-library-panel .collapse-button:hover,
 .workflow-library-panel .collapse-button:focus-visible,
-.workflow-library-panel .collapse-button > span,
 .workflow-library-panel .collapse-button svg {
   color: var(--grey-lightest) !important;
-  fill: currentColor;
+}
+
+.workflow-library-panel .collapse-button svg {
+  width: 16px;
+  height: 16px;
 }
 
 .workflow-library-panel .collapse-button:hover,
@@ -411,7 +423,7 @@
   background: transparent;
   border: 1px solid currentColor;
   color: var(--grey-lightest);
-  margin-top: 3px;
+  margin-top: 0;
   margin-left: -1px;
 }
 
