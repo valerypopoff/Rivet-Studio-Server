@@ -8,6 +8,7 @@ Rivet Studio Server is a self-hosted personal Rivet platform with a UI that you 
 - Rivet editor: runs right in the browser
 - Rivet project manager: create and reorganize folders and Rivet projects in the UI
 - Publishing workflows as endpoints in one click - no coding required
+- Run recordings browser: inspect stored workflow runs, filter by recorded input, and replay a run in the editor
 - Remote debugger: set up and ready to go
 - Runtime libraries manager: install libraries through the UI for use in the Rivet "Code" node
 - Security: built-in authentication and authorization for both the Studio UI and workflow endpoints (See "Optional external UI gate")

@@ -17,6 +17,7 @@ const HOSTED_FILE_MENU_VISIBLE_ITEMS = [
   'import_graph',
   'export_graph',
   'settings',
+  'get_help',
 ] as const satisfies readonly FileMenuItemId[];
 
 const HOSTED_RIVET_UI = {

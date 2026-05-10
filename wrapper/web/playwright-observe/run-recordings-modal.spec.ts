@@ -187,14 +187,29 @@ test.describe('Run recordings modal', () => {
       }
 
       const key = inputPath.startsWith('$.') ? inputPath.slice(2) : inputPath === '$' ? null : '';
-      const actual = key == null ? run.input : key ? run.input?.[key] : undefined;
+      const exists = key == null
+        ? run.input !== undefined
+        : Boolean(key && run.input && Object.prototype.hasOwnProperty.call(run.input, key));
+      const actual = key == null ? run.input : exists ? run.input?.[key] : undefined;
       switch (inputOperator) {
+        case 'exists':
+          return exists;
+        case 'not_exists':
+          return !exists;
         case '==':
           return String(actual) === inputValue;
         case '!=':
           return String(actual) !== inputValue;
         case '>':
           return Number(actual) > Number(inputValue);
+        case '>=':
+          return Number(actual) >= Number(inputValue);
+        case '<':
+          return Number(actual) < Number(inputValue);
+        case '<=':
+          return Number(actual) <= Number(inputValue);
+        case 'contains':
+          return typeof actual === 'string' && actual.includes(inputValue);
         default:
           return true;
       }
@@ -324,11 +339,12 @@ test.describe('Run recordings modal', () => {
     await modal.getByRole('button', { name: '10', exact: true }).click();
     await expect(modal.locator('.run-recordings-page-status')).toHaveText('Page 1 of 2');
 
-    await modal.getByRole('button', { name: 'Input filter' }).click();
+    await modal.getByRole('button', { name: 'Filter by input' }).click();
     await modal.getByLabel('Input JSON path').fill('$.foo');
     const operatorControl = modal.locator('.run-recordings-input-filter-operator .run-recordings-select__control');
     await expect(operatorControl).toBeVisible();
     await operatorControl.click();
+    await expect(page.locator('body > .run-recordings-select__menu-portal .run-recordings-select__menu')).toBeVisible();
     await page.locator('.run-recordings-select__option').filter({ hasText: /^==$/ }).click();
     await modal.getByLabel('Value').fill('bar');
     await modal.getByRole('button', { name: 'Apply' }).click();
@@ -337,6 +353,30 @@ test.describe('Run recordings modal', () => {
     expect(filteredRunsRequest.searchParams.get('inputPath')).toBe('$.foo');
     expect(filteredRunsRequest.searchParams.get('inputOperator')).toBe('==');
     expect(filteredRunsRequest.searchParams.get('inputValue')).toBe('bar');
+
+    await modal.getByRole('button', { name: 'Clear' }).click();
+    await expect(modal.locator('.run-recordings-page-status')).toHaveText('Page 1 of 2');
+
+    await modal.getByLabel('Input JSON path').fill('$.missing');
+    await operatorControl.click();
+    await page.locator('.run-recordings-select__option').filter({ hasText: /^!=$/ }).click();
+    await modal.getByLabel('Value').fill('bar');
+    await modal.getByRole('button', { name: 'Apply' }).click();
+    await expect(modal.locator('.run-recordings-run')).toHaveCount(10);
+    const missingNotEqualsRequest = new URL(runFetches.at(-1)!);
+    expect(missingNotEqualsRequest.searchParams.get('inputPath')).toBe('$.missing');
+    expect(missingNotEqualsRequest.searchParams.get('inputOperator')).toBe('!=');
+    expect(missingNotEqualsRequest.searchParams.get('inputValue')).toBe('bar');
+
+    await operatorControl.click();
+    await page.locator('.run-recordings-select__option').filter({ hasText: /^==$/ }).click();
+    await modal.getByLabel('Value').fill('undefined');
+    await modal.getByRole('button', { name: 'Apply' }).click();
+    await expect(modal.locator('.run-recordings-run')).toHaveCount(10);
+    const missingEqualsUndefinedRequest = new URL(runFetches.at(-1)!);
+    expect(missingEqualsUndefinedRequest.searchParams.get('inputPath')).toBe('$.missing');
+    expect(missingEqualsUndefinedRequest.searchParams.get('inputOperator')).toBe('==');
+    expect(missingEqualsUndefinedRequest.searchParams.get('inputValue')).toBe('undefined');
 
     await modal.getByRole('button', { name: 'Clear' }).click();
     await expect(modal.locator('.run-recordings-page-status')).toHaveText('Page 1 of 2');

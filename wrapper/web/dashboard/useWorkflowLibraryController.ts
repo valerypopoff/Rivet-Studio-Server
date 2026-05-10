@@ -182,6 +182,7 @@ export function useWorkflowLibraryController(options: {
   const [settingsModalProject, setSettingsModalProject] = useState<WorkflowProjectItem | null>(null);
   const [runtimeLibsOpen, setRuntimeLibsOpen] = useState(false);
   const [runRecordingsOpen, setRunRecordingsOpen] = useState(false);
+  const [aboutOpen, setAboutOpen] = useState(false);
   const [folderContextMenuState, setFolderContextMenuState] = useState<WorkflowFolderContextMenuState | null>(null);
   const [projectContextMenuState, setProjectContextMenuState] = useState<WorkflowProjectContextMenuState | null>(null);
   const [uploadingFolderPath, setUploadingFolderPath] = useState<string | null>(null);
@@ -1193,6 +1194,7 @@ export function useWorkflowLibraryController(options: {
     settingsModalProject,
     runtimeLibsOpen,
     runRecordingsOpen,
+    aboutOpen,
     folderContextMenuState,
     projectContextMenuState,
     projectModalProject,
@@ -1235,6 +1237,7 @@ export function useWorkflowLibraryController(options: {
     handleProjectModalSelectUnpublishedChanges,
     setRuntimeLibsOpen,
     setRunRecordingsOpen,
+    setAboutOpen,
     onOpenRecording: (recordingId: string) => {
       setRunRecordingsOpen(false);
       onOpenRecording(recordingId);

@@ -34,6 +34,7 @@ RUN YARN_NODE_LINKER=node-modules yarn workspace @valerypopoff/trivet run build
 
 WORKDIR /app
 COPY wrapper/ wrapper/
+COPY package.json package.json
 
 WORKDIR /app/wrapper/web
 RUN --mount=type=cache,target=/root/.npm npm install --legacy-peer-deps

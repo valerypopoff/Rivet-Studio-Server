@@ -1,4 +1,5 @@
 import type { FC } from 'react';
+import { AboutModal } from './AboutModal';
 import { ProjectSettingsModal } from './ProjectSettingsModal';
 import { RuntimeLibrariesModal } from './RuntimeLibrariesModal';
 import { RunRecordingsModal } from './RunRecordingsModal';
@@ -21,6 +22,8 @@ export const WorkflowLibraryModals: FC<{
     setRuntimeLibsOpen,
     runRecordingsOpen,
     setRunRecordingsOpen,
+    aboutOpen,
+    setAboutOpen,
     onOpenRecording,
     projectModalProject,
     projectModalMode,
@@ -50,6 +53,10 @@ export const WorkflowLibraryModals: FC<{
         isOpen={runRecordingsOpen}
         onClose={() => setRunRecordingsOpen(false)}
         onOpenRecording={onOpenRecording}
+      />
+      <AboutModal
+        isOpen={aboutOpen}
+        onClose={() => setAboutOpen(false)}
       />
       <WorkflowProjectDownloadModal
         isOpen={projectModalProject != null}

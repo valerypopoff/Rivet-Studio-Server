@@ -1,6 +1,5 @@
 import Button from '@atlaskit/button';
 import type { FC } from 'react';
-import CollapseLeftIcon from '../icons/arrow-collapse-left.svg?react';
 import { ActiveProjectSection } from './ActiveProjectSection';
 import { WorkflowFolderTree } from './WorkflowFolderTree';
 import { WorkflowLibraryContextMenus } from './WorkflowLibraryContextMenus';
@@ -20,8 +19,23 @@ interface WorkflowLibraryPanelProps {
   openedProjectPath: string;
   editorReady: boolean;
   projectSaveSequence: number;
-  onCollapse?: () => void;
+  collapsed: boolean;
+  contentVisible: boolean;
+  onToggleCollapse: () => void;
 }
+
+const SidebarOpenIcon: FC = () => (
+  <svg aria-hidden="true" fill="none" viewBox="0 0 16 16">
+    <rect x="2.75" y="3.5" width="10.5" height="9" rx="1.25" stroke="currentColor" strokeWidth="1.25" />
+    <path d="M5.25 4.75v6.5" stroke="currentColor" strokeLinecap="round" strokeWidth="1.25" />
+  </svg>
+);
+
+const SidebarExpandIcon: FC = () => (
+  <svg aria-hidden="true" fill="none" viewBox="0 0 16 16">
+    <path d="M6 4.5 9.5 8 6 11.5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" />
+  </svg>
+);
 
 export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   onOpenProject,
@@ -33,7 +47,9 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   openedProjectPath,
   editorReady,
   projectSaveSequence,
-  onCollapse,
+  collapsed,
+  contentVisible,
+  onToggleCollapse,
 }) => {
   const controller = useWorkflowLibraryController({
     onOpenProject,
@@ -84,6 +100,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     onProjectSelect,
     onProjectOpen,
     setProjectRowRef,
+    setAboutOpen,
     setRuntimeLibsOpen,
     setRunRecordingsOpen,
   } = controller;
@@ -131,73 +148,98 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     );
   }
 
+  const panelContentVisible = contentVisible && !collapsed;
+
   return (
     <div className="workflow-library-panel">
-      <div className="header">
-        <div className="header-title">Rivet Projects</div>
-        <div className="header-actions">
-          {onCollapse ? (
-            <Button
-              appearance="subtle"
-              spacing="compact"
-              className="collapse-button button-size-s"
-              onClick={onCollapse}
-              title="Collapse folders pane"
-              aria-label="Collapse folders pane"
-            >
-              <CollapseLeftIcon />
-            </Button>
-          ) : null}
-        </div>
-      </div>
-
-      <div className="active-project-slot">
-        <ActiveProjectSection
-          activeProject={activeProject}
-          isCurrentlyOpen={isActiveProjectOpen}
-          editorReady={editorReady}
-          onSave={onSaveProject}
-          onOpen={onOpenProject}
-          onOpenSettings={handleOpenSettings}
-        />
-      </div>
-
       <div
-        className={`body${dragOverRoot ? ' drag-over-root' : ''}`}
-        onDragOver={handleRootDragOver}
-        onDragLeave={handleRootDragLeave}
-        onDrop={(event) => void handleRootDrop(event)}
+        className={`workflow-library-panel-content${panelContentVisible ? '' : ' workflow-library-panel-content-hidden'}`}
+        aria-hidden={panelContentVisible ? undefined : true}
       >
-        {!editorReady ? <div className="body-status body-status-top">Loading editor...</div> : null}
-        {bodyContent}
-        <div className="body-actions">
-          <button type="button" className="link-button" onClick={() => void handleCreateFolder()}>
-            + New folder
+        <div className="header">
+          <button
+            type="button"
+            className="collapse-button"
+            onClick={onToggleCollapse}
+            title="Collapse folders pane"
+            aria-label="Collapse folders pane"
+            aria-expanded={collapsed ? 'false' : 'true'}
+            tabIndex={panelContentVisible ? undefined : -1}
+          >
+            <SidebarOpenIcon />
           </button>
+          <div className="header-title">Rivet Projects</div>
         </div>
+
+        <div className="active-project-slot">
+          <ActiveProjectSection
+            activeProject={activeProject}
+            isCurrentlyOpen={isActiveProjectOpen}
+            editorReady={editorReady}
+            onSave={onSaveProject}
+            onOpen={onOpenProject}
+            onOpenSettings={handleOpenSettings}
+          />
+        </div>
+
+        <div
+          className={`body${dragOverRoot ? ' drag-over-root' : ''}`}
+          onDragOver={handleRootDragOver}
+          onDragLeave={handleRootDragLeave}
+          onDrop={(event) => void handleRootDrop(event)}
+        >
+          {!editorReady ? <div className="body-status body-status-top">Loading editor...</div> : null}
+          {bodyContent}
+          <div className="body-actions">
+            <button type="button" className="link-button" onClick={() => void handleCreateFolder()}>
+              + New folder
+            </button>
+          </div>
+        </div>
+
+        <div className="panel-bottom-actions">
+          <Button
+            appearance="subtle"
+            className="panel-bottom-button project-settings-secondary-button button-size-m"
+            onClick={() => setRuntimeLibsOpen(true)}
+            title="Manage runtime libraries available to Code nodes"
+          >
+            Runtime libraries
+          </Button>
+          <Button
+            appearance="subtle"
+            className="panel-bottom-button project-settings-secondary-button button-size-m"
+            onClick={() => setRunRecordingsOpen(true)}
+            title="Browse workflow run recordings and load them into the editor"
+          >
+            Run recordings
+          </Button>
+          <Button
+            appearance="subtle"
+            className="panel-bottom-button project-settings-secondary-button button-size-m"
+            onClick={() => setAboutOpen(true)}
+            title="Show version information"
+          >
+            About
+          </Button>
+        </div>
+
+        <WorkflowLibraryContextMenus controller={controller} />
+        <WorkflowLibraryModals controller={controller} />
       </div>
 
-      <div className="panel-bottom-actions">
-        <Button
-          appearance="subtle"
-          className="panel-bottom-button project-settings-secondary-button button-size-m"
-          onClick={() => setRuntimeLibsOpen(true)}
-          title="Manage runtime libraries available to Code nodes"
+      {collapsed ? (
+        <button
+          type="button"
+          className="collapsed-strip-button"
+          onClick={onToggleCollapse}
+          title="Expand folders pane"
+          aria-label="Expand folders pane"
+          aria-expanded="false"
         >
-          Runtime libraries
-        </Button>
-        <Button
-          appearance="subtle"
-          className="panel-bottom-button project-settings-secondary-button button-size-m"
-          onClick={() => setRunRecordingsOpen(true)}
-          title="Browse workflow run recordings and load them into the editor"
-        >
-          Run recordings
-        </Button>
-      </div>
-
-      <WorkflowLibraryContextMenus controller={controller} />
-      <WorkflowLibraryModals controller={controller} />
+          <SidebarExpandIcon />
+        </button>
+      ) : null}
     </div>
   );
 };

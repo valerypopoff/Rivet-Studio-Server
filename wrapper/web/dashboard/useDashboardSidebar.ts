@@ -1,46 +1,43 @@
-import { useCallback, useEffect, useState, type RefObject } from 'react';
+import { useCallback, useEffect, useRef, useState, type TransitionEvent } from 'react';
 
-export type SidebarGhostState = {
-  fromX: number;
-  fromY: number;
-  fromWidth: number;
-  fromHeight: number;
-  toX: number;
-  toY: number;
-  toWidth: number;
-  toHeight: number;
-  active: boolean;
-} | null;
+const SIDEBAR_REVEAL_FALLBACK_MS = 240;
 
 type UseDashboardSidebarOptions = {
-  collapseDurationMs: number;
   maxWidth: number;
   minWidth: number;
-  openProjectCount: number;
-  restoreButtonRef: RefObject<HTMLButtonElement | null>;
 };
 
 export function useDashboardSidebar(options: UseDashboardSidebarOptions) {
   const {
-    collapseDurationMs,
     maxWidth,
     minWidth,
-    openProjectCount,
-    restoreButtonRef,
   } = options;
   const [sidebarWidth, setSidebarWidth] = useState(300);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarContentVisible, setSidebarContentVisible] = useState(true);
   const [sidebarResizing, setSidebarResizing] = useState(false);
-  const [sidebarAnimating, setSidebarAnimating] = useState(false);
-  const [sidebarGhost, setSidebarGhost] = useState<SidebarGhostState>(null);
+  const revealTimeoutRef = useRef<number | undefined>();
 
-  useEffect(() => {
-    if (openProjectCount === 0) {
-      setSidebarCollapsed(false);
-      setSidebarAnimating(false);
-      setSidebarGhost(null);
+  const clearRevealTimeout = useCallback(() => {
+    if (revealTimeoutRef.current === undefined) {
+      return;
     }
-  }, [openProjectCount]);
+
+    window.clearTimeout(revealTimeoutRef.current);
+    revealTimeoutRef.current = undefined;
+  }, []);
+
+  const revealSidebarContent = useCallback(() => {
+    clearRevealTimeout();
+    setSidebarContentVisible(true);
+  }, [clearRevealTimeout]);
+
+  const scheduleSidebarContentReveal = useCallback(() => {
+    clearRevealTimeout();
+    revealTimeoutRef.current = window.setTimeout(revealSidebarContent, SIDEBAR_REVEAL_FALLBACK_MS);
+  }, [clearRevealTimeout, revealSidebarContent]);
+
+  useEffect(() => clearRevealTimeout, [clearRevealTimeout]);
 
   useEffect(() => {
     if (sidebarCollapsed) {
@@ -78,60 +75,36 @@ export function useDashboardSidebar(options: UseDashboardSidebarOptions) {
     };
   }, [maxWidth, minWidth, sidebarCollapsed]);
 
-  useEffect(() => {
-    if (!sidebarAnimating) {
+  const handleSidebarTransitionEnd = useCallback((event: TransitionEvent<HTMLElement>) => {
+    if (event.currentTarget !== event.target || sidebarCollapsed) {
       return;
     }
 
-    const timeoutId = window.setTimeout(() => {
-      setSidebarAnimating(false);
-      setSidebarGhost(null);
-    }, collapseDurationMs);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [collapseDurationMs, sidebarAnimating]);
-
-  const handleCollapseSidebar = useCallback(() => {
-    const restoreButtonRect = restoreButtonRef.current?.getBoundingClientRect();
-
-    if (restoreButtonRect) {
-      setSidebarGhost({
-        fromX: 0,
-        fromY: 0,
-        fromWidth: sidebarWidth,
-        fromHeight: window.innerHeight,
-        toX: restoreButtonRect.left,
-        toY: restoreButtonRect.top,
-        toWidth: restoreButtonRect.width,
-        toHeight: restoreButtonRect.height,
-        active: false,
-      });
-      window.requestAnimationFrame(() => {
-        window.requestAnimationFrame(() => {
-          setSidebarGhost((prev) => prev ? { ...prev, active: true } : prev);
-        });
-      });
+    if (event.propertyName !== 'width' && event.propertyName !== 'flex-basis') {
+      return;
     }
 
-    setSidebarAnimating(true);
-    setSidebarCollapsed(true);
-  }, [restoreButtonRef, sidebarWidth]);
+    revealSidebarContent();
+  }, [revealSidebarContent, sidebarCollapsed]);
 
-  const handleRestoreSidebar = useCallback(() => {
-    setSidebarCollapsed(false);
-    setSidebarAnimating(false);
-    setSidebarGhost(null);
-  }, []);
+  const handleToggleSidebar = useCallback(() => {
+    if (sidebarCollapsed) {
+      setSidebarContentVisible(false);
+      setSidebarCollapsed(false);
+      scheduleSidebarContentReveal();
+      return;
+    }
+
+    clearRevealTimeout();
+    setSidebarContentVisible(false);
+    setSidebarCollapsed(true);
+  }, [clearRevealTimeout, scheduleSidebarContentReveal, sidebarCollapsed]);
 
   return {
-    handleCollapseSidebar,
-    handleRestoreSidebar,
-    showRestoreButton: openProjectCount > 0,
-    showSidebar: openProjectCount === 0 || !sidebarCollapsed,
+    handleSidebarTransitionEnd,
+    handleToggleSidebar,
     sidebarCollapsed,
-    sidebarGhost,
+    sidebarContentVisible,
     sidebarResizing,
     sidebarWidth,
   };

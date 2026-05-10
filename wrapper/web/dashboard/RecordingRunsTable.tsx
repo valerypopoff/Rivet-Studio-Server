@@ -258,7 +258,7 @@ export const RecordingRunsTable: FC<RecordingRunsTableProps> = ({
               onClick={() => onSetInputFilterVisible(!inputFilterVisible)}
               aria-pressed={inputFilterVisible}
             >
-              Input filter
+              Filter by input
             </button>
           </div>
 
@@ -314,6 +314,9 @@ export const RecordingRunsTable: FC<RecordingRunsTableProps> = ({
                 }}
                 isSearchable={false}
                 classNamePrefix="run-recordings-select"
+                menuPlacement="auto"
+                menuPortalTarget={typeof document === 'undefined' ? undefined : document.body}
+                menuPosition="fixed"
                 aria-label="Operator"
               />
             </label>

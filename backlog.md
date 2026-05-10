@@ -6,8 +6,6 @@
 
 
 
-- Run recordings - Filtering - when doing != on a non-existent field, it shows no results. But I don't see a problem in comparing undefined.
-
 
 
 

@@ -273,7 +273,7 @@ Current behavior:
 - the local Docker stacks keep `RIVET_API_PROFILE=combined` by default, so `/api/*`, `${RIVET_LATEST_WORKFLOWS_BASE_PATH}`, and `${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH}` all land on the same `api` container there
 - the `web` service runs the Vite dev server inside the container with live bind mounts
 - Docker dev rebuilds the `api` and `executor` services from Dockerfiles while running `web` through Vite; `npm run prod:custom` rebuilds `proxy`, `web`, `api`, and `executor`
-- the production web image copies `wrapper/` and the `rivet_source` build context, not the root launcher package. Keep `wrapper/web/package.json` free of `file:../..` root dependencies so GitHub Actions can build the web image from the same minimal context.
+- the production web image copies `wrapper/`, the root `package.json` as build metadata for the About modal version, and the `rivet_source` build context. Keep `wrapper/web/package.json` free of `file:../..` root dependencies so GitHub Actions can build the web image from the same minimal context.
 - the API image builds `rivet/packages/core` and `rivet/packages/node`, then links `wrapper/api` to those built package directories before compiling the API; this keeps hosted endpoint execution on the same Rivet source tree as the editor and executor
 - the Docker dev API waits for the web service to populate the shared `rivet_node_modules` volume, then copies only `rivet/packages/core` and `rivet/packages/node` into `/app/.rivet-source`, attaches `/workspace/rivet/node_modules` beside that copy, and points the generated `@valerypopoff/rivet2-core`, `@valerypopoff/rivet2-node`, and `@rivet2/*` package overlays at the internal copy. That keeps Node package resolution inside the container even when `rivet/` is a Windows junction target, avoids duplicating the upstream dependency install, and avoids writing API helper links into the external Rivet checkout.
 - local and image API entrypoints run with symlink preservation (`preserveSymlinks` for TypeScript and `--preserve-symlinks` for Node/tsx), while `scripts/link-rivet-node-package.mjs` creates generated package overlays that expose the built Rivet package `dist` folders and route third-party dependency lookup back to `rivet/node_modules`
@@ -335,7 +335,7 @@ For slow `GET /api/workflows/recordings/workflows` diagnosis in Docker, compare:
 - indexed run rows in `/data/rivet-app/recordings.sqlite`:
   `node -e "const {DatabaseSync}=require('node:sqlite'); const db=new DatabaseSync('/data/rivet-app/recordings.sqlite'); console.log(db.prepare('select count(*) n from recording_runs').get())"`
 
-The `Run recordings` modal can also filter a workflow's runs by recorded request input. Use the `Input JSON path` control with a path such as `$.foo`, an operator such as `==`, and a value such as `bar`. The API evaluates `$` against the root workflow request body stored in the recording's `inputs.input.value` event. This filter reads existing recording artifacts after workflow/status narrowing, so it is best for targeted inspection rather than high-cardinality analytics.
+The `Run recordings` modal can also filter a workflow's runs by recorded request input. Use the `Input JSON path` control with a path such as `$.foo`, an operator such as `==`, and a value such as `bar`. The API evaluates `$` against the root workflow request body stored in the recording's `inputs.input.value` event. Missing paths match `not_exists`, do not match `exists`, and resolve to actual `undefined` for the other operators; the filter value literal `undefined` also parses as `undefined`. Ordering comparisons with `undefined` do not match. This filter reads existing recording artifacts after workflow/status narrowing, so it is best for targeted inspection rather than high-cardinality analytics.
 
 ## Source of truth
 
@@ -367,14 +367,17 @@ When adding new code, keep the post-refactor ownership seams explicit instead of
   - do not hide `filesystem` versus `managed` behavior behind a generic abstraction layer
 - dashboard controllers belong in `wrapper/web/dashboard/`
   - `useWorkflowLibraryController.ts`, `useRunRecordingsController.ts`, `useProjectSettingsActions.ts`, `useDashboardSidebar.ts`, and `useEditorBridgeEvents.ts` should own orchestration
+  - keep the workflow-library header block at `37px` high without a bottom divider; collapsed mode should be a persistent full-height `30px` rail button with a centered `>` chevron rather than a small header button, keep the workflow tree mounted while folded, and reveal the contents only after the reopen width animation completes
+  - keep bottom panel actions in the mounted workflow-library panel; the `About` modal shows the official `Rivet Studio Server` app name and reads the hosted app version from the root `package.json` through the Vite build constant
   - keep project-settings validation and labels in `projectSettingsForm.ts`
   - keep run-recordings modal shell logic in `RunRecordingsModal.tsx` and its focused UI slices in `RecordingWorkflowSelect.tsx` and `RecordingRunsTable.tsx`
+  - portal run-recordings dropdown menus that can open inside the scrollable modal body, such as the input-filter operator select, so option lists are not clipped by modal overflow
   - keep `RuntimeLibrariesModal.tsx` as the shell, `useRuntimeLibrariesModalState.ts` as the public controller, and `runtimeLibrariesJobStream.ts` as the SSE/log-state helper layer
   - page/components should stay mostly render wiring
 - dashboard/editor bridge wiring should stay explicit
   - `DashboardPage.tsx` is the composition root
   - `HostedEditorApp.tsx` mounts `RivetAppHost`, passes the hosted provider overrides from `hostedRivetProviders.ts`, captures the upstream `RivetWorkspaceHost` through `onWorkspaceHostReady`, and forwards upstream host callbacks for active project, open-project count, and save completion
-  - `HostedEditorApp.tsx` also passes `RivetAppHost.ui.fileMenu.visibleItems` so the iframe File menu shows only `import_graph`, `export_graph`, and `settings`; keep this on the upstream host UI policy seam instead of hiding menu DOM or aliasing menu command hooks
+  - `HostedEditorApp.tsx` also passes `RivetAppHost.ui.fileMenu.visibleItems` so the iframe File menu shows only `import_graph`, `export_graph`, `settings`, and `get_help`; keep this on the upstream host UI policy seam instead of hiding menu DOM or aliasing menu command hooks
   - `useEditorCommandQueue.ts` owns pre-ready command buffering
   - `useEditorBridgeEvents.ts` owns dashboard-side message listeners and cross-iframe save shortcut capture
   - `EditorMessageBridge.tsx` owns editor-side message handling after the workspace host handle is ready, and should pass that `RivetWorkspaceHost` through to project open, replace-current, close, and path-move commands instead of rewriting Rivet tab atoms directly

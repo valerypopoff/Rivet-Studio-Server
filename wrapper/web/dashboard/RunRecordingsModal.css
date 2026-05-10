@@ -146,6 +146,10 @@
   overflow: hidden;
 }
 
+.run-recordings-select__menu-portal {
+  z-index: 7001 !important;
+}
+
 .run-recordings-select__menu-list {
   padding: 6px !important;
 }
