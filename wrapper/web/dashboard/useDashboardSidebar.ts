@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type TransitionEvent } from 'react';
+
+const SIDEBAR_REVEAL_FALLBACK_MS = 240;
 
 type UseDashboardSidebarOptions = {
   maxWidth: number;
@@ -12,7 +14,30 @@ export function useDashboardSidebar(options: UseDashboardSidebarOptions) {
   } = options;
   const [sidebarWidth, setSidebarWidth] = useState(300);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarContentVisible, setSidebarContentVisible] = useState(true);
   const [sidebarResizing, setSidebarResizing] = useState(false);
+  const revealTimeoutRef = useRef<number | undefined>();
+
+  const clearRevealTimeout = useCallback(() => {
+    if (revealTimeoutRef.current === undefined) {
+      return;
+    }
+
+    window.clearTimeout(revealTimeoutRef.current);
+    revealTimeoutRef.current = undefined;
+  }, []);
+
+  const revealSidebarContent = useCallback(() => {
+    clearRevealTimeout();
+    setSidebarContentVisible(true);
+  }, [clearRevealTimeout]);
+
+  const scheduleSidebarContentReveal = useCallback(() => {
+    clearRevealTimeout();
+    revealTimeoutRef.current = window.setTimeout(revealSidebarContent, SIDEBAR_REVEAL_FALLBACK_MS);
+  }, [clearRevealTimeout, revealSidebarContent]);
+
+  useEffect(() => clearRevealTimeout, [clearRevealTimeout]);
 
   useEffect(() => {
     if (sidebarCollapsed) {
@@ -50,13 +75,36 @@ export function useDashboardSidebar(options: UseDashboardSidebarOptions) {
     };
   }, [maxWidth, minWidth, sidebarCollapsed]);
 
+  const handleSidebarTransitionEnd = useCallback((event: TransitionEvent<HTMLElement>) => {
+    if (event.currentTarget !== event.target || sidebarCollapsed) {
+      return;
+    }
+
+    if (event.propertyName !== 'width' && event.propertyName !== 'flex-basis') {
+      return;
+    }
+
+    revealSidebarContent();
+  }, [revealSidebarContent, sidebarCollapsed]);
+
   const handleToggleSidebar = useCallback(() => {
-    setSidebarCollapsed((prev) => !prev);
-  }, []);
+    if (sidebarCollapsed) {
+      setSidebarContentVisible(false);
+      setSidebarCollapsed(false);
+      scheduleSidebarContentReveal();
+      return;
+    }
+
+    clearRevealTimeout();
+    setSidebarContentVisible(false);
+    setSidebarCollapsed(true);
+  }, [clearRevealTimeout, scheduleSidebarContentReveal, sidebarCollapsed]);
 
   return {
+    handleSidebarTransitionEnd,
     handleToggleSidebar,
     sidebarCollapsed,
+    sidebarContentVisible,
     sidebarResizing,
     sidebarWidth,
   };

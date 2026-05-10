@@ -9,7 +9,7 @@ import { useDashboardSidebar } from './useDashboardSidebar';
 import { useEditorBridgeEvents } from './useEditorBridgeEvents';
 import './DashboardPage.css';
 
-const WORKFLOW_DASHBOARD_COLLAPSED_SIDEBAR_WIDTH = 37;
+const WORKFLOW_DASHBOARD_COLLAPSED_SIDEBAR_WIDTH = 30;
 const MIN_SIDEBAR_WIDTH = 240;
 const MAX_SIDEBAR_WIDTH = 560;
 
@@ -23,7 +23,9 @@ export const DashboardPage: FC = () => {
   const postEditorCommand = useEditorCommandQueue(iframeRef, editorReady);
   const {
     handleToggleSidebar,
+    handleSidebarTransitionEnd,
     sidebarCollapsed,
+    sidebarContentVisible,
     sidebarResizing,
     sidebarWidth,
   } = useDashboardSidebar({
@@ -108,7 +110,10 @@ export const DashboardPage: FC = () => {
           <div className="dashboard-editor-loading-message">Loading...</div>
         </div>
       ) : null}
-      <aside className="dashboard-sidebar">
+      <aside
+        className={`dashboard-sidebar${sidebarCollapsed ? ' dashboard-sidebar-collapsed' : ''}`}
+        onTransitionEnd={handleSidebarTransitionEnd}
+      >
         <WorkflowLibraryPanel
           onOpenProject={handleOpenProject}
           onOpenRecording={handleOpenRecording}
@@ -120,6 +125,7 @@ export const DashboardPage: FC = () => {
           editorReady={editorReady}
           projectSaveSequence={projectSaveSequence}
           collapsed={sidebarCollapsed}
+          contentVisible={sidebarContentVisible}
           onToggleCollapse={handleToggleSidebar}
         />
         {!sidebarCollapsed ? (

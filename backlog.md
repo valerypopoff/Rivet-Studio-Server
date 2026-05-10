@@ -1,8 +1,4 @@
 
-
-- Change the close/open oanel icon to the same that is used in the river editor. When closed, leave a thin panel that shoows: open button, current project state (gray, orange or a green dot)
-
-
 - Do we need /health enpoint for k8s?
 
 - Убедиться, что RIVET_RECORDINGS_MAX_PENDING_WRITES работает правильно — на каждую реплику

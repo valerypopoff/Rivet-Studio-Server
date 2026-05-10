@@ -39,6 +39,7 @@ RUN YARN_NODE_LINKER=node-modules yarn workspace @valerypopoff/trivet run build
 # Copy wrapper source
 WORKDIR /app
 COPY wrapper/ wrapper/
+COPY package.json package.json
 
 # Install wrapper web dependencies
 WORKDIR /app/wrapper/web

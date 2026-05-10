@@ -61,8 +61,8 @@ The important operational detail is that these tiers scale independently. A new 
 
 ## Hosted UI model
 
-- The top-level page is the wrapper dashboard. It renders the workflow library, project settings, runtime libraries, run recordings, and an `<iframe src="/?editor">`.
-- The workflow library header is the left panel chrome: it stays `37px` high, keeps the sidebar toggle before the `Rivet Projects` title, and collapses to a persistent `37px` rail instead of unmounting the panel.
+- The top-level page is the wrapper dashboard. It renders the workflow library, project settings, runtime libraries, run recordings, an About dialog with the app name and version, and an `<iframe src="/?editor">`.
+- The workflow library header is the left panel chrome: it stays `37px` high without a bottom divider and keeps the sidebar toggle before the `Rivet Projects` title. Collapsed mode becomes a persistent full-height `30px` rail button with a centered `>` chevron. Folding the panel hides the contents visually without unmounting the workflow tree, and reopening waits for the width animation to finish before revealing those contents.
 - The workflow library tree now includes custom context menus on both project and folder entries.
 - The active project summary is driven from the selected `WorkflowProjectItem` returned by `GET /api/workflows/tree`, including both publication metadata and per-project graph/node stats.
 - Project rows currently expose `Rename project`, `Download`, `Duplicate`, and a guarded `Delete project` action.

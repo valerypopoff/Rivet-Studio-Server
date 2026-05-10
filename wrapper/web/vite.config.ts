@@ -48,6 +48,12 @@ const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\
 const wrapperPackageJson = JSON.parse(readFileSync(resolve(__dirname, 'package.json'), 'utf8')) as {
   dependencies?: Record<string, string>;
 };
+const rootPackageJson = JSON.parse(readFileSync(resolve(workspaceRoot, 'package.json'), 'utf8')) as {
+  version?: string;
+};
+const hostedAppVersion = typeof rootPackageJson.version === 'string' && rootPackageJson.version.trim()
+  ? rootPackageJson.version.trim()
+  : 'unknown';
 const upstreamSourcePackageAliases = new Set([
   '@valerypopoff/rivet2-core',
   '@valerypopoff/trivet',
@@ -272,6 +278,7 @@ export default defineConfig({
 
     define: {
       'import.meta.env.VITE_HOSTED_MODE': JSON.stringify('true'),
+      'import.meta.env.VITE_APP_VERSION': JSON.stringify(hostedAppVersion),
     },
 
     build: {

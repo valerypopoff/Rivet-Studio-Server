@@ -267,6 +267,7 @@ test('CI publishes Rivet 2 wrapper images from the Rivet 2 fork', () => {
   }
 
   assert.match(webDockerfile, /COPY --from=rivet_source \. rivet\//);
+  assert.match(webDockerfile, /COPY package\.json package\.json/);
   assert.doesNotMatch(webPackageJson, /"rivet-studio-server":\s*"file:\.\.\/\.\."/);
   assert.doesNotMatch(webPackageLock, /"node_modules\/rivet-studio-server"/);
   assert.match(apiDockerfile, /COPY --from=rivet_source \. rivet\//);

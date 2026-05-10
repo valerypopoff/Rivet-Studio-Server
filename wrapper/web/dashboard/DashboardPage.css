@@ -20,6 +20,11 @@
     width 180ms ease;
 }
 
+.dashboard-page .dashboard-sidebar.dashboard-sidebar-collapsed {
+  border-right: 0;
+  box-shadow: inset -1px 0 0 var(--grey);
+}
+
 .dashboard-page .dashboard-sidebar-resizer {
   position: absolute;
   top: 0;
