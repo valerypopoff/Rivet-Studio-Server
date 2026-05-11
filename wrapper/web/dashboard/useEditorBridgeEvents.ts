@@ -3,8 +3,13 @@ import { toast } from 'react-toastify';
 import {
   isEditorToDashboardEvent,
   isValidBridgeOrigin,
+  postMessageToEditor,
 } from '../../shared/editor-bridge';
-import { isSaveShortcutEvent } from './editorBridgeFocus';
+import {
+  isEditorFindShortcutEvent,
+  isEditableElement,
+  isSaveShortcutEvent,
+} from './editorBridgeFocus';
 
 type UseEditorBridgeEventsOptions = {
   activeWorkflowProjectPath: string;
@@ -41,6 +46,32 @@ export function useEditorBridgeEvents(options: UseEditorBridgeEventsOptions) {
         return;
       }
 
+      if (isEditorFindShortcutEvent(event)) {
+        const eventTarget = event.target instanceof Element ? event.target : null;
+        if (
+          document.activeElement === iframeRef.current ||
+          isEditableElement(document.activeElement) ||
+          isEditableElement(eventTarget)
+        ) {
+          return;
+        }
+
+        const editorWindow = iframeRef.current?.contentWindow;
+        if (!editorWindow) {
+          return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+
+        focusEditorFrame();
+        postMessageToEditor(editorWindow, {
+          type: 'trigger-editor-find-shortcut',
+          modifier: event.metaKey ? 'meta' : 'ctrl',
+        });
+        return;
+      }
+
       if (!isSaveShortcutEvent(event)) {
         return;
       }
@@ -65,7 +96,7 @@ export function useEditorBridgeEvents(options: UseEditorBridgeEventsOptions) {
       window.removeEventListener('keydown', handler, true);
       document.removeEventListener('keydown', handler, true);
     };
-  }, [activeWorkflowProjectPath, editorReady, handleSaveProject, iframeRef]);
+  }, [activeWorkflowProjectPath, editorReady, focusEditorFrame, handleSaveProject, iframeRef]);
 
   useEffect(() => {
     const handler = (event: MessageEvent) => {

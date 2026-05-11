@@ -8,6 +8,12 @@ export const isSaveShortcutEvent = (event: KeyboardEvent) =>
   !event.shiftKey &&
   (event.code === 'KeyS' || event.key.toLowerCase() === 's');
 
+export const isEditorFindShortcutEvent = (event: KeyboardEvent) =>
+  (event.ctrlKey || event.metaKey) &&
+  !event.altKey &&
+  !event.shiftKey &&
+  (event.code === 'KeyF' || event.key.toLowerCase() === 'f');
+
 export function focusElement(element: HTMLElement | HTMLIFrameElement | null) {
   if (!element) {
     return;

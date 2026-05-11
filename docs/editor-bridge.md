@@ -69,6 +69,15 @@ Save can be initiated from either context:
 
 That lets the hosted shell behave like a single app even though the editor lives in an iframe.
 
+## Search shortcut behavior
+
+Rivet owns editor-local find/search UIs, but `Ctrl+F` / `Cmd+F` can fire while focus is still on dashboard chrome.
+
+- inside the iframe, Rivet's normal handlers keep owning `Ctrl+F` / `Cmd+F` for graph search and fullscreen-output search
+- outside the iframe, the dashboard captures that find shortcut only when focus is not already in the iframe or in a real dashboard text input
+- the dashboard prevents the browser find default, focuses the iframe, and sends `trigger-editor-find-shortcut` to `EditorMessageBridge`
+- the iframe bridge replays the shortcut on the editor window so the currently relevant Rivet search handler wins, including fullscreen output search when that UI is mounted
+
 ## Copy/Paste behavior
 
 Node copy/paste shortcuts do not cross the editor bridge.
