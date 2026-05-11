@@ -205,6 +205,7 @@ test('API images link workflow execution to the embedded Rivet source tree', () 
   assert.match(devCompose, /\.\.\/\.\.\/scripts:\/scripts:ro/);
   assert.match(devCompose, /RIVET_SOURCE_ROOT=\/app\/\.rivet-source RIVET_API_PACKAGE_ROOT=\/app node \/workspace\/scripts\/link-rivet-node-package\.mjs/);
   assert.match(devCompose, /NODE_OPTIONS='\$\{NODE_OPTIONS:-\} --import=\/opt\/proxy-bootstrap\/bootstrap\.mjs'/);
+  assert.match(devCompose, /api:[\s\S]*healthcheck:[\s\S]*start_period: 360s/);
   assert.match(devDockerLauncher, /prepareRivetDockerContext\(rootDir, mergedEnv\)/);
   assert.match(prodDockerLauncher, /prepareRivetDockerContext\(rootDir, mergedEnv\)/);
   assert.ok(rivetContextHelper.includes("const contextRootRelPath = path.join('.data', 'docker-contexts');"));
@@ -629,6 +630,28 @@ test('hosted save shortcuts use upstream save flow and RivetAppHost callbacks', 
   ]) {
     assert.equal(repoFileExists(stalePath), false, `${stalePath} should stay removed in favor of upstream save/menu seams`);
   }
+});
+
+test('hosted find shortcuts stay inside the editor iframe when dashboard chrome has focus', () => {
+  const editorBridge = readRepoFile('wrapper/shared/editor-bridge.ts');
+  const editorBridgeFocus = readRepoFile('wrapper/web/dashboard/editorBridgeFocus.ts');
+  const editorEvents = readRepoFile('wrapper/web/dashboard/useEditorBridgeEvents.ts');
+  const editorMessageBridge = readRepoFile('wrapper/web/dashboard/EditorMessageBridge.tsx');
+  const upstreamCanvasHotkeys = readRepoFile('rivet/packages/app/src/hooks/useCanvasHotkeys.ts');
+  const upstreamFullscreenSearch = readRepoFile('rivet/packages/app/src/components/nodeOutput/useFullscreenOutputSearch.ts');
+
+  assert.match(editorBridge, /trigger-editor-find-shortcut/);
+  assert.match(editorBridgeFocus, /isEditorFindShortcutEvent/);
+  assert.match(editorBridgeFocus, /event\.code === 'KeyF'/);
+  assert.doesNotMatch(editorBridgeFocus, /event\.code === 'KeyP'/);
+  assert.match(editorEvents, /postMessageToEditor\(editorWindow,\s*\{\s*type: 'trigger-editor-find-shortcut'/);
+  assert.match(editorEvents, /event\.preventDefault\(\);\s*event\.stopPropagation\(\);/);
+  assert.match(editorEvents, /isEditableElement\(eventTarget\)/);
+  assert.match(editorMessageBridge, /function replayEditorFindShortcut/);
+  assert.match(editorMessageBridge, /window\.dispatchEvent\(createEditorFindKeyboardEvent\(modifier\)\)/);
+  assert.match(upstreamCanvasHotkeys, /setSearching\(openOrFocusGraphSearchState\)/);
+  assert.match(upstreamFullscreenSearch, /focusSearchInput\(\)/);
+  assert.match(upstreamFullscreenSearch, /stopImmediatePropagation/);
 });
 
 test('hosted clipboard shortcuts keep copy, cut, paste, and duplicate editor-local', () => {

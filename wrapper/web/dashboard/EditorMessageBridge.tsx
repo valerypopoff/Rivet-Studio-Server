@@ -14,6 +14,7 @@ import type { RivetWorkspaceHost } from '../../../rivet/packages/app/src/host';
 import type { WorkflowProjectPathMove } from './types';
 import {
   type DashboardToEditorCommand,
+  type EditorShortcutModifier,
   isDashboardToEditorCommand,
   isValidBridgeOrigin,
   postMessageToDashboard,
@@ -59,6 +60,21 @@ async function clearDeletedHostedProjectState(projectIds: Iterable<ProjectId>): 
 
     clearOpenedProjectSession(projectId);
   }
+}
+
+function createEditorFindKeyboardEvent(modifier: EditorShortcutModifier): KeyboardEvent {
+  return new KeyboardEvent('keydown', {
+    bubbles: true,
+    cancelable: true,
+    code: 'KeyF',
+    ctrlKey: modifier === 'ctrl',
+    key: 'f',
+    metaKey: modifier === 'meta',
+  });
+}
+
+function replayEditorFindShortcut(modifier: EditorShortcutModifier): void {
+  window.dispatchEvent(createEditorFindKeyboardEvent(modifier));
 }
 
 type LoadedWorkflowRecording = {
@@ -290,6 +306,11 @@ export const EditorMessageBridge: FC<EditorMessageBridgeProps> = ({ workspaceHos
       switch (event.data.type) {
         case 'save-project': {
           await saveCurrentProject();
+          break;
+        }
+
+        case 'trigger-editor-find-shortcut': {
+          replayEditorFindShortcut(event.data.modifier);
           break;
         }
 

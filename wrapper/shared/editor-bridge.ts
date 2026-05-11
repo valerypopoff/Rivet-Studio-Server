@@ -1,9 +1,12 @@
 import type { WorkflowProjectPathMove } from './workflow-types';
 
+export type EditorShortcutModifier = 'ctrl' | 'meta';
+
 export type DashboardToEditorCommand =
   | { type: 'open-project'; path: string; replaceCurrent: boolean }
   | { type: 'open-recording'; recordingId: string; replaceCurrent: boolean }
   | { type: 'save-project' }
+  | { type: 'trigger-editor-find-shortcut'; modifier: EditorShortcutModifier }
   | { type: 'delete-workflow-project'; path: string; projectId?: string | null }
   | { type: 'workflow-paths-moved'; moves: WorkflowProjectPathMove[] };
 
@@ -32,6 +35,9 @@ const isWorkflowMove = (value: unknown): value is WorkflowProjectPathMove =>
   typeof value.fromAbsolutePath === 'string' &&
   typeof value.toAbsolutePath === 'string';
 
+const isEditorShortcutModifier = (value: unknown): value is EditorShortcutModifier =>
+  value === 'ctrl' || value === 'meta';
+
 export function isDashboardToEditorCommand(value: unknown): value is DashboardToEditorCommand {
   if (!isRecord(value) || typeof value.type !== 'string') {
     return false;
@@ -44,6 +50,8 @@ export function isDashboardToEditorCommand(value: unknown): value is DashboardTo
       return typeof value.recordingId === 'string' && typeof value.replaceCurrent === 'boolean';
     case 'save-project':
       return true;
+    case 'trigger-editor-find-shortcut':
+      return isEditorShortcutModifier(value.modifier);
     case 'delete-workflow-project':
       return typeof value.path === 'string' && (value.projectId == null || typeof value.projectId === 'string');
     case 'workflow-paths-moved':

@@ -89,6 +89,7 @@ Operational note:
 
 - `RIVET_ARTIFACTS_HOST_PATH` is the primary public filesystem-mode contract
 - `RIVET_WORKFLOWS_HOST_PATH`, `RIVET_WORKFLOW_RECORDINGS_HOST_PATH`, and `RIVET_RUNTIME_LIBS_HOST_PATH` remain compatibility overrides for the launcher
+- use the repo launchers (`npm run dev`, `npm run prod`, `npm run dev:docker:*`, or the Docker launcher scripts) for Docker runs; a raw `docker compose --env-file .env ...` invocation only reads the variables already present in the env file and does not derive absolute workflow, recording, or runtime-library host paths from `RIVET_ARTIFACTS_HOST_PATH`
 - `RIVET_PROXY_READ_TIMEOUT` controls nginx `proxy_read_timeout` and `proxy_send_timeout` for `/api/*`, `${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH}`, and `${RIVET_LATEST_WORKFLOWS_BASE_PATH}` in the Docker stacks; the default tracked value is `180s`
 - `RIVET_COMMAND_TIMEOUT` is unrelated to workflow HTTP lifetime; it only bounds hosted shell execution under `/api/shell/exec`
 - `RIVET_STORAGE_MODE=managed` switches both workflows and runtime libraries to managed Postgres plus object storage; in that mode `RIVET_RUNTIME_LIBRARIES_ROOT` remains only a local cache/workspace
@@ -273,6 +274,7 @@ Current behavior:
 - the local Docker stacks keep `RIVET_API_PROFILE=combined` by default, so `/api/*`, `${RIVET_LATEST_WORKFLOWS_BASE_PATH}`, and `${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH}` all land on the same `api` container there
 - the `web` service runs the Vite dev server inside the container with live bind mounts
 - Docker dev rebuilds the `api` and `executor` services from Dockerfiles while running `web` through Vite; `npm run prod:custom` rebuilds `proxy`, `web`, `api`, and `executor`
+- the launchers compute host bind mounts before calling Compose. With `RIVET_ARTIFACTS_HOST_PATH=../` from the repo root, both dev and production-style Docker mount `<repo>/../workflows` at `/workflows`, `<repo>/../workflow-recordings` at `/workflow-recordings`, and `<repo>/../runtime-libraries` at `/data/runtime-libraries`. If you bypass the launcher and run Compose directly, set those three `RIVET_*_HOST_PATH` values explicitly or Compose may fall back to repo-local defaults.
 - the production web image copies `wrapper/`, the root `package.json` as build metadata for the About modal version, and the `rivet_source` build context. Keep `wrapper/web/package.json` free of `file:../..` root dependencies so GitHub Actions can build the web image from the same minimal context.
 - the API image builds `rivet/packages/core` and `rivet/packages/node`, then links `wrapper/api` to those built package directories before compiling the API; this keeps hosted endpoint execution on the same Rivet source tree as the editor and executor
 - the Docker dev API waits for the web service to populate the shared `rivet_node_modules` volume, then copies only `rivet/packages/core` and `rivet/packages/node` into `/app/.rivet-source`, attaches `/workspace/rivet/node_modules` beside that copy, and points the generated `@valerypopoff/rivet2-core`, `@valerypopoff/rivet2-node`, and `@rivet2/*` package overlays at the internal copy. That keeps Node package resolution inside the container even when `rivet/` is a Windows junction target, avoids duplicating the upstream dependency install, and avoids writing API helper links into the external Rivet checkout.
@@ -281,7 +283,7 @@ Current behavior:
 - Docker image builds receive upstream Rivet through the named `rivet_source` build context instead of `COPY rivet/` from the main repo context; local launchers feed that context from `.data/docker-contexts/rivet-source` so linked Rivet checkouts do not send `node_modules`, `.git`, or Yarn cache artifacts to BuildKit
 - `npm run dev:docker:prepare-rivet-context` refreshes that filtered context without starting Docker, which is useful before manual `docker build --build-context rivet_source=.data/docker-contexts/rivet-source ...` checks
 - the Docker Compose stacks set `HOME=/home/rivet` and keep npm/Yarn caches there so pulled non-root images and locally built images use the same runtime cache contract
-- the launcher waits for healthy services; `RIVET_DOCKER_WAIT_TIMEOUT` controls the wait window
+- the launcher waits for healthy services; `RIVET_DOCKER_WAIT_TIMEOUT` controls the overall wait window, while the Docker dev API healthcheck has a longer startup grace period because cold starts may need to refresh npm dependencies, copy Rivet package sources, and relink local package overlays before `/healthz` is available
 - on Windows/Docker Desktop, if Compose fails before containers start with `error while creating mount source path '/run/desktop/mnt/host/<drive>/...'` and `file exists`, first verify the host folder exists, then run `wsl --shutdown` from PowerShell to reset Docker Desktop's WSL file-sharing bridge before retrying `npm run dev:docker`
 - in `RIVET_STORAGE_MODE=managed`, both workflow state and runtime-library releases come from managed services, while `/data/runtime-libraries` remains only an extracted local cache/workspace inside each container
 - in `RIVET_STORAGE_MODE=managed`, published/latest endpoint execution also keeps API-local warm caches for endpoint pointers and immutable revision contents; the first hit after startup or after a workflow mutation can still be slower, but repeated hits for the same unchanged trivial workflow should settle onto the warm local path
@@ -575,8 +577,9 @@ For hosted editor keyboard-node behavior:
 6. deliberately return focus to the workflow library, then confirm `Shift+click` multi-selection inside the editor reclaims iframe focus and still copies multiple nodes
 7. deliberately return focus to the workflow library, then click blank canvas background and confirm `Ctrl+C` / `Ctrl+X` / `Ctrl+V` work again without an extra recovery click on a node
 8. open and close an editor context menu or search UI, then confirm `Ctrl+C`, `Ctrl+X`, and `Ctrl+V` still work after returning to the canvas
-9. confirm `Ctrl+S` works while focus is inside the workflow iframe, including on Windows browsers
-10. confirm the browser can still type normally inside real text inputs and that copy/paste/save shortcuts do not hijack active editor form fields
+9. deliberately return focus to the workflow library, then confirm `Ctrl+F` opens Rivet graph search instead of the browser find UI
+10. confirm `Ctrl+S` works while focus is inside the workflow iframe, including on Windows browsers
+11. confirm the browser can still type normally inside real text inputs and that copy/paste/save/search shortcuts do not hijack active editor form fields
 
 For hosted editor production-image regressions:
 

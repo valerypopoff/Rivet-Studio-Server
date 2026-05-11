@@ -1,69 +1,13 @@
-import { expect, type Page, test } from '@playwright/test';
-
-type SeedProjectOptions = {
-  graphId: string;
-  loaded?: boolean;
-  projectId: string;
-  projectPath: string;
-  title: string;
-};
-
-async function seedHostedProjectTab(page: Page, options: SeedProjectOptions) {
-  await page.addInitScript((seed: SeedProjectOptions) => {
-    localStorage.setItem(
-      'project',
-      JSON.stringify({
-        ...(seed.loaded
-          ? {
-              loadedProjectState: {
-                loaded: true,
-                path: seed.projectPath,
-              },
-            }
-          : {}),
-        projectState: {
-          metadata: {
-            id: seed.projectId,
-            title: seed.title,
-            description: '',
-            mainGraphId: seed.graphId,
-          },
-          graphs: {
-            [seed.graphId]: {
-              metadata: {
-                id: seed.graphId,
-                name: 'Main Graph',
-                description: '',
-              },
-              nodes: [],
-              connections: [],
-            },
-          },
-          plugins: [],
-        },
-        projectsState: {
-          openedProjects: {
-            [seed.projectId]: {
-              projectId: seed.projectId,
-              title: seed.title,
-              fsPath: seed.projectPath,
-              openedGraph: seed.graphId,
-            },
-          },
-          openedProjectsSortedIds: [seed.projectId],
-        },
-        openedProjectSnapshotsState: {},
-      }),
-    );
-  }, options);
-}
+import { expect, test } from '@playwright/test';
+import { authenticateIfNeeded } from './helpers/hostedEditorObserve';
+import { seedHostedEditorProject } from './helpers/hostedEditorStorage';
 
 test('hosted editor project tabs show only the project title', async ({ page }) => {
   const projectId = 'tab-label-project';
   const graphId = 'tab-label-graph';
   const projectTitle = 'Tab Label Project';
 
-  await seedHostedProjectTab(page, {
+  await seedHostedEditorProject(page, {
     graphId,
     projectId,
     projectPath: `/workflows/${projectTitle}.rivet-project`,
@@ -71,8 +15,10 @@ test('hosted editor project tabs show only the project title', async ({ page }) 
   });
 
   await page.goto('/?editor', { waitUntil: 'domcontentloaded' });
+  await authenticateIfNeeded(page);
 
-  const tab = page.locator('.project.active .project-name').first();
+  const editorFrame = page.frameLocator('iframe.dashboard-editor-frame');
+  const tab = editorFrame.locator('.project.active .project-name').first();
   await expect(tab).toHaveText(projectTitle);
   await expect(tab).not.toContainText('.rivet-project');
 });
@@ -99,7 +45,7 @@ test('hosted editor project tab updates to the file-tree title after save', asyn
     });
   });
 
-  await seedHostedProjectTab(page, {
+  await seedHostedEditorProject(page, {
     graphId,
     loaded: true,
     projectId,
@@ -108,15 +54,19 @@ test('hosted editor project tab updates to the file-tree title after save', asyn
   });
 
   await page.goto('/?editor', { waitUntil: 'domcontentloaded' });
+  await authenticateIfNeeded(page);
 
-  const tab = page.locator('.project.active .project-name').first();
+  const editorFrame = page.frameLocator('iframe.dashboard-editor-frame');
+  const tab = editorFrame.locator('.project.active .project-name').first();
   await expect(tab).toHaveText(editorTitle);
-  await expect(page.locator('.node-canvas')).toBeVisible();
+  const canvas = editorFrame.locator('.node-canvas');
+  await expect(canvas).toBeVisible();
 
+  await canvas.click();
   await page.keyboard.press('Control+S');
 
   await expect.poll(() => saveRequestCount).toBe(1);
   await expect(tab).toHaveText(fileTreeTitle);
-  await expect(page.locator('.project')).toHaveCount(1);
-  await expect(page.locator('.node-canvas')).toBeVisible();
+  await expect(editorFrame.locator('.project')).toHaveCount(1);
+  await expect(canvas).toBeVisible();
 });
