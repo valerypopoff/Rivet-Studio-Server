@@ -7,7 +7,7 @@ const rootPackageJson = JSON.parse(readFileSync(new URL('../../../package.json',
 };
 
 test.describe('Workflow library layout', () => {
-  test('collapses the left panel into a clickable narrow rail', async ({ page }) => {
+  test('collapses from the full header row into a clickable narrow rail', async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     await authenticateIfNeeded(page);
     await waitForDashboardReady(page);
@@ -45,7 +45,7 @@ test.describe('Workflow library layout', () => {
     await page.getByRole('button', { name: 'Close about' }).click();
     await expect(aboutModal).toHaveCount(0);
 
-    await collapseButton.click();
+    await header.click({ position: { x: headerBox!.width - 8, y: headerBox!.height / 2 } });
 
     const expandButton = page.getByRole('button', { name: 'Expand folders pane' });
     await expect(expandButton).toBeVisible();

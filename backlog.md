@@ -1,6 +1,4 @@
 
-- In the sidebar, make the whole "Rivet projects" header clickable to fold the sidebar
-
 - Do we need /health enpoint for k8s?
 
 - Убедиться, что RIVET_RECORDINGS_MAX_PENDING_WRITES работает правильно — на каждую реплику
