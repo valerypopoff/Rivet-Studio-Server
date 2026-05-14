@@ -59,6 +59,16 @@ export function assertNoRetiredEnv(env, options = {}) {
   );
 }
 
+export function dropAmbientNodeOptionsForDocker(env, fileEnv = {}) {
+  // Yarn PnP injects host-only NODE_OPTIONS when scripts run through `yarn`.
+  // Do not pass those Windows/macOS preload paths into Linux Docker containers.
+  if (!Object.prototype.hasOwnProperty.call(fileEnv, 'NODE_OPTIONS')) {
+    delete env.NODE_OPTIONS;
+  }
+
+  return env;
+}
+
 export function enableManagedWorkflowProfileIfNeeded(env) {
   const storageBackend = readNormalizedEnv(env, 'RIVET_STORAGE_MODE');
   const databaseMode = readNormalizedEnv(env, 'RIVET_DATABASE_MODE');

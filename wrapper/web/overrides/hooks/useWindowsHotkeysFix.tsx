@@ -1,5 +1,5 @@
 // Override for rivet/packages/app/src/hooks/useWindowsHotkeysFix.tsx
-// Hosted mode already handles save inside the iframe, so Windows keyup fallback
+// Hosted mode already handles save inside the iframe, so the Windows fallback
 // must not trigger a second save.
 
 import { useEffect } from 'react';
@@ -7,11 +7,25 @@ import { type MenuIds, useRunMenuCommand } from '../../../../rivet/packages/app/
 import * as tauriUtils from '../utils/tauri';
 
 interface HotkeyFixWindow extends Window {
-  __tauri_hotkey?: boolean;
+  __rivetWindowsHotkeysCleanup?: () => void;
 }
 declare let window: HotkeyFixWindow;
 
-const isWindowsPlatform = typeof navigator !== 'undefined' && navigator.userAgent.includes('Win64');
+const isWindowsPlatform =
+  typeof navigator !== 'undefined' && /Windows|Win32|Win64|WOW64/i.test(`${navigator.userAgent} ${navigator.platform}`);
+
+const shortcutToMenuId: Record<string, MenuIds> = {
+  F5: 'remote_debugger',
+  'CmdOrCtrl+Shift+O': 'load_recording',
+  'CmdOrCtrl+N': 'new_project',
+  'CmdOrCtrl+O': 'open_project',
+  'CmdOrCtrl+S': 'save_project',
+  'CmdOrCtrl+Shift+E': 'export_graph',
+  'CmdOrCtrl+Shift+S': 'save_project_as',
+  'CmdOrCtrl+ENTER': 'run',
+};
+
+const hotkeyListenerOptions = { capture: true };
 
 const isHostedMode = () => {
   if (typeof (tauriUtils as { isHostedMode?: () => boolean }).isHostedMode === 'function') {
@@ -30,41 +44,49 @@ export const useWindowsHotkeysFix = () => {
 
   // Keep the Windows shortcut workaround local to hosted keyboard handling.
   useEffect(() => {
-    if (typeof window === 'undefined' || !isWindowsPlatform || window.__tauri_hotkey) {
+    if (typeof window === 'undefined' || !isWindowsPlatform) {
       return;
     }
 
-    const onKeyUp = ({ key, ctrlKey, shiftKey }: KeyboardEvent) => {
-      const code = `${ctrlKey ? 'CmdOrCtrl+' : ''}${shiftKey ? 'Shift+' : ''}${key.toUpperCase()}`;
-      const codeToMenuId: Record<string, MenuIds> = {
-        F5: 'remote_debugger',
-        'CmdOrCtrl+Shift+O': 'load_recording',
-        'CmdOrCtrl+N': 'new_project',
-        'CmdOrCtrl+O': 'open_project',
-        'CmdOrCtrl+S': 'save_project',
-        'CmdOrCtrl+Shift+E': 'export_graph',
-        'CmdOrCtrl+Shift+I': 'import_graph',
-        'CmdOrCtrl+Shift+S': 'save_project_as',
-        'CmdOrCtrl+ENTER': 'run',
-      };
-      const menuId = codeToMenuId[code];
+    window.__rivetWindowsHotkeysCleanup?.();
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      const { key, ctrlKey, metaKey, shiftKey } = event;
+      const code = `${ctrlKey || metaKey ? 'CmdOrCtrl+' : ''}${shiftKey ? 'Shift+' : ''}${key.toUpperCase()}`;
+      const menuId = shortcutToMenuId[code];
       if (!menuId) {
         return;
       }
 
+      event.preventDefault();
+
       if (menuId === 'save_project' && isHostedMode()) {
+        // Let EditorMessageBridge own hosted save so the Windows fallback cannot double-save.
+        return;
+      }
+
+      event.stopPropagation();
+
+      if (event.repeat) {
         return;
       }
 
       runMenuCommandImpl(menuId);
     };
 
-    window.__tauri_hotkey = true;
-    window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('keydown', onKeyDown, hotkeyListenerOptions);
+
+    const cleanup = () => {
+      window.removeEventListener('keydown', onKeyDown, hotkeyListenerOptions);
+    };
+
+    window.__rivetWindowsHotkeysCleanup = cleanup;
 
     return () => {
-      window.removeEventListener('keyup', onKeyUp);
-      window.__tauri_hotkey = false;
+      if (window.__rivetWindowsHotkeysCleanup === cleanup) {
+        cleanup();
+        delete window.__rivetWindowsHotkeysCleanup;
+      }
     };
   }, [runMenuCommandImpl]);
 

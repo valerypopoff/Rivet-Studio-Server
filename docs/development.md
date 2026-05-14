@@ -90,6 +90,7 @@ Operational note:
 - `RIVET_ARTIFACTS_HOST_PATH` is the primary public filesystem-mode contract
 - `RIVET_WORKFLOWS_HOST_PATH`, `RIVET_WORKFLOW_RECORDINGS_HOST_PATH`, and `RIVET_RUNTIME_LIBS_HOST_PATH` remain compatibility overrides for the launcher
 - use the repo launchers (`npm run dev`, `npm run prod`, `npm run dev:docker:*`, or the Docker launcher scripts) for Docker runs; a raw `docker compose --env-file .env ...` invocation only reads the variables already present in the env file and does not derive absolute workflow, recording, or runtime-library host paths from `RIVET_ARTIFACTS_HOST_PATH`
+- Docker launchers intentionally drop ambient host `NODE_OPTIONS` unless `.env` defines `NODE_OPTIONS` explicitly. This keeps Yarn 4/PnP host preloads such as `--require F:\...\.pnp.cjs` from being interpolated into Linux container startup commands while leaving non-Docker local runners alone.
 - `RIVET_PROXY_READ_TIMEOUT` controls nginx `proxy_read_timeout` and `proxy_send_timeout` for `/api/*`, `${RIVET_PUBLISHED_WORKFLOWS_BASE_PATH}`, and `${RIVET_LATEST_WORKFLOWS_BASE_PATH}` in the Docker stacks; the default tracked value is `180s`
 - `RIVET_COMMAND_TIMEOUT` is unrelated to workflow HTTP lifetime; it only bounds hosted shell execution under `/api/shell/exec`
 - `RIVET_STORAGE_MODE=managed` switches both workflows and runtime libraries to managed Postgres plus object storage; in that mode `RIVET_RUNTIME_LIBRARIES_ROOT` remains only a local cache/workspace
@@ -369,7 +370,7 @@ When adding new code, keep the post-refactor ownership seams explicit instead of
   - do not hide `filesystem` versus `managed` behavior behind a generic abstraction layer
 - dashboard controllers belong in `wrapper/web/dashboard/`
   - `useWorkflowLibraryController.ts`, `useRunRecordingsController.ts`, `useProjectSettingsActions.ts`, `useDashboardSidebar.ts`, and `useEditorBridgeEvents.ts` should own orchestration
-  - keep the workflow-library header block at `37px` high without a bottom divider; collapsed mode should be a persistent full-height `30px` rail button with a centered `>` chevron rather than a small header button, keep the workflow tree mounted while folded, and reveal the contents only after the reopen width animation completes
+  - keep the workflow-library header block at `37px` high without a bottom divider; the whole open-state header row is the collapse control with the sidebar icon before the `Rivet Projects` title; collapsed mode should be a persistent full-height `30px` rail button with a centered `>` chevron rather than a small header button, keep the workflow tree mounted while folded, and reveal the contents only after the reopen width animation completes
   - keep bottom panel actions in the mounted workflow-library panel; the `About` modal shows the official `Rivet Studio Server` app name and reads the hosted app version from the root `package.json` through the Vite build constant
   - keep project-settings validation and labels in `projectSettingsForm.ts`
   - keep run-recordings modal shell logic in `RunRecordingsModal.tsx` and its focused UI slices in `RecordingWorkflowSelect.tsx` and `RecordingRunsTable.tsx`
@@ -579,7 +580,8 @@ For hosted editor keyboard-node behavior:
 8. open and close an editor context menu or search UI, then confirm `Ctrl+C`, `Ctrl+X`, and `Ctrl+V` still work after returning to the canvas
 9. deliberately return focus to the workflow library, then confirm `Ctrl+F` opens Rivet graph search instead of the browser find UI
 10. confirm `Ctrl+S` works while focus is inside the workflow iframe, including on Windows browsers
-11. confirm the browser can still type normally inside real text inputs and that copy/paste/save/search shortcuts do not hijack active editor form fields
+11. confirm `Ctrl+Shift+I` remains browser-owned for DevTools and does not open Rivet's graph import picker
+12. confirm the browser can still type normally inside real text inputs and that copy/paste/save/search shortcuts do not hijack active editor form fields
 
 For hosted editor production-image regressions:
 

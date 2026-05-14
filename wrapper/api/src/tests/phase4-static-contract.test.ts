@@ -623,6 +623,8 @@ test('hosted save shortcuts use upstream save flow and RivetAppHost callbacks', 
   assert.doesNotMatch(viteAliases, /useMenuCommands/);
   assert.match(upstreamWorkspaceTransitions, /hostCallbacks\.onProjectSaved/);
   assert.match(windowsHotkeysFix, /menuId === 'save_project' && isHostedMode\(\)/);
+  assert.doesNotMatch(windowsHotkeysFix, /CmdOrCtrl\+Shift\+I/);
+  assert.doesNotMatch(windowsHotkeysFix, /import_graph/);
 
   for (const stalePath of [
     'wrapper/web/overrides/hooks/useSaveProject.ts',

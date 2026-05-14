@@ -156,20 +156,20 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
         className={`workflow-library-panel-content${panelContentVisible ? '' : ' workflow-library-panel-content-hidden'}`}
         aria-hidden={panelContentVisible ? undefined : true}
       >
-        <div className="header">
-          <button
-            type="button"
-            className="collapse-button"
-            onClick={onToggleCollapse}
-            title="Collapse folders pane"
-            aria-label="Collapse folders pane"
-            aria-expanded={collapsed ? 'false' : 'true'}
-            tabIndex={panelContentVisible ? undefined : -1}
-          >
+        <button
+          type="button"
+          className="header"
+          onClick={onToggleCollapse}
+          title="Collapse folders pane"
+          aria-label="Collapse folders pane"
+          aria-expanded={collapsed ? 'false' : 'true'}
+          tabIndex={panelContentVisible ? undefined : -1}
+        >
+          <span className="header-collapse-icon">
             <SidebarOpenIcon />
-          </button>
-          <div className="header-title">Rivet Projects</div>
-        </div>
+          </span>
+          <span className="header-title">Rivet Projects</span>
+        </button>
 
         <div className="active-project-slot">
           <ActiveProjectSection

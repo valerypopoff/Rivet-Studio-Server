@@ -164,7 +164,7 @@ test.describe('Workflow folder inline rename', () => {
 
     renameInput = await startFolderRename(page, state.folderName);
     await renameInput.fill('codex-inline-click-away');
-    await page.locator('.workflow-library-panel .header-title').click();
+    await page.locator('.workflow-library-panel .active-project-slot').click();
     await expect(page.getByRole('textbox', { name: `Rename ${state.folderName}` })).toHaveCount(0);
     expect(state.renameRequests).toHaveLength(0);
 
