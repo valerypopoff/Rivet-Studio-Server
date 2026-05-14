@@ -98,6 +98,7 @@ Reference docs, architecture docs, operator docs, and contributor docs belong un
 ## Tooling expectations
 
 - the root repo uses `npm run ...`
+- root `package.json` intentionally omits `packageManager`; keep Yarn pinning out of the root launcher package so npm remains the canonical entrypoint
 - upstream `rivet/` still uses Yarn internally where required by wrapper build/dev flows
 - `npm run setup:k8s-tools` installs the pinned cached Helm binary under `.data/tools/helm/`
 - `npm run verify:repo-structure` enforces the repo-structure guardrails
