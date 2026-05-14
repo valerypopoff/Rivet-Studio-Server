@@ -9,6 +9,7 @@ import {
 } from './lib/docker-launcher.mjs';
 import {
   assertNoRetiredEnv,
+  dropAmbientNodeOptionsForDocker,
   enableManagedWorkflowProfileIfNeeded,
 } from './lib/docker-launcher-env.mjs';
 import { prepareRivetDockerContext } from './lib/rivet-source-context.mjs';
@@ -20,7 +21,8 @@ let envFileLabel = '.env';
 
 async function main() {
   const action = process.argv[2] == null ? 'dev' : process.argv[2];
-  const { mergedEnv, envPath, hasEnvFile } = loadDevEnv(rootDir);
+  const { mergedEnv, envPath, hasEnvFile, fileEnv } = loadDevEnv(rootDir);
+  dropAmbientNodeOptionsForDocker(mergedEnv, fileEnv);
 
   envFileLabel = path.basename(envPath);
   if (hasEnvFile) {

@@ -6,6 +6,10 @@ import test from 'node:test';
 
 const launcherEnv = await import(new URL('../../../../scripts/lib/docker-launcher-env.mjs', import.meta.url).href) as {
   assertNoRetiredEnv: (env: NodeJS.ProcessEnv, options?: { launcherName?: string; envFileLabel?: string }) => void;
+  dropAmbientNodeOptionsForDocker: (
+    env: NodeJS.ProcessEnv,
+    fileEnv?: Record<string, string>,
+  ) => NodeJS.ProcessEnv;
   enableManagedWorkflowProfileIfNeeded: (env: NodeJS.ProcessEnv) => NodeJS.ProcessEnv;
   listActiveRetiredEnv: (env: NodeJS.ProcessEnv) => string[];
 };
@@ -17,6 +21,19 @@ const devEnv = await import(new URL('../../../../scripts/lib/dev-env.mjs', impor
     mergedEnv: NodeJS.ProcessEnv;
   };
 };
+
+function setProcessEnvForTest(name: string, value: string) {
+  const previous = process.env[name];
+  process.env[name] = value;
+
+  return () => {
+    if (previous == null) {
+      delete process.env[name];
+    } else {
+      process.env[name] = previous;
+    }
+  };
+}
 
 test('filesystem launcher env does not activate the managed workflow compose profile', () => {
   const env: NodeJS.ProcessEnv = {
@@ -79,8 +96,7 @@ test('loadDevEnv honors explicit RIVET_ENV_FILE overrides and still derives file
     'RIVET_ARTIFACTS_HOST_PATH=./artifacts',
   ].join('\n'));
 
-  const previousEnvFile = process.env.RIVET_ENV_FILE;
-  process.env.RIVET_ENV_FILE = envPath;
+  const restoreEnvFile = setProcessEnvForTest('RIVET_ENV_FILE', envPath);
 
   try {
     const loaded = devEnv.loadDevEnv(tempRoot);
@@ -92,11 +108,7 @@ test('loadDevEnv honors explicit RIVET_ENV_FILE overrides and still derives file
     assert.equal(loaded.mergedEnv.RIVET_WORKFLOW_RECORDINGS_HOST_PATH, path.join(tempRoot, 'artifacts', 'workflow-recordings'));
     assert.equal(loaded.mergedEnv.RIVET_RUNTIME_LIBS_HOST_PATH, path.join(tempRoot, 'artifacts', 'runtime-libraries'));
   } finally {
-    if (previousEnvFile == null) {
-      delete process.env.RIVET_ENV_FILE;
-    } else {
-      process.env.RIVET_ENV_FILE = previousEnvFile;
-    }
+    restoreEnvFile();
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
 });
@@ -110,8 +122,7 @@ test('loadDevEnv preserves an explicit workflow recordings host path override', 
     'RIVET_WORKFLOW_RECORDINGS_HOST_PATH=./custom-recordings',
   ].join('\n'));
 
-  const previousEnvFile = process.env.RIVET_ENV_FILE;
-  process.env.RIVET_ENV_FILE = envPath;
+  const restoreEnvFile = setProcessEnvForTest('RIVET_ENV_FILE', envPath);
 
   try {
     const loaded = devEnv.loadDevEnv(tempRoot);
@@ -120,11 +131,55 @@ test('loadDevEnv preserves an explicit workflow recordings host path override', 
     assert.equal(loaded.mergedEnv.RIVET_WORKFLOW_RECORDINGS_HOST_PATH, path.join(tempRoot, 'custom-recordings'));
     assert.equal(loaded.mergedEnv.RIVET_RUNTIME_LIBS_HOST_PATH, path.join(tempRoot, 'artifacts', 'runtime-libraries'));
   } finally {
-    if (previousEnvFile == null) {
-      delete process.env.RIVET_ENV_FILE;
-    } else {
-      process.env.RIVET_ENV_FILE = previousEnvFile;
-    }
+    restoreEnvFile();
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('Docker launcher env does not leak host NODE_OPTIONS unless explicitly configured', () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'rivet-dev-env-node-options-'));
+  const envPath = path.join(tempRoot, 'compat.env');
+  fs.writeFileSync(envPath, 'RIVET_STORAGE_MODE=filesystem\n');
+
+  const restoreEnvFile = setProcessEnvForTest('RIVET_ENV_FILE', envPath);
+  const restoreNodeOptions = setProcessEnvForTest(
+    'NODE_OPTIONS',
+    '--require F:\\Programming\\Self-hosted-rivet\\.pnp.cjs',
+  );
+
+  try {
+    const loaded = devEnv.loadDevEnv(tempRoot);
+    assert.equal(loaded.mergedEnv.NODE_OPTIONS, '--require F:\\Programming\\Self-hosted-rivet\\.pnp.cjs');
+    launcherEnv.dropAmbientNodeOptionsForDocker(loaded.mergedEnv, loaded.fileEnv);
+    assert.equal(loaded.mergedEnv.NODE_OPTIONS, undefined);
+  } finally {
+    restoreEnvFile();
+    restoreNodeOptions();
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});
+
+test('Docker launcher env preserves explicit NODE_OPTIONS from the env file', () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'rivet-dev-env-explicit-node-options-'));
+  const envPath = path.join(tempRoot, 'compat.env');
+  fs.writeFileSync(envPath, [
+    'RIVET_STORAGE_MODE=filesystem',
+    'NODE_OPTIONS=--trace-warnings',
+  ].join('\n'));
+
+  const restoreEnvFile = setProcessEnvForTest('RIVET_ENV_FILE', envPath);
+  const restoreNodeOptions = setProcessEnvForTest(
+    'NODE_OPTIONS',
+    '--require F:\\Programming\\Self-hosted-rivet\\.pnp.cjs',
+  );
+
+  try {
+    const loaded = devEnv.loadDevEnv(tempRoot);
+    launcherEnv.dropAmbientNodeOptionsForDocker(loaded.mergedEnv, loaded.fileEnv);
+    assert.equal(loaded.mergedEnv.NODE_OPTIONS, '--trace-warnings');
+  } finally {
+    restoreEnvFile();
+    restoreNodeOptions();
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
 });

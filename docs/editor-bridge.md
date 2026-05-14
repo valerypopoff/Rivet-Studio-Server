@@ -77,6 +77,7 @@ Rivet owns editor-local find/search UIs, but `Ctrl+F` / `Cmd+F` can fire while f
 - outside the iframe, the dashboard captures that find shortcut only when focus is not already in the iframe or in a real dashboard text input
 - the dashboard prevents the browser find default, focuses the iframe, and sends `trigger-editor-find-shortcut` to `EditorMessageBridge`
 - the iframe bridge replays the shortcut on the editor window so the currently relevant Rivet search handler wins, including fullscreen output search when that UI is mounted
+- browser-reserved development shortcuts stay browser-owned; in particular the hosted Windows hotkey override must not bind `Ctrl+Shift+I` to graph import, because Chrome uses that shortcut for DevTools
 
 ## Copy/Paste behavior
 
