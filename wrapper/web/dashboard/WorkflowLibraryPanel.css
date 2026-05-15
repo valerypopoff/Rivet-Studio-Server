@@ -17,6 +17,14 @@
   --workflow-button-font-size-m: 15px;
   --workflow-button-font-size-l: 16px;
   --workflow-button-font-size-xl: 30px;
+
+  --workflow-status-unpublished-color: var(--grey-light);
+  --workflow-status-published-color: #7ee294;
+  --workflow-status-published-bg: rgba(126, 226, 148, 0.12);
+  --workflow-status-published-bg-hover: rgba(126, 226, 148, 0.2);
+  --workflow-status-unpublished-changes-color: #ffd76a;
+  --workflow-status-unpublished-changes-bg: rgba(255, 215, 106, 0.12);
+  --workflow-status-unpublished-changes-bg-hover: rgba(255, 215, 106, 0.2);
 }
 
 .workflow-library-panel {
@@ -405,6 +413,31 @@
   height: 18px;
 }
 
+.workflow-library-panel .collapsed-strip-status-dot {
+  position: absolute;
+  top: 12.5px;
+  left: 50%;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.workflow-library-panel .collapsed-strip-status-dot.published {
+  color: var(--workflow-status-published-color);
+}
+
+.workflow-library-panel .collapsed-strip-status-dot.unpublished_changes {
+  color: var(--workflow-status-unpublished-changes-color);
+}
+
+.workflow-library-panel .collapsed-strip-status-dot.unpublished {
+  color: var(--workflow-status-unpublished-color);
+}
+
 .workflow-library-panel .collapsed-strip-button:hover,
 .workflow-library-panel .collapsed-strip-button:focus-visible {
   background: rgba(255, 255, 255, 0.12);
@@ -428,15 +461,15 @@
 }
 
 .project-status-badge.published {
-  color: #7ee294;
+  color: var(--workflow-status-published-color);
 }
 
 .project-status-badge.unpublished_changes {
-  color: #ffd76a;
+  color: var(--workflow-status-unpublished-changes-color);
 }
 
 .project-status-badge.unpublished {
-  color: var(--grey-light);
+  color: var(--workflow-status-unpublished-color);
 }
 
 .workflow-library-panel .icon-button,
@@ -776,11 +809,11 @@
 }
 
 .workflow-library-panel .project-row-status-published {
-  color: #7ee294;
+  color: var(--workflow-status-published-color);
 }
 
 .workflow-library-panel .project-row-status-unpublished_changes {
-  color: #ffd76a;
+  color: var(--workflow-status-unpublished-changes-color);
 }
 
 .workflow-library-panel .project-row-status-unpublished {
@@ -953,33 +986,33 @@
 }
 
 .workflow-project-download-published-button {
-  border: 1px solid #7ee294 !important;
-  background: rgba(126, 226, 148, 0.12) !important;
-  color: #7ee294 !important;
+  border: 1px solid var(--workflow-status-published-color) !important;
+  background: var(--workflow-status-published-bg) !important;
+  color: var(--workflow-status-published-color) !important;
 }
 
 .workflow-project-download-published-button > span {
-  color: #7ee294 !important;
+  color: var(--workflow-status-published-color) !important;
 }
 
 .workflow-project-download-published-button:hover:not(:disabled),
 .workflow-project-download-published-button:focus-visible:not(:disabled) {
-  background: rgba(126, 226, 148, 0.2) !important;
+  background: var(--workflow-status-published-bg-hover) !important;
 }
 
 .workflow-project-download-live-button {
-  border: 1px solid #ffd76a !important;
-  background: rgba(255, 215, 106, 0.12) !important;
-  color: #ffd76a !important;
+  border: 1px solid var(--workflow-status-unpublished-changes-color) !important;
+  background: var(--workflow-status-unpublished-changes-bg) !important;
+  color: var(--workflow-status-unpublished-changes-color) !important;
 }
 
 .workflow-project-download-live-button > span {
-  color: #ffd76a !important;
+  color: var(--workflow-status-unpublished-changes-color) !important;
 }
 
 .workflow-project-download-live-button:hover:not(:disabled),
 .workflow-project-download-live-button:focus-visible:not(:disabled) {
-  background: rgba(255, 215, 106, 0.2) !important;
+  background: var(--workflow-status-unpublished-changes-bg-hover) !important;
 }
 
 .workflow-project-download-footer {

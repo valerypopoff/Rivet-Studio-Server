@@ -66,6 +66,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
     rootProjects,
     folderIds,
     activePath,
+    openedWorkflowProject,
     activeProject,
     loading,
     error,
@@ -149,6 +150,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   }
 
   const panelContentVisible = contentVisible && !collapsed;
+  const openedProjectStatus = openedWorkflowProject?.settings.status ?? null;
 
   return (
     <div className="workflow-library-panel">
@@ -238,6 +240,12 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
           aria-expanded="false"
         >
           <SidebarExpandIcon />
+          {openedProjectStatus ? (
+            <span
+              className={`collapsed-strip-status-dot ${openedProjectStatus}`}
+              aria-hidden="true"
+            />
+          ) : null}
         </button>
       ) : null}
     </div>

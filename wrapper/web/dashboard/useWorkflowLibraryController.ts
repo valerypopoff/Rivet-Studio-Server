@@ -1176,6 +1176,7 @@ export function useWorkflowLibraryController(options: {
     folderIds,
     allProjects,
     activePath,
+    openedWorkflowProject,
     activeProject,
     loading,
     error,
