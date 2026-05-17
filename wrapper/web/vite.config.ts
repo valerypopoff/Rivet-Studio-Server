@@ -196,6 +196,23 @@ const resolveRivetModuleOverride = (): PluginOption => ({
   },
 });
 
+const upstreamProjectTabLabelLines = {
+  legacyFileName: "const fileName = unsaved ? 'Unsaved' : project.fsPath!.split('/').pop();",
+  legacyDisplayName: "const projectDisplayName = `${project?.title}${fileName ? ` [${fileName}]` : ''}`;",
+};
+const hostedProjectTabDisplayNameLine = "const projectDisplayName = project?.title?.trim() || 'Untitled Project';";
+const upstreamProjectTabLabelPattern = new RegExp(
+  `^([ \\t]*)${escapeRegExp(upstreamProjectTabLabelLines.legacyFileName)}[ \\t]*\\r?\\n\\1${escapeRegExp(
+    upstreamProjectTabLabelLines.legacyDisplayName,
+  )}[ \\t]*$`,
+  'm',
+);
+
+const replaceHostedProjectTabLabelExpression = (code: string) => {
+  const updatedCode = code.replace(upstreamProjectTabLabelPattern, `$1${hostedProjectTabDisplayNameLine}`);
+  return updatedCode === code ? null : updatedCode;
+};
+
 const normalizeHostedProjectTabLabels = (): PluginOption => {
   const projectSelectorPath = normalizePath(resolve(upstreamApp, 'src/components/ProjectSelector.tsx'));
 
@@ -207,18 +224,13 @@ const normalizeHostedProjectTabLabels = (): PluginOption => {
         return null;
       }
 
-      const original = [
-        "  const fileName = unsaved ? 'Unsaved' : project.fsPath!.split('/').pop();",
-        "  const projectDisplayName = `${project?.title}${fileName ? ` [${fileName}]` : ''}`;",
-      ].join('\n');
-      const replacement = "  const projectDisplayName = project?.title?.trim() || 'Untitled Project';";
-
-      if (!code.includes(original)) {
+      const updatedCode = replaceHostedProjectTabLabelExpression(code);
+      if (updatedCode == null) {
         this.error('Expected upstream ProjectSelector tab label expression was not found.');
       }
 
       return {
-        code: code.replace(original, replacement),
+        code: updatedCode,
         map: null,
       };
     },

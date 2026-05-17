@@ -651,6 +651,17 @@ test('hosted find shortcuts stay inside the editor iframe when dashboard chrome 
   assert.match(editorEvents, /isEditableElement\(eventTarget\)/);
   assert.match(editorMessageBridge, /function replayEditorFindShortcut/);
   assert.match(editorMessageBridge, /window\.dispatchEvent\(createEditorFindKeyboardEvent\(modifier\)\)/);
+  assert.match(editorMessageBridge, /MOUNTED_EDITOR_SEARCH_INPUT_SELECTORS/);
+  assert.match(editorMessageBridge, /FULLSCREEN_OUTPUT_SEARCH_INPUT_SELECTOR/);
+  assert.match(editorMessageBridge, /GRAPH_SEARCH_INPUT_SELECTOR/);
+  assert.match(editorMessageBridge, /context-menu-search/);
+  assert.match(editorMessageBridge, /plugin-search/);
+  assert.match(editorMessageBridge, /function isMountedEditorSearchInput/);
+  assert.match(editorMessageBridge, /getClientRects\(\)\.length > 0/);
+  assert.match(editorMessageBridge, /shortcutStartedInEditorSearch/);
+  assert.match(editorMessageBridge, /isEditorFindShortcutEvent\(event\)/);
+  assert.match(editorMessageBridge, /openOverlay !== undefined/);
+  assert.match(editorMessageBridge, /setSearching\(openOrFocusGraphSearchState\)/);
   assert.match(upstreamCanvasHotkeys, /setSearching\(openOrFocusGraphSearchState\)/);
   assert.match(upstreamFullscreenSearch, /focusSearchInput\(\)/);
   assert.match(upstreamFullscreenSearch, /stopImmediatePropagation/);
@@ -680,6 +691,9 @@ test('hosted web module overrides are scoped to upstream Rivet app importers', (
   assert.match(viteConfig, /isUpstreamAppSourceImporter\(importer\)/);
   assert.match(viteConfig, /name: 'normalize-hosted-project-tab-labels'/);
   assert.match(viteConfig, /src\/components\/ProjectSelector\.tsx/);
+  assert.match(viteConfig, /replaceHostedProjectTabLabelExpression/);
+  assert.match(viteConfig, /upstreamProjectTabLabelPattern/);
+  assert.match(viteConfig, /\\\\r\?\\\\n/);
   assert.match(viteConfig, /const projectDisplayName = project\?\.title\?\.trim\(\) \|\| 'Untitled Project';/);
   assert.match(viteConfig, /createModuleOverrideAliases\(overrideDir\)/);
   assert.doesNotMatch(viteConfig, /\.\.\.createModuleOverrideAliases\(overrideDir\)/);

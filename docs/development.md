@@ -370,7 +370,7 @@ When adding new code, keep the post-refactor ownership seams explicit instead of
   - do not hide `filesystem` versus `managed` behavior behind a generic abstraction layer
 - dashboard controllers belong in `wrapper/web/dashboard/`
   - `useWorkflowLibraryController.ts`, `useRunRecordingsController.ts`, `useProjectSettingsActions.ts`, `useDashboardSidebar.ts`, and `useEditorBridgeEvents.ts` should own orchestration
-  - keep the workflow-library header block at `37px` high without a bottom divider; the whole open-state header row is the collapse control with the sidebar icon before the `Rivet Projects` title; collapsed mode should be a persistent full-height `30px` rail button with a centered `>` chevron rather than a small header button, keep the workflow tree mounted while folded, and reveal the contents only after the reopen width animation completes
+  - keep the workflow-library header block at `37px` high without a bottom divider; the whole open-state header row is the collapse control with the sidebar icon before the `Rivet Projects` title; collapsed mode should be a persistent full-height `30px` rail button with a centered `>` chevron rather than a small header button, show the opened project's larger grey/green/yellow status dot in the former header slot when a project is open, keep the active project card grey/green/yellow tinted from the selected project's publication status, keep the workflow tree mounted while folded, and reveal the contents only after the reopen width animation completes
   - keep bottom panel actions in the mounted workflow-library panel; the `About` modal shows the official `Rivet Studio Server` app name and reads the hosted app version from the root `package.json` through the Vite build constant
   - keep project-settings validation and labels in `projectSettingsForm.ts`
   - keep run-recordings modal shell logic in `RunRecordingsModal.tsx` and its focused UI slices in `RecordingWorkflowSelect.tsx` and `RecordingRunsTable.tsx`
@@ -579,9 +579,10 @@ For hosted editor keyboard-node behavior:
 7. deliberately return focus to the workflow library, then click blank canvas background and confirm `Ctrl+C` / `Ctrl+X` / `Ctrl+V` work again without an extra recovery click on a node
 8. open and close an editor context menu or search UI, then confirm `Ctrl+C`, `Ctrl+X`, and `Ctrl+V` still work after returning to the canvas
 9. deliberately return focus to the workflow library, then confirm `Ctrl+F` opens Rivet graph search instead of the browser find UI
-10. confirm `Ctrl+S` works while focus is inside the workflow iframe, including on Windows browsers
-11. confirm `Ctrl+Shift+I` remains browser-owned for DevTools and does not open Rivet's graph import picker
-12. confirm the browser can still type normally inside real text inputs and that copy/paste/save/search shortcuts do not hijack active editor form fields
+10. focus the editor iframe/canvas, then confirm `Ctrl+F` still opens Rivet graph search and a physical `KeyF` find shortcut is also prevented from reaching browser find even when `event.key` is not `f`; with a Rivet search field already mounted, confirm the same shortcut focuses that field instead of closing overlays
+11. confirm `Ctrl+S` works while focus is inside the workflow iframe, including on Windows browsers
+12. confirm `Ctrl+Shift+I` remains browser-owned for DevTools and does not open Rivet's graph import picker
+13. confirm the browser can still type normally inside real text inputs and that copy/paste/save/search shortcuts do not hijack active editor form fields
 
 For hosted editor production-image regressions:
 
