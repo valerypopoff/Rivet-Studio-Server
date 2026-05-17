@@ -10,6 +10,11 @@ import {
 import { deleteHostedProjectContextState } from '../overrides/state/savedGraphs';
 import { loadedRecordingState } from '../../../rivet/packages/app/src/state/execution';
 import { selectedExecutorState } from '../../../rivet/packages/app/src/state/settings';
+import {
+  openOrFocusGraphSearchState,
+  searchingGraphState,
+} from '../../../rivet/packages/app/src/state/graphBuilder';
+import { overlayOpenState } from '../../../rivet/packages/app/src/state/ui';
 import type { RivetWorkspaceHost } from '../../../rivet/packages/app/src/host';
 import type { WorkflowProjectPathMove } from './types';
 import {
@@ -30,9 +35,32 @@ import { useSaveProject } from '../../../rivet/packages/app/src/hooks/useSavePro
 import {
   focusHostedEditorCanvas,
   focusHostedEditorFrame,
+  isEditorFindShortcutEvent,
+  isEditableElement,
   isSaveShortcutEvent,
 } from './editorBridgeFocus';
 import { clearHostedDatasetsForProject } from './hostedRivetProviders';
+
+const GRAPH_SEARCH_INPUT_SELECTOR = '.search input[placeholder="Search..."]';
+const FULLSCREEN_OUTPUT_SEARCH_INPUT_SELECTOR = '[data-testid="fullscreen-output-modal"] .search-input';
+const MOUNTED_EDITOR_SEARCH_INPUT_SELECTORS = [
+  FULLSCREEN_OUTPUT_SEARCH_INPUT_SELECTOR,
+  '.context-menu-search input[placeholder="Search..."]:not(:disabled)',
+  '.plugin-search input[placeholder="Search..."]',
+  GRAPH_SEARCH_INPUT_SELECTOR,
+];
+
+function isVisibleEnabledInput(input: HTMLInputElement): boolean {
+  return !input.disabled && input.getClientRects().length > 0;
+}
+
+function isMountedEditorSearchInput(element: Element | null | undefined): element is HTMLInputElement {
+  return (
+    element instanceof HTMLInputElement &&
+    MOUNTED_EDITOR_SEARCH_INPUT_SELECTORS.some((selector) => element.matches(selector)) &&
+    isVisibleEnabledInput(element)
+  );
+}
 
 function getRecordingStartGraphId(recorder: ExecutionRecorder): string | undefined {
   for (const event of recorder.events) {
@@ -77,6 +105,22 @@ function replayEditorFindShortcut(modifier: EditorShortcutModifier): void {
   window.dispatchEvent(createEditorFindKeyboardEvent(modifier));
 }
 
+function focusMountedEditorSearchInput(): boolean {
+  for (const selector of MOUNTED_EDITOR_SEARCH_INPUT_SELECTORS) {
+    const input = document.querySelector<HTMLInputElement>(selector);
+
+    if (!input || !isVisibleEnabledInput(input)) {
+      continue;
+    }
+
+    input.focus({ preventScroll: true });
+    input.select();
+    return true;
+  }
+
+  return false;
+}
+
 type LoadedWorkflowRecording = {
   path: string;
   recorder: ExecutionRecorder;
@@ -103,6 +147,8 @@ export const EditorMessageBridge: FC<EditorMessageBridgeProps> = ({ workspaceHos
   const setLoadedProject = useSetAtom(loadedProjectState);
   const setLoadedRecording = useSetAtom(loadedRecordingState);
   const setSelectedExecutor = useSetAtom(selectedExecutorState);
+  const openOverlay = useAtomValue(overlayOpenState);
+  const setSearching = useSetAtom(searchingGraphState);
   const projectsRef = useRef<OpenedProjectsInfo>(projects);
   const loadedProjectRef = useRef(loadedProject);
   const workspaceRef = useRef(workspaceHost);
@@ -195,6 +241,49 @@ export const EditorMessageBridge: FC<EditorMessageBridgeProps> = ({ workspaceHos
       document.removeEventListener('keydown', handler, true);
     };
   }, []);
+
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || !isEditorFindShortcutEvent(event)) {
+        return;
+      }
+
+      const targetElement = event.target instanceof Element ? event.target : null;
+      const activeElement = document.activeElement;
+      const shortcutStartedInEditorSearch =
+        isMountedEditorSearchInput(targetElement) || isMountedEditorSearchInput(activeElement);
+      if (
+        !shortcutStartedInEditorSearch &&
+        (isEditableElement(targetElement) || isEditableElement(activeElement))
+      ) {
+        return;
+      }
+
+      if (focusMountedEditorSearchInput()) {
+        event.preventDefault();
+        event.stopPropagation();
+        event.stopImmediatePropagation?.();
+        return;
+      }
+
+      event.preventDefault();
+      event.stopPropagation();
+      event.stopImmediatePropagation?.();
+
+      if (openOverlay !== undefined) {
+        return;
+      }
+
+      setSearching(openOrFocusGraphSearchState);
+    };
+
+    window.addEventListener('keydown', handler, true);
+    document.addEventListener('keydown', handler, true);
+    return () => {
+      window.removeEventListener('keydown', handler, true);
+      document.removeEventListener('keydown', handler, true);
+    };
+  }, [openOverlay, setSearching]);
 
   useEffect(() => {
     const handler = (event: PointerEvent) => {

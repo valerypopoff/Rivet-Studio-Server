@@ -73,10 +73,10 @@ That lets the hosted shell behave like a single app even though the editor lives
 
 Rivet owns editor-local find/search UIs, but `Ctrl+F` / `Cmd+F` can fire while focus is still on dashboard chrome.
 
-- inside the iframe, Rivet's normal handlers keep owning `Ctrl+F` / `Cmd+F` for graph search and fullscreen-output search
+- inside the iframe, Rivet's normal handlers keep owning `Ctrl+F` / `Cmd+F` for graph search and fullscreen-output search, and the hosted bridge adds a capture-phase fallback that recognizes the physical `KeyF` shortcut before the browser find UI can open
 - outside the iframe, the dashboard captures that find shortcut only when focus is not already in the iframe or in a real dashboard text input
 - the dashboard prevents the browser find default, focuses the iframe, and sends `trigger-editor-find-shortcut` to `EditorMessageBridge`
-- the iframe bridge replays the shortcut on the editor window so the currently relevant Rivet search handler wins, including fullscreen output search when that UI is mounted
+- the iframe bridge replays the shortcut on the editor window so the currently relevant Rivet search handler wins, including fullscreen output search when that UI is mounted. If no upstream handler handles the event, the hosted fallback focuses an already-mounted visible editor search input first, then opens graph search only when focus is not in an editor text control and no Rivet overlay is open
 - browser-reserved development shortcuts stay browser-owned; in particular the hosted Windows hotkey override must not bind `Ctrl+Shift+I` to graph import, because Chrome uses that shortcut for DevTools
 
 ## Copy/Paste behavior

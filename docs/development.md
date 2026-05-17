@@ -579,9 +579,10 @@ For hosted editor keyboard-node behavior:
 7. deliberately return focus to the workflow library, then click blank canvas background and confirm `Ctrl+C` / `Ctrl+X` / `Ctrl+V` work again without an extra recovery click on a node
 8. open and close an editor context menu or search UI, then confirm `Ctrl+C`, `Ctrl+X`, and `Ctrl+V` still work after returning to the canvas
 9. deliberately return focus to the workflow library, then confirm `Ctrl+F` opens Rivet graph search instead of the browser find UI
-10. confirm `Ctrl+S` works while focus is inside the workflow iframe, including on Windows browsers
-11. confirm `Ctrl+Shift+I` remains browser-owned for DevTools and does not open Rivet's graph import picker
-12. confirm the browser can still type normally inside real text inputs and that copy/paste/save/search shortcuts do not hijack active editor form fields
+10. focus the editor iframe/canvas, then confirm `Ctrl+F` still opens Rivet graph search and a physical `KeyF` find shortcut is also prevented from reaching browser find even when `event.key` is not `f`; with a Rivet search field already mounted, confirm the same shortcut focuses that field instead of closing overlays
+11. confirm `Ctrl+S` works while focus is inside the workflow iframe, including on Windows browsers
+12. confirm `Ctrl+Shift+I` remains browser-owned for DevTools and does not open Rivet's graph import picker
+13. confirm the browser can still type normally inside real text inputs and that copy/paste/save/search shortcuts do not hijack active editor form fields
 
 For hosted editor production-image regressions:
 
