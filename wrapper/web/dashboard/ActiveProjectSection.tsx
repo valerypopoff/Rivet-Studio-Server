@@ -43,7 +43,7 @@ export const ActiveProjectSection: FC<ActiveProjectSectionProps> = ({
   const projectStatsLabel = `${graphCount} ${graphCount === 1 ? 'graph' : 'graphs'}, ${totalNodeCount} ${totalNodeCount === 1 ? 'node' : 'nodes'} total`;
 
   return (
-    <div className="active-project-section">
+    <div className={`active-project-section ${activeProject.settings.status}`}>
       <div className="active-project-section-content">
         <div className="active-project-details">
           <div className="active-project-name-row" title={`${statusLabel} ${baseName}`}>

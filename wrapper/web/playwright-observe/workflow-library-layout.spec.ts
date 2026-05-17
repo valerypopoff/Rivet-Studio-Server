@@ -13,6 +13,12 @@ const STATUS_DOT_BACKGROUND: Record<WorkflowProjectStatus, string> = {
   unpublished_changes: 'rgb(255, 215, 106)',
 };
 
+const ACTIVE_PROJECT_BACKGROUND: Record<WorkflowProjectStatus, string> = {
+  unpublished: 'rgba(255, 255, 255, 0.07)',
+  published: 'rgba(126, 226, 148, 0.12)',
+  unpublished_changes: 'rgba(255, 215, 106, 0.12)',
+};
+
 function createStatusProject(status: WorkflowProjectStatus): WorkflowProjectItem {
   const name = `codex-collapsed-dot-${status}`;
 
@@ -162,6 +168,23 @@ test.describe('Workflow library layout', () => {
       await dispatchProjectOpenedFromEditorFrame(page, project.absolutePath);
       await expect(statusDot).toHaveClass(new RegExp(`\\b${project.settings.status}\\b`));
       await expect(statusDot).toHaveCSS('background-color', STATUS_DOT_BACKGROUND[project.settings.status]);
+    }
+  });
+
+  test('tints the active project summary by publication status', async ({ page }) => {
+    const projects = (['unpublished', 'published', 'unpublished_changes'] as const).map(createStatusProject);
+    await installStatusDotTreeRoute(page, projects);
+
+    await page.goto('/', { waitUntil: 'domcontentloaded' });
+    await authenticateIfNeeded(page);
+    await waitForDashboardReady(page);
+
+    const activeProjectSection = page.locator('.workflow-library-panel .active-project-section');
+
+    for (const project of projects) {
+      await page.getByRole('button', { name: project.name, exact: true }).click();
+      await expect(activeProjectSection).toHaveClass(new RegExp(`\\b${project.settings.status}\\b`));
+      await expect(activeProjectSection).toHaveCSS('background-color', ACTIVE_PROJECT_BACKGROUND[project.settings.status]);
     }
   });
 });
