@@ -159,6 +159,22 @@ Environment-specific Vault AppRoles from CI should line up with the chart values
 
 Do not use `vault.roleIdSecretName`; that value is retired and the chart rejects it during render.
 
+## Cluster prerequisites
+
+Have these ready before the first `helm upgrade --install`:
+
+- a `linux/amd64` node pool, unless the executor image is rebuilt for another platform
+- an ingress controller that supports websocket upgrades and long-lived websocket connections
+- DNS for the public Rivet hostname and a TLS secret or certificate-manager integration
+- a default `StorageClass`, or explicit `storage.appData.storageClassName` / `storage.appData.existingClaimName`
+- managed Postgres reachable from the cluster
+- S3 or S3-compatible object storage reachable from the cluster
+- Vault Injector installed when `vault.enabled=true`
+- `metrics-server` or equivalent resource metrics if the CPU HPAs are enabled
+- GHCR image-pull access, either anonymous for public images or `imagePullSecrets` for private packages
+
+The pods need outbound network access to Postgres, object storage, Vault, and GHCR during image pulls. The proxy also needs in-cluster DNS resolution through `env.RIVET_PROXY_RESOLVER`; the default value is `kube-dns.kube-system.svc.cluster.local`.
+
 ## Production handoff
 
 The production starting point is [charts/overlays/prod.yaml](../charts/overlays/prod.yaml).
@@ -209,7 +225,11 @@ Run the production chart on `linux/amd64` nodes unless the executor image is reb
 Use this as the shape for an environment override file, whether your pipeline stores it as `charts/overlays/prod.yaml`, `charts/overlays/test.yaml`, or a company-standard `deploy/overlays/<env>.yaml` wrapper:
 
 ```yaml
-imagePullSecrets: []
+fullnameOverride: rivet
+
+imagePullSecrets:
+  # Required only when the GHCR packages are private.
+  # - name: ghcr-pull-secret
 
 images:
   proxy:
@@ -231,7 +251,11 @@ ingress:
   host: <rivet-hostname>
   externalDNSHostname: <rivet-hostname>
   tlsSecretName: <tls-secret-name>
-  annotations: {}
+  annotations:
+    # Use the equivalent long-timeout/websocket annotations for the target ingress controller.
+    nginx.ingress.kubernetes.io/proxy-body-size: 100m
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "86400"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "86400"
 
 vault:
   enabled: true
@@ -271,6 +295,12 @@ auth:
   # If Vault is enabled, /vault/dotenv may provide RIVET_KEY instead.
   keySecretName: ""
 
+storage:
+  appData:
+    enabled: true
+    size: 20Gi
+    storageClassName: <storage-class>
+
 resources:
   proxy:
     requests:
@@ -303,6 +333,56 @@ If you are adapting a standard single-app overlay, do not expect these sample ke
 
 Use this chart's existing `autoscaling.proxy`, `autoscaling.execution`, `resources.*`, `ingress`, `vault`, and component `service.*` values instead. Add new chart support intentionally if the cluster standard requires one of the unsupported knobs.
 
+### Persistence and storage
+
+In Kubernetes, production should stay on managed storage:
+
+- `workflowStorage.backend=managed`
+- `runtimeLibraries.backend=managed`
+- workflow metadata, publication state, recording metadata, and runtime-library state live in managed Postgres
+- workflow blobs, recording/replay blobs, and runtime-library artifacts live in object storage
+
+The backend StatefulSet still has an `app-data` volume. By default, the chart creates a `volumeClaimTemplate` from `storage.appData.*`; if the cluster has no default storage class, set `storage.appData.storageClassName` or `storage.appData.existingClaimName`. Leaving `storage.appData.enabled=false` makes that volume ephemeral and is not the recommended production shape.
+
+Runtime-library local files are caches/workspaces, not the source of truth in managed mode. The default is `emptyDir` for execution replicas. Only set `runtimeLibraries.cache.existingClaimName` if the PVC can be mounted by every pod that needs it; with more than one `execution` replica, that usually means an RWX-capable volume. A single RWO claim reused by multiple execution pods can leave pods stuck waiting for volume attachment.
+
+`tmpVolume` is an `emptyDir` mounted at `/var/tmp` with a default `2Gi` size limit. Increase `tmpVolume.sizeLimit` if workflows write larger temporary files; do not use the unsupported generic `writableDirs` overlay key.
+
+### Ingress and public routes
+
+Ingress should route all public traffic to the chart's `proxy` service. The proxy then routes internally:
+
+| Public path | Internal target |
+|---|---|
+| `/` | `web` |
+| `/api/*` and `/ui-auth` | singleton `backend` API |
+| `/workflows/*` | scalable `execution` API |
+| `/workflows-latest/*` | singleton `backend` API |
+| `/ws/latest-debugger` | singleton `backend` API websocket |
+| `/ws/executor/internal` and `/ws/executor` | executor container in the singleton `backend` StatefulSet |
+
+Keep ingress body-size limits high enough for project import/export and keep websocket timeouts long. The tracked nginx overlay examples use `100m` body size and `86400` second read/send timeouts. For non-nginx ingress controllers, translate those annotations to the controller-specific equivalents.
+
+Do not route `/workflows` directly to `execution` from the external ingress. External traffic should still enter through `proxy`, because the proxy injects the trusted `X-Rivet-Proxy-Auth` header and handles the optional UI/public workflow auth policies consistently.
+
+### Health checks and probes
+
+The chart already defines Kubernetes liveness and readiness probes. They are part of the chart templates today, not environment-overlay values.
+
+| Workload | Container | Probe shape |
+|---|---|---|
+| `backend` StatefulSet | `api` | HTTP `GET /healthz` on the API port |
+| `backend` StatefulSet | `executor` | TCP probe on executor port `21889` |
+| `execution` Deployment | `api` | HTTP `GET /healthz` on the execution API port |
+| `proxy` Deployment | `proxy` | TCP probe on proxy HTTP port |
+| `web` Deployment | `web` | HTTP `GET /` on the static web server port |
+
+The API server exposes `GET /healthz`. It starts listening only after startup reconciliation and workflow storage initialization finish, so the endpoint is a lightweight process-ready check rather than a deep Postgres/S3 transaction on every probe.
+
+The app does not currently expose `/health`, `/readyz`, `/livez`, or `/up` aliases. If the target platform requires one of those conventional paths, add the aliases deliberately in the API/proxy/web runtimes and update the chart probes at the same time. Do not assume a generic overlay key named `probes` will change this chart; that key is not currently wired.
+
+No `startupProbe` is currently defined. If cold production startup needs a longer grace period than the current liveness/readiness delays, add explicit chart support rather than relying on unsupported environment overlay fields.
+
 ### Vault dotenv contract
 
 All runtime images source `/vault/dotenv` at startup. They also accept the Vault Injector default fallback path `/vault/secrets/<dotenvFileName>`.
@@ -319,6 +399,43 @@ RIVET_STORAGE_ACCESS_KEY=<object-storage-secret-access-key>
 You may provide `RIVET_DATABASE_CONNECTION_STRING` instead of `RIVET_DATABASE_PASSWORD`, but keep the non-secret `postgres.host`, `postgres.database`, and `postgres.username` values in the Helm values because chart validation uses them to catch incomplete managed-storage configuration.
 
 `RIVET_KEY` must be available to both the proxy and API workloads. It is used for trusted proxy-to-API identity and for optional public route/UI access checks.
+
+If Vault is disabled, create Kubernetes secrets that match the chart values. For example:
+
+```bash
+kubectl -n your-namespace create secret generic rivet-shared-key \
+  --from-literal=RIVET_KEY='<shared-random-secret>'
+
+kubectl -n your-namespace create secret generic rivet-postgres \
+  --from-literal=password='<postgres-password>'
+
+kubectl -n your-namespace create secret generic rivet-object-storage \
+  --from-literal=accessKeyId='<object-storage-access-key-id>' \
+  --from-literal=secretAccessKey='<object-storage-secret-access-key>'
+```
+
+Then set:
+
+```yaml
+vault:
+  enabled: false
+
+auth:
+  keySecretName: rivet-shared-key
+  keySecretKey: RIVET_KEY
+
+postgres:
+  passwordSecretName: rivet-postgres
+  passwordSecretKey: password
+
+objectStorage:
+  accessKeySecretName: rivet-object-storage
+  accessKeySecretKey: accessKeyId
+  secretKeySecretName: rivet-object-storage
+  secretKeySecretKey: secretAccessKey
+```
+
+Use `postgres.connectionStringSecretName` instead of the host/database/username/password tuple only if your operations standard prefers a single connection-string secret.
 
 ### Direct Helm commands
 
@@ -342,6 +459,55 @@ helm upgrade --install rivet ./charts \
 ```
 
 With release name `rivet`, the default Kubernetes object names are prefixed as `rivet-rivet-*` because the chart name is also `rivet`. Set `fullnameOverride: rivet` in the environment values if the desired object prefix is just `rivet-*`.
+
+### First deploy checks
+
+After install or upgrade, check the rollout from the cluster side before opening the browser:
+
+```bash
+kubectl -n your-namespace get pods,svc,ingress
+kubectl -n your-namespace rollout status deployment/rivet-proxy
+kubectl -n your-namespace rollout status deployment/rivet-web
+kubectl -n your-namespace rollout status deployment/rivet-execution
+kubectl -n your-namespace rollout status statefulset/rivet-backend
+```
+
+Then port-forward the proxy service and verify the proxy-facing routes:
+
+```bash
+kubectl -n your-namespace port-forward svc/rivet-proxy 8080:80
+curl -i http://127.0.0.1:8080/
+```
+
+If the UI gate is disabled or the forwarded host is listed in `RIVET_UI_TOKEN_FREE_HOSTS`, `/api/config` should be reachable through the proxy directly:
+
+```bash
+curl -i http://127.0.0.1:8080/api/config
+```
+
+If the UI gate is enabled for the forwarded host, authenticate first and reuse the cookie:
+
+```bash
+curl -i -c rivet-cookies.txt \
+  -H 'Content-Type: application/json' \
+  -d '{"key":"<RIVET_KEY>"}' \
+  http://127.0.0.1:8080/__rivet_auth
+
+curl -i -b rivet-cookies.txt http://127.0.0.1:8080/api/config
+```
+
+Public workflow execution routes also require `Authorization: Bearer <RIVET_KEY>` when `RIVET_REQUIRE_WORKFLOW_KEY=true`.
+
+If `fullnameOverride` is not set, replace `rivet-*` with the rendered object names from `kubectl get`.
+
+Common first-deploy failure patterns:
+
+- `ImagePullBackOff`: check GHCR visibility, tag names, and `imagePullSecrets`
+- `Pending`: check `storage.appData.storageClassName`, default `StorageClass`, and any RWX/RWO cache PVC choices
+- Vault injector never creates `/vault/dotenv`: check `vault.role`, `vault.authPath`, `vault.secretPath`, Vault auth policy, and Vault Injector installation
+- API pods crash during startup: check Postgres connection values, object-storage credentials, and whether the secret keys match the names in `postgres.*`, `objectStorage.*`, or `/vault/dotenv`
+- HPA shows missing metrics: install/fix `metrics-server` and set CPU requests for `resources.proxy` and `resources.execution`
+- browser loads but websockets disconnect through ingress: check websocket upgrade support and long read/send timeout annotations on the ingress controller
 
 The production contract today is:
 
