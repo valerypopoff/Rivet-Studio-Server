@@ -4,7 +4,9 @@ import { ExecutionRecorder, getError, type ProjectId } from '@valerypopoff/rivet
 import { useAtomValue, useSetAtom } from 'jotai';
 import {
   loadedProjectState,
+  openedProjectSnapshotsState,
   type OpenedProjectsInfo,
+  type OpenedProjectInfo,
   projectsState,
 } from '../../../rivet/packages/app/src/state/savedGraphs';
 import { deleteHostedProjectContextState } from '../overrides/state/savedGraphs';
@@ -32,6 +34,7 @@ import {
   getWorkflowPublishedVersionPreviewVirtualProjectPath,
 } from '../../shared/workflow-types';
 import { fetchWorkflowRecordingArtifactText } from './workflowApi';
+import { normalizeWorkflowPath } from './workflowLibraryHelpers';
 import { clearOpenedProjectSession, remapOpenedProjectSessionPaths } from '../io/openedProjectSessionCache';
 import { clearHostedProjectRevisionPath, remapHostedProjectRevisionPaths } from '../io/HostedIOProvider';
 import { useSaveProject } from '../../../rivet/packages/app/src/hooks/useSaveProject';
@@ -148,6 +151,7 @@ export const EditorMessageBridge: FC<EditorMessageBridgeProps> = ({ workspaceHos
   const projects = useAtomValue(projectsState);
   const loadedProject = useAtomValue(loadedProjectState);
   const setLoadedProject = useSetAtom(loadedProjectState);
+  const setOpenedProjectSnapshots = useSetAtom(openedProjectSnapshotsState);
   const setLoadedRecording = useSetAtom(loadedRecordingState);
   const setSelectedExecutor = useSetAtom(selectedExecutorState);
   const openOverlay = useAtomValue(overlayOpenState);
@@ -310,15 +314,31 @@ export const EditorMessageBridge: FC<EditorMessageBridgeProps> = ({ workspaceHos
 
   useEffect(() => {
     type OpenCommand = Extract<DashboardToEditorCommand, {
-      type: 'open-project' | 'open-recording' | 'open-published-version-preview';
+      type:
+        | 'open-project'
+        | 'open-recording'
+        | 'open-published-version-preview'
+        | 'refresh-open-project-from-disk';
     }>;
+
+    const findOpenedProjectByPath = (path: string): OpenedProjectInfo | null => {
+      const normalizedPath = normalizeWorkflowPath(path);
+      const openedProjects = projectsRef.current.openedProjects;
+      const openedProjectId = projectsRef.current.openedProjectsSortedIds.find((projectId) =>
+        normalizeWorkflowPath(openedProjects[projectId]?.fsPath ?? '') === normalizedPath);
+
+      return openedProjectId ? openedProjects[openedProjectId] ?? null : null;
+    };
 
     const runOpenCommand = async (command: OpenCommand): Promise<void> => {
       switch (command.type) {
         case 'open-project':
           try {
             const replacedPath = command.replaceCurrent ? loadedProjectRef.current.path : '';
-            const opened = await openProjectRef.current(command.path, { replaceCurrent: Boolean(command.replaceCurrent) });
+            const opened = await openProjectRef.current(command.path, {
+              replaceCurrent: Boolean(command.replaceCurrent),
+              reloadFromDisk: Boolean(command.reloadFromDisk),
+            });
             if (!opened) {
               break;
             }
@@ -336,6 +356,47 @@ export const EditorMessageBridge: FC<EditorMessageBridgeProps> = ({ workspaceHos
           }
 
           break;
+
+        case 'refresh-open-project-from-disk': {
+          const openedProject = findOpenedProjectByPath(command.path);
+          if (!openedProject) {
+            break;
+          }
+
+          clearOpenedProjectSession(openedProject.projectId);
+
+          if (normalizeWorkflowPath(loadedProjectRef.current.path) !== normalizeWorkflowPath(command.path)) {
+            setOpenedProjectSnapshots((snapshots) => {
+              if (!snapshots[openedProject.projectId]) {
+                return snapshots;
+              }
+
+              const nextSnapshots = { ...snapshots };
+              delete nextSnapshots[openedProject.projectId];
+              return nextSnapshots;
+            });
+            break;
+          }
+
+          try {
+            const opened = await openProjectRef.current(command.path, {
+              replaceCurrent: true,
+              reloadFromDisk: true,
+            });
+            if (!opened) {
+              throw new Error('Rivet could not reload the restored project.');
+            }
+
+            setLoadedRecording(null);
+            postMessageToDashboard({ type: 'project-opened', path: command.path });
+          } catch (error) {
+            const message = getError(error).message;
+            console.error('Failed to refresh workflow project from storage:', error);
+            postMessageToDashboard({ type: 'project-open-failed', path: command.path, error: message });
+          }
+
+          break;
+        }
 
         case 'open-recording':
           const virtualProjectPath = getWorkflowRecordingVirtualProjectPath(command.recordingId);
@@ -491,6 +552,7 @@ export const EditorMessageBridge: FC<EditorMessageBridgeProps> = ({ workspaceHos
         case 'open-project':
         case 'open-recording':
         case 'open-published-version-preview':
+        case 'refresh-open-project-from-disk':
           enqueueOpenCommand(event.data);
           break;
       }
@@ -500,6 +562,7 @@ export const EditorMessageBridge: FC<EditorMessageBridgeProps> = ({ workspaceHos
     return () => window.removeEventListener('message', handler);
   }, [
     setLoadedProject,
+    setOpenedProjectSnapshots,
     activateWorkflowRecording,
     setLoadedRecording,
   ]);

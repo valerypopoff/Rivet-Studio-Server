@@ -1358,6 +1358,8 @@
   flex: 0 0 auto;
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 8px;
 }
 
@@ -1406,6 +1408,7 @@
 }
 
 .published-version-history-preview-button,
+.published-version-history-restore-button,
 .published-version-history-download-button {
   flex: 0 0 auto;
 }

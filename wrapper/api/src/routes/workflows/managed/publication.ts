@@ -4,6 +4,7 @@ import type {
   WorkflowProjectItem,
   WorkflowProjectSettingsDraft,
   WorkflowPublishedVersionPreviewResponse,
+  WorkflowPublishedVersionRestoreResponse,
   WorkflowPublishedVersionSummary,
   WorkflowPublishedVersionsResponse,
 } from '../../../../../shared/workflow-types.js';
@@ -286,6 +287,107 @@ export function createManagedWorkflowPublicationService(options: ManagedWorkflow
       }
 
       throw createHttpError(404, 'Published version not found');
+    },
+
+    async restoreWorkflowPublishedVersion(
+      relativePath: unknown,
+      versionId: unknown,
+    ): Promise<WorkflowPublishedVersionRestoreResponse> {
+      const normalizedRelativePath = normalizeManagedWorkflowRelativePath(relativePath, { allowProjectFile: true });
+      const normalizedVersionId = typeof versionId === 'string' ? versionId.trim() : '';
+      if (!normalizedVersionId) {
+        throw badRequest('Missing versionId');
+      }
+
+      return deps.withTransaction(async (client, hooks) => {
+        const workflow = await deps.getWorkflowByRelativePath(client, normalizedRelativePath, { forUpdate: true });
+        if (!workflow) {
+          throw createHttpError(404, 'Project not found');
+        }
+
+        const versionRow = await deps.queryOne<PublishedVersionRow>(
+          client,
+          `
+            SELECT version_id, workflow_id, revision_id, endpoint_name, published_at, is_starred
+            FROM workflow_published_versions
+            WHERE workflow_id = $1 AND version_id = $2
+          `,
+          [workflow.workflow_id, normalizedVersionId],
+        );
+
+        let revisionId = versionRow?.revision_id ?? null;
+        let endpointName = versionRow?.endpoint_name ?? '';
+
+        if (!revisionId) {
+          if (
+            !workflow.published_version_id &&
+            workflow.published_revision_id &&
+            normalizedVersionId === workflow.published_revision_id
+          ) {
+            const legacyRevision = await deps.getRevision(client, workflow.published_revision_id);
+            if (!legacyRevision) {
+              throw createHttpError(404, 'Published version not found');
+            }
+
+            revisionId = legacyRevision.revision_id;
+            endpointName = workflow.published_endpoint_name || workflow.endpoint_name;
+          } else {
+            throw createHttpError(404, 'Published version not found');
+          }
+        }
+
+        if (!endpointName) {
+          throw createHttpError(400, 'Published version does not have an endpoint name');
+        }
+
+        const restoredVersionId = randomUUID();
+        await backfillLegacyPublishedVersion(client, workflow);
+
+        await deps.syncWorkflowEndpointRows(client, workflow, {
+          draftEndpointName: endpointName,
+          publishedEndpointName: endpointName,
+        });
+
+        const restoredVersion = await deps.queryOne<PublishedVersionRow>(
+          client,
+          `
+            INSERT INTO workflow_published_versions (version_id, workflow_id, revision_id, endpoint_name, published_at)
+            VALUES ($1, $2, $3, $4, NOW())
+            RETURNING version_id, workflow_id, revision_id, endpoint_name, published_at, is_starred
+          `,
+          [restoredVersionId, workflow.workflow_id, revisionId, endpointName],
+        );
+        if (!restoredVersion) {
+          throw createHttpError(500, 'Restored published version could not be created');
+        }
+
+        await client.query(
+          `
+            UPDATE workflows
+            SET current_draft_revision_id = $2,
+                published_revision_id = $2,
+                published_version_id = $3,
+                endpoint_name = $4,
+                published_endpoint_name = $4,
+                last_published_at = NOW(),
+                updated_at = NOW()
+            WHERE workflow_id = $1
+          `,
+          [workflow.workflow_id, revisionId, restoredVersionId, endpointName],
+        );
+
+        const restoredWorkflow = await deps.getWorkflowByRelativePath(client, normalizedRelativePath, { forUpdate: true });
+        if (!restoredWorkflow) {
+          throw createHttpError(500, 'Restored workflow could not be loaded');
+        }
+
+        await deps.queueWorkflowInvalidation(client, hooks, workflow.workflow_id);
+
+        return {
+          project: deps.mapWorkflowRowToProjectItem(restoredWorkflow),
+          version: mapPublishedVersionRowToSummary(restoredWorkflow, restoredVersion),
+        };
+      });
     },
 
     async publishWorkflowProjectItem(relativePath: unknown, settings: unknown): Promise<WorkflowProjectItem> {

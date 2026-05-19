@@ -16,7 +16,9 @@ import type {
   WorkflowFolderItem,
   WorkflowProjectDownloadVersion,
   WorkflowProjectItem,
+  WorkflowProjectOpenOptions,
   WorkflowProjectPathMove,
+  WorkflowPublishedVersionRestoreResponse,
 } from './types';
 import {
   collectFolderIds,
@@ -149,7 +151,8 @@ async function pickWorkflowProjectFile(): Promise<File | null> {
 }
 
 export function useWorkflowLibraryController(options: {
-  onOpenProject: (path: string, nextOptions?: { replaceCurrent?: boolean }) => void;
+  onOpenProject: (path: string, nextOptions?: WorkflowProjectOpenOptions) => void;
+  onRefreshOpenProjectFromDisk: (path: string) => void;
   onOpenRecording: (recordingId: string, nextOptions?: { replaceCurrent?: boolean }) => void;
   onOpenPublishedVersionPreview: (
     relativePath: string,
@@ -164,6 +167,7 @@ export function useWorkflowLibraryController(options: {
 }) {
   const {
     onOpenProject,
+    onRefreshOpenProjectFromDisk,
     onOpenRecording,
     onOpenPublishedVersionPreview,
     onDeleteProject,
@@ -1104,6 +1108,13 @@ export function useWorkflowLibraryController(options: {
     setPublishedHistoryProject(null);
   }, []);
 
+  const handlePublishedVersionRestored = useCallback(async (
+    response: WorkflowPublishedVersionRestoreResponse,
+  ) => {
+    onRefreshOpenProjectFromDisk(response.project.absolutePath);
+    await refresh(false);
+  }, [onRefreshOpenProjectFromDisk, refresh]);
+
   const projectModalProject = projectModalState?.project ?? null;
   const projectModalMode = projectModalState?.mode ?? 'download';
   const projectModalActiveVersion = projectModalProject == null
@@ -1237,6 +1248,7 @@ export function useWorkflowLibraryController(options: {
     closeSettingsModal,
     openPublishedHistoryModal,
     closePublishedHistoryModal,
+    handlePublishedVersionRestored,
     closeProjectContextMenu,
     closeFolderContextMenu,
     closeProjectModal,

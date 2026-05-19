@@ -27,6 +27,7 @@ import {
   readWorkflowProjectDownloadWithBackend,
   readWorkflowPublishedVersionDownloadWithBackend,
   readWorkflowPublishedVersionPreviewWithBackend,
+  restoreWorkflowPublishedVersionWithBackend,
   readWorkflowRecordingArtifactWithBackend,
   renameWorkflowFolderItemWithBackend,
   renameWorkflowProjectItemWithBackend,
@@ -264,6 +265,11 @@ workflowsRouter.post('/projects/published-versions/preview', validateBody(publis
 workflowsRouter.patch('/projects/published-versions/star', validateBody(publishedVersionStarSchema), asyncHandler(async (req, res) => {
   const { relativePath, versionId, isStarred } = req.body as z.infer<typeof publishedVersionStarSchema>;
   res.json({ version: await setWorkflowPublishedVersionStarWithBackend(relativePath, versionId, isStarred) });
+}));
+
+workflowsRouter.post('/projects/published-versions/restore', validateBody(publishedVersionDownloadSchema), asyncHandler(async (req, res) => {
+  const { relativePath, versionId } = req.body as z.infer<typeof publishedVersionDownloadSchema>;
+  res.json(await restoreWorkflowPublishedVersionWithBackend(relativePath, versionId));
 }));
 
 workflowsRouter.post('/projects/publish', validateBody(publishProjectSchema), asyncHandler(async (req, res) => {

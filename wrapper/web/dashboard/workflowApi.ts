@@ -10,6 +10,7 @@ import type {
   WorkflowRecordingInputFilter,
   WorkflowRecordingRunsPageResponse,
   WorkflowRecordingWorkflowListResponse,
+  WorkflowPublishedVersionRestoreResponse,
   WorkflowPublishedVersionStarResponse,
   WorkflowPublishedVersionPreviewResponse,
   WorkflowPublishedVersionsResponse,
@@ -295,6 +296,19 @@ export async function setWorkflowPublishedVersionStar(
   });
 
   return workflowJsonResponse<WorkflowPublishedVersionStarResponse>(response);
+}
+
+export async function restoreWorkflowPublishedVersion(
+  relativePath: string,
+  versionId: string,
+): Promise<WorkflowPublishedVersionRestoreResponse> {
+  const response = await fetch(`${API}/workflows/projects/published-versions/restore`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ relativePath, versionId }),
+  });
+
+  return workflowJsonResponse<WorkflowPublishedVersionRestoreResponse>(response);
 }
 
 export async function moveWorkflowItem(

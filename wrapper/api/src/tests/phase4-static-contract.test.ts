@@ -403,6 +403,8 @@ test('hosted editor project commands go through Rivet 2 workspace host seams', (
   assert.match(editorMessageBridge, /workspaceRef\.current\.closeProject\(deletedProjectId\)/);
   assert.match(editorMessageBridge, /workspaceRef\.current\.moveProjectPaths/);
   assert.match(editorMessageBridge, /openCommandQueueRef/);
+  assert.match(editorMessageBridge, /refresh-open-project-from-disk/);
+  assert.match(editorMessageBridge, /setOpenedProjectSnapshots/);
   assert.match(editorMessageBridge, /recordingByProjectPathRef/);
   assert.match(editorMessageBridge, /getWorkflowRecordingIdFromVirtualProjectPath\(projectPath\)/);
   assert.match(editorMessageBridge, /fetchLoadedWorkflowRecording\(recordingId\)/);
@@ -429,6 +431,7 @@ test('hosted editor project commands go through Rivet 2 workspace host seams', (
   assert.match(openWorkflowProject, /resolveHostedProjectTitle\(project, filePath\)/);
   assert.match(openWorkflowProject, /getOpenedProjectSession/);
   assert.match(openWorkflowProject, /primeOpenedProjectSession/);
+  assert.match(openWorkflowProject, /reloadFromDisk/);
   assert.match(openWorkflowProject, /canLoadProjectByPath\(ioProvider\)/);
   assert.match(openWorkflowProject, /retainOnlyOpenedProject/);
   assert.match(openWorkflowProject, /after the upstream host has opened the requested project/);

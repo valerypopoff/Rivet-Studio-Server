@@ -7,6 +7,7 @@ import type {
   WorkflowProjectSettings,
   WorkflowProjectSettingsDraft,
   WorkflowProjectStatus,
+  WorkflowPublishedVersionRestoreResponse,
   WorkflowPublishedVersionStarResponse,
   WorkflowPublishedVersionSummary,
   WorkflowPublishedVersionPreviewResponse,
@@ -34,6 +35,7 @@ export type {
   WorkflowProjectSettings,
   WorkflowProjectSettingsDraft,
   WorkflowProjectStatus,
+  WorkflowPublishedVersionRestoreResponse,
   WorkflowPublishedVersionStarResponse,
   WorkflowPublishedVersionSummary,
   WorkflowPublishedVersionPreviewResponse,
@@ -59,4 +61,9 @@ export type WorkflowTreeResponse = {
   root: string;
   folders: WorkflowFolderItem[];
   projects: WorkflowProjectItem[];
+};
+
+export type WorkflowProjectOpenOptions = {
+  replaceCurrent?: boolean;
+  reloadFromDisk?: boolean;
 };

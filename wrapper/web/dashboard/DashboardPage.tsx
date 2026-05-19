@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FC } from 'react';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { WorkflowLibraryPanel } from './WorkflowLibraryPanel';
-import type { WorkflowProjectPathMove } from './types';
+import type { WorkflowProjectOpenOptions, WorkflowProjectPathMove } from './types';
 import { useEditorCommandQueue } from './useEditorCommandQueue';
 import { focusIframeElement } from './editorBridgeFocus';
 import { useDashboardSidebar } from './useDashboardSidebar';
@@ -33,8 +33,17 @@ export const DashboardPage: FC = () => {
     minWidth: MIN_SIDEBAR_WIDTH,
   });
 
-  const handleOpenProject = useCallback((path: string, options?: { replaceCurrent?: boolean }) => {
-    postEditorCommand({ type: 'open-project', path, replaceCurrent: Boolean(options?.replaceCurrent) });
+  const handleOpenProject = useCallback((path: string, options?: WorkflowProjectOpenOptions) => {
+    postEditorCommand({
+      type: 'open-project',
+      path,
+      replaceCurrent: Boolean(options?.replaceCurrent),
+      reloadFromDisk: options?.reloadFromDisk === true ? true : undefined,
+    });
+  }, [postEditorCommand]);
+
+  const handleRefreshOpenProjectFromDisk = useCallback((path: string) => {
+    postEditorCommand({ type: 'refresh-open-project-from-disk', path });
   }, [postEditorCommand]);
 
   const handleOpenRecording = useCallback(
@@ -128,6 +137,7 @@ export const DashboardPage: FC = () => {
       >
         <WorkflowLibraryPanel
           onOpenProject={handleOpenProject}
+          onRefreshOpenProjectFromDisk={handleRefreshOpenProjectFromDisk}
           onOpenRecording={handleOpenRecording}
           onOpenPublishedVersionPreview={handleOpenPublishedVersionPreview}
           onSaveProject={handleSaveProject}

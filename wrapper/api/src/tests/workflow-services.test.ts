@@ -1061,6 +1061,8 @@ test('publish and unpublish keep workflow project behavior stable', async () => 
 test('each filesystem publish creates a downloadable published version history entry', async () => {
   const created = await workflowMutations.createWorkflowProjectItem('', 'PublishedHistory');
   const firstContents = await fs.readFile(created.absolutePath, 'utf8');
+  const firstDatasetContents = 'first published dataset';
+  await fs.writeFile(workflowFs.getWorkflowDatasetPath(created.absolutePath), firstDatasetContents, 'utf8');
 
   await workflowMutations.publishWorkflowProjectItem(created.relativePath, {
     endpointName: 'published-history-endpoint',
@@ -1068,6 +1070,7 @@ test('each filesystem publish creates a downloadable published version history e
 
   const secondContents = firstContents.replace('description: ""', 'description: "second published version"');
   await fs.writeFile(created.absolutePath, secondContents, 'utf8');
+  await fs.writeFile(workflowFs.getWorkflowDatasetPath(created.absolutePath), 'second published dataset', 'utf8');
   await workflowMutations.publishWorkflowProjectItem(created.relativePath, {
     endpointName: 'published-history-endpoint',
   });
@@ -1105,10 +1108,38 @@ test('each filesystem publish creates a downloadable published version history e
   assert.equal(previousDownload.contents, firstContents);
   assert.match(currentDownload.fileName, /^PublishedHistory \[published /);
 
+  const restored = await workflowStorageBackend.restoreWorkflowPublishedVersionWithBackend(
+    created.relativePath,
+    history.versions[1]!.id,
+  );
+  assert.equal(restored.version.isCurrent, true);
+  assert.notEqual(restored.version.id, history.versions[1]!.id);
+  assert.equal(restored.version.endpointName, 'published-history-endpoint');
+  assert.equal(restored.project.settings.status, 'published');
+
+  const restoredHistory = await workflowStorageBackend.listWorkflowPublishedVersionsWithBackend(created.relativePath);
+  assert.equal(restoredHistory.versions.length, 3);
+  assert.equal(restoredHistory.versions[0]?.id, restored.version.id);
+  assert.equal(restoredHistory.versions[0]?.isCurrent, true);
+  assert.equal(restoredHistory.versions.filter((version) => version.isCurrent).length, 1);
+
+  const restoredDownload = await workflowStorageBackend.readWorkflowPublishedVersionDownloadWithBackend(
+    created.relativePath,
+    restored.version.id,
+  );
+  const restoredPreview = await workflowStorageBackend.readWorkflowPublishedVersionPreviewWithBackend(
+    created.relativePath,
+    restored.version.id,
+  );
+  assert.equal(restoredDownload.contents, firstContents);
+  assert.equal(restoredPreview.datasetsContents, firstDatasetContents);
+  assert.equal(await fs.readFile(created.absolutePath, 'utf8'), firstContents);
+  assert.equal(await fs.readFile(workflowFs.getWorkflowDatasetPath(created.absolutePath), 'utf8'), firstDatasetContents);
+
   await workflowMutations.unpublishWorkflowProjectItem(created.relativePath);
   const historyAfterUnpublish = await workflowStorageBackend.listWorkflowPublishedVersionsWithBackend(created.relativePath);
 
-  assert.equal(historyAfterUnpublish.versions.length, 2);
+  assert.equal(historyAfterUnpublish.versions.length, 3);
   assert.equal(historyAfterUnpublish.versions.some((version) => version.isCurrent), false);
   assert.equal(
     historyAfterUnpublish.versions.find((version) => version.id === history.versions[1]!.id)?.isStarred,
@@ -1215,6 +1246,22 @@ test('filesystem published version history rejects mismatched metadata ids', asy
   const repairedMetadata = JSON.parse(await fs.readFile(metadataPath, 'utf8'));
   assert.equal(repairedMetadata.id, storedSettings.publishedSnapshotId);
   assert.equal(repairedMetadata.isStarred, true);
+
+  const originalContents = await fs.readFile(created.absolutePath, 'utf8');
+  const otherProject = await workflowMutations.createWorkflowProjectItem('', 'PublishedHistoryOtherProject');
+  await fs.copyFile(
+    otherProject.absolutePath,
+    workflowFs.getPublishedWorkflowSnapshotPath(workflowsRoot, storedSettings.publishedSnapshotId),
+  );
+
+  await assert.rejects(
+    () => workflowStorageBackend.restoreWorkflowPublishedVersionWithBackend(
+      created.relativePath,
+      storedSettings.publishedSnapshotId,
+    ),
+    /Published version snapshot belongs to a different project/,
+  );
+  assert.equal(await fs.readFile(created.absolutePath, 'utf8'), originalContents);
 });
 
 test('workflow publish and unpublish routes preserve publication state over HTTP', async () => {

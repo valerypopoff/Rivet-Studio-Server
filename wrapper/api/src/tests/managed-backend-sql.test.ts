@@ -92,6 +92,19 @@ test('managed publication backfills legacy current versions before new publishes
   assert.ok(managedPublicationSource.includes('ON CONFLICT (version_id) DO NOTHING'));
 });
 
+test('managed published version restore republishes a stored revision as a new current history entry', async () => {
+  const managedPublicationSource = await fs.readFile(
+    new URL('../routes/workflows/managed/publication.ts', import.meta.url),
+    'utf8',
+  );
+
+  assert.ok(managedPublicationSource.includes('restoreWorkflowPublishedVersion'));
+  assert.ok(managedPublicationSource.includes('INSERT INTO workflow_published_versions'));
+  assert.ok(managedPublicationSource.includes('SET current_draft_revision_id = $2'));
+  assert.ok(managedPublicationSource.includes('published_revision_id = $2'));
+  assert.ok(managedPublicationSource.includes('published_version_id = $3'));
+});
+
 test('managed save keeps a published project published when the save is a no-op', () => {
   const target = resolveManagedHostedProjectSaveTarget({
     nextContents: {

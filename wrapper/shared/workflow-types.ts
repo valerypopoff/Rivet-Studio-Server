@@ -162,6 +162,11 @@ export type WorkflowPublishedVersionStarResponse = {
   version: WorkflowPublishedVersionSummary;
 };
 
+export type WorkflowPublishedVersionRestoreResponse = {
+  project: WorkflowProjectItem;
+  version: WorkflowPublishedVersionSummary;
+};
+
 export type WorkflowPublishedVersionPreviewResponse = {
   contents: string;
   datasetsContents: string | null;

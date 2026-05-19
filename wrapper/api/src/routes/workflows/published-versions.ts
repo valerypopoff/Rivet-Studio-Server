@@ -1,9 +1,11 @@
 import type { Dirent } from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { loadProjectFromFile } from '@valerypopoff/rivet2-node';
 
 import type {
+  WorkflowPublishedVersionRestoreResponse,
   WorkflowPublishedVersionPreviewResponse,
   WorkflowPublishedVersionSummary,
   WorkflowPublishedVersionsResponse,
@@ -15,15 +17,20 @@ import {
   getPublishedWorkflowSnapshotDatasetPath,
   getPublishedWorkflowSnapshotMetadataPath,
   getPublishedWorkflowSnapshotPath,
+  getWorkflowDatasetPath,
   pathExists,
   PROJECT_EXTENSION,
   requireProjectPath,
   resolveWorkflowRelativePath,
 } from './fs-helpers.js';
 import {
+  createWorkflowPublicationStateHash,
+  ensureWorkflowEndpointNameIsUnique,
   readStoredWorkflowProjectSettings,
+  writeStoredWorkflowProjectSettings,
 } from './publication.js';
 import type { StoredWorkflowProjectSettings } from './types.js';
+import { getWorkflowProject } from './workflow-query.js';
 
 type StoredPublishedVersionMetadata = {
   version: 1;
@@ -47,6 +54,11 @@ type WorkflowPublishedVersionDownloadResult = {
 };
 
 type WorkflowPublishedVersionSnapshotResult = WorkflowPublishedVersionDownloadResult & {
+  datasetsContents: string | null;
+};
+
+type LiveProjectSnapshot = {
+  contents: string;
   datasetsContents: string | null;
 };
 
@@ -123,6 +135,25 @@ async function readWorkflowProjectMetadataId(projectPath: string): Promise<strin
     }
 
     throw createHttpError(400, 'Could not read project metadata');
+  }
+}
+
+async function ensurePublishedSnapshotProjectIdMatches(
+  root: string,
+  snapshotId: string,
+  projectId: string,
+): Promise<void> {
+  try {
+    const snapshotProject = await loadProjectFromFile(getPublishedWorkflowSnapshotPath(root, snapshotId));
+    if (snapshotProject.metadata.id !== projectId) {
+      throw createHttpError(409, 'Published version snapshot belongs to a different project');
+    }
+  } catch (error) {
+    if ((error as { status?: number }).status) {
+      throw error;
+    }
+
+    throw createHttpError(400, 'Could not read published version snapshot metadata');
   }
 }
 
@@ -382,6 +413,31 @@ function mapPublishedVersionRecordToMetadata(record: FilesystemPublishedVersionR
   };
 }
 
+async function writeRestoredLiveProjectSnapshot(options: {
+  projectPath: string;
+  contents: string;
+  datasetsContents: string | null;
+}): Promise<void> {
+  await fs.writeFile(options.projectPath, options.contents, 'utf8');
+
+  const datasetPath = getWorkflowDatasetPath(options.projectPath);
+  if (options.datasetsContents == null) {
+    await fs.rm(datasetPath, { force: true });
+    return;
+  }
+
+  await fs.writeFile(datasetPath, options.datasetsContents, 'utf8');
+}
+
+async function readLiveProjectSnapshot(projectPath: string): Promise<LiveProjectSnapshot> {
+  const datasetPath = getWorkflowDatasetPath(projectPath);
+
+  return {
+    contents: await fs.readFile(projectPath, 'utf8'),
+    datasetsContents: (await pathExists(datasetPath)) ? await fs.readFile(datasetPath, 'utf8') : null,
+  };
+}
+
 export async function setWorkflowPublishedVersionStar(
   relativePath: unknown,
   versionId: unknown,
@@ -477,6 +533,96 @@ export async function readWorkflowPublishedVersionPreview(
   return {
     contents: snapshot.contents,
     datasetsContents: snapshot.datasetsContents,
+  };
+}
+
+export async function restoreWorkflowPublishedVersion(
+  relativePath: unknown,
+  versionId: unknown,
+): Promise<WorkflowPublishedVersionRestoreResponse> {
+  if (typeof versionId !== 'string' || !versionId.trim()) {
+    throw createHttpError(400, 'Missing versionId');
+  }
+
+  const root = await ensureWorkflowsRoot();
+  const projectPath = requireProjectPath(resolveWorkflowRelativePath(root, relativePath, {
+    allowProjectFile: true,
+  }));
+
+  if (!await pathExists(projectPath)) {
+    throw createHttpError(404, 'Project not found');
+  }
+
+  const projectName = path.basename(projectPath, PROJECT_EXTENSION);
+  const existingSettings = await readStoredWorkflowProjectSettings(projectPath, projectName);
+  const record = await resolveFilesystemPublishedVersion(root, projectPath, versionId.trim());
+  if (!record) {
+    throw createHttpError(404, 'Published version not found');
+  }
+
+  await ensureWorkflowEndpointNameIsUnique(root, projectPath, record.endpointName);
+  await ensurePublishedSnapshotProjectIdMatches(root, record.id, record.projectId);
+
+  const snapshot = await readWorkflowPublishedVersionSnapshot(relativePath, record.id);
+  const previousLiveSnapshot = await readLiveProjectSnapshot(projectPath);
+  const restoredSnapshotId = randomUUID();
+  const lastPublishedAt = new Date().toISOString();
+
+  try {
+    await ensureCurrentPublishedWorkflowVersionMetadata({
+      root,
+      projectPath,
+      settings: existingSettings,
+    });
+    await writeRestoredLiveProjectSnapshot({
+      projectPath,
+      contents: snapshot.contents,
+      datasetsContents: snapshot.datasetsContents,
+    });
+
+    const publishedStateHash = await createWorkflowPublicationStateHash(projectPath, record.endpointName);
+    await fs.writeFile(getPublishedWorkflowSnapshotPath(root, restoredSnapshotId), snapshot.contents, 'utf8');
+    if (snapshot.datasetsContents == null) {
+      await fs.rm(getPublishedWorkflowSnapshotDatasetPath(root, restoredSnapshotId), { force: true });
+    } else {
+      await fs.writeFile(getPublishedWorkflowSnapshotDatasetPath(root, restoredSnapshotId), snapshot.datasetsContents, 'utf8');
+    }
+    await writePublishedWorkflowVersionMetadata({
+      root,
+      projectPath,
+      snapshotId: restoredSnapshotId,
+      endpointName: record.endpointName,
+      stateHash: publishedStateHash,
+      publishedAt: lastPublishedAt,
+    });
+    await writeStoredWorkflowProjectSettings(projectPath, {
+      endpointName: record.endpointName,
+      publishedEndpointName: record.endpointName,
+      publishedSnapshotId: restoredSnapshotId,
+      publishedStateHash,
+      lastPublishedAt,
+    });
+  } catch (error) {
+    await fs.rm(getPublishedWorkflowSnapshotPath(root, restoredSnapshotId), { force: true }).catch(() => {});
+    await fs.rm(getPublishedWorkflowSnapshotDatasetPath(root, restoredSnapshotId), { force: true }).catch(() => {});
+    await fs.rm(getPublishedWorkflowSnapshotMetadataPath(root, restoredSnapshotId), { force: true }).catch(() => {});
+    await writeRestoredLiveProjectSnapshot({
+      projectPath,
+      contents: previousLiveSnapshot.contents,
+      datasetsContents: previousLiveSnapshot.datasetsContents,
+    }).catch(() => {});
+    await writeStoredWorkflowProjectSettings(projectPath, existingSettings).catch(() => {});
+    throw error;
+  }
+
+  const restoredRecord = await resolveFilesystemPublishedVersion(root, projectPath, restoredSnapshotId);
+  if (!restoredRecord) {
+    throw createHttpError(500, 'Restored published version could not be loaded');
+  }
+
+  return {
+    project: await getWorkflowProject(root, projectPath),
+    version: mapPublishedVersionRecordToSummary(restoredRecord),
   };
 }
 

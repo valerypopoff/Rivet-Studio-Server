@@ -5,11 +5,13 @@ import { toast } from 'react-toastify';
 
 import type {
   WorkflowProjectItem,
+  WorkflowPublishedVersionRestoreResponse,
   WorkflowPublishedVersionSummary,
 } from './types';
 import {
   downloadWorkflowPublishedVersion,
   fetchWorkflowPublishedVersions,
+  restoreWorkflowPublishedVersion,
   setWorkflowPublishedVersionStar,
 } from './workflowApi';
 
@@ -20,6 +22,7 @@ type WorkflowPublishedVersionHistoryModalProps = {
   isOpen: boolean;
   onClose: () => void;
   onPreviewVersion: (relativePath: string, versionId: string) => void;
+  onRestored: (response: WorkflowPublishedVersionRestoreResponse) => void | Promise<void>;
 };
 
 function formatPublishedVersionDate(value: string): string {
@@ -36,14 +39,16 @@ export const WorkflowPublishedVersionHistoryModal: FC<WorkflowPublishedVersionHi
   isOpen,
   onClose,
   onPreviewVersion,
+  onRestored,
 }) => {
   const [versions, setVersions] = useState<WorkflowPublishedVersionSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [downloadingVersionId, setDownloadingVersionId] = useState<string | null>(null);
   const [starringVersionId, setStarringVersionId] = useState<string | null>(null);
+  const [restoringVersionId, setRestoringVersionId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
-  const canClose = !downloadingVersionId && !starringVersionId;
+  const canClose = !downloadingVersionId && !starringVersionId && !restoringVersionId;
   const projectTitle = useMemo(() => project?.name ?? 'Published version history', [project?.name]);
   const totalPages = Math.max(1, Math.ceil(versions.length / PUBLISHED_VERSION_HISTORY_PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
@@ -60,6 +65,7 @@ export const WorkflowPublishedVersionHistoryModal: FC<WorkflowPublishedVersionHi
       setLoading(false);
       setDownloadingVersionId(null);
       setStarringVersionId(null);
+      setRestoringVersionId(null);
       setPage(1);
       return;
     }
@@ -97,7 +103,7 @@ export const WorkflowPublishedVersionHistoryModal: FC<WorkflowPublishedVersionHi
   }, [page, totalPages]);
 
   const handleDownloadVersion = async (version: WorkflowPublishedVersionSummary) => {
-    if (!project || downloadingVersionId || starringVersionId) {
+    if (!project || downloadingVersionId || starringVersionId || restoringVersionId) {
       return;
     }
 
@@ -112,7 +118,7 @@ export const WorkflowPublishedVersionHistoryModal: FC<WorkflowPublishedVersionHi
   };
 
   const handleToggleStar = async (version: WorkflowPublishedVersionSummary) => {
-    if (!project || downloadingVersionId || starringVersionId) {
+    if (!project || downloadingVersionId || starringVersionId || restoringVersionId) {
       return;
     }
 
@@ -139,11 +145,46 @@ export const WorkflowPublishedVersionHistoryModal: FC<WorkflowPublishedVersionHi
   };
 
   const handlePreviewVersion = (version: WorkflowPublishedVersionSummary) => {
-    if (!project || downloadingVersionId || starringVersionId) {
+    if (!project || downloadingVersionId || starringVersionId || restoringVersionId) {
       return;
     }
 
     onPreviewVersion(project.relativePath, version.id);
+  };
+
+  const handleRestoreVersion = async (version: WorkflowPublishedVersionSummary) => {
+    if (!project || downloadingVersionId || starringVersionId || restoringVersionId) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      'Restore this published version and publish it as the current version?',
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setRestoringVersionId(version.id);
+    try {
+      const response = await restoreWorkflowPublishedVersion(project.relativePath, version.id);
+      setVersions((currentVersions) => [
+        response.version,
+        ...currentVersions
+          .filter((currentVersion) => currentVersion.id !== response.version.id)
+          .map((currentVersion) => ({
+            ...currentVersion,
+            isCurrent: false,
+          })),
+      ]);
+      setPage(1);
+      await Promise.resolve(onRestored(response)).catch((refreshError: any) => {
+        toast.error(refreshError.message || 'Restored published version, but failed to refresh the project tree');
+      });
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to restore published version');
+    } finally {
+      setRestoringVersionId((currentId) => currentId === version.id ? null : currentId);
+    }
   };
 
   return (
@@ -212,7 +253,7 @@ export const WorkflowPublishedVersionHistoryModal: FC<WorkflowPublishedVersionHi
                                 version.isStarred ? 'starred' : '',
                               ].filter(Boolean).join(' ')}
                               onClick={() => void handleToggleStar(version)}
-                              disabled={downloadingVersionId != null || starringVersionId != null}
+                              disabled={downloadingVersionId != null || starringVersionId != null || restoringVersionId != null}
                               aria-label={`${version.isStarred ? 'Unstar' : 'Star'} published version`}
                               aria-pressed={version.isStarred}
                               title={version.isStarred ? 'Unstar version' : 'Star version'}
@@ -231,16 +272,25 @@ export const WorkflowPublishedVersionHistoryModal: FC<WorkflowPublishedVersionHi
                               appearance="subtle"
                               className="project-settings-secondary-button button-size-m published-version-history-preview-button"
                               onClick={() => handlePreviewVersion(version)}
-                              isDisabled={downloadingVersionId != null || starringVersionId != null}
+                              isDisabled={downloadingVersionId != null || starringVersionId != null || restoringVersionId != null}
                             >
                               Preview
                             </Button>
                             <LoadingButton
                               appearance="subtle"
+                              className="project-settings-secondary-button button-size-m published-version-history-restore-button"
+                              onClick={() => void handleRestoreVersion(version)}
+                              isLoading={restoringVersionId === version.id}
+                              isDisabled={downloadingVersionId != null || starringVersionId != null || (restoringVersionId != null && restoringVersionId !== version.id)}
+                            >
+                              Restore
+                            </LoadingButton>
+                            <LoadingButton
+                              appearance="subtle"
                               className="project-settings-secondary-button button-size-m published-version-history-download-button"
                               onClick={() => void handleDownloadVersion(version)}
                               isLoading={downloadingVersionId === version.id}
-                              isDisabled={starringVersionId != null || (downloadingVersionId != null && downloadingVersionId !== version.id)}
+                              isDisabled={starringVersionId != null || restoringVersionId != null || (downloadingVersionId != null && downloadingVersionId !== version.id)}
                             >
                               Download
                             </LoadingButton>

@@ -21,6 +21,7 @@ export const WorkflowLibraryModals: FC<{
     openPublishedHistoryModal,
     closePublishedHistoryModal,
     refresh,
+    handlePublishedVersionRestored,
     onDeleteProject,
     runtimeLibsOpen,
     setRuntimeLibsOpen,
@@ -56,6 +57,7 @@ export const WorkflowLibraryModals: FC<{
         project={publishedHistoryProject}
         onClose={closePublishedHistoryModal}
         onPreviewVersion={onOpenPublishedVersionPreview}
+        onRestored={handlePublishedVersionRestored}
       />
       <RuntimeLibrariesModal
         isOpen={runtimeLibsOpen}

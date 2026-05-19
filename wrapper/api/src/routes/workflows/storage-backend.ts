@@ -8,6 +8,7 @@ import type {
   WorkflowProjectItem,
   WorkflowProjectPathMove,
   WorkflowProjectSettingsDraft,
+  WorkflowPublishedVersionRestoreResponse,
   WorkflowPublishedVersionSummary,
   WorkflowPublishedVersionsResponse,
 } from '../../../../shared/workflow-types.js';
@@ -47,6 +48,7 @@ import {
   listWorkflowPublishedVersions,
   readWorkflowPublishedVersionDownload,
   readWorkflowPublishedVersionPreview,
+  restoreWorkflowPublishedVersion,
   setWorkflowPublishedVersionStar,
 } from './published-versions.js';
 import {
@@ -476,6 +478,16 @@ export async function setWorkflowPublishedVersionStarWithBackend(
   return delegate(
     async (backend) => backend.setWorkflowPublishedVersionStar(relativePath, versionId, isStarred),
     async () => setWorkflowPublishedVersionStar(relativePath, versionId, isStarred),
+  );
+}
+
+export async function restoreWorkflowPublishedVersionWithBackend(
+  relativePath: unknown,
+  versionId: unknown,
+): Promise<WorkflowPublishedVersionRestoreResponse> {
+  return delegate(
+    async (backend) => backend.restoreWorkflowPublishedVersion(relativePath, versionId),
+    async () => restoreWorkflowPublishedVersion(relativePath, versionId),
   );
 }
 

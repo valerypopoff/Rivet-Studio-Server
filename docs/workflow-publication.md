@@ -249,6 +249,7 @@ Projects can now also be downloaded from the workflow tree's project-row context
 - `PATCH /api/workflows/projects/published-versions/star`
 - `POST /api/workflows/projects/published-versions/download`
 - `POST /api/workflows/projects/published-versions/preview`
+- `POST /api/workflows/projects/published-versions/restore`
 
 The custom context menu currently exists only on project rows. Folder rows still do not expose download actions.
 
@@ -289,7 +290,7 @@ Filename format is:
 
 ## Published version history
 
-Project Settings exposes a `Published version history` link. The modal lists publish events newest-first, marks the version that is currently serving the published endpoint as `Current`, lets the user star or unstar special versions, paginates the list after 10 versions with the same paging controls used by Run recordings, grows vertically before introducing list scrolling, and lets the user download or preview any stored project snapshot.
+Project Settings exposes a `Published version history` link. The modal lists publish events newest-first, marks the version that is currently serving the published endpoint as `Current`, lets the user star or unstar special versions, paginates the list after 10 versions with the same paging controls used by Run recordings, grows vertically before introducing list scrolling, and lets the user download, preview, or restore any stored project snapshot.
 
 Stars are persisted with the published version record:
 
@@ -300,6 +301,8 @@ Stars are persisted with the published version record:
 In filesystem mode, the metadata filename is the authoritative version ID. If `.published/<versionId>.json` contains a mismatched internal `id`, the API ignores that metadata and falls back to the matching snapshot when it can, so a stale or hand-edited JSON file cannot point history actions at a different snapshot.
 
 Preview opens a detached editor tab through the dashboard/editor bridge instead of opening the source workflow project. The iframe receives `open-published-version-preview`, loads the virtual path `published-version-preview://<encodedRelativePath>/<encodedVersionId>/preview.rivet-project`, fetches the project and optional dataset snapshot from `POST /api/workflows/projects/published-versions/preview`, rewrites the project id to a fresh `published-version-preview:*` id, and imports datasets under that detached id. Because the path and project id are synthetic, the dashboard does not treat the preview as an active workflow project, the Project Settings modal is closed before previewing, and save/publish controls cannot write back to the source workflow. `HostedIOProvider` also rejects both prompt and no-prompt saves for preview projects as a second line of defense.
+
+Restore asks for browser confirmation before making server changes. If confirmed, the selected stored snapshot and dataset replace the saved live project state, then the API publishes that restored state as a brand-new current history entry at the top of the list. The restored entry uses the endpoint name stored on the selected version. In filesystem mode this writes a new `.published/<newVersionId>.rivet-project` snapshot and updates the live `.rivet-project` plus optional `.rivet-data` sidecar; if a later filesystem write fails, the API removes the new published artifacts and rolls the live project/settings back to their pre-restore state. Filesystem restore also refuses a stored snapshot whose embedded project `metadata.id` no longer matches the history owner, so a corrupt history artifact cannot detach the live project from its workflow identity. In managed mode this points both `current_draft_revision_id` and `published_revision_id` at the restored revision and creates a new `workflow_published_versions` row in one transaction. After restore, the dashboard sends `refresh-open-project-from-disk` for the restored path. If that workflow is active, the editor reloads the current tab from storage; if it is open in a hidden tab, the editor invalidates that tab's cached snapshot so it loads the restored version the next time the user switches back. Restoring a version therefore behaves like reverting the saved project to that version and clicking Publish, rather than moving the current pointer back to an old history row.
 
 The history is keyed by the stable workflow/project ID, not the display name, so renaming or moving a project keeps its history attached. Duplicating and uploading intentionally create fresh workflow IDs, so they start with empty history.
 
@@ -648,7 +651,7 @@ The workflow-publication UI now follows the same controller-versus-view split as
 - `WorkflowLibraryPanel.tsx` renders the shell, while `useWorkflowLibraryController.ts` owns refresh, selection, drag/drop, duplicate/download/upload, and modal orchestration
 - `ProjectSettingsModal.tsx` is mostly presentational
 - `useProjectSettingsActions.ts` owns publish, unpublish, and guarded delete flows
-- `WorkflowPublishedVersionHistoryModal.tsx` lists published versions for a project and stars, downloads, or previews a selected stored snapshot
+- `WorkflowPublishedVersionHistoryModal.tsx` lists published versions for a project and stars, downloads, previews, or restores a selected stored snapshot
 - `projectSettingsForm.ts` owns endpoint validation, last-published labels, and status labels
 - `workflowApi.ts` keeps endpoint-specific calls flat while `apiRequest.ts` owns shared JSON/text parsing and error extraction
 
@@ -656,7 +659,7 @@ The workflow-publication UI now follows the same controller-versus-view split as
 
 - `wrapper/api/src/routes/workflows/endpoint-names.ts` - shared endpoint-name validation and case-insensitive lookup normalization
 - `wrapper/api/src/routes/workflows/publication.ts` - filesystem publication logic, status derivation, and endpoint lookup
-- `wrapper/api/src/routes/workflows/published-versions.ts` - filesystem published-version history metadata, star state, listing, download, preview, and cleanup
+- `wrapper/api/src/routes/workflows/published-versions.ts` - filesystem published-version history metadata, star state, listing, download, preview, restore, and cleanup
 - `wrapper/api/src/routes/workflows/execution.ts` - public/latest/internal execution handlers and recording enqueue path
 - `wrapper/api/src/routes/workflows/hosted-project-contents.ts` - hosted project content normalization shared by filesystem and managed saves
 - `wrapper/api/src/routes/workflows/storage-backend.ts` - explicit filesystem-versus-managed dispatch for hosted workflow operations
@@ -669,7 +672,7 @@ The workflow-publication UI now follows the same controller-versus-view split as
 - `wrapper/api/src/routes/workflows/managed/endpoint-sync.ts` - endpoint ownership sync and conflict checks
 - `wrapper/api/src/routes/workflows/managed/catalog.ts` - managed folder/project CRUD plus duplicate/upload/download flows
 - `wrapper/api/src/routes/workflows/managed/revisions.ts` - managed save/import flows and revision persistence
-- `wrapper/api/src/routes/workflows/managed/publication.ts` - managed publish/unpublish mutations plus published-version history star/list/download/preview
+- `wrapper/api/src/routes/workflows/managed/publication.ts` - managed publish/unpublish mutations plus published-version history star/list/download/preview/restore
 - `wrapper/api/src/routes/workflows/managed/recordings.ts` - managed recording import, persistence, listing, artifact reads, and deletion
 - `wrapper/api/src/routes/workflows/managed/execution-cache.ts` - managed endpoint-pointer and immutable revision-payload caches
 - `wrapper/api/src/routes/workflows/managed/execution-invalidation.ts` - managed execution invalidation listener lifecycle and degraded-mode handling

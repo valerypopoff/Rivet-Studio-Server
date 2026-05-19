@@ -3,6 +3,7 @@ import type {
   WorkflowProjectDownloadVersion,
   WorkflowProjectItem,
   WorkflowProjectPathMove,
+  WorkflowPublishedVersionRestoreResponse,
   WorkflowPublishedVersionSummary,
   WorkflowPublishedVersionsResponse,
 } from '../../../../../shared/workflow-types.js';
@@ -162,6 +163,13 @@ export class ManagedWorkflowBackend {
     isStarred: unknown,
   ): Promise<WorkflowPublishedVersionSummary> {
     return this.#publication.setWorkflowPublishedVersionStar(relativePath, versionId, isStarred);
+  }
+
+  async restoreWorkflowPublishedVersion(
+    relativePath: unknown,
+    versionId: unknown,
+  ): Promise<WorkflowPublishedVersionRestoreResponse> {
+    return this.#publication.restoreWorkflowPublishedVersion(relativePath, versionId);
   }
 
   async publishWorkflowProjectItem(relativePath: unknown, settings: unknown): Promise<WorkflowProjectItem> {
