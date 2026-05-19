@@ -14,7 +14,11 @@ In `RIVET_API_PROFILE=combined`, the same API process serves both surfaces. In s
 
 - **Project file** (`*.rivet-project`): the live, editable workflow file
 - **Settings sidecar** (`*.rivet-project.wrapper-settings.json`): stores the endpoint draft plus publication state
-- **Published snapshot** (`.published/<snapshotId>.rivet-project`): frozen copy of the project at publish time
+- **Published snapshot** (`.published/<snapshotId>.rivet-project`): frozen copy of the currently published project version
+- **Published version history**: every successful publish creates a durable downloadable history entry for that project
+  - in `filesystem` mode: `.published/<versionId>.rivet-project` plus `.published/<versionId>.json` metadata and an optional `.rivet-data` sidecar
+  - in `managed` mode: a `workflow_published_versions` row pointing at a durable `workflow_revisions` project blob in object storage
+  - version stars are stored on the version metadata/row, so starred history survives browser reloads and server restarts
 - **Dataset sidecar** (`*.rivet-data`): optional data associated with a project, published alongside it
 - **Execution recording artifacts**
   - in `filesystem` mode: replayable bundles under `<RIVET_WORKFLOW_RECORDINGS_ROOT>/<workflowId>/<recordingId>/`
@@ -29,6 +33,8 @@ Published snapshots always belong to workflow storage, but recording storage is 
 
 - in `filesystem` mode, recording bundles live under `RIVET_WORKFLOW_RECORDINGS_ROOT` and the metadata index lives under `RIVET_APP_DATA_ROOT` as `recordings.sqlite`
 - in `managed` mode, recording metadata lives in Postgres and recording artifacts live in managed object storage
+
+Published version history also belongs to workflow storage. It is not stored in the editor, browser IndexedDB, or recording storage.
 
 ## Stored settings model
 
@@ -74,6 +80,8 @@ In Project Settings:
 - `Published` and `Unpublished changes` show `Last published at ...`
 - `Unpublished` does not show that line
 - older already-published projects that predate the explicit `lastPublishedAt` field fall back to the settings-sidecar file timestamp
+- the `Published version history` secondary action sits to the right of the idle publish/unpublish controls and opens the version-history modal for the current project
+- when an unpublished project is in the endpoint-entry publish UI, the history action is hidden and a `Cancel` button hides the publish UI without saving
 
 ## Publish flow
 
@@ -83,10 +91,12 @@ In Project Settings:
    - letters, numbers, and hyphens only
    - unique across active published and latest endpoint identities, case-insensitively
 3. Server computes a SHA-256 hash of `endpointName + project file + dataset state`.
-4. Server writes or overwrites `.published/<snapshotId>.rivet-project` and its dataset sidecar.
+4. Server writes a new published version snapshot and history metadata.
 5. Server writes the settings sidecar with `endpointName`, `publishedEndpointName`, `publishedSnapshotId`, `publishedStateHash`, and `lastPublishedAt`.
 
-If the project has already been published before, the current implementation reuses the existing `publishedSnapshotId` instead of generating a new one.
+Every publish gets a new version ID. The latest publish becomes the current `publishedSnapshotId`, while older snapshots remain in published version history.
+
+In managed mode, publish inserts a `workflow_published_versions` row and updates `workflows.published_version_id` to that row. The row points at the draft revision that was published, so the actual project bytes remain in the same managed object-storage revision store as ordinary workflow revisions.
 
 ## Save flow after publish
 
@@ -111,10 +121,12 @@ Current backend-specific behavior:
 
 ## Unpublish flow
 
-1. Server deletes the published snapshot and its dataset sidecar.
+1. Server clears the current published pointer.
 2. Server clears `publishedEndpointName`, `publishedSnapshotId`, and `publishedStateHash`.
 3. Server keeps `endpointName` in the settings sidecar as the saved draft endpoint name.
 4. The saved draft endpoint no longer participates in endpoint uniqueness until the project is published again.
+
+Unpublishing does not delete published version history. It closes the public/latest route lineage, but previous published versions remain downloadable from Project Settings. If a pre-history legacy project still has only a current published pointer, unpublish first backfills that current snapshot/revision into history before clearing the pointer.
 
 In the current dashboard UI, the project-row context menu exposes `Rename project`, `Download`, `Duplicate`, and `Delete project`.
 
@@ -233,6 +245,10 @@ What upload does **not** copy:
 Projects can now also be downloaded from the workflow tree's project-row context menu or through:
 
 - `POST /api/workflows/projects/download`
+- `GET /api/workflows/projects/published-versions?relativePath=<project>`
+- `PATCH /api/workflows/projects/published-versions/star`
+- `POST /api/workflows/projects/published-versions/download`
+- `POST /api/workflows/projects/published-versions/preview`
 
 The custom context menu currently exists only on project rows. Folder rows still do not expose download actions.
 
@@ -263,11 +279,33 @@ The download flow is non-destructive to the current UI state:
 - it does not auto-open the downloaded project in the editor
 - it does not auto-expand folders
 
+Published version history downloads always return the stored `.rivet-project` snapshot for that publish event. They do not bundle datasets or settings sidecars, matching the normal project download contract. The preview endpoint is different: it returns JSON containing the stored project snapshot plus the optional stored dataset snapshot so the editor preview can reflect the saved publish payload without turning that version into a downloadable bundle.
+
 Filename format is:
 
 - `Name [unpublished].rivet-project`
 - `Name [published].rivet-project`
 - `Name [unpublished changes].rivet-project`
+
+## Published version history
+
+Project Settings exposes a `Published version history` link. The modal lists publish events newest-first, marks the version that is currently serving the published endpoint as `Current`, lets the user star or unstar special versions, paginates the list after 10 versions with the same paging controls used by Run recordings, grows vertically before introducing list scrolling, and lets the user download or preview any stored project snapshot.
+
+Stars are persisted with the published version record:
+
+- in `filesystem` mode, `isStarred` is stored in `.published/<versionId>.json`
+- in `managed` mode, `is_starred` is stored on `workflow_published_versions`
+- the dashboard updates the star optimistically but replaces the row with the API response, so the API remains the durable source of truth
+
+In filesystem mode, the metadata filename is the authoritative version ID. If `.published/<versionId>.json` contains a mismatched internal `id`, the API ignores that metadata and falls back to the matching snapshot when it can, so a stale or hand-edited JSON file cannot point history actions at a different snapshot.
+
+Preview opens a detached editor tab through the dashboard/editor bridge instead of opening the source workflow project. The iframe receives `open-published-version-preview`, loads the virtual path `published-version-preview://<encodedRelativePath>/<encodedVersionId>/preview.rivet-project`, fetches the project and optional dataset snapshot from `POST /api/workflows/projects/published-versions/preview`, rewrites the project id to a fresh `published-version-preview:*` id, and imports datasets under that detached id. Because the path and project id are synthetic, the dashboard does not treat the preview as an active workflow project, the Project Settings modal is closed before previewing, and save/publish controls cannot write back to the source workflow. `HostedIOProvider` also rejects both prompt and no-prompt saves for preview projects as a second line of defense.
+
+The history is keyed by the stable workflow/project ID, not the display name, so renaming or moving a project keeps its history attached. Duplicating and uploading intentionally create fresh workflow IDs, so they start with empty history.
+
+For projects that were already published before the history feature existed, the API exposes the current published snapshot/revision as a single legacy history entry when the stored published pointer still exists. If the user publishes again, the API first backfills that legacy entry where possible, then writes the new version entry, so the previous current publish is not lost from history. New publish events use explicit history metadata/version rows.
+
+Unpublishing clears the current published pointer but keeps history rows/snapshots. Deleting a project removes the project's history along with the live project, sidecars, and recording history.
 
 ## Endpoint resolution
 
@@ -587,18 +625,18 @@ When a project or folder is renamed, moved, duplicated, uploaded, downloaded, or
   - creates only a new `.rivet-project` file in the same folder
   - can duplicate either the saved live file or the published snapshot when both exist
   - gives the duplicate a fresh workflow metadata ID and updates its stored title
-  - does not copy `.rivet-data`, `.wrapper-settings.json`, `.published/`, or any recording history
+  - does not copy `.rivet-data`, `.wrapper-settings.json`, `.published/`, published version history, or any recording history
 - **Upload**
   - creates only a new `.rivet-project` file in the selected folder
   - gives the uploaded project a fresh workflow metadata ID and updates its stored title to the final saved filename base
-  - does not create `.rivet-data`, `.wrapper-settings.json`, `.published/`, or any recording history
+  - does not create `.rivet-data`, `.wrapper-settings.json`, `.published/`, published version history, or any recording history
 - **Download**
   - reads either the saved live project file or the published snapshot
   - never downloads unsaved editor state
   - never bundles `.rivet-data`, `.wrapper-settings.json`, `.published/`, or any recording history
 - **Delete**
   - deletes the project file and sidecars
-  - deletes the published snapshot if one exists
+  - deletes the current published snapshot and the project's published version history
   - deletes recording history by workflow ID and by legacy source-path lookup
   - in `filesystem` mode, that means recording bundles under `RIVET_WORKFLOW_RECORDINGS_ROOT` plus SQLite index rows
   - in `managed` mode, that means recording/replay blobs plus Postgres `workflow_recordings` rows
@@ -610,6 +648,7 @@ The workflow-publication UI now follows the same controller-versus-view split as
 - `WorkflowLibraryPanel.tsx` renders the shell, while `useWorkflowLibraryController.ts` owns refresh, selection, drag/drop, duplicate/download/upload, and modal orchestration
 - `ProjectSettingsModal.tsx` is mostly presentational
 - `useProjectSettingsActions.ts` owns publish, unpublish, and guarded delete flows
+- `WorkflowPublishedVersionHistoryModal.tsx` lists published versions for a project and stars, downloads, or previews a selected stored snapshot
 - `projectSettingsForm.ts` owns endpoint validation, last-published labels, and status labels
 - `workflowApi.ts` keeps endpoint-specific calls flat while `apiRequest.ts` owns shared JSON/text parsing and error extraction
 
@@ -617,6 +656,7 @@ The workflow-publication UI now follows the same controller-versus-view split as
 
 - `wrapper/api/src/routes/workflows/endpoint-names.ts` - shared endpoint-name validation and case-insensitive lookup normalization
 - `wrapper/api/src/routes/workflows/publication.ts` - filesystem publication logic, status derivation, and endpoint lookup
+- `wrapper/api/src/routes/workflows/published-versions.ts` - filesystem published-version history metadata, star state, listing, download, preview, and cleanup
 - `wrapper/api/src/routes/workflows/execution.ts` - public/latest/internal execution handlers and recording enqueue path
 - `wrapper/api/src/routes/workflows/hosted-project-contents.ts` - hosted project content normalization shared by filesystem and managed saves
 - `wrapper/api/src/routes/workflows/storage-backend.ts` - explicit filesystem-versus-managed dispatch for hosted workflow operations
@@ -629,7 +669,7 @@ The workflow-publication UI now follows the same controller-versus-view split as
 - `wrapper/api/src/routes/workflows/managed/endpoint-sync.ts` - endpoint ownership sync and conflict checks
 - `wrapper/api/src/routes/workflows/managed/catalog.ts` - managed folder/project CRUD plus duplicate/upload/download flows
 - `wrapper/api/src/routes/workflows/managed/revisions.ts` - managed save/import flows and revision persistence
-- `wrapper/api/src/routes/workflows/managed/publication.ts` - managed publish/unpublish mutations
+- `wrapper/api/src/routes/workflows/managed/publication.ts` - managed publish/unpublish mutations plus published-version history star/list/download/preview
 - `wrapper/api/src/routes/workflows/managed/recordings.ts` - managed recording import, persistence, listing, artifact reads, and deletion
 - `wrapper/api/src/routes/workflows/managed/execution-cache.ts` - managed endpoint-pointer and immutable revision-payload caches
 - `wrapper/api/src/routes/workflows/managed/execution-invalidation.ts` - managed execution invalidation listener lifecycle and degraded-mode handling
@@ -654,3 +694,4 @@ The workflow-publication UI now follows the same controller-versus-view split as
 - `wrapper/web/dashboard/RecordingWorkflowSelect.tsx` - workflow selector for run recordings
 - `wrapper/web/dashboard/RecordingRunsTable.tsx` - paged runs table for run recordings
 - `wrapper/shared/workflow-recording-types.ts` - shared recording types and virtual replay path helpers
+- `wrapper/shared/workflow-types.ts` - shared workflow types plus managed and published-version preview virtual path helpers

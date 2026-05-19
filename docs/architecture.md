@@ -78,19 +78,19 @@ The important operational detail is that these tiers scale independently. A new 
 - `Download` streams a saved `.rivet-project` file to the browser. It ignores unsaved editor changes and, for `unpublished_changes`, lets the user choose between the saved live file and the published snapshot. The download flow also leaves selection, open tabs, and folder expansion unchanged.
 - `Delete project` in the project context menu never deletes immediately. For unpublished projects it opens the existing Project Settings modal, where the user must click `Delete project` again. For published or `unpublished_changes` projects it shows a toast telling the user to unpublish first.
 - `Upload project` opens a browser file picker, uploads a chosen `.rivet-project` into the target folder, refreshes the tree, and leaves selection, open tabs, and folder expansion unchanged.
-- Project Settings shows `Last published at ...` next to the `Published` or `Unpublished changes` status badge. That timestamp comes from stored publication metadata, with a fallback for older already-published projects that predate the explicit field.
+- Project Settings shows `Last published at ...` next to the `Published` or `Unpublished changes` status badge. That timestamp comes from stored publication metadata, with a fallback for older already-published projects that predate the explicit field. It also links to a published-version-history modal that lists every successful publish for the project and stars, downloads, or previews the selected stored snapshot.
 - `Run recordings` is likewise controller-driven: `useRunRecordingsController.ts` owns workflow loading, status/input filtering, run paging, and delete flow, while `RecordingWorkflowSelect.tsx` and `RecordingRunsTable.tsx` render the focused UI slices.
 - `Runtime libraries` keeps `useRuntimeLibrariesModalState.ts` as the public controller. SSE framing, log merging, and job status patching live in `runtimeLibrariesJobStream.ts`, while the modal panels stay largely presentational.
 - in `filesystem` mode, that modal treats install/remove logs and terminal status as session-local UI state: once the modal is closed after a finished job, reopening it falls back to the installed libraries list unless another job is still actively running. `managed` mode keeps its persisted job-state behavior.
 - Browser picker filtering for Rivet's custom file extensions is not fully reliable across browsers, so the dashboard validates the selected filename after picking and the API validates it again before writing anything.
 - The iframe renders the upstream Rivet app plus wrapper-provided overrides and `EditorMessageBridge`, which coordinates open/delete/replay commands plus parent-page save requests with the dashboard via `window.postMessage`. Save completion, active project changes, and open-project counts are forwarded through `RivetAppHost` callbacks instead of wrapper-owned copies of upstream save/menu hooks. `HostedEditorApp` captures the upstream workspace API through `RivetAppHost.onWorkspaceHostReady`, and open, close, replace-current, and path-move commands enter Rivet through that `RivetWorkspaceHost` instead of wrapper-owned tab-state mutations.
 - Editor keyboard actions such as `Ctrl+C`, `Ctrl+X`, `Ctrl+V`, `Ctrl+D`, iframe-focused `Ctrl+S`, and Rivet find/search shortcuts stay anchored to editor-side behavior inside the iframe. The hosted wrapper now makes the node canvas itself a focus target, clears stale editor search/context-menu input focus on normal canvas interactions, relays dashboard-focused `Ctrl+F` into the iframe, catches iframe-focused physical `KeyF` find shortcuts before the browser opens find, focuses visible mounted editor search fields before falling back to graph search, suppresses the browser focus ring on the iframe/canvas, and lets upstream Rivet's save transition own the actual save behavior.
-- `HostedIOProvider` replaces desktop file APIs with API-backed load/save behavior and supports virtual replay paths of the form `recording://<recordingId>/replay.rivet-project`.
+- `HostedIOProvider` replaces desktop file APIs with API-backed load/save behavior and supports virtual replay paths of the form `recording://<recordingId>/replay.rivet-project` plus read-only published-version preview paths of the form `published-version-preview://<encodedRelativePath>/<encodedVersionId>/preview.rivet-project`.
 - Wrapper-specific UI lives under `wrapper/web/dashboard/`. Hosted editor hook/component overrides live under `wrapper/web/overrides/`. Upstream editor UI still lives under `rivet/packages/app/`.
 
 ## API surface overview
 
-- `/api/workflows/*` manages workflow folders/projects, project creation/duplication/uploading/downloading, publication, movement/rename, and the recordings browser APIs.
+- `/api/workflows/*` manages workflow folders/projects, project creation/duplication/uploading/downloading, publication, published-version history, movement/rename, and the recordings browser APIs.
 - `/api/runtime-libraries/*` manages runtime-library state, replica readiness, stale-replica cleanup, install/remove jobs, job cancellation, and live log streaming over SSE from the control plane.
 - `/api/native/*` exposes the hosted editor's filesystem API, constrained to allowed roots and supported base dirs.
 - `/api/projects/*` exposes hosted project discovery and IO helper routes (`/list`, `/open-dialog`, `/load`, `/save`, `/workspace-root`) for the hosted IO provider.
@@ -147,6 +147,7 @@ Storage mode decides which of those paths are authoritative:
 
 - `RIVET_STORAGE_MODE=filesystem`
   - workflows are authoritative under `RIVET_WORKFLOWS_ROOT`
+  - published version history and its durable star state live under the workflow root's hidden `.published/` directory
   - runtime libraries are authoritative under `RIVET_RUNTIME_LIBRARIES_ROOT`
   - published/latest workflow execution now keeps a local startup-warmed endpoint index plus a lazy materialization cache on the API process
   - the cache facade delegates uncached resolution/materialization to a dedicated filesystem execution source, so degraded requests can bypass the cache without inventing separate publication rules
@@ -156,6 +157,7 @@ Storage mode decides which of those paths are authoritative:
   - full unpublish closes both public route families even though the saved draft `endpointName` remains stored for later republish convenience
 - `RIVET_STORAGE_MODE=managed`
   - workflow metadata lives in Postgres and workflow blobs live in object storage
+  - published version history and its durable star state live in Postgres `workflow_published_versions` and points at durable workflow revision blobs in object storage
   - workflow recording metadata lives in Postgres `workflow_recordings`
   - workflow recording artifacts live in object storage
   - API replicas may keep local warm execution caches for endpoint pointers and immutable revision payloads; those caches are derived accelerators, not a new source of truth

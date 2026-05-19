@@ -20,6 +20,16 @@ type MockWorkflowProjectItem = {
   };
 };
 
+type MockPublishedVersionSummary = {
+  id: string;
+  projectId: string;
+  projectName: string;
+  endpointName: string;
+  publishedAt: string;
+  isCurrent: boolean;
+  isStarred: boolean;
+};
+
 function createProjectSettingsFixture(name: string): MockWorkflowProjectItem {
   return {
     id: 'project-settings-fixture',
@@ -40,7 +50,56 @@ function createProjectSettingsFixture(name: string): MockWorkflowProjectItem {
   };
 }
 
-async function installProjectSettingsRoutes(page: Page, project: MockWorkflowProjectItem): Promise<void> {
+function createPublishedVersionPreviewProject(project: MockWorkflowProjectItem, versionId: string): string {
+  const graphId = `${versionId}-graph`;
+
+  return [
+    'version: 4',
+    'data:',
+    '  metadata:',
+    `    id: ${JSON.stringify(project.id)}`,
+    `    title: ${JSON.stringify(project.name)}`,
+    '    description: ""',
+    `    mainGraphId: ${JSON.stringify(graphId)}`,
+    '  graphs:',
+    `    ${JSON.stringify(graphId)}:`,
+    '      metadata:',
+    `        id: ${JSON.stringify(graphId)}`,
+    '        name: "Main Graph"',
+    '        description: ""',
+    '      nodes: {}',
+    '  plugins: []',
+    '  references: []',
+    '',
+  ].join('\n');
+}
+
+async function installProjectSettingsRoutes(
+  page: Page,
+  project: MockWorkflowProjectItem,
+  options: {
+    publishedVersionPreviewRequests: Array<{ relativePath: string; versionId: string }>;
+    publishedVersionStarRequests: Array<{ relativePath: string; versionId: string; isStarred: boolean }>;
+  },
+): Promise<void> {
+  const publishedVersions: MockPublishedVersionSummary[] = Array.from({ length: 12 }, (_, index) => ({
+    id: `published-version-${index + 1}`,
+    projectId: project.id,
+    projectName: project.name,
+    endpointName: `codex-project-settings-endpoint-${index + 1}`,
+    publishedAt: new Date(Date.UTC(2026, 3, 8, 10, 30 - index, 0)).toISOString(),
+    isCurrent: false,
+    isStarred: false,
+  }));
+  const getPublishedVersions = () => {
+    const endpointName = project.settings.endpointName || 'codex-project-settings-endpoint';
+    return publishedVersions.map((version, index) => ({
+      ...version,
+      endpointName: index === 0 ? endpointName : `${endpointName}-${index + 1}`,
+      isCurrent: index === 0 && project.settings.status !== 'unpublished',
+    }));
+  };
+
   await page.route('**/api/workflows/tree', async (route) => {
     await route.fulfill({
       status: 200,
@@ -80,6 +139,59 @@ async function installProjectSettingsRoutes(page: Page, project: MockWorkflowPro
       body: JSON.stringify({ project }),
     });
   });
+
+  await page.route('**/api/workflows/projects/published-versions?*', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        versions: getPublishedVersions(),
+      }),
+    });
+  });
+
+  await page.route('**/api/workflows/projects/published-versions/star', async (route) => {
+    const requestBody = route.request().postDataJSON() as {
+      relativePath: string;
+      versionId: string;
+      isStarred: boolean;
+    };
+    options.publishedVersionStarRequests.push(requestBody);
+    const version = publishedVersions.find((candidate) => candidate.id === requestBody.versionId);
+    if (!version) {
+      await route.fulfill({
+        status: 404,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'Published version not found' }),
+      });
+      return;
+    }
+
+    version.isStarred = requestBody.isStarred;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        version: getPublishedVersions().find((candidate) => candidate.id === requestBody.versionId),
+      }),
+    });
+  });
+
+  await page.route('**/api/workflows/projects/published-versions/preview', async (route) => {
+    const requestBody = route.request().postDataJSON() as {
+      relativePath: string;
+      versionId: string;
+    };
+    options.publishedVersionPreviewRequests.push(requestBody);
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        contents: createPublishedVersionPreviewProject(project, requestBody.versionId),
+        datasetsContents: null,
+      }),
+    });
+  });
 }
 
 test.describe('Project settings modal', () => {
@@ -89,7 +201,9 @@ test.describe('Project settings modal', () => {
     const unique = 'codex-project-settings-fixture';
     const endpointName = 'codex-project-settings-endpoint';
     const project = createProjectSettingsFixture(unique);
-    await installProjectSettingsRoutes(page, project);
+    const publishedVersionPreviewRequests: Array<{ relativePath: string; versionId: string }> = [];
+    const publishedVersionStarRequests: Array<{ relativePath: string; versionId: string; isStarred: boolean }> = [];
+    await installProjectSettingsRoutes(page, project, { publishedVersionPreviewRequests, publishedVersionStarRequests });
 
     await page.goto('/', { waitUntil: 'domcontentloaded' });
     await authenticateIfNeeded(page);
@@ -113,17 +227,68 @@ test.describe('Project settings modal', () => {
 
     await modal.getByRole('button', { name: 'Publish...' }).click();
     const endpointInput = modal.locator('#workflow-project-endpoint-name');
+    await expect(modal.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible();
+    await expect(modal.getByRole('button', { name: 'Published version history' })).toHaveCount(0);
+    await modal.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(endpointInput).toHaveCount(0);
+    await expect(modal.getByRole('button', { name: 'Published version history' })).toBeVisible();
+
+    await modal.getByRole('button', { name: 'Publish...' }).click();
     await endpointInput.fill('bad endpoint');
-    await expect(modal.getByRole('button', { name: 'Publish' })).toBeDisabled();
+    await expect(modal.getByRole('button', { name: 'Publish', exact: true })).toBeDisabled();
     await expect(modal.locator('.project-settings-error')).toContainText(
       'Endpoint name must contain only letters, numbers, and hyphens.',
     );
 
     await endpointInput.fill(endpointName);
-    await expect(modal.getByRole('button', { name: 'Publish' })).toBeEnabled();
-    await modal.getByRole('button', { name: 'Publish' }).click();
+    await expect(modal.getByRole('button', { name: 'Publish', exact: true })).toBeEnabled();
+    await modal.getByRole('button', { name: 'Publish', exact: true }).click();
     await expect(modal.locator('.project-status-badge.published')).toBeVisible({ timeout: 30_000 });
     await expect(modal.getByRole('button', { name: 'Delete project' })).toHaveCount(0);
+
+    await modal.getByRole('button', { name: 'Published version history' }).click();
+    const historyModal = page.getByTestId('workflow-published-version-history-modal');
+    await expect(historyModal).toBeVisible();
+    await expect(historyModal).toContainText('Published version history');
+    await expect(historyModal).toContainText(endpointName);
+    await expect(historyModal).toContainText('Current');
+    await expect(historyModal.getByRole('listitem')).toHaveCount(10);
+    await expect(historyModal.getByRole('button', { name: 'Preview' })).toHaveCount(10);
+    await expect(historyModal.getByRole('button', { name: 'Star published version' })).toHaveCount(10);
+    await historyModal.getByRole('button', { name: 'Star published version' }).first().click();
+    await expect(historyModal.getByRole('button', { name: 'Unstar published version' })).toHaveCount(1);
+    expect(publishedVersionStarRequests).toEqual([{
+      relativePath: project.relativePath,
+      versionId: 'published-version-1',
+      isStarred: true,
+    }]);
+    await historyModal.getByRole('button', { name: 'Close published version history' }).click();
+    await expect(historyModal).toHaveCount(0);
+    await modal.getByRole('button', { name: 'Published version history' }).click();
+    await expect(historyModal.getByRole('button', { name: 'Unstar published version' })).toHaveCount(1);
+    await expect(historyModal.getByText('Page 1 of 2')).toBeVisible();
+    await expect(historyModal.getByRole('button', { name: 'Previous' })).toBeDisabled();
+    await historyModal.getByRole('button', { name: 'Next' }).click();
+    await expect(historyModal.getByRole('listitem')).toHaveCount(2);
+    await expect(historyModal.getByText('Page 2 of 2')).toBeVisible();
+    await expect(historyModal).toContainText(`${endpointName}-11`);
+    await expect(historyModal.getByRole('button', { name: 'Close', exact: true })).toHaveCount(0);
+    await historyModal.getByRole('button', { name: 'Previous' }).click();
+    await historyModal.getByRole('button', { name: 'Preview' }).first().click();
+    await expect(historyModal).toHaveCount(0);
+    await expect.poll(() => publishedVersionPreviewRequests.length).toBe(1);
+    expect(publishedVersionPreviewRequests[0]).toEqual({
+      relativePath: project.relativePath,
+      versionId: 'published-version-1',
+    });
+    await expect(page.locator('.dashboard-empty-state')).toBeHidden();
+    await expect(page.locator('.Toastify__toast', { hasText: 'Failed to open project' })).toHaveCount(0);
+    await expect(modal).toHaveCount(0);
+
+    await projectRow.click();
+    await page.getByRole('button', { name: 'Settings', exact: true }).click();
+    await expect(modal).toBeVisible();
+    await expect(modal.locator('.project-status-badge.published')).toBeVisible({ timeout: 30_000 });
 
     page.once('dialog', (dialog) => dialog.accept());
     await modal.getByRole('button', { name: 'Unpublish' }).click();

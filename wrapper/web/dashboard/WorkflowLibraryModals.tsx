@@ -3,6 +3,7 @@ import { AboutModal } from './AboutModal';
 import { ProjectSettingsModal } from './ProjectSettingsModal';
 import { RuntimeLibrariesModal } from './RuntimeLibrariesModal';
 import { RunRecordingsModal } from './RunRecordingsModal';
+import { WorkflowPublishedVersionHistoryModal } from './WorkflowPublishedVersionHistoryModal';
 import { WorkflowProjectDownloadModal } from './WorkflowProjectDownloadModal';
 import { useWorkflowLibraryController } from './useWorkflowLibraryController';
 
@@ -14,8 +15,11 @@ export const WorkflowLibraryModals: FC<{
   const {
     settingsModalOpen,
     settingsModalProject,
+    publishedHistoryProject,
     allProjects,
     closeSettingsModal,
+    openPublishedHistoryModal,
+    closePublishedHistoryModal,
     refresh,
     onDeleteProject,
     runtimeLibsOpen,
@@ -25,6 +29,7 @@ export const WorkflowLibraryModals: FC<{
     aboutOpen,
     setAboutOpen,
     onOpenRecording,
+    onOpenPublishedVersionPreview,
     projectModalProject,
     projectModalMode,
     projectModalActiveVersion,
@@ -43,8 +48,15 @@ export const WorkflowLibraryModals: FC<{
           onClose={closeSettingsModal}
           onRefresh={() => refresh(false)}
           onDeleteProject={onDeleteProject}
+          onOpenPublishedHistory={openPublishedHistoryModal}
         />
       ) : null}
+      <WorkflowPublishedVersionHistoryModal
+        isOpen={publishedHistoryProject != null}
+        project={publishedHistoryProject}
+        onClose={closePublishedHistoryModal}
+        onPreviewVersion={onOpenPublishedVersionPreview}
+      />
       <RuntimeLibrariesModal
         isOpen={runtimeLibsOpen}
         onClose={() => setRuntimeLibsOpen(false)}

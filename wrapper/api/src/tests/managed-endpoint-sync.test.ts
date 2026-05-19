@@ -180,6 +180,7 @@ function createWorkflowRow(overrides: Partial<WorkflowRow> = {}): WorkflowRow {
     updated_at: new Date().toISOString(),
     current_draft_revision_id: 'revision-a',
     published_revision_id: 'revision-a',
+    published_version_id: 'version-a',
     endpoint_name: '',
     published_endpoint_name: '',
     last_published_at: null,

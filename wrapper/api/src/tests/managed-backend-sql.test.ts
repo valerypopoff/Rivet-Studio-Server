@@ -20,6 +20,7 @@ function createExecutionLookupRow() {
     updated_at: new Date().toISOString(),
     current_draft_revision_id: 'draft-revision',
     published_revision_id: 'published-revision',
+    published_version_id: 'published-version',
     endpoint_name: 'latest-only',
     published_endpoint_name: 'public-live',
     last_published_at: new Date().toISOString(),
@@ -68,6 +69,27 @@ test('managed folder move SQL escapes wildcard characters in prefix LIKE pattern
     temporaryEscapeMatches.length >= 2,
     `Expected temporary prefix LIKE clauses to use ESCAPE, found ${temporaryEscapeMatches.length}`,
   );
+});
+
+test('managed schema keeps published version history physically tied to workflow revisions', () => {
+  assert.ok(managedSchemaSource.includes('published_version_id TEXT NULL'));
+  assert.ok(managedSchemaSource.includes('ALTER TABLE workflows ADD COLUMN IF NOT EXISTS published_version_id TEXT NULL;'));
+  assert.ok(managedSchemaSource.includes('CREATE TABLE IF NOT EXISTS workflow_published_versions'));
+  assert.ok(managedSchemaSource.includes('is_starred BOOLEAN NOT NULL DEFAULT FALSE'));
+  assert.ok(managedSchemaSource.includes('ALTER TABLE workflow_published_versions ADD COLUMN IF NOT EXISTS is_starred BOOLEAN NOT NULL DEFAULT FALSE;'));
+  assert.ok(managedSchemaSource.includes('FOREIGN KEY (workflow_id) REFERENCES workflows(workflow_id) ON DELETE CASCADE'));
+  assert.ok(managedSchemaSource.includes('FOREIGN KEY (revision_id) REFERENCES workflow_revisions(revision_id) ON DELETE CASCADE'));
+  assert.ok(managedSchemaSource.includes('workflow_published_versions_workflow_id_published_at_idx'));
+});
+
+test('managed publication backfills legacy current versions before new publishes', async () => {
+  const managedPublicationSource = await fs.readFile(
+    new URL('../routes/workflows/managed/publication.ts', import.meta.url),
+    'utf8',
+  );
+
+  assert.ok(managedPublicationSource.includes('!workflow.published_version_id && workflow.published_revision_id'));
+  assert.ok(managedPublicationSource.includes('ON CONFLICT (version_id) DO NOTHING'));
 });
 
 test('managed save keeps a published project published when the save is a no-op', () => {

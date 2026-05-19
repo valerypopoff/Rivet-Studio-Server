@@ -7,6 +7,10 @@ import type {
   WorkflowProjectSettings,
   WorkflowProjectSettingsDraft,
   WorkflowProjectStatus,
+  WorkflowPublishedVersionStarResponse,
+  WorkflowPublishedVersionSummary,
+  WorkflowPublishedVersionPreviewResponse,
+  WorkflowPublishedVersionsResponse,
 } from '../../shared/workflow-types';
 import type {
   WorkflowRecordingFilterStatus,
@@ -30,6 +34,10 @@ export type {
   WorkflowProjectSettings,
   WorkflowProjectSettingsDraft,
   WorkflowProjectStatus,
+  WorkflowPublishedVersionStarResponse,
+  WorkflowPublishedVersionSummary,
+  WorkflowPublishedVersionPreviewResponse,
+  WorkflowPublishedVersionsResponse,
   WorkflowRecordingFilterStatus,
   WorkflowRecordingInputFilter,
   WorkflowRecordingInputFilterOperator,

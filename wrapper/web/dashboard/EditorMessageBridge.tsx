@@ -28,6 +28,9 @@ import {
   getWorkflowRecordingIdFromVirtualProjectPath,
   getWorkflowRecordingVirtualProjectPath,
 } from '../../shared/workflow-recording-types';
+import {
+  getWorkflowPublishedVersionPreviewVirtualProjectPath,
+} from '../../shared/workflow-types';
 import { fetchWorkflowRecordingArtifactText } from './workflowApi';
 import { clearOpenedProjectSession, remapOpenedProjectSessionPaths } from '../io/openedProjectSessionCache';
 import { clearHostedProjectRevisionPath, remapHostedProjectRevisionPaths } from '../io/HostedIOProvider';
@@ -306,7 +309,9 @@ export const EditorMessageBridge: FC<EditorMessageBridgeProps> = ({ workspaceHos
   }, []);
 
   useEffect(() => {
-    type OpenCommand = Extract<DashboardToEditorCommand, { type: 'open-project' | 'open-recording' }>;
+    type OpenCommand = Extract<DashboardToEditorCommand, {
+      type: 'open-project' | 'open-recording' | 'open-published-version-preview';
+    }>;
 
     const runOpenCommand = async (command: OpenCommand): Promise<void> => {
       switch (command.type) {
@@ -371,6 +376,35 @@ export const EditorMessageBridge: FC<EditorMessageBridgeProps> = ({ workspaceHos
           }
 
           break;
+
+        case 'open-published-version-preview': {
+          const virtualProjectPath = getWorkflowPublishedVersionPreviewVirtualProjectPath(
+            command.relativePath,
+            command.versionId,
+          );
+          try {
+            const replacedPath = command.replaceCurrent ? loadedProjectRef.current.path : '';
+            const opened = await openProjectRef.current(virtualProjectPath, {
+              replaceCurrent: Boolean(command.replaceCurrent),
+            });
+            if (!opened) {
+              break;
+            }
+
+            if (replacedPath && replacedPath !== virtualProjectPath) {
+              recordingByProjectPathRef.current.delete(replacedPath);
+            }
+            setLoadedRecording(null);
+            focusHostedEditorFrame();
+            postMessageToDashboard({ type: 'project-opened', path: virtualProjectPath });
+          } catch (error) {
+            const message = getError(error).message;
+            console.error('Failed to open published version preview:', error);
+            postMessageToDashboard({ type: 'project-open-failed', path: virtualProjectPath, error: message });
+          }
+
+          break;
+        }
       }
     };
 
@@ -456,6 +490,7 @@ export const EditorMessageBridge: FC<EditorMessageBridgeProps> = ({ workspaceHos
 
         case 'open-project':
         case 'open-recording':
+        case 'open-published-version-preview':
           enqueueOpenCommand(event.data);
           break;
       }

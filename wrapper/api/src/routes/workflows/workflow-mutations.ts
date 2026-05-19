@@ -38,6 +38,11 @@ import {
   writePublishedWorkflowSnapshot,
   writeStoredWorkflowProjectSettings,
 } from './publication.js';
+import {
+  deleteWorkflowPublishedVersionsByProjectId,
+  ensureCurrentPublishedWorkflowVersionMetadata,
+  writePublishedWorkflowVersionMetadata,
+} from './published-versions.js';
 import { getWorkflowDuplicateProjectName } from './workflow-project-naming.js';
 import { deleteWorkflowRecordingsBySourceProjectPath, deleteWorkflowRecordingsByWorkflowId } from './recordings.js';
 import { getWorkflowFolder, getWorkflowProject } from './workflow-query.js';
@@ -439,16 +444,35 @@ export async function publishWorkflowProjectItem(relativePath: unknown, settings
   const normalizedSettings = normalizeWorkflowProjectSettingsDraft(settings);
   await ensureWorkflowEndpointNameIsUnique(root, projectPath, normalizedSettings.endpointName);
   const publishedStateHash = await createWorkflowPublicationStateHash(projectPath, normalizedSettings.endpointName);
-  const publishedSnapshotId = existingSettings.publishedSnapshotId ?? randomUUID();
+  const publishedSnapshotId = randomUUID();
   const lastPublishedAt = new Date().toISOString();
-  await writePublishedWorkflowSnapshot(root, projectPath, publishedSnapshotId);
-  await writeStoredWorkflowProjectSettings(projectPath, {
-    endpointName: normalizedSettings.endpointName,
-    publishedEndpointName: normalizedSettings.endpointName,
-    publishedSnapshotId,
-    publishedStateHash,
-    lastPublishedAt,
-  });
+
+  try {
+    await ensureCurrentPublishedWorkflowVersionMetadata({
+      root,
+      projectPath,
+      settings: existingSettings,
+    });
+    await writePublishedWorkflowSnapshot(root, projectPath, publishedSnapshotId);
+    await writePublishedWorkflowVersionMetadata({
+      root,
+      projectPath,
+      snapshotId: publishedSnapshotId,
+      endpointName: normalizedSettings.endpointName,
+      stateHash: publishedStateHash,
+      publishedAt: lastPublishedAt,
+    });
+    await writeStoredWorkflowProjectSettings(projectPath, {
+      endpointName: normalizedSettings.endpointName,
+      publishedEndpointName: normalizedSettings.endpointName,
+      publishedSnapshotId,
+      publishedStateHash,
+      lastPublishedAt,
+    });
+  } catch (error) {
+    await deletePublishedWorkflowSnapshot(root, publishedSnapshotId).catch(() => {});
+    throw error;
+  }
 
   return getWorkflowProject(root, projectPath);
 }
@@ -461,7 +485,11 @@ export async function unpublishWorkflowProjectItem(relativePath: unknown) {
 
   const projectName = path.basename(projectPath, PROJECT_EXTENSION);
   const existingSettings = await readStoredWorkflowProjectSettings(projectPath, projectName);
-  await deletePublishedWorkflowSnapshot(root, existingSettings.publishedSnapshotId);
+  await ensureCurrentPublishedWorkflowVersionMetadata({
+    root,
+    projectPath,
+    settings: existingSettings,
+  });
   await writeStoredWorkflowProjectSettings(projectPath, {
     endpointName: existingSettings.endpointName,
     publishedEndpointName: '',
@@ -485,6 +513,7 @@ export async function deleteWorkflowProjectItem(relativePath: unknown) {
     .then((project) => project.metadata.id ?? null)
     .catch(() => null);
   await deletePublishedWorkflowSnapshot(root, existingSettings.publishedSnapshotId);
+  await deleteWorkflowPublishedVersionsByProjectId(root, projectMetadataId);
   await deleteProjectWithSidecars(projectPath);
   await deleteWorkflowRecordingsByWorkflowId(root, projectMetadataId);
   await deleteWorkflowRecordingsBySourceProjectPath(root, projectPath);

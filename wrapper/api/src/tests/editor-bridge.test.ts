@@ -40,6 +40,15 @@ test('editor bridge accepts valid dashboard commands', () => {
   );
   assert.equal(
     isDashboardToEditorCommand({
+      type: 'open-published-version-preview',
+      relativePath: 'folder/example.rivet-project',
+      versionId: 'published-version-id',
+      replaceCurrent: false,
+    }),
+    true,
+  );
+  assert.equal(
+    isDashboardToEditorCommand({
       type: 'workflow-paths-moved',
       moves: [{ fromAbsolutePath: '/a', toAbsolutePath: '/b' }],
     }),
@@ -50,6 +59,14 @@ test('editor bridge accepts valid dashboard commands', () => {
 test('editor bridge rejects malformed messages', () => {
   assert.equal(isDashboardToEditorCommand({ type: 'open-project', path: '/tmp/example.rivet-project' }), false);
   assert.equal(isDashboardToEditorCommand({ type: 'open-recording', recordingId: 123 }), false);
+  assert.equal(
+    isDashboardToEditorCommand({
+      type: 'open-published-version-preview',
+      relativePath: 'folder/example.rivet-project',
+      versionId: 'published-version-id',
+    }),
+    false,
+  );
   assert.equal(isDashboardToEditorCommand({ type: 'trigger-editor-find-shortcut' }), false);
   assert.equal(
     isDashboardToEditorCommand({

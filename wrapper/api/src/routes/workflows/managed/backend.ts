@@ -3,6 +3,8 @@ import type {
   WorkflowProjectDownloadVersion,
   WorkflowProjectItem,
   WorkflowProjectPathMove,
+  WorkflowPublishedVersionSummary,
+  WorkflowPublishedVersionsResponse,
 } from '../../../../../shared/workflow-types.js';
 import type {
   WorkflowRecordingFilterStatus,
@@ -140,6 +142,26 @@ export class ManagedWorkflowBackend {
 
   async readWorkflowProjectDownload(relativePath: unknown, version: WorkflowProjectDownloadVersion): Promise<{ contents: string; fileName: string }> {
     return this.#catalog.readWorkflowProjectDownload(relativePath, version);
+  }
+
+  async listWorkflowPublishedVersions(relativePath: unknown): Promise<WorkflowPublishedVersionsResponse> {
+    return this.#publication.listWorkflowPublishedVersions(relativePath);
+  }
+
+  async readWorkflowPublishedVersionDownload(relativePath: unknown, versionId: unknown): Promise<{ contents: string; fileName: string }> {
+    return this.#publication.readWorkflowPublishedVersionDownload(relativePath, versionId);
+  }
+
+  async readWorkflowPublishedVersionPreview(relativePath: unknown, versionId: unknown): Promise<{ contents: string; datasetsContents: string | null }> {
+    return this.#publication.readWorkflowPublishedVersionPreview(relativePath, versionId);
+  }
+
+  async setWorkflowPublishedVersionStar(
+    relativePath: unknown,
+    versionId: unknown,
+    isStarred: unknown,
+  ): Promise<WorkflowPublishedVersionSummary> {
+    return this.#publication.setWorkflowPublishedVersionStar(relativePath, versionId, isStarred);
   }
 
   async publishWorkflowProjectItem(relativePath: unknown, settings: unknown): Promise<WorkflowProjectItem> {

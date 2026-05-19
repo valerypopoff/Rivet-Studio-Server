@@ -26,6 +26,7 @@ Rivet Studio Server is a self-hosted personal Rivet platform with a UI that you 
 - [Editor bridge](./docs/editor-bridge.md)
 - [Workflow publication](./docs/workflow-publication.md)
 - [Runtime libraries](./docs/runtime-libraries.md)
+- [Refactor history](./docs/refactor-history.md)
 
 ## Repository Map
 

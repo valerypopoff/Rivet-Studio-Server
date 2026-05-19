@@ -8,6 +8,8 @@ import type {
   WorkflowProjectItem,
   WorkflowProjectPathMove,
   WorkflowProjectSettingsDraft,
+  WorkflowPublishedVersionSummary,
+  WorkflowPublishedVersionsResponse,
 } from '../../../../shared/workflow-types.js';
 import type {
   WorkflowRecordingFilterStatus,
@@ -41,6 +43,12 @@ import {
   unpublishWorkflowProjectItem,
 } from './workflow-mutations.js';
 import { readWorkflowProjectDownload } from './workflow-download.js';
+import {
+  listWorkflowPublishedVersions,
+  readWorkflowPublishedVersionDownload,
+  readWorkflowPublishedVersionPreview,
+  setWorkflowPublishedVersionStar,
+} from './published-versions.js';
 import {
   deleteWorkflowRecording,
   initializeWorkflowRecordingStorage,
@@ -434,6 +442,40 @@ export async function readWorkflowProjectDownloadWithBackend(relativePath: unkno
   return delegate(
     async (backend) => backend.readWorkflowProjectDownload(relativePath, version),
     async () => readWorkflowProjectDownload(relativePath, version),
+  );
+}
+
+export async function listWorkflowPublishedVersionsWithBackend(
+  relativePath: unknown,
+): Promise<WorkflowPublishedVersionsResponse> {
+  return delegate(
+    async (backend) => backend.listWorkflowPublishedVersions(relativePath),
+    async () => listWorkflowPublishedVersions(relativePath),
+  );
+}
+
+export async function readWorkflowPublishedVersionDownloadWithBackend(relativePath: unknown, versionId: unknown) {
+  return delegate(
+    async (backend) => backend.readWorkflowPublishedVersionDownload(relativePath, versionId),
+    async () => readWorkflowPublishedVersionDownload(relativePath, versionId),
+  );
+}
+
+export async function readWorkflowPublishedVersionPreviewWithBackend(relativePath: unknown, versionId: unknown) {
+  return delegate(
+    async (backend) => backend.readWorkflowPublishedVersionPreview(relativePath, versionId),
+    async () => readWorkflowPublishedVersionPreview(relativePath, versionId),
+  );
+}
+
+export async function setWorkflowPublishedVersionStarWithBackend(
+  relativePath: unknown,
+  versionId: unknown,
+  isStarred: unknown,
+): Promise<WorkflowPublishedVersionSummary> {
+  return delegate(
+    async (backend) => backend.setWorkflowPublishedVersionStar(relativePath, versionId, isStarred),
+    async () => setWorkflowPublishedVersionStar(relativePath, versionId, isStarred),
   );
 }
 

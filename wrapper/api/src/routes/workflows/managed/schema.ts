@@ -15,10 +15,13 @@ CREATE TABLE IF NOT EXISTS workflows (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   current_draft_revision_id TEXT NOT NULL,
   published_revision_id TEXT NULL,
+  published_version_id TEXT NULL,
   endpoint_name TEXT NOT NULL DEFAULT '',
   published_endpoint_name TEXT NOT NULL DEFAULT '',
   last_published_at TIMESTAMPTZ NULL
 );
+
+ALTER TABLE workflows ADD COLUMN IF NOT EXISTS published_version_id TEXT NULL;
 
 CREATE INDEX IF NOT EXISTS workflows_folder_relative_path_idx ON workflows(folder_relative_path);
 CREATE INDEX IF NOT EXISTS workflows_published_endpoint_name_idx ON workflows(published_endpoint_name);
@@ -33,6 +36,22 @@ CREATE TABLE IF NOT EXISTS workflow_revisions (
 );
 
 CREATE INDEX IF NOT EXISTS workflow_revisions_workflow_id_idx ON workflow_revisions(workflow_id);
+
+CREATE TABLE IF NOT EXISTS workflow_published_versions (
+  version_id TEXT PRIMARY KEY,
+  workflow_id TEXT NOT NULL,
+  revision_id TEXT NOT NULL,
+  endpoint_name TEXT NOT NULL,
+  published_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  is_starred BOOLEAN NOT NULL DEFAULT FALSE,
+  FOREIGN KEY (workflow_id) REFERENCES workflows(workflow_id) ON DELETE CASCADE,
+  FOREIGN KEY (revision_id) REFERENCES workflow_revisions(revision_id) ON DELETE CASCADE
+);
+
+ALTER TABLE workflow_published_versions ADD COLUMN IF NOT EXISTS is_starred BOOLEAN NOT NULL DEFAULT FALSE;
+
+CREATE INDEX IF NOT EXISTS workflow_published_versions_workflow_id_published_at_idx
+  ON workflow_published_versions(workflow_id, published_at DESC);
 
 CREATE TABLE IF NOT EXISTS workflow_endpoints (
   lookup_name TEXT PRIMARY KEY,

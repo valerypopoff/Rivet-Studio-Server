@@ -48,6 +48,18 @@ export const DashboardPage: FC = () => {
     [postEditorCommand],
   );
 
+  const handleOpenPublishedVersionPreview = useCallback(
+    (relativePath: string, versionId: string, options?: { replaceCurrent?: boolean }) => {
+      postEditorCommand({
+        type: 'open-published-version-preview',
+        relativePath,
+        versionId,
+        replaceCurrent: Boolean(options?.replaceCurrent),
+      });
+    },
+    [postEditorCommand],
+  );
+
   const handleSaveProject = useCallback(() => {
     postEditorCommand({ type: 'save-project' });
   }, [postEditorCommand]);
@@ -117,6 +129,7 @@ export const DashboardPage: FC = () => {
         <WorkflowLibraryPanel
           onOpenProject={handleOpenProject}
           onOpenRecording={handleOpenRecording}
+          onOpenPublishedVersionPreview={handleOpenPublishedVersionPreview}
           onSaveProject={handleSaveProject}
           onDeleteProject={handleDeleteProject}
           onWorkflowPathsMoved={handleWorkflowPathsMoved}

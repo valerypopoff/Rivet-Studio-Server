@@ -12,6 +12,11 @@ import './WorkflowLibraryPanel.css';
 interface WorkflowLibraryPanelProps {
   onOpenProject: (path: string, options?: { replaceCurrent?: boolean }) => void;
   onOpenRecording: (recordingId: string, options?: { replaceCurrent?: boolean }) => void;
+  onOpenPublishedVersionPreview: (
+    relativePath: string,
+    versionId: string,
+    options?: { replaceCurrent?: boolean },
+  ) => void;
   onSaveProject: () => void;
   onDeleteProject: (path: string, projectId?: string | null) => void;
   onWorkflowPathsMoved: (moves: WorkflowProjectPathMove[]) => void;
@@ -40,6 +45,7 @@ const SidebarExpandIcon: FC = () => (
 export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   onOpenProject,
   onOpenRecording,
+  onOpenPublishedVersionPreview,
   onSaveProject,
   onDeleteProject,
   onWorkflowPathsMoved,
@@ -54,6 +60,7 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   const controller = useWorkflowLibraryController({
     onOpenProject,
     onOpenRecording,
+    onOpenPublishedVersionPreview,
     onDeleteProject,
     onWorkflowPathsMoved,
     onActiveWorkflowProjectPathChange,
