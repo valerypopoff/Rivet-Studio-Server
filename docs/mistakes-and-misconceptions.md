@@ -73,6 +73,7 @@ If behavior is correct in `npm run dev`, it is effectively verified for `npm run
 
 - `npm run dev` uses the Docker dev stack with live workspace mounts and the Vite dev server
 - `npm run prod` and `npm run prod:prebuilt` pull the published `cloud-hosted-rivet2-wrapper/*` images and force-recreate the stack without building
+- `npm run prod:restart` force-recreates the stack from already-local images without pulling or building, which is only for picking up `.env` changes without changing the app version
 - `npm run prod:custom` builds production images from the current wrapper workspace and the current `rivet/` folder
 
 These modes are related, but they are not the same artifact and not the same risk profile.
@@ -88,12 +89,14 @@ Use the mode that matches the question:
 - `npm run dev` for iterative development
 - `npm run prod:custom` to verify the current wrapper and current `rivet/` folder as production images
 - `npm run prod` or `npm run prod:prebuilt` to verify what was actually published
+- `npm run prod:restart` to re-read `.env` on an already-deployed production-style Docker stack without pulling newer GHCR images
 
 ### Prevention
 
 - when dev works and prod does not, suspect an artifact mismatch before blaming caching or browser state
 - when testing a hosted production fix, verify both the local production build and the published image path
 - do not treat `npm run prod` as proof that your local changes are running; it is intentionally the published-image path
+- do not use `npm run prod:restart` as a deployment/update command; it intentionally keeps the already-local images
 - for local unpublished work, prefer `npm run prod:custom`
 - for deployment verification, prefer `npm run prod` or `npm run prod:prebuilt`
 

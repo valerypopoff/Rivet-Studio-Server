@@ -47,6 +47,9 @@ async function main() {
       `${composeBase} pull proxy web api executor`,
       `${composeBase} up -d --no-build --force-recreate --remove-orphans --wait --wait-timeout ${waitTimeoutSeconds}`,
     ],
+    restart: [
+      `${composeBase} up -d --no-build --force-recreate --remove-orphans --wait --wait-timeout ${waitTimeoutSeconds}`,
+    ],
     custom: [
       `${composeBase} up -d --build --force-recreate --remove-orphans --wait --wait-timeout ${waitTimeoutSeconds}`,
     ],
@@ -56,7 +59,7 @@ async function main() {
 
   if (!commands) {
     console.error(`Unknown action: ${action}`);
-    console.error('Usage: node scripts/prod-docker.mjs [prebuilt|custom]');
+    console.error('Usage: node scripts/prod-docker.mjs [prebuilt|restart|custom]');
     process.exit(1);
   }
 

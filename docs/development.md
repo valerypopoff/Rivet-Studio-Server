@@ -47,6 +47,7 @@ See also: [Repo structure](./repo-structure.md)
 | `npm run dev:local:executor` | Starts only the executor locally | Executor debugging |
 | `npm run prod` | Pulls the prebuilt Rivet 2 images, force-recreates the production-style Docker stack, and waits for health | Normal VM deployment/update path |
 | `npm run prod:prebuilt` | Same prebuilt-image deployment path as `npm run prod` | Explicit published-artifact verification |
+| `npm run prod:restart` | Force-recreates the production-style Docker stack from already-local images without pulling or building | Pick up `.env` changes without changing the running image version |
 | `npm run prod:custom` | Builds and force-recreates the production-style Docker stack from this repo plus the current `rivet/` folder | Test custom wrapper/Rivet source changes |
 | `npm run verify:filesystem` | Runs the repo-local compatibility baseline for single-host filesystem mode | Check that filesystem mode still has build/test and launcher-contract coverage |
 | `npm run verify:filesystem:docker` | Verifies the filesystem Docker launcher shape with a disposable env/fixture root | Check that Docker launcher config still supports filesystem mode without managed services |
@@ -260,13 +261,14 @@ The Docker launchers now render layered Compose files:
 - the executor service sets `RIVET_EXECUTOR_HOST=0.0.0.0` in Docker so the proxy container can connect to it over the compose network; do not change that back to `127.0.0.1` unless the proxy and executor are collapsed into the same process/network namespace
 
 - `npm run dev` / `npm run dev:docker:*` use `ops/compose/docker-compose.managed-services.yml` plus `ops/compose/docker-compose.dev.yml`
-- `npm run prod`, `npm run prod:prebuilt`, and `npm run prod:custom` use `ops/compose/docker-compose.managed-services.yml` plus `ops/compose/docker-compose.yml`
+- `npm run prod`, `npm run prod:prebuilt`, `npm run prod:restart`, and `npm run prod:custom` use `ops/compose/docker-compose.managed-services.yml` plus `ops/compose/docker-compose.yml`
 - the shared file only contributes the managed Postgres/MinIO services, and the launcher auto-enables the `workflow-managed` profile only when `RIVET_STORAGE_MODE=managed`
 
 Current behavior:
 
 - the browser entrypoint is still `http://localhost:8080` through nginx by default; override it with `RIVET_PORT` if needed
 - `npm run prod` and `npm run prod:prebuilt` pull prebuilt images under `ghcr.io/valerypopoff/cloud-hosted-rivet2-wrapper/{proxy,web,api,executor}:${RIVET_IMAGE_TAG:-latest}`, then force-recreate the stack with `--no-build`; set `RIVET_PROXY_IMAGE`, `RIVET_WEB_IMAGE`, `RIVET_API_IMAGE`, or `RIVET_EXECUTOR_IMAGE` to pin any service to a different image. Keep the image examples in `.env.example` on that same namespace so VM overrides do not accidentally pull the legacy wrapper images.
+- `npm run prod:restart` skips the pull/build step and force-recreates the stack from the images already present locally. Use it after changing `.env` when you want containers to pick up new env values without updating to newer GHCR images.
 - `npm run prod:custom` rebuilds the stack from the current wrapper repo and the current `rivet/` source folder, using the filtered `rivet_source` Docker build context
 - the API is also exposed directly on `http://localhost:3100` for diagnostics
 - proxy startup scripts are Linux shell scripts; dev Compose mounts them from the repo, while production images bake them into the proxy image. The repo pins `*.sh` files to LF line endings so Windows checkouts do not inject CRLF characters into `/bin/sh`
@@ -586,7 +588,7 @@ For hosted editor keyboard-node behavior:
 
 For hosted editor production-image regressions:
 
-1. remember that `npm run prod` and `npm run prod:prebuilt` use pulled images, while `npm run prod:custom` uses your current workspace and `rivet/` folder
+1. remember that `npm run prod` and `npm run prod:prebuilt` use pulled images, `npm run prod:restart` keeps already-local images, and `npm run prod:custom` uses your current workspace and `rivet/` folder
 2. if dev works but prod does not, diff the behavior against clean upstream `rivet` and move any hosted-only patch into tracked wrapper code before trusting the local result
 3. for clipboard regressions specifically, check the tracked hosted overrides for `useCopyNodesHotkeys`, `useContextMenu`, and the canvas focus handoff in `EditorMessageBridge.tsx`
 
