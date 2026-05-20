@@ -23,10 +23,15 @@ import {
   listWorkflowRecordingWorkflowsWithBackend,
   moveWorkflowItemWithBackend,
   publishWorkflowProjectItemWithBackend,
+  listWorkflowPublishedVersionsWithBackend,
   readWorkflowProjectDownloadWithBackend,
+  readWorkflowPublishedVersionDownloadWithBackend,
+  readWorkflowPublishedVersionPreviewWithBackend,
+  restoreWorkflowPublishedVersionWithBackend,
   readWorkflowRecordingArtifactWithBackend,
   renameWorkflowFolderItemWithBackend,
   renameWorkflowProjectItemWithBackend,
+  setWorkflowPublishedVersionStarWithBackend,
   unpublishWorkflowProjectItemWithBackend,
   uploadWorkflowProjectItemWithBackend,
 } from './storage-backend.js';
@@ -97,6 +102,21 @@ const duplicateProjectSchema = z.object({
 const downloadProjectSchema = z.object({
   relativePath: z.unknown(),
   version: z.enum(['live', 'published']),
+});
+
+const publishedVersionsQuerySchema = z.object({
+  relativePath: z.unknown(),
+});
+
+const publishedVersionDownloadSchema = z.object({
+  relativePath: z.unknown(),
+  versionId: z.unknown(),
+});
+
+const publishedVersionStarSchema = z.object({
+  relativePath: z.unknown(),
+  versionId: z.unknown(),
+  isStarred: z.boolean(),
 });
 
 const recordingsRunsQuerySchema = z.object({
@@ -222,6 +242,34 @@ workflowsRouter.post('/projects/download', validateBody(downloadProjectSchema), 
   res.setHeader('Content-Type', 'application/x-yaml; charset=utf-8');
   res.setHeader('Content-Disposition', createWorkflowDownloadContentDisposition(download.fileName));
   res.status(200).send(download.contents);
+}));
+
+workflowsRouter.get('/projects/published-versions', asyncHandler(async (req, res) => {
+  const { relativePath } = publishedVersionsQuerySchema.parse(req.query);
+  res.json(await listWorkflowPublishedVersionsWithBackend(relativePath));
+}));
+
+workflowsRouter.post('/projects/published-versions/download', validateBody(publishedVersionDownloadSchema), asyncHandler(async (req, res) => {
+  const { relativePath, versionId } = req.body as z.infer<typeof publishedVersionDownloadSchema>;
+  const download = await readWorkflowPublishedVersionDownloadWithBackend(relativePath, versionId);
+  res.setHeader('Content-Type', 'application/x-yaml; charset=utf-8');
+  res.setHeader('Content-Disposition', createWorkflowDownloadContentDisposition(download.fileName));
+  res.status(200).send(download.contents);
+}));
+
+workflowsRouter.post('/projects/published-versions/preview', validateBody(publishedVersionDownloadSchema), asyncHandler(async (req, res) => {
+  const { relativePath, versionId } = req.body as z.infer<typeof publishedVersionDownloadSchema>;
+  res.json(await readWorkflowPublishedVersionPreviewWithBackend(relativePath, versionId));
+}));
+
+workflowsRouter.patch('/projects/published-versions/star', validateBody(publishedVersionStarSchema), asyncHandler(async (req, res) => {
+  const { relativePath, versionId, isStarred } = req.body as z.infer<typeof publishedVersionStarSchema>;
+  res.json({ version: await setWorkflowPublishedVersionStarWithBackend(relativePath, versionId, isStarred) });
+}));
+
+workflowsRouter.post('/projects/published-versions/restore', validateBody(publishedVersionDownloadSchema), asyncHandler(async (req, res) => {
+  const { relativePath, versionId } = req.body as z.infer<typeof publishedVersionDownloadSchema>;
+  res.json(await restoreWorkflowPublishedVersionWithBackend(relativePath, versionId));
 }));
 
 workflowsRouter.post('/projects/publish', validateBody(publishProjectSchema), asyncHandler(async (req, res) => {

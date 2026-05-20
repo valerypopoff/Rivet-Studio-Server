@@ -48,6 +48,7 @@ function createWorkflowRow(overrides: Partial<WorkflowRow> = {}): WorkflowRow {
     updated_at: '2026-05-05T00:00:00.000Z',
     current_draft_revision_id: 'revision-current',
     published_revision_id: null,
+    published_version_id: null,
     endpoint_name: '',
     published_endpoint_name: '',
     last_published_at: null,

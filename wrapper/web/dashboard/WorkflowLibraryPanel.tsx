@@ -4,14 +4,20 @@ import { ActiveProjectSection } from './ActiveProjectSection';
 import { WorkflowFolderTree } from './WorkflowFolderTree';
 import { WorkflowLibraryContextMenus } from './WorkflowLibraryContextMenus';
 import { WorkflowLibraryModals } from './WorkflowLibraryModals';
-import type { WorkflowProjectPathMove } from './types';
+import type { WorkflowProjectOpenOptions, WorkflowProjectPathMove } from './types';
 import { getParentRelativePath } from './workflowLibraryHelpers';
 import { useWorkflowLibraryController } from './useWorkflowLibraryController';
 import './WorkflowLibraryPanel.css';
 
 interface WorkflowLibraryPanelProps {
-  onOpenProject: (path: string, options?: { replaceCurrent?: boolean }) => void;
+  onOpenProject: (path: string, options?: WorkflowProjectOpenOptions) => void;
+  onRefreshOpenProjectFromDisk: (path: string) => void;
   onOpenRecording: (recordingId: string, options?: { replaceCurrent?: boolean }) => void;
+  onOpenPublishedVersionPreview: (
+    relativePath: string,
+    versionId: string,
+    options?: { replaceCurrent?: boolean },
+  ) => void;
   onSaveProject: () => void;
   onDeleteProject: (path: string, projectId?: string | null) => void;
   onWorkflowPathsMoved: (moves: WorkflowProjectPathMove[]) => void;
@@ -39,7 +45,9 @@ const SidebarExpandIcon: FC = () => (
 
 export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
   onOpenProject,
+  onRefreshOpenProjectFromDisk,
   onOpenRecording,
+  onOpenPublishedVersionPreview,
   onSaveProject,
   onDeleteProject,
   onWorkflowPathsMoved,
@@ -53,7 +61,9 @@ export const WorkflowLibraryPanel: FC<WorkflowLibraryPanelProps> = ({
 }) => {
   const controller = useWorkflowLibraryController({
     onOpenProject,
+    onRefreshOpenProjectFromDisk,
     onOpenRecording,
+    onOpenPublishedVersionPreview,
     onDeleteProject,
     onWorkflowPathsMoved,
     onActiveWorkflowProjectPathChange,

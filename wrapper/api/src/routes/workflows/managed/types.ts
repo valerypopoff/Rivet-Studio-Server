@@ -22,6 +22,7 @@ export type WorkflowRow = {
   updated_at: TimestampValue;
   current_draft_revision_id: string;
   published_revision_id: string | null;
+  published_version_id: string | null;
   endpoint_name: string;
   published_endpoint_name: string;
   last_published_at: TimestampValue | null;
@@ -35,6 +36,15 @@ export type RevisionRow = {
   created_at: TimestampValue;
 };
 
+export type PublishedVersionRow = {
+  version_id: string;
+  workflow_id: string;
+  revision_id: string;
+  endpoint_name: string;
+  published_at: TimestampValue;
+  is_starred: boolean;
+};
+
 export type CurrentDraftRevisionRow = {
   workflow_id: string;
   name: string;
@@ -44,6 +54,7 @@ export type CurrentDraftRevisionRow = {
   updated_at: TimestampValue;
   current_draft_revision_id: string;
   published_revision_id: string | null;
+  published_version_id: string | null;
   endpoint_name: string;
   published_endpoint_name: string;
   last_published_at: TimestampValue | null;

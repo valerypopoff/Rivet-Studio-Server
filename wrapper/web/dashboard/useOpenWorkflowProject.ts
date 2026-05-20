@@ -22,9 +22,11 @@ import {
   primeOpenedProjectSession,
 } from '../io/openedProjectSessionCache';
 import { resolveHostedProjectTitle, withHostedProjectTitle } from './openedProjectMetadata';
+import { normalizeWorkflowPath } from './workflowLibraryHelpers';
 
 type OpenWorkflowProjectOptions = {
   replaceCurrent?: boolean;
+  reloadFromDisk?: boolean;
   preferredGraphId?: GraphId;
 };
 
@@ -117,7 +119,9 @@ export function useOpenWorkflowProject(workspace: RivetWorkspaceHost) {
 
   return async (filePath: string, options?: OpenWorkflowProjectOptions): Promise<boolean> => {
     const replaceCurrent = options?.replaceCurrent ?? false;
+    const reloadFromDisk = options?.reloadFromDisk ?? false;
     const preferredGraphId = options?.preferredGraphId;
+    const normalizedFilePath = normalizeWorkflowPath(filePath);
     const latestLoadedProject = store.get(loadedProjectState);
     const latestCurrentProject = store.get(projectState);
     const latestCurrentProjectData = store.get(projectDataState);
@@ -126,7 +130,10 @@ export function useOpenWorkflowProject(workspace: RivetWorkspaceHost) {
     const activeOpenedProjectIds = getActiveOpenedProjectIds(latestProjects);
     const activeOpenedProjects = getOpenedProjectsByIds(latestProjects, activeOpenedProjectIds);
     const resetOpenProjectState = activeOpenedProjectIds.length === 0;
-    const isSwitchingProjects = replaceCurrent && Boolean(latestLoadedProject.path) && latestLoadedProject.path !== filePath;
+    const isSwitchingProjects =
+      replaceCurrent &&
+      Boolean(latestLoadedProject.path) &&
+      normalizeWorkflowPath(latestLoadedProject.path) !== normalizedFilePath;
     const isLeavingUnsavedScratchProject = replaceCurrent && !latestLoadedProject.path && activeOpenedProjectIds.length > 0;
 
     if (isSwitchingProjects || isLeavingUnsavedScratchProject) {
@@ -139,21 +146,38 @@ export function useOpenWorkflowProject(workspace: RivetWorkspaceHost) {
       }
     }
 
-    const alreadyOpenByPath = activeOpenedProjects.find((projectInfo) => projectInfo.fsPath === filePath);
+    const alreadyOpenByPath = activeOpenedProjects.find((projectInfo) =>
+      normalizeWorkflowPath(projectInfo.fsPath ?? '') === normalizedFilePath);
 
     if (alreadyOpenByPath) {
-      let snapshot = getSnapshotForOpenedProject({
-        currentProject: latestCurrentProject,
-        currentProjectData: latestCurrentProjectData,
-        openedProject: alreadyOpenByPath,
-        snapshots: latestOpenedProjectSnapshots,
-      });
-      let testSuites = getOpenedProjectSession(alreadyOpenByPath.projectId, filePath)?.testSuites;
+      let snapshot = reloadFromDisk
+        ? null
+        : getSnapshotForOpenedProject({
+            currentProject: latestCurrentProject,
+            currentProjectData: latestCurrentProjectData,
+            openedProject: alreadyOpenByPath,
+            snapshots: latestOpenedProjectSnapshots,
+          });
+      let testSuites = reloadFromDisk
+        ? undefined
+        : getOpenedProjectSession(alreadyOpenByPath.projectId, filePath)?.testSuites;
       let refreshedTestData: TrivetData | null = null;
+      const projectPathLoader = canLoadProjectByPath(ioProvider) ? ioProvider : null;
 
-      if ((!snapshot || !testSuites) && canLoadProjectByPath(ioProvider)) {
-        const loadedProject = await ioProvider.loadProjectDataNoPrompt(filePath);
-        snapshot ??= splitProjectSnapshot(withHostedProjectTitle(loadedProject.project, filePath));
+      if (reloadFromDisk && !projectPathLoader) {
+        throw new Error('The active IO provider does not support reloading projects by path.');
+      }
+
+      if ((reloadFromDisk || !snapshot || !testSuites) && projectPathLoader) {
+        const loadedProject = await projectPathLoader.loadProjectDataNoPrompt(filePath);
+        const reloadedProject = withHostedProjectTitle(loadedProject.project, filePath);
+        if (reloadFromDisk && reloadedProject.metadata.id !== alreadyOpenByPath.projectId) {
+          throw new Error(
+            `Reloaded project "${resolveHostedProjectTitle(reloadedProject, filePath)}" has a different project ID. Close the existing tab before reopening it.`,
+          );
+        }
+
+        snapshot = reloadFromDisk ? splitProjectSnapshot(reloadedProject) : snapshot ?? splitProjectSnapshot(reloadedProject);
         testSuites = loadedProject.testData.testSuites;
         refreshedTestData = loadedProject.testData;
       }

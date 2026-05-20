@@ -16,7 +16,9 @@ import type {
   WorkflowFolderItem,
   WorkflowProjectDownloadVersion,
   WorkflowProjectItem,
+  WorkflowProjectOpenOptions,
   WorkflowProjectPathMove,
+  WorkflowPublishedVersionRestoreResponse,
 } from './types';
 import {
   collectFolderIds,
@@ -149,8 +151,14 @@ async function pickWorkflowProjectFile(): Promise<File | null> {
 }
 
 export function useWorkflowLibraryController(options: {
-  onOpenProject: (path: string, nextOptions?: { replaceCurrent?: boolean }) => void;
+  onOpenProject: (path: string, nextOptions?: WorkflowProjectOpenOptions) => void;
+  onRefreshOpenProjectFromDisk: (path: string) => void;
   onOpenRecording: (recordingId: string, nextOptions?: { replaceCurrent?: boolean }) => void;
+  onOpenPublishedVersionPreview: (
+    relativePath: string,
+    versionId: string,
+    nextOptions?: { replaceCurrent?: boolean },
+  ) => void;
   onDeleteProject: (path: string, projectId?: string | null) => void;
   onWorkflowPathsMoved: (moves: WorkflowProjectPathMove[]) => void;
   onActiveWorkflowProjectPathChange: (path: string) => void;
@@ -159,7 +167,9 @@ export function useWorkflowLibraryController(options: {
 }) {
   const {
     onOpenProject,
+    onRefreshOpenProjectFromDisk,
     onOpenRecording,
+    onOpenPublishedVersionPreview,
     onDeleteProject,
     onWorkflowPathsMoved,
     onActiveWorkflowProjectPathChange,
@@ -180,6 +190,7 @@ export function useWorkflowLibraryController(options: {
   });
   const [selectedProjectPath, setSelectedProjectPath] = useState('');
   const [settingsModalProject, setSettingsModalProject] = useState<WorkflowProjectItem | null>(null);
+  const [publishedHistoryProject, setPublishedHistoryProject] = useState<WorkflowProjectItem | null>(null);
   const [runtimeLibsOpen, setRuntimeLibsOpen] = useState(false);
   const [runRecordingsOpen, setRunRecordingsOpen] = useState(false);
   const [aboutOpen, setAboutOpen] = useState(false);
@@ -337,6 +348,19 @@ export function useWorkflowLibraryController(options: {
       setSettingsModalProject(matchingProject);
     }
   }, [allProjects, settingsModalOpen, settingsModalProject]);
+
+  useEffect(() => {
+    if (!publishedHistoryProject) {
+      return;
+    }
+
+    const matchingProject = allProjects.find((project) => project.absolutePath === publishedHistoryProject.absolutePath);
+    if (!matchingProject) {
+      setPublishedHistoryProject(null);
+    } else if (matchingProject !== publishedHistoryProject) {
+      setPublishedHistoryProject(matchingProject);
+    }
+  }, [allProjects, publishedHistoryProject]);
 
   useEffect(() => {
     if (!openedProjectPath) {
@@ -1076,6 +1100,21 @@ export function useWorkflowLibraryController(options: {
     setSettingsModalProject(null);
   }, []);
 
+  const openPublishedHistoryModal = useCallback((project: WorkflowProjectItem) => {
+    setPublishedHistoryProject(project);
+  }, []);
+
+  const closePublishedHistoryModal = useCallback(() => {
+    setPublishedHistoryProject(null);
+  }, []);
+
+  const handlePublishedVersionRestored = useCallback(async (
+    response: WorkflowPublishedVersionRestoreResponse,
+  ) => {
+    onRefreshOpenProjectFromDisk(response.project.absolutePath);
+    await refresh(false);
+  }, [onRefreshOpenProjectFromDisk, refresh]);
+
   const projectModalProject = projectModalState?.project ?? null;
   const projectModalMode = projectModalState?.mode ?? 'download';
   const projectModalActiveVersion = projectModalProject == null
@@ -1193,6 +1232,7 @@ export function useWorkflowLibraryController(options: {
     renamingProjectPath,
     settingsModalOpen,
     settingsModalProject,
+    publishedHistoryProject,
     runtimeLibsOpen,
     runRecordingsOpen,
     aboutOpen,
@@ -1206,6 +1246,9 @@ export function useWorkflowLibraryController(options: {
     handleCreateFolder,
     handleOpenSettings,
     closeSettingsModal,
+    openPublishedHistoryModal,
+    closePublishedHistoryModal,
+    handlePublishedVersionRestored,
     closeProjectContextMenu,
     closeFolderContextMenu,
     closeProjectModal,
@@ -1242,6 +1285,11 @@ export function useWorkflowLibraryController(options: {
     onOpenRecording: (recordingId: string) => {
       setRunRecordingsOpen(false);
       onOpenRecording(recordingId);
+    },
+    onOpenPublishedVersionPreview: (relativePath: string, versionId: string) => {
+      setPublishedHistoryProject(null);
+      setSettingsModalProject(null);
+      onOpenPublishedVersionPreview(relativePath, versionId);
     },
     onProjectSelect: setSelectedProjectPath,
     onProjectOpen: onOpenProject,

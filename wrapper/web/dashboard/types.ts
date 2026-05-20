@@ -7,6 +7,11 @@ import type {
   WorkflowProjectSettings,
   WorkflowProjectSettingsDraft,
   WorkflowProjectStatus,
+  WorkflowPublishedVersionRestoreResponse,
+  WorkflowPublishedVersionStarResponse,
+  WorkflowPublishedVersionSummary,
+  WorkflowPublishedVersionPreviewResponse,
+  WorkflowPublishedVersionsResponse,
 } from '../../shared/workflow-types';
 import type {
   WorkflowRecordingFilterStatus,
@@ -30,6 +35,11 @@ export type {
   WorkflowProjectSettings,
   WorkflowProjectSettingsDraft,
   WorkflowProjectStatus,
+  WorkflowPublishedVersionRestoreResponse,
+  WorkflowPublishedVersionStarResponse,
+  WorkflowPublishedVersionSummary,
+  WorkflowPublishedVersionPreviewResponse,
+  WorkflowPublishedVersionsResponse,
   WorkflowRecordingFilterStatus,
   WorkflowRecordingInputFilter,
   WorkflowRecordingInputFilterOperator,
@@ -51,4 +61,9 @@ export type WorkflowTreeResponse = {
   root: string;
   folders: WorkflowFolderItem[];
   projects: WorkflowProjectItem[];
+};
+
+export type WorkflowProjectOpenOptions = {
+  replaceCurrent?: boolean;
+  reloadFromDisk?: boolean;
 };

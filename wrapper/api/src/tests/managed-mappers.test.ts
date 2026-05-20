@@ -19,6 +19,7 @@ function createWorkflowRow(overrides: Partial<WorkflowRow> = {}): WorkflowRow {
     updated_at: '2026-04-07T10:00:00.000Z',
     current_draft_revision_id: 'revision-a',
     published_revision_id: 'revision-a',
+    published_version_id: 'version-a',
     endpoint_name: 'Hello-World',
     published_endpoint_name: 'hello-world',
     last_published_at: '2026-04-07T09:00:00.000Z',
@@ -43,6 +44,7 @@ test('getWorkflowStatus returns unpublished without a published revision', () =>
   assert.equal(
     getWorkflowStatus(createWorkflowRow({
       published_revision_id: null,
+      published_version_id: null,
       published_endpoint_name: '',
       last_published_at: null,
     })),
@@ -85,6 +87,7 @@ test('splitCurrentDraftRevisionRow separates workflow and revision fields withou
     updated_at: '2026-04-07T10:00:00.000Z',
     current_draft_revision_id: 'revision-a',
     published_revision_id: 'revision-b',
+    published_version_id: 'version-b',
     endpoint_name: 'hello-world',
     published_endpoint_name: 'hello-world',
     last_published_at: '2026-04-07T09:00:00.000Z',

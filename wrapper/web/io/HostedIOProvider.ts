@@ -4,6 +4,7 @@
 import {
   type NodeGraph,
   type Project,
+  type ProjectId,
   ExecutionRecorder,
   deserializeDatasets,
   deserializeGraph,
@@ -19,11 +20,18 @@ import {
 import { getDefaultStore } from 'jotai';
 import { RIVET_API_BASE_URL } from '../../shared/hosted-env';
 import { apiReadBinary, apiReadText } from '../../shared/api';
-import { MANAGED_WORKFLOW_VIRTUAL_ROOT } from '../../shared/workflow-types';
+import {
+  getWorkflowPublishedVersionPreviewFromVirtualProjectPath,
+  MANAGED_WORKFLOW_VIRTUAL_ROOT,
+  type WorkflowPublishedVersionPreviewReference,
+} from '../../shared/workflow-types';
 import { getWorkflowRecordingIdFromVirtualProjectPath } from '../../shared/workflow-recording-types';
 import { loadedProjectState } from '../../../rivet/packages/app/src/state/savedGraphs.js';
 import type { AppDatasetProvider } from '../../../rivet/packages/app/src/host';
-import { fetchWorkflowRecordingArtifactText } from '../dashboard/workflowApi';
+import {
+  fetchWorkflowPublishedVersionPreview,
+  fetchWorkflowRecordingArtifactText,
+} from '../dashboard/workflowApi';
 import { getEnvVar } from '../overrides/utils/tauri';
 import { deserializeHostedProjectPayloadAsync } from '../overrides/utils/deserializeProject';
 
@@ -134,13 +142,13 @@ async function getWorkflowStorageBackend(): Promise<'filesystem' | 'managed'> {
 }
 
 async function getSuggestedProjectPath(defaultName: string): Promise<string> {
-  const loadedProject = jotaiStore.get(loadedProjectState) as {
-    loaded: boolean;
-    path: string | null;
-  };
-  const currentPath = loadedProject.path?.trim();
+  const currentPath = getCurrentLoadedProjectPath();
 
-  if (!currentPath || getWorkflowRecordingIdFromVirtualProjectPath(currentPath)) {
+  if (
+    !currentPath ||
+    getWorkflowRecordingIdFromVirtualProjectPath(currentPath) ||
+    getWorkflowPublishedVersionPreviewFromVirtualProjectPath(currentPath)
+  ) {
     return (await getWorkflowStorageBackend()) === 'managed'
       ? `${MANAGED_WORKFLOW_VIRTUAL_ROOT}/${defaultName}`
       : `/workflows/${defaultName}`;
@@ -153,6 +161,51 @@ async function getSuggestedProjectPath(defaultName: string): Promise<string> {
 
   const directory = currentPath.slice(0, lastSeparatorIndex + 1);
   return `${directory}${defaultName}`;
+}
+
+function getCurrentLoadedProjectPath(): string | null {
+  const loadedProject = jotaiStore.get(loadedProjectState) as {
+    loaded: boolean;
+    path: string | null;
+  };
+
+  return loadedProject.path?.trim() || null;
+}
+
+function createPublishedVersionPreviewProjectId(): ProjectId {
+  const randomId = globalThis.crypto?.randomUUID?.() ??
+    `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+
+  return `published-version-preview:${randomId}` as ProjectId;
+}
+
+function isPublishedVersionPreviewProject(project: Project): boolean {
+  return String(project.metadata.id).startsWith('published-version-preview:');
+}
+
+function createPublishedVersionPreviewProject(
+  project: Project,
+  reference: WorkflowPublishedVersionPreviewReference,
+): Project {
+  const title = project.metadata.title?.trim() || reference.relativePath.split('/').pop() || 'Published version';
+
+  return {
+    ...project,
+    metadata: {
+      ...project.metadata,
+      id: createPublishedVersionPreviewProjectId(),
+      title: `${title} (published preview)`,
+    },
+  };
+}
+
+function assertProjectIsWritable(project: Project, path?: string | null): void {
+  if (
+    isPublishedVersionPreviewProject(project) ||
+    (path && getWorkflowPublishedVersionPreviewFromVirtualProjectPath(path))
+  ) {
+    throw new Error('Published version previews are read-only.');
+  }
 }
 
 async function pickSingleFile(options: { accept?: string } = {}): Promise<File | null> {
@@ -250,6 +303,8 @@ export class HostedIOProvider implements IOProvider {
   }
 
   async saveProjectData(project: Project, testData: TrivetData): Promise<string | undefined> {
+    assertProjectIsWritable(project, getCurrentLoadedProjectPath());
+
     // Show a simple prompt for server path
     const defaultName = `${project.metadata?.title ?? 'project'}.rivet-project`;
     const filePath = prompt('Save project to server path:', await getSuggestedProjectPath(defaultName));
@@ -273,6 +328,8 @@ export class HostedIOProvider implements IOProvider {
   }
 
   async saveProjectDataNoPrompt(project: Project, testData: TrivetData, path: string): Promise<void> {
+    assertProjectIsWritable(project, path);
+
     if (getWorkflowRecordingIdFromVirtualProjectPath(path)) {
       throw new Error('Recording replay projects are read-only. Use Save As to create a new project file.');
     }
@@ -354,6 +411,28 @@ export class HostedIOProvider implements IOProvider {
   }
 
   async loadProjectDataNoPrompt(path: string): Promise<{ project: Project; testData: TrivetData }> {
+    const previewReference = getWorkflowPublishedVersionPreviewFromVirtualProjectPath(path);
+    if (previewReference) {
+      const preview = await fetchWorkflowPublishedVersionPreview(
+        previewReference.relativePath,
+        previewReference.versionId,
+      );
+      const { project: projectData, testData: trivetData } = await deserializeHostedProjectPayload(
+        preview.contents,
+        path,
+      );
+      const previewProject = createPublishedVersionPreviewProject(projectData, previewReference);
+
+      if (preview.datasetsContents) {
+        const datasets = deserializeDatasets(preview.datasetsContents);
+        await this.#datasetProvider.importDatasetsForProject(previewProject.metadata.id, datasets);
+      } else {
+        await this.#datasetProvider.importDatasetsForProject(previewProject.metadata.id, []);
+      }
+
+      return { project: previewProject, testData: trivetData };
+    }
+
     const recordingId = getWorkflowRecordingIdFromVirtualProjectPath(path);
     if (recordingId) {
       const [data, replayDatasetResult] = await Promise.all([

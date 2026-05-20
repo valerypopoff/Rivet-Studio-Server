@@ -26,6 +26,7 @@ Rivet Studio Server is a self-hosted personal Rivet platform with a UI that you 
 - [Editor bridge](./docs/editor-bridge.md)
 - [Workflow publication](./docs/workflow-publication.md)
 - [Runtime libraries](./docs/runtime-libraries.md)
+- [Refactor history](./docs/refactor-history.md)
 
 ## Repository Map
 
@@ -165,7 +166,7 @@ That is intentional:
 - `web` only serves the dashboard/editor shell and can stay single-replica when UI traffic is just one operator
 - `backend` stays singleton because latest execution and `/ws/latest-debugger` are still process-local control-plane features
 
-For the real chart contract, local Kubernetes rehearsal, and production handoff checklist, see [docs/kubernetes.md](./docs/kubernetes.md).
+For the real chart contract, local Kubernetes rehearsal, production image repositories, and the Helm handoff checklist, see [docs/kubernetes.md](./docs/kubernetes.md).
 
 ## Runtime shape
 

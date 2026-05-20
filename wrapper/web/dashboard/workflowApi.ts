@@ -10,6 +10,10 @@ import type {
   WorkflowRecordingInputFilter,
   WorkflowRecordingRunsPageResponse,
   WorkflowRecordingWorkflowListResponse,
+  WorkflowPublishedVersionRestoreResponse,
+  WorkflowPublishedVersionStarResponse,
+  WorkflowPublishedVersionPreviewResponse,
+  WorkflowPublishedVersionsResponse,
   WorkflowTreeResponse,
 } from './types';
 import { createResponseError, parseJsonResponse, parseTextResponse } from './apiRequest';
@@ -243,6 +247,68 @@ export async function downloadWorkflowProject(
 
   const { blob, fileName } = await parseBlobResponse(response);
   triggerBrowserDownload(blob, fileName ?? 'project.rivet-project');
+}
+
+export async function fetchWorkflowPublishedVersions(relativePath: string): Promise<WorkflowPublishedVersionsResponse> {
+  const query = new URLSearchParams({ relativePath });
+  const response = await fetch(`${API}/workflows/projects/published-versions?${query}`, {
+    cache: 'no-store',
+  });
+  return workflowJsonResponse<WorkflowPublishedVersionsResponse>(response);
+}
+
+export async function downloadWorkflowPublishedVersion(
+  relativePath: string,
+  versionId: string,
+): Promise<void> {
+  const response = await fetch(`${API}/workflows/projects/published-versions/download`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ relativePath, versionId }),
+  });
+
+  const { blob, fileName } = await parseBlobResponse(response);
+  triggerBrowserDownload(blob, fileName ?? 'published-version.rivet-project');
+}
+
+export async function fetchWorkflowPublishedVersionPreview(
+  relativePath: string,
+  versionId: string,
+): Promise<WorkflowPublishedVersionPreviewResponse> {
+  const response = await fetch(`${API}/workflows/projects/published-versions/preview`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ relativePath, versionId }),
+  });
+
+  return workflowJsonResponse<WorkflowPublishedVersionPreviewResponse>(response);
+}
+
+export async function setWorkflowPublishedVersionStar(
+  relativePath: string,
+  versionId: string,
+  isStarred: boolean,
+): Promise<WorkflowPublishedVersionStarResponse> {
+  const response = await fetch(`${API}/workflows/projects/published-versions/star`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ relativePath, versionId, isStarred }),
+  });
+
+  return workflowJsonResponse<WorkflowPublishedVersionStarResponse>(response);
+}
+
+export async function restoreWorkflowPublishedVersion(
+  relativePath: string,
+  versionId: string,
+): Promise<WorkflowPublishedVersionRestoreResponse> {
+  const response = await fetch(`${API}/workflows/projects/published-versions/restore`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ relativePath, versionId }),
+  });
+
+  return workflowJsonResponse<WorkflowPublishedVersionRestoreResponse>(response);
 }
 
 export async function moveWorkflowItem(

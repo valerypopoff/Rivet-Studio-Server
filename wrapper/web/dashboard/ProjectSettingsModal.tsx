@@ -67,6 +67,7 @@ type ProjectSettingsModalProps = {
   onClose: () => void;
   onRefresh: () => void | Promise<void>;
   onDeleteProject: (path: string, projectId?: string | null) => void;
+  onOpenPublishedHistory: (project: WorkflowProjectItem) => void;
 };
 
 export const ProjectSettingsModal: FC<ProjectSettingsModalProps> = ({
@@ -76,6 +77,7 @@ export const ProjectSettingsModal: FC<ProjectSettingsModalProps> = ({
   onClose,
   onRefresh,
   onDeleteProject,
+  onOpenPublishedHistory,
 }) => {
   const {
     settingsDraft,
@@ -84,6 +86,7 @@ export const ProjectSettingsModal: FC<ProjectSettingsModalProps> = ({
     deletingProject,
     handleSettingsDraftChange,
     handleShowPublishSettings,
+    handleCancelPublishSettings,
     handlePublishProject,
     handleUnpublishProject,
     handleDeleteActiveProject,
@@ -116,6 +119,16 @@ export const ProjectSettingsModal: FC<ProjectSettingsModalProps> = ({
   const disablePublishChangesAction = savingSettings || deletingProject;
   const disableUnpublishAction = savingSettings || deletingProject;
   const disableDeleteProjectAction = savingSettings || deletingProject || !isUnpublishedProject;
+  const renderPublishedHistoryButton = () => (
+    <Button
+      appearance="subtle"
+      className="project-settings-secondary-button button-size-l published-version-history-button"
+      onClick={() => onOpenPublishedHistory(activeProject)}
+      isDisabled={savingSettings || deletingProject}
+    >
+      Published version history
+    </Button>
+  );
 
   return (
     <ModalTransition>
@@ -188,6 +201,14 @@ export const ProjectSettingsModal: FC<ProjectSettingsModalProps> = ({
                       >
                         Publish
                       </LoadingButton>
+                      <Button
+                        appearance="subtle"
+                        className="project-settings-secondary-button button-size-l"
+                        onClick={handleCancelPublishSettings}
+                        isDisabled={savingSettings || deletingProject}
+                      >
+                        Cancel
+                      </Button>
                     </div>
                     {endpointValidationError ? <div className="project-settings-error">{endpointValidationError}</div> : null}
                   </div>
@@ -237,6 +258,7 @@ export const ProjectSettingsModal: FC<ProjectSettingsModalProps> = ({
                         Unpublish
                       </Button>
                     ) : null}
+                    {!shouldShowPublishSettings ? renderPublishedHistoryButton() : null}
                   </div>
                   {isUnpublishedProject && !shouldShowPublishSettings ? (
                     <Button

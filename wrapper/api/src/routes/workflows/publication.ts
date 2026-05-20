@@ -6,6 +6,7 @@ import { validatePath } from '../../security.js';
 import { badRequest, conflict } from '../../utils/httpError.js';
 import {
   getPublishedWorkflowSnapshotDatasetPath,
+  getPublishedWorkflowSnapshotMetadataPath,
   getPublishedWorkflowSnapshotPath,
   getWorkflowDatasetPath,
   getWorkflowProjectSettingsPath,
@@ -248,12 +249,17 @@ export async function deletePublishedWorkflowSnapshot(root: string, snapshotId: 
 
   const publishedProjectPath = getPublishedWorkflowSnapshotPath(root, snapshotId);
   const publishedDatasetPath = getPublishedWorkflowSnapshotDatasetPath(root, snapshotId);
+  const publishedMetadataPath = getPublishedWorkflowSnapshotMetadataPath(root, snapshotId);
   if (await pathExists(publishedProjectPath)) {
     await fs.rm(publishedProjectPath, { force: false });
   }
 
   if (await pathExists(publishedDatasetPath)) {
     await fs.rm(publishedDatasetPath, { force: false });
+  }
+
+  if (await pathExists(publishedMetadataPath)) {
+    await fs.rm(publishedMetadataPath, { force: false });
   }
 }
 

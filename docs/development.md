@@ -606,20 +606,21 @@ For routing/auth/deployment changes:
 
 For the current Helm chart and images:
 
-1. keep `replicaCount.proxy>=2` and let proxy autoscaling absorb ingress pressure from public endpoint traffic
-2. keep `replicaCount.web=1` unless real dashboard/editor traffic becomes significant
-3. keep `replicaCount.backend=1`
-4. keep `autoscaling.backend.enabled=false`
-5. keep `workflowStorage.backend=managed` and `runtimeLibraries.backend=managed`
-6. keep `RIVET_PUBLISHED_WORKFLOWS_BASE_PATH=/workflows` and `RIVET_LATEST_WORKFLOWS_BASE_PATH=/workflows-latest`
-7. set `env.RIVET_PROXY_RESOLVER` for in-cluster nginx DNS resolution
-8. provide `RIVET_KEY` through `auth.keySecretName` or Vault, even if the optional UI gate and public workflow bearer checks are disabled
-9. keep the control-plane API on `RIVET_API_PROFILE=control` and the execution Deployment on `RIVET_API_PROFILE=execution`
-10. keep control-plane runtime-library reporting at `RIVET_RUNTIME_LIBRARIES_REPLICA_TIER=none`
-11. keep execution-plane runtime-library reporting at `RIVET_RUNTIME_LIBRARIES_REPLICA_TIER=endpoint` with `RIVET_RUNTIME_LIBRARIES_JOB_WORKER_ENABLED=false`
-12. if Vault is enabled, make sure the injected `/vault/dotenv` carries the required managed Postgres/object-storage env vars before relying on it instead of Kubernetes secret refs
-13. do not scale `proxy` and `execution` as if they were a fixed pair; they are separate deployments with separate pressure profiles
-14. define concrete CPU and memory requests for at least `resources.proxy` and `resources.execution` before treating the CPU-based HPAs as production-ready
+1. set all `images.*.repository` values to the GHCR repositories documented in [kubernetes.md](./kubernetes.md), and pin all four tags to the same published image tag for production
+2. keep `replicaCount.proxy>=2` and let proxy autoscaling absorb ingress pressure from public endpoint traffic
+3. keep `replicaCount.web=1` unless real dashboard/editor traffic becomes significant
+4. keep `replicaCount.backend=1`
+5. keep `autoscaling.backend.enabled=false`
+6. keep `workflowStorage.backend=managed` and `runtimeLibraries.backend=managed`
+7. keep `RIVET_PUBLISHED_WORKFLOWS_BASE_PATH=/workflows` and `RIVET_LATEST_WORKFLOWS_BASE_PATH=/workflows-latest`
+8. set `env.RIVET_PROXY_RESOLVER` for in-cluster nginx DNS resolution
+9. provide `RIVET_KEY` through `auth.keySecretName` or Vault, even if the optional UI gate and public workflow bearer checks are disabled
+10. keep the control-plane API on `RIVET_API_PROFILE=control` and the execution Deployment on `RIVET_API_PROFILE=execution`
+11. keep control-plane runtime-library reporting at `RIVET_RUNTIME_LIBRARIES_REPLICA_TIER=none`
+12. keep execution-plane runtime-library reporting at `RIVET_RUNTIME_LIBRARIES_REPLICA_TIER=endpoint` with `RIVET_RUNTIME_LIBRARIES_JOB_WORKER_ENABLED=false`
+13. if Vault is enabled, make sure the injected `/vault/dotenv` carries the required managed Postgres/object-storage env vars before relying on it instead of Kubernetes secret refs
+14. do not scale `proxy` and `execution` as if they were a fixed pair; they are separate deployments with separate pressure profiles
+15. define concrete CPU and memory requests for at least `resources.proxy` and `resources.execution` before treating the CPU-based HPAs as production-ready
 
 For managed endpoint latency and cache behavior:
 

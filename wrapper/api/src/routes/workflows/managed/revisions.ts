@@ -218,9 +218,9 @@ export function createManagedWorkflowRevisionService(options: ManagedWorkflowRev
             `
               INSERT INTO workflows (
                 workflow_id, name, file_name, relative_path, folder_relative_path, updated_at,
-                current_draft_revision_id, published_revision_id, endpoint_name, published_endpoint_name, last_published_at
+                current_draft_revision_id, published_revision_id, published_version_id, endpoint_name, published_endpoint_name, last_published_at
               )
-              VALUES ($1, $2, $3, $4, $5, NOW(), $6, NULL, '', '', NULL)
+              VALUES ($1, $2, $3, $4, $5, NOW(), $6, NULL, NULL, '', '', NULL)
             `,
             [
               workflowId,
@@ -281,6 +281,7 @@ export function createManagedWorkflowRevisionService(options: ManagedWorkflowRev
 
         let publishedRevision: RevisionRow | null = null;
         let publishedRevisionId: string | null = null;
+        let publishedVersionId: string | null = null;
         const shouldCreateSeparatePublishedRevision = publishedEndpointName &&
           (options.publishedContents != null || options.publishedDatasetsContents != null) &&
           (options.publishedContents !== options.contents || options.publishedDatasetsContents !== options.datasetsContents);
@@ -297,15 +298,17 @@ export function createManagedWorkflowRevisionService(options: ManagedWorkflowRev
           } else {
             publishedRevisionId = draftRevision.revision_id;
           }
+
+          publishedVersionId = randomUUID();
         }
 
         await client.query(
           `
             INSERT INTO workflows (
               workflow_id, name, file_name, relative_path, folder_relative_path, updated_at,
-              current_draft_revision_id, published_revision_id, endpoint_name, published_endpoint_name, last_published_at
+              current_draft_revision_id, published_revision_id, published_version_id, endpoint_name, published_endpoint_name, last_published_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7, $8, $9, $10, $11::timestamptz)
+            VALUES ($1, $2, $3, $4, $5, $6::timestamptz, $7, $8, $9, $10, $11, $12::timestamptz)
           `,
           [
             options.workflowId,
@@ -316,6 +319,7 @@ export function createManagedWorkflowRevisionService(options: ManagedWorkflowRev
             updatedAt,
             draftRevision.revision_id,
             publishedRevisionId,
+            publishedVersionId,
             draftEndpointName,
             publishedEndpointName,
             lastPublishedAt,
@@ -324,6 +328,15 @@ export function createManagedWorkflowRevisionService(options: ManagedWorkflowRev
         await deps.insertRevision(client, draftRevision);
         if (publishedRevision) {
           await deps.insertRevision(client, publishedRevision);
+        }
+        if (publishedVersionId && publishedRevisionId) {
+          await client.query(
+            `
+              INSERT INTO workflow_published_versions (version_id, workflow_id, revision_id, endpoint_name, published_at)
+              VALUES ($1, $2, $3, $4, $5::timestamptz)
+            `,
+            [publishedVersionId, options.workflowId, publishedRevisionId, publishedEndpointName, lastPublishedAt ?? updatedAt],
+          );
         }
 
         const workflow = await deps.getWorkflowById(client, options.workflowId);

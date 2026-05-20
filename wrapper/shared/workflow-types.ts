@@ -4,6 +4,7 @@ export type WorkflowProjectDownloadVersion = 'live' | 'published';
 export const MANAGED_WORKFLOW_VIRTUAL_ROOT = '/managed/workflows';
 export const WORKFLOW_PROJECT_EXTENSION = '.rivet-project';
 export const WORKFLOW_DATASET_EXTENSION = '.rivet-data';
+export const WORKFLOW_PUBLISHED_VERSION_PREVIEW_VIRTUAL_PROJECT_PATH_PREFIX = 'published-version-preview://';
 
 function normalizeWorkflowVirtualRelativePath(relativePath: string): string {
   return relativePath
@@ -42,6 +43,59 @@ export function getManagedWorkflowVirtualDatasetPath(projectVirtualPath: string)
   }
 
   return `${projectVirtualPath.slice(0, -WORKFLOW_PROJECT_EXTENSION.length)}${WORKFLOW_DATASET_EXTENSION}`;
+}
+
+export type WorkflowPublishedVersionPreviewReference = {
+  relativePath: string;
+  versionId: string;
+};
+
+export function getWorkflowPublishedVersionPreviewVirtualProjectPath(
+  relativePath: string,
+  versionId: string,
+): string {
+  return [
+    WORKFLOW_PUBLISHED_VERSION_PREVIEW_VIRTUAL_PROJECT_PATH_PREFIX,
+    encodeURIComponent(normalizeWorkflowVirtualRelativePath(relativePath)),
+    '/',
+    encodeURIComponent(versionId),
+    '/preview',
+    WORKFLOW_PROJECT_EXTENSION,
+  ].join('');
+}
+
+export function getWorkflowPublishedVersionPreviewFromVirtualProjectPath(
+  filePath: string,
+): WorkflowPublishedVersionPreviewReference | null {
+  if (!filePath.startsWith(WORKFLOW_PUBLISHED_VERSION_PREVIEW_VIRTUAL_PROJECT_PATH_PREFIX)) {
+    return null;
+  }
+
+  const remainder = filePath.slice(WORKFLOW_PUBLISHED_VERSION_PREVIEW_VIRTUAL_PROJECT_PATH_PREFIX.length);
+  const suffix = `/preview${WORKFLOW_PROJECT_EXTENSION}`;
+  if (!remainder.endsWith(suffix)) {
+    return null;
+  }
+
+  const encodedReference = remainder.slice(0, -suffix.length);
+  const slashIndex = encodedReference.lastIndexOf('/');
+  if (slashIndex <= 0 || slashIndex === encodedReference.length - 1) {
+    return null;
+  }
+
+  try {
+    const relativePath = normalizeWorkflowVirtualRelativePath(
+      decodeURIComponent(encodedReference.slice(0, slashIndex)),
+    );
+    const versionId = decodeURIComponent(encodedReference.slice(slashIndex + 1)).trim();
+    if (!relativePath || !versionId) {
+      return null;
+    }
+
+    return { relativePath, versionId };
+  } catch {
+    return null;
+  }
 }
 
 export type WorkflowProjectSettings = {
@@ -88,4 +142,32 @@ export type WorkflowFolderItem = {
 export type WorkflowProjectPathMove = {
   fromAbsolutePath: string;
   toAbsolutePath: string;
+};
+
+export type WorkflowPublishedVersionSummary = {
+  id: string;
+  projectId: string;
+  projectName: string;
+  endpointName: string;
+  publishedAt: string;
+  isCurrent: boolean;
+  isStarred: boolean;
+};
+
+export type WorkflowPublishedVersionsResponse = {
+  versions: WorkflowPublishedVersionSummary[];
+};
+
+export type WorkflowPublishedVersionStarResponse = {
+  version: WorkflowPublishedVersionSummary;
+};
+
+export type WorkflowPublishedVersionRestoreResponse = {
+  project: WorkflowProjectItem;
+  version: WorkflowPublishedVersionSummary;
+};
+
+export type WorkflowPublishedVersionPreviewResponse = {
+  contents: string;
+  datasetsContents: string | null;
 };

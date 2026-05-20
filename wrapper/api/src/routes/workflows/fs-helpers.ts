@@ -196,6 +196,10 @@ export function getPublishedWorkflowSnapshotDatasetPath(root: string, snapshotId
   return getWorkflowDatasetPath(getPublishedWorkflowSnapshotPath(root, snapshotId));
 }
 
+export function getPublishedWorkflowSnapshotMetadataPath(root: string, snapshotId: string): string {
+  return validatePath(path.join(getPublishedSnapshotsRoot(root), `${snapshotId}.json`));
+}
+
 export function getWorkflowDatasetPath(projectPath: string): string {
   return projectPath.replace(PROJECT_EXTENSION, WORKFLOW_DATASET_SUFFIX);
 }

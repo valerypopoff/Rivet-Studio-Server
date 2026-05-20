@@ -79,6 +79,15 @@ export function useProjectSettingsActions(options: UseProjectSettingsActionsOpti
     setShowPublishSettings(true);
   };
 
+  const handleCancelPublishSettings = () => {
+    if (savingSettings || deletingProject) {
+      return;
+    }
+
+    setSettingsDraft({ endpointName: activeProject.settings.endpointName });
+    setShowPublishSettings(false);
+  };
+
   const handlePublishProject = async (publishChanges = false) => {
     setSavingSettings(true);
 
@@ -142,6 +151,7 @@ export function useProjectSettingsActions(options: UseProjectSettingsActionsOpti
     endpointValidationError,
     handleSettingsDraftChange,
     handleShowPublishSettings,
+    handleCancelPublishSettings,
     handlePublishProject,
     handleUnpublishProject,
     handleDeleteActiveProject,

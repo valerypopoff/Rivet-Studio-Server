@@ -27,6 +27,7 @@ test('editor bridge accepts valid dashboard commands', () => {
       type: 'open-project',
       path: '/tmp/example.rivet-project',
       replaceCurrent: false,
+      reloadFromDisk: true,
     }),
     true,
   );
@@ -35,6 +36,22 @@ test('editor bridge accepts valid dashboard commands', () => {
       type: 'open-recording',
       recordingId: 'run-id',
       replaceCurrent: false,
+    }),
+    true,
+  );
+  assert.equal(
+    isDashboardToEditorCommand({
+      type: 'open-published-version-preview',
+      relativePath: 'folder/example.rivet-project',
+      versionId: 'published-version-id',
+      replaceCurrent: false,
+    }),
+    true,
+  );
+  assert.equal(
+    isDashboardToEditorCommand({
+      type: 'refresh-open-project-from-disk',
+      path: '/tmp/example.rivet-project',
     }),
     true,
   );
@@ -49,7 +66,26 @@ test('editor bridge accepts valid dashboard commands', () => {
 
 test('editor bridge rejects malformed messages', () => {
   assert.equal(isDashboardToEditorCommand({ type: 'open-project', path: '/tmp/example.rivet-project' }), false);
+  assert.equal(
+    isDashboardToEditorCommand({
+      type: 'open-project',
+      path: '/tmp/example.rivet-project',
+      replaceCurrent: false,
+      reloadFromDisk: 'yes',
+    }),
+    false,
+  );
   assert.equal(isDashboardToEditorCommand({ type: 'open-recording', recordingId: 123 }), false);
+  assert.equal(
+    isDashboardToEditorCommand({
+      type: 'open-published-version-preview',
+      relativePath: 'folder/example.rivet-project',
+      versionId: 'published-version-id',
+    }),
+    false,
+  );
+  assert.equal(isDashboardToEditorCommand({ type: 'refresh-open-project-from-disk' }), false);
+  assert.equal(isDashboardToEditorCommand({ type: 'refresh-open-project-from-disk', path: 123 }), false);
   assert.equal(isDashboardToEditorCommand({ type: 'trigger-editor-find-shortcut' }), false);
   assert.equal(
     isDashboardToEditorCommand({

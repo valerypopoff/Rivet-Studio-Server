@@ -3,8 +3,10 @@ import type { WorkflowProjectPathMove } from './workflow-types';
 export type EditorShortcutModifier = 'ctrl' | 'meta';
 
 export type DashboardToEditorCommand =
-  | { type: 'open-project'; path: string; replaceCurrent: boolean }
+  | { type: 'open-project'; path: string; replaceCurrent: boolean; reloadFromDisk?: boolean }
   | { type: 'open-recording'; recordingId: string; replaceCurrent: boolean }
+  | { type: 'open-published-version-preview'; relativePath: string; versionId: string; replaceCurrent: boolean }
+  | { type: 'refresh-open-project-from-disk'; path: string }
   | { type: 'save-project' }
   | { type: 'trigger-editor-find-shortcut'; modifier: EditorShortcutModifier }
   | { type: 'delete-workflow-project'; path: string; projectId?: string | null }
@@ -45,9 +47,21 @@ export function isDashboardToEditorCommand(value: unknown): value is DashboardTo
 
   switch (value.type) {
     case 'open-project':
-      return typeof value.path === 'string' && typeof value.replaceCurrent === 'boolean';
+      return (
+        typeof value.path === 'string' &&
+        typeof value.replaceCurrent === 'boolean' &&
+        (value.reloadFromDisk == null || typeof value.reloadFromDisk === 'boolean')
+      );
     case 'open-recording':
       return typeof value.recordingId === 'string' && typeof value.replaceCurrent === 'boolean';
+    case 'open-published-version-preview':
+      return (
+        typeof value.relativePath === 'string' &&
+        typeof value.versionId === 'string' &&
+        typeof value.replaceCurrent === 'boolean'
+      );
+    case 'refresh-open-project-from-disk':
+      return typeof value.path === 'string';
     case 'save-project':
       return true;
     case 'trigger-editor-find-shortcut':
