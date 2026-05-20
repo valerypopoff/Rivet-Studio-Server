@@ -289,9 +289,10 @@ test('CI publishes Rivet 2 wrapper images from the Rivet 2 fork', () => {
   assert.match(prodCompose, /RIVET_PROXY_RESOLVER=\$\{RIVET_PROXY_RESOLVER:-127\.0\.0\.11\}/);
   assert.match(prodCompose, /RIVET_EXECUTION_UPSTREAM_HOST=api/);
   assert.match(prodCompose, /RIVET_EXECUTION_UPSTREAM_PORT=80/);
-  assert.deepEqual(productionScripts, ['prod', 'prod:custom', 'prod:prebuilt']);
+  assert.deepEqual(productionScripts, ['prod', 'prod:custom', 'prod:prebuilt', 'prod:restart']);
   assert.equal(packageJson.scripts.prod, 'npm run prod:prebuilt');
   assert.equal(packageJson.scripts['prod:prebuilt'], 'node scripts/prod-docker.mjs prebuilt');
+  assert.equal(packageJson.scripts['prod:restart'], 'node scripts/prod-docker.mjs restart');
   assert.equal(packageJson.scripts['prod:custom'], 'node scripts/prod-docker.mjs custom');
   assert.match(prodDockerLauncher, /pull proxy web api executor/);
   assert.match(prodDockerLauncher, /--no-build --force-recreate --remove-orphans --wait/);

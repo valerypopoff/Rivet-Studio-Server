@@ -84,6 +84,14 @@ npm run prod
 
 `npm run prod` pulls the prebuilt Rivet 2 wrapper images from `ghcr.io`, force-recreates the Docker stack, and waits for the services to become healthy. This is the normal VM deployment/update path and does not build from the local checkout.
 
+If the stack is already running and you only changed `.env`, use:
+
+```powershell
+npm run prod:restart
+```
+
+That recreates the production containers from the images already present on the machine, so the new environment values are picked up without pulling newer GHCR images.
+
 Access the app at `http://localhost:8080` unless `RIVET_PORT` changes it.
 
 If `npm run prod:prebuilt` or `docker compose pull` returns `denied` for the public GHCR images, clear any stale saved registry credentials first:
@@ -109,6 +117,7 @@ To pin a specific image tag, set `RIVET_IMAGE_TAG` or override `RIVET_PROXY_IMAG
 |---|---|
 | `npm run prod` | Pull and run the prebuilt `cloud-hosted-rivet2-wrapper/*` images |
 | `npm run prod:prebuilt` | Same as `npm run prod`, kept as the explicit published-image path |
+| `npm run prod:restart` | Recreate production containers from already-local images without pulling |
 | `npm run prod:custom` | Build and run images from this wrapper checkout plus the current `rivet/` folder |
 
 #### Building locally from upstream Rivet source

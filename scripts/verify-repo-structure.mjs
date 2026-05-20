@@ -198,6 +198,7 @@ function main() {
     'dev:docker:config',
     'prod',
     'prod:prebuilt',
+    'prod:restart',
     'prod:custom',
     'dev:kubernetes-test:config',
   ];

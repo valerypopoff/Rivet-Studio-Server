@@ -25,6 +25,7 @@
     "ui:observe:report": "node scripts/playwright-observe.mjs report",
     "prod": "npm run prod:prebuilt",
     "prod:prebuilt": "node scripts/prod-docker.mjs prebuilt",
+    "prod:restart": "node scripts/prod-docker.mjs restart",
     "prod:custom": "node scripts/prod-docker.mjs custom",
     "dev": "npm run dev:docker",
     "dev:docker": "node scripts/dev-docker.mjs dev",
