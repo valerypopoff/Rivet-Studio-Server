@@ -1,5 +1,5 @@
 
-
+- Ctrl+D is not coming through
 
 
 - Убедиться, что RIVET_RECORDINGS_MAX_PENDING_WRITES работает правильно — на каждую реплику
