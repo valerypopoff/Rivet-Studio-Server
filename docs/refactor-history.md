@@ -4,6 +4,25 @@ This document records intentional architecture and cleanup changes that future m
 
 It is not a changelog. Keep entries focused on why a refactor happened, which ownership boundary changed, and which verification paths should be kept alive.
 
+## 2026-05-21 - Playwright Suite Review
+
+### Why
+
+The browser specs were useful, but a few of them mixed UI/controller contracts with real storage mutation. That made routine Playwright runs heavier and riskier, especially in managed or S3-backed environments where a UI-only assertion should not create durable workflow state.
+
+### Ownership
+
+- `hosted-editor-observe.spec.ts` owns the manual observable hosted-editor focus and clipboard recovery flow. It now mocks workflow tree/project load responses, then opens the real iframe editor without creating or deleting workflow storage.
+- `project-settings-modal.spec.ts` is split between publish controls and published-version-history actions, so publish validation/delete ownership does not share one large scenario with history pagination, star, preview, and restore behavior.
+- `run-recordings-modal.spec.ts` is split between input filter/pagination/menu-portal behavior and replay/delete behavior.
+- Specs that mutate real workflow state remain limited to persistence/path contracts and must keep managed-mode mutation guards explicit.
+
+### Verification To Preserve
+
+- Test style guard: `npm run verify:test-style`
+- Repo structure guard: `npm run verify:repo-structure`
+- Browser-visible spec changes: `PLAYWRIGHT_HEADLESS=1`, `PLAYWRIGHT_SLOW_MO=0`, `node scripts/playwright-observe.mjs test`
+
 ## 2026-05-21 - Managed Publication Test Split
 
 ### Why

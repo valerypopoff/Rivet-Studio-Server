@@ -472,7 +472,7 @@ Outcome:
 - Kept managed save-target selection as a table-driven behavior test instead of scattered source-string assertions.
 - Added `managed-backend-sql.test.ts` to `verify:test-style` retired-suite guardrails.
 
-### Phase 5: Playwright Review
+### Phase 5: Playwright Review (DONE)
 
 1. Keep Playwright for browser-only behavior:
    - iframe focus and shortcuts
@@ -483,6 +483,14 @@ Outcome:
 2. Prefer mocked API responses for UI-only paths.
 3. Use real storage mutation only when persistence is the behavior under test.
 4. Ensure every browser-visible feature has at most one canonical happy path plus targeted edge cases.
+
+Outcome:
+
+- Audited the Playwright specs against the browser-contract boundary: focus, keyboard shortcuts, modal layout, pagination, inline rename, file-menu visibility, published-history actions, managed virtual paths, runtime-library readiness, and open-project cache behavior stay in browser coverage.
+- Converted the hosted-editor observable flow to mocked workflow tree/project load responses. It still opens a real embedded editor and exercises focus plus clipboard recovery, but no longer creates, saves, or deletes workflow storage just to obtain an open project.
+- Split Project Settings modal coverage into a publish-controls test and a published-version-history test, so publish validation/delete ownership and history paging/star/preview/restore failures point at different specs.
+- Split Run Recordings modal coverage into input-filter/pagination/menu-portal behavior and replay/delete behavior.
+- Kept real workflow mutations only in specs whose contract is persistence or path-state behavior, guarded through the managed-mutation opt-in helper.
 
 ### Phase 6: Add Test Style Guardrails (DONE)
 
