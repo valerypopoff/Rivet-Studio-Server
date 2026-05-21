@@ -1,11 +1,16 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
-import http from 'node:http';
 import path from 'node:path';
 import test from 'node:test';
-import type { TestContext } from 'node:test';
-import express from 'express';
-import { listenTestServer } from './helpers/http-server-harness.js';
+import {
+  createWorkflowApiServerHarness,
+  createWorkflowExecutionServerHarness,
+  observeFilesystemExecutionInvalidations,
+  readJson,
+  waitForRecordingWorkflows,
+  waitForWorkflowRecordingRunCount,
+  withEnvOverride,
+} from './helpers/workflow-api-harness.js';
 import { createWorkflowTestRoots, resetWorkflowTestRoots } from './helpers/workflow-fixtures.js';
 
 const { workflowsRoot, recordingsRoot, appDataRoot } = await createWorkflowTestRoots('rivet-workflows-');
@@ -25,27 +30,17 @@ const workflowStorageBackend = await import('../routes/workflows/storage-backend
 const filesystemExecutionCache = await import('../routes/workflows/filesystem-execution-cache.js');
 const rivetNode = await import('@valerypopoff/rivet2-node');
 
-function observeFilesystemExecutionInvalidations(t: TestContext) {
-  const cache = filesystemExecutionCache.getFilesystemExecutionCache();
-  const calls = {
-    markedIndexDirty: false,
-    invalidatedMaterializationPathCalls: [] as string[][],
-  };
-  const originalMarkIndexDirty = cache.markIndexDirty.bind(cache);
-  const originalInvalidateMaterializations = cache.invalidateProjectMaterializations.bind(cache);
+const withWorkflowApiServer = createWorkflowApiServerHarness({
+  initializeWorkflowStorage: workflowStorageBackend.initializeWorkflowStorage,
+  workflowsRouter: workflowRoutes.workflowsRouter,
+});
 
-  t.mock.method(cache, 'markIndexDirty', () => {
-    calls.markedIndexDirty = true;
-    originalMarkIndexDirty();
-  });
-  t.mock.method(cache, 'invalidateProjectMaterializations', (projectPaths: Iterable<string>) => {
-    const projectPathList = [...projectPaths];
-    calls.invalidatedMaterializationPathCalls.push(projectPathList);
-    originalInvalidateMaterializations(projectPathList);
-  });
-
-  return calls;
-}
+const withWorkflowExecutionServer = createWorkflowExecutionServerHarness({
+  initializeWorkflowStorage: workflowStorageBackend.initializeWorkflowStorage,
+  workflowsRouter: workflowRoutes.workflowsRouter,
+  publishedWorkflowsRouter: workflowRoutes.publishedWorkflowsRouter,
+  latestWorkflowsRouter: workflowRoutes.latestWorkflowsRouter,
+});
 
 async function resetWorkflowsRoot() {
   filesystemExecutionCache.resetFilesystemExecutionCacheForTests();
@@ -53,139 +48,10 @@ async function resetWorkflowsRoot() {
   await resetWorkflowTestRoots({ workflowsRoot, recordingsRoot, appDataRoot });
 }
 
-async function withEnvOverride(
-  name: string,
-  value: string | undefined,
-  run: () => Promise<void>,
-) {
-  const previousValue = process.env[name];
-
-  if (value == null) {
-    delete process.env[name];
-  } else {
-    process.env[name] = value;
-  }
-
-  try {
-    await run();
-  } finally {
-    if (previousValue == null) {
-      delete process.env[name];
-    } else {
-      process.env[name] = previousValue;
-    }
-  }
-}
-
 test.beforeEach(async () => {
   await resetWorkflowsRoot();
   await workflowFs.ensureWorkflowsRoot();
 });
-
-async function withWorkflowApiServer(run: (baseUrl: string) => Promise<void>) {
-  await workflowStorageBackend.initializeWorkflowStorage();
-
-  const app = express();
-  app.use(express.json({ strict: false }));
-  app.use('/workflows', workflowRoutes.workflowsRouter);
-  app.use((_req, res) => {
-    res.status(404).json({ error: 'Not found' });
-  });
-  app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-    res.status((err as { status?: number }).status ?? 500).json({ error: err.message });
-  });
-
-  const server = http.createServer(app);
-  const listener = await listenTestServer(server);
-
-  try {
-    await run(`${listener.baseUrl}/workflows`);
-  } finally {
-    await listener.close();
-  }
-}
-
-async function withWorkflowExecutionServer(
-  run: (urls: { apiBaseUrl: string; publishedBaseUrl: string; latestBaseUrl: string }) => Promise<void>,
-) {
-  await workflowStorageBackend.initializeWorkflowStorage();
-
-  const app = express();
-  app.use(express.json({ strict: false }));
-  app.use('/api/workflows', workflowRoutes.workflowsRouter);
-  app.use('/workflows', workflowRoutes.publishedWorkflowsRouter);
-  app.use('/workflows-latest', workflowRoutes.latestWorkflowsRouter);
-  app.use((_req, res) => {
-    res.status(404).json({ error: 'Not found' });
-  });
-  app.use((err: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-    res.status((err as { status?: number }).status ?? 500).json({ error: err.message });
-  });
-
-  const server = http.createServer(app);
-  const listener = await listenTestServer(server);
-
-  try {
-    await run({
-      apiBaseUrl: `${listener.baseUrl}/api/workflows`,
-      publishedBaseUrl: `${listener.baseUrl}/workflows`,
-      latestBaseUrl: `${listener.baseUrl}/workflows-latest`,
-    });
-  } finally {
-    await listener.close();
-  }
-}
-
-async function readJson<T>(response: Response): Promise<T> {
-  const body = await response.json() as T;
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}: ${JSON.stringify(body)}`);
-  }
-
-  return body;
-}
-
-async function waitForRecordingWorkflows(
-  apiBaseUrl: string,
-  predicate: (workflows: Array<{ workflowId: string; totalRuns: number }>) => boolean,
-  timeoutMs = 5000,
-) {
-  const deadline = Date.now() + timeoutMs;
-
-  while (Date.now() < deadline) {
-    const response = await readJson<{
-      workflows: Array<{ workflowId: string; totalRuns: number }>;
-    }>(await fetch(`${apiBaseUrl}/recordings/workflows`));
-
-    if (predicate(response.workflows)) {
-      return response;
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-
-  throw new Error('Timed out waiting for workflow recordings');
-}
-
-async function waitForWorkflowRecordingRunCount(
-  root: string,
-  workflowId: string,
-  expectedTotalRuns: number,
-  timeoutMs = 5000,
-) {
-  const deadline = Date.now() + timeoutMs;
-
-  while (Date.now() < deadline) {
-    const response = await workflowRecordings.listWorkflowRecordingRunsPage(root, workflowId, 1, 100, 'all');
-    if (response.totalRuns === expectedTotalRuns) {
-      return response;
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-
-  throw new Error(`Timed out waiting for workflow ${workflowId} to reach ${expectedTotalRuns} recording runs`);
-}
 
 async function writeHeadersContextEchoProject(projectPath: string, projectName: string): Promise<void> {
   const project = rivetNode.loadProjectFromString(workflowFs.createBlankProjectFile(projectName));
@@ -1131,7 +997,10 @@ test('each filesystem publish creates a downloadable published version history e
   assert.equal(previousDownload.contents, firstContents);
   assert.match(currentDownload.fileName, /^PublishedHistory \[published /);
 
-  const cacheInvalidations = observeFilesystemExecutionInvalidations(t);
+  const cacheInvalidations = observeFilesystemExecutionInvalidations(
+    t,
+    filesystemExecutionCache.getFilesystemExecutionCache(),
+  );
 
   const restored = await workflowStorageBackend.restoreWorkflowPublishedVersionWithBackend(
     created.relativePath,
@@ -1281,7 +1150,10 @@ test('filesystem published version history rejects mismatched metadata ids', asy
     workflowFs.getPublishedWorkflowSnapshotPath(workflowsRoot, storedSettings.publishedSnapshotId),
   );
 
-  const cacheInvalidations = observeFilesystemExecutionInvalidations(t);
+  const cacheInvalidations = observeFilesystemExecutionInvalidations(
+    t,
+    filesystemExecutionCache.getFilesystemExecutionCache(),
+  );
   await assert.rejects(
     () => workflowStorageBackend.restoreWorkflowPublishedVersionWithBackend(
       created.relativePath,
@@ -1842,23 +1714,26 @@ test('filesystem saveHostedProject refreshes latest materialization without dirt
     assert.ok(beforeProject);
     assert.equal(beforeProject.debug?.cacheStatus, 'hit');
     assert.equal(beforeProject.project.metadata.title, 'LatestSaveRefresh');
+    assert.equal(beforeProject.project.graphs[beforeProject.project.metadata.mainGraphId!]?.metadata?.name, 'Main Graph');
 
     const loaded = await workflowStorageBackend.loadHostedProject(created.absolutePath);
     await workflowStorageBackend.saveHostedProject({
       projectPath: created.absolutePath,
-      contents: loaded.contents.replace('title: "LatestSaveRefresh"', 'title: "LatestSaveRefresh Updated"'),
+      contents: loaded.contents.replace('name: "Main Graph"', 'name: "Updated Main Graph"'),
       datasetsContents: loaded.datasetsContents,
     });
 
     const afterProject = await workflowStorageBackend.resolveLatestExecutionProject('latest-save-refresh-endpoint');
     assert.ok(afterProject);
     assert.equal(afterProject.debug?.cacheStatus, 'hit');
-    assert.equal(afterProject.project.metadata.title, 'LatestSaveRefresh Updated');
+    assert.equal(afterProject.project.metadata.title, 'LatestSaveRefresh');
+    assert.equal(afterProject.project.graphs[afterProject.project.metadata.mainGraphId!]?.metadata?.name, 'Updated Main Graph');
 
     const followupProject = await workflowStorageBackend.resolveLatestExecutionProject('latest-save-refresh-endpoint');
     assert.ok(followupProject);
     assert.equal(followupProject.debug?.cacheStatus, 'hit');
-    assert.equal(followupProject.project.metadata.title, 'LatestSaveRefresh Updated');
+    assert.equal(followupProject.project.metadata.title, 'LatestSaveRefresh');
+    assert.equal(followupProject.project.graphs[followupProject.project.metadata.mainGraphId!]?.metadata?.name, 'Updated Main Graph');
   });
 });
 
@@ -2682,7 +2557,12 @@ test('workflow recording cleanup keeps only the newest configured runs per endpo
       });
     }
 
-    const runsPage = await waitForWorkflowRecordingRunCount(workflowsRoot, workflowId, 2);
+    const runsPage = await waitForWorkflowRecordingRunCount(
+      workflowRecordings.listWorkflowRecordingRunsPage,
+      workflowsRoot,
+      workflowId,
+      2,
+    );
 
     assert.equal(runsPage.runs.length, 2);
     assert.deepEqual(

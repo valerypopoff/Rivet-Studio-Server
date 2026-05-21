@@ -369,7 +369,7 @@ Root scripts should keep these stable:
 
 ## Refactor Phases
 
-### Phase 0: Baseline, Inventory, And Safety Net
+### Phase 0: Baseline, Inventory, And Safety Net (DONE)
 
 1. Run `npm --prefix wrapper/api run build`.
 2. Run `npm --prefix wrapper/api test`.
@@ -384,12 +384,21 @@ Root scripts should keep these stable:
 6. Record current failures separately from refactor failures.
 7. Do not proceed with mass moves if the baseline is red for unrelated reasons.
 
-### Phase 1: Extract Shared Fixtures Only
+### Phase 1: Extract Shared Fixtures Only (DONE)
 
 1. Move repeated project creation, HTTP server setup, and cache spy code into helpers.
 2. Keep test names and assertions unchanged.
 3. Run the affected tests after each helper extraction.
 4. Stop if helper extraction makes a test harder to read.
+
+Outcome:
+
+- Added `wrapper/api/src/tests/helpers/workflow-api-harness.ts` for workflow HTTP harnesses, JSON response handling, env overrides, recording waiters, and filesystem execution cache invalidation probes.
+- Added `createRootPublishedProjectFactory(...)` to `wrapper/api/src/tests/helpers/workflow-fixtures.ts` and replaced the duplicated root-level filesystem execution project-publish helper in the cache/source suites.
+- Kept test file ownership unchanged; `workflow-services.test.ts` still contains the workflow service tests until Phase 2.
+- Corrected one stale cache-refresh assertion discovered during verification: `saveHostedProject` normalizes `project.metadata.title` to the file name, so the materialization refresh test now mutates graph metadata instead of title metadata.
+- Corrected two baseline test-harness issues surfaced by the full API command: `hosted-project-title.test.ts` now sets filesystem env before importing filesystem helpers, and the managed publication static test now checks the current backfill helper shape.
+- Verified with `npm --prefix wrapper/api run build`, `npm --prefix wrapper/api test`, `npm run verify:repo-structure`, the affected filesystem execution suites, and the full `workflow-services.test.ts` suite.
 
 ### Phase 2: Split `workflow-services.test.ts`
 

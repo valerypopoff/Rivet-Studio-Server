@@ -88,7 +88,8 @@ test('managed publication backfills legacy current versions before new publishes
     'utf8',
   );
 
-  assert.ok(managedPublicationSource.includes('!workflow.published_version_id && workflow.published_revision_id'));
+  assert.ok(managedPublicationSource.includes('const backfillLegacyPublishedVersion = async'));
+  assert.ok(managedPublicationSource.includes('workflow.published_version_id || !workflow.published_revision_id'));
   assert.ok(managedPublicationSource.includes('ON CONFLICT (version_id) DO NOTHING'));
 });
 
