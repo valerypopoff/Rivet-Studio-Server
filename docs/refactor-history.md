@@ -4,6 +4,24 @@ This document records intentional architecture and cleanup changes that future m
 
 It is not a changelog. Keep entries focused on why a refactor happened, which ownership boundary changed, and which verification paths should be kept alive.
 
+## 2026-05-21 - Managed Publication Test Split
+
+### Why
+
+`managed-backend-sql.test.ts` mixed true SQL/schema invariants with source-string checks against managed publication implementation details. That made publication refactors noisy even when the managed service contract stayed correct.
+
+### Ownership
+
+- `managed-workflow-schema.test.ts` owns managed DDL contracts, folder-move wildcard escaping, published-version schema shape, and published/latest execution lookup query contracts.
+- The schema test imports `MANAGED_WORKFLOW_SCHEMA_SQL` instead of reading `schema.ts` as text, so TypeScript template-literal escaping bugs are covered by the same SQL string the app sends to Postgres.
+- `managed-publication-history.test.ts` owns managed publication behavior through a mocked transaction context: legacy history backfill, normal and legacy restore-as-new-publish, restore invalidation, star persistence, and save-target selection.
+- `managed-backend-sql.test.ts` is retired and should not be reintroduced.
+
+### Verification To Preserve
+
+- Default API suite: `npm --prefix wrapper/api test`
+- Test style guard: `npm run verify:test-style`
+
 ## 2026-05-21 - Test Style Guardrails
 
 ### Why
@@ -17,7 +35,7 @@ After the workflow and static-contract suite split, the next failure mode was co
 - `verify:web-pure` must list every pure web test exactly once.
 - `verify:kubernetes` owns `kubernetes-*.test.ts` API contract tests plus the Helm render verifier.
 - Runnable API, pure web, and Playwright test files stay in their expected top-level suite folders so helper directories cannot become hidden suites.
-- Retired broad suites such as `workflow-services.test.ts` and `phase4-static-contract.test.ts` must not be reintroduced.
+- Retired mixed/broad suites such as `managed-backend-sql.test.ts`, `workflow-services.test.ts`, and `phase4-static-contract.test.ts` must not be reintroduced.
 - Wrapper tests and helpers must not assert upstream `rivet/packages/app/src` implementation shapes beyond the approved host entry/style seam; use wrapper seams, focused helper tests, or `scripts/update-check.sh` for upstream compatibility scanning.
 
 ### Verification To Preserve

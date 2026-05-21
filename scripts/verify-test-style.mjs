@@ -11,6 +11,7 @@ const kubernetesApiTests = [
 ];
 
 const retiredCatchAllTestNames = [
+  'managed-backend-sql.test.ts',
   'phase4-static-contract.test.ts',
   'workflow-services.test.ts',
 ];

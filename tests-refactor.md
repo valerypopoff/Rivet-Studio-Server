@@ -46,7 +46,7 @@ Last surveyed: 2026-05-21
    - This file also violates the spirit of the `rivet/` read-only boundary by treating upstream source shapes as a local static contract.
 
 3. Managed storage tests include behavior, SQL shape, and implementation text in one layer.
-   - `managed-backend-sql.test.ts` has useful coverage for published version history and restore semantics, but several assertions check exact source strings rather than the service behavior or query output.
+   - `managed-backend-sql.test.ts` had useful coverage for published version history and restore semantics, but several assertions checked exact source strings rather than the service behavior or query output. (DONE in Phase 4: split into `managed-workflow-schema.test.ts` and `managed-publication-history.test.ts`.)
    - Keep SQL-specific tests only where SQL escaping, migration DDL, or transaction notifications are the real contract.
 
 4. Fixture setup is duplicated across suites.
@@ -152,7 +152,7 @@ Start with the smallest useful split. More files are allowed only if one of thes
   - `managed-endpoint-sync.test.ts`
   - `managed-mappers.test.ts`
 
-- Split `managed-backend-sql.test.ts` into at most two files:
+- Split `managed-backend-sql.test.ts` into at most two files: (DONE)
   - `managed-workflow-schema.test.ts`: migration/DDL invariants that cannot be proved through services, wildcard escaping SQL for folder moves, published history table/index shape.
   - `managed-publication-history.test.ts`: legacy publish backfill, restore-as-new-publish, star persistence, no-op save state preservation, and real draft-change revision creation.
 
@@ -268,7 +268,9 @@ This is file-level inventory. When a file is split or a test is deleted, the imp
 | `hosted-project-title.test.ts` | Hosted project title normalization for filesystem and managed saves | Service | Keep | Same file |
 | `kubernetes-launcher-config.test.ts` | Local Kubernetes launcher env, object storage derivation, rendered values/secrets, provider validation | Rendered config | Keep | `verify:kubernetes` |
 | `latest-workflow-remote-debugger.test.ts` | Latest debugger event routing, published debugger isolation, websocket auth/profile availability | HTTP/websocket | Keep | Same file |
-| `managed-backend-sql.test.ts` | Managed folder SQL escaping, schema/history DDL, publication/history/restore/save source checks | Mixed static/service | Rewrite/split | `managed-workflow-schema.test.ts` and `managed-publication-history.test.ts` |
+| `managed-backend-sql.test.ts` | Managed folder SQL escaping, schema/history DDL, publication/history/restore/save source checks | Mixed static/service | Done: retired | `managed-workflow-schema.test.ts` and `managed-publication-history.test.ts` |
+| `managed-publication-history.test.ts` | Managed publication history backfill, normal and legacy restore-as-new-publish, star persistence, restore invalidation, and save-target selection | Service/mock | Keep | Same file |
+| `managed-workflow-schema.test.ts` | Managed schema DDL, folder-move wildcard escaping, published-history table/index shape, and execution lookup SQL contracts | Static/query | Keep | Same file |
 | `managed-catalog.test.ts` | Managed workflow tree stats and broken draft blob fallback | Managed service | Keep | Same file |
 | `managed-endpoint-sync.test.ts` | Managed endpoint uniqueness, conflict handling, stale endpoint reclaim, visibility flags | Managed service | Keep | Same file |
 | `managed-execution-cache.test.ts` | Managed pointer invalidation and revision materialization LRU behavior | Pure cache | Keep | Same file |
@@ -453,12 +455,22 @@ Outcome:
 - A second discrepancy pass aligned `scripts/update-check.sh` with every active `createModuleOverrideAliases(...)` target and added a `verify:web-pure` guard so upstream-rename scanning cannot fall behind Vite alias changes.
 - The same pass broadened compatibility env scrubbing to execution route prefixes, security roots/allowlists, runtime-library role/readiness knobs, and debug-header settings.
 
-### Phase 4: Managed Storage Cleanup
+### Phase 4: Managed Storage Cleanup (DONE)
 
 1. Separate schema/SQL invariants from service behavior.
 2. Keep wildcard escaping and migration DDL tests.
 3. Move publish/history/restore/no-op-save tests to service-level harnesses.
 4. Add direct restore cache invalidation coverage if it is not already covered after the split.
+
+Outcome:
+
+- Replaced `managed-backend-sql.test.ts` with `managed-workflow-schema.test.ts` and `managed-publication-history.test.ts`.
+- Kept schema and query-shape checks only where SQL itself is the contract: folder-move wildcard escaping, published-history schema, and published/latest execution lookup joins.
+- Made the schema test import the exported `MANAGED_WORKFLOW_SCHEMA_SQL` instead of reading `schema.ts` as source text; this caught and fixed a real template-literal escaping bug where managed folder moves emitted `ESCAPE ''` and unescaped wildcard replacement strings.
+- Moved managed publication/history checks to a mocked transaction-service harness that exercises `createManagedWorkflowPublicationService(...)`.
+- Added direct managed restore invalidation coverage by asserting normal and legacy restore paths queue and commit workflow invalidation after restoring an older published version as a new current history entry.
+- Kept managed save-target selection as a table-driven behavior test instead of scattered source-string assertions.
+- Added `managed-backend-sql.test.ts` to `verify:test-style` retired-suite guardrails.
 
 ### Phase 5: Playwright Review
 
@@ -491,7 +503,7 @@ Outcome:
 - The style guard checks the `kubernetes-*.test.ts` naming convention so new Kubernetes API contract files cannot slip into the default API suite by accident.
 - The style guard blocks nested runnable `.test.ts` or `.spec.ts` files from hiding under helper folders.
 - The guard blocks accidental `.only` tests across API, pure web, and Playwright files.
-- The guard blocks reintroducing `workflow-services.test.ts` or `phase4-static-contract.test.ts`.
+- The guard blocks reintroducing `managed-backend-sql.test.ts`, `workflow-services.test.ts`, or `phase4-static-contract.test.ts`.
 - The guard keeps wrapper tests/helpers from asserting upstream `rivet/packages/app/src` source paths beyond the approved host entry/style seam.
 - The root image-build workflow now runs `npm run verify:test-style` after `npm run verify:repo-structure`.
 - Developer docs and refactor history describe the new command and ownership boundary.
@@ -548,7 +560,7 @@ Mark a test stale and remove or rewrite it when:
 1. Add shared workflow and HTTP test helpers. (DONE)
 2. Split workflow tree/copy/import/export tests out of `workflow-services.test.ts`. (DONE)
 3. Split publication/history/execution/recordings tests out of `workflow-services.test.ts`. (DONE)
-4. Refactor managed publication/history tests away from source-string assertions.
+4. Refactor managed publication/history tests away from source-string assertions. (DONE)
 5. Split and shrink `phase4-static-contract.test.ts`. (DONE)
 6. Normalize test scripts and update docs. (DONE)
 7. Final prune of stale tests and unused helpers.
@@ -561,12 +573,13 @@ Keep each slice behavior-preserving except the explicit stale-test deletion slic
 - Are any current tests intentionally guarding an old upstream seam that should now be deleted after the `RivetAppHost` migration?
 - Which Playwright specs are considered required release gates versus local debugging aids?
 - Should `verify:kubernetes` stop depending on the broad static contract suite once rendered Helm checks cover the same route/image contracts? (Resolved in Phase 3: it now runs `kubernetes-contract.test.ts` instead.)
-- Should published version history restore receive one managed-mode integration test with a real Postgres rehearsal, or is the mocked managed harness enough for CI?
+- Should published version history restore receive one managed-mode integration test with a real Postgres rehearsal, or is the mocked managed harness enough for CI? (Phase 4 keeps CI repo-local with a mocked transaction harness; use the managed Docker rehearsal before release if restore persistence itself changes.)
 
 ## Definition Of Done
 
 - `workflow-services.test.ts` is either gone or small enough to have one clear reason to exist.
 - `phase4-static-contract.test.ts` is split or reduced to stable contracts only.
+- `managed-backend-sql.test.ts` is gone, with schema/query contracts and managed publication behavior covered by focused files.
 - Static tests no longer assert long source snippets that duplicate implementation.
 - Tests are grouped by behavior domain and can be run selectively.
 - Docs describe the new test command map.
