@@ -8,10 +8,6 @@ export function readRepoFile(relativePath: string): string {
   return fs.readFileSync(new URL(`../../../../../${relativePath}`, import.meta.url), 'utf8');
 }
 
-export function readRepoFileBytes(relativePath: string): Buffer {
-  return fs.readFileSync(new URL(`../../../../../${relativePath}`, import.meta.url));
-}
-
 export function readRepoJson<T>(relativePath: string): T {
   return JSON.parse(readRepoFile(relativePath)) as T;
 }

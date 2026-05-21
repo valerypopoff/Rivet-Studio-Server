@@ -12,7 +12,7 @@ Last surveyed: 2026-05-21
 - Replace brittle source-text assertions with behavior tests or rendered config assertions wherever possible.
 - Make routine local verification faster and more predictable.
 - Keep Playwright coverage focused on browser-visible behavior that pure tests cannot prove.
-- Preserve the public verification commands while the refactor is in progress.
+- Keep the public verification commands stable after the refactor.
 - Keep `rivet/` read-only; test cleanup should happen in wrapper code, test harnesses, docs, and scripts.
 
 ## Non-Goals
@@ -23,11 +23,11 @@ Last surveyed: 2026-05-21
 - Do not turn static contract tests into a second copy of every Dockerfile, Helm template, or upstream override.
 - Do not create a large helper layer up front. Add a helper only when it removes real repeated setup across multiple tests.
 
-## Current Test Map
+## Final Test Map
 
 | Area | Current location | Current shape | Keep? |
 | --- | --- | --- | --- |
-| API unit/integration tests | `wrapper/api/src/tests/*.test.ts` | 33 test files; routine API tests run by `npm --prefix wrapper/api test` | Yes, but split and prune |
+| API unit/integration tests | `wrapper/api/src/tests/*.test.ts` | 34 test files total: 32 routine files run by `npm --prefix wrapper/api test`, plus 2 Kubernetes files behind `npm run verify:kubernetes` | Yes, keep split by domain |
 | Web pure helper tests | `wrapper/web/tests/*.test.ts` | 5 files, run by `npm run verify:web-pure` | Yes |
 | Browser behavior | `wrapper/web/playwright-observe/*.spec.ts` | 15 Playwright specs via `scripts/playwright-observe.mjs` | Yes, keep scenario-focused |
 | Repo/deploy static contracts | `proxy-image-contract.test.ts`, `hosted-editor-seams.test.ts`, `verify:repo-structure` | Split by boundary, with shorter source checks | Keep lean |
@@ -35,12 +35,12 @@ Last surveyed: 2026-05-21
 
 ## Main Problems Found
 
-1. `workflow-services.test.ts` has become a catch-all suite.
+1. `workflow-services.test.ts` had become a catch-all suite.
    - It mixes filesystem tree CRUD, duplication/upload/download, publication, published history, execution, cache invalidation, hosted save behavior, recordings, cleanup, input filtering, and HTTP route tests.
    - The file is large enough that new changes tend to add more local helpers instead of improving shared fixtures.
    - Failure output points at "workflow services" rather than the actual behavior domain.
 
-2. `phase4-static-contract.test.ts` is too broad and too implementation-aware.
+2. `phase4-static-contract.test.ts` was too broad and too implementation-aware.
    - It reads many repo files directly and matches source snippets, Dockerfile fragments, docs, CI YAML, Vite plugin implementation details, upstream source files, and Helm templates.
    - Some checks are valuable guardrails, but many duplicate implementation text. These will fail during harmless refactors and encourage patching tests instead of verifying behavior.
    - This file also violates the spirit of the `rivet/` read-only boundary by treating upstream source shapes as a local static contract.
@@ -511,12 +511,12 @@ Outcome:
 - The style guard checks the `kubernetes-*.test.ts` naming convention so new Kubernetes API contract files cannot slip into the default API suite by accident.
 - The style guard blocks nested runnable `.test.ts` or `.spec.ts` files from hiding under helper folders.
 - The guard blocks accidental `.only` tests across API, pure web, and Playwright files.
-- The guard blocks reintroducing `managed-backend-sql.test.ts`, `workflow-services.test.ts`, or `phase4-static-contract.test.ts`.
+- The guard blocks reintroducing `managed-backend-sql.test.ts`, `workflow-publication.test.ts`, `workflow-services.test.ts`, or `phase4-static-contract.test.ts`.
 - The guard keeps wrapper tests/helpers from asserting upstream `rivet/packages/app/src` source paths beyond the approved host entry/style seam.
 - The root image-build workflow now runs `npm run verify:test-style` after `npm run verify:repo-structure`.
 - Developer docs and refactor history describe the new command and ownership boundary.
 
-### Phase 7: Final Prune
+### Phase 7: Final Prune (DONE)
 
 1. Remove old catch-all files after their tests have moved.
 2. Remove unused helpers.
@@ -527,6 +527,15 @@ Outcome:
    - `npm run verify:repo-structure`
    - `npm run verify:kubernetes` if deployment/static tests changed
 4. Run Playwright only for browser-visible test changes.
+
+Outcome:
+
+- Confirmed the retired or merged-away suite files are absent: `workflow-services.test.ts`, `workflow-publication.test.ts`, `phase4-static-contract.test.ts`, and `managed-backend-sql.test.ts`.
+- Confirmed `verify:test-style` still blocks retired and merged-away suite names, nested runnable tests/specs under helper folders, missing test-manifest entries, focused `.only` tests, and unapproved upstream Rivet app source assertions.
+- Removed the final unused helper export from `repo-contract-helpers.ts`; the remaining test helpers all have active call sites.
+- Verified with `npm --prefix wrapper/api run build`, `npm run verify:test-style`, `npm run verify:repo-structure`, `npm run verify:web-pure`, `npm run verify:kubernetes`, and a focused static/helper run for `hosted-editor-seams.test.ts` plus `proxy-image-contract.test.ts`.
+- Attempted `npm --prefix wrapper/api test`; this checkout remains blocked by the same local upstream dependency bootstrap gap recorded in Phase 0, with built Rivet core unable to resolve `ai`, `openai`, and `@ai-sdk/anthropic` from `rivet/node_modules`. Run `npm run setup` before rerunning the full API suite.
+- No Playwright run was needed for this phase because the change did not alter browser-visible behavior or Playwright specs.
 
 ## Quality Bar For Each Test
 
@@ -571,17 +580,17 @@ Mark a test stale and remove or rewrite it when:
 4. Refactor managed publication/history tests away from source-string assertions. (DONE)
 5. Split and shrink `phase4-static-contract.test.ts`. (DONE)
 6. Normalize test scripts and update docs. (DONE)
-7. Final prune of stale tests and unused helpers.
+7. Final prune of stale tests and unused helpers. (DONE)
 
 Keep each slice behavior-preserving except the explicit stale-test deletion slice. That makes review much easier than one giant "test cleanup" diff.
 
-## Open Questions Before Implementation
+## Resolved Questions
 
-- Should API test grouping preserve strict file order, or is deterministic sorted discovery enough? (Partially resolved in Phase 6: current public commands keep explicit manifests, and `verify:test-style` enforces sorted command ownership without adding grouped runners yet.)
-- Are any current tests intentionally guarding an old upstream seam that should now be deleted after the `RivetAppHost` migration?
-- Which Playwright specs are considered required release gates versus local debugging aids?
-- Should `verify:kubernetes` stop depending on the broad static contract suite once rendered Helm checks cover the same route/image contracts? (Resolved in Phase 3: it now runs `kubernetes-contract.test.ts` instead.)
-- Should published version history restore receive one managed-mode integration test with a real Postgres rehearsal, or is the mocked managed harness enough for CI? (Phase 4 keeps CI repo-local with a mocked transaction harness; use the managed Docker rehearsal before release if restore persistence itself changes.)
+- API test grouping keeps explicit manifests for now. `verify:test-style` enforces sorted command ownership without adding grouped runners yet.
+- Old upstream hosted-editor seam checks now live in wrapper-owned seam tests and `scripts/update-check.sh`; wrapper tests should not assert broad upstream `rivet/packages/app/src` implementation paths.
+- Playwright remains focused on browser-only contracts. Use mocked APIs unless persistence or path-state behavior is the thing being proved.
+- Kubernetes render checks now live behind `npm run verify:kubernetes`, which runs `kubernetes-contract.test.ts` instead of the retired broad static suite.
+- Published-version-history restore stays covered in repo-local filesystem and mocked managed tests. Use the managed Docker rehearsal before release if restore persistence itself changes.
 
 ## Definition Of Done
 

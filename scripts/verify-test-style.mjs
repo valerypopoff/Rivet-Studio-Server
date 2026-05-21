@@ -10,9 +10,10 @@ const kubernetesApiTests = [
   'src/tests/kubernetes-launcher-config.test.ts',
 ];
 
-const retiredCatchAllTestNames = [
+const retiredTestNames = [
   'managed-backend-sql.test.ts',
   'phase4-static-contract.test.ts',
+  'workflow-publication.test.ts',
   'workflow-services.test.ts',
 ];
 
@@ -120,7 +121,7 @@ function assertCommandHasExplicitTestFiles(command, label) {
   assert.doesNotMatch(command, /\bnpx\s+tsx\b/, `${label} should use the repo-local tsx toolchain instead of npx.`);
 }
 
-function assertNoRetiredCatchAllFiles() {
+function assertNoRetiredTestFiles() {
   const candidateDirs = [
     'wrapper/api/src/tests',
     'wrapper/web/tests',
@@ -128,7 +129,7 @@ function assertNoRetiredCatchAllFiles() {
   ];
 
   for (const relativeDir of candidateDirs) {
-    for (const retiredName of retiredCatchAllTestNames) {
+    for (const retiredName of retiredTestNames) {
       assert.equal(
         fs.existsSync(path.join(rootDir, relativeDir, retiredName)),
         false,
@@ -246,7 +247,7 @@ function main() {
     'verify:kubernetes should still run the Helm render verifier after Kubernetes API tests.',
   );
 
-  assertNoRetiredCatchAllFiles();
+  assertNoRetiredTestFiles();
 
   const nodeTestFiles = [
     ...apiTestFiles,

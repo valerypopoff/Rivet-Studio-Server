@@ -4,6 +4,27 @@ This document records intentional architecture and cleanup changes that future m
 
 It is not a changelog. Keep entries focused on why a refactor happened, which ownership boundary changed, and which verification paths should be kept alive.
 
+## 2026-05-21 - Test Refactor Final Prune
+
+### Why
+
+After the workflow, static-contract, managed-storage, Playwright, and style-guardrail phases landed, the remaining risk was drift from leftover compatibility files or helper exports that no longer had a real owner. Phase 7 closed that loop without changing product behavior.
+
+### Ownership
+
+- Retired or merged-away suites remain deleted: `workflow-services.test.ts`, `workflow-publication.test.ts`, `phase4-static-contract.test.ts`, and `managed-backend-sql.test.ts`.
+- `scripts/verify-test-style.mjs` remains the cheap guard that prevents those suite names and hidden nested test files from returning.
+- Shared test helpers should keep active call sites. Do not keep an unused helper as a placeholder for possible future suites; add it back when a real second call site appears.
+
+### Verification To Preserve
+
+- API build: `npm --prefix wrapper/api run build`
+- Default API suite: `npm --prefix wrapper/api test`
+- Test style guard: `npm run verify:test-style`
+- Pure web helper command: `npm run verify:web-pure`
+- Repo structure guard: `npm run verify:repo-structure`
+- Kubernetes render contracts when static helpers or chart-facing contracts change: `npm run verify:kubernetes`
+
 ## 2026-05-21 - Playwright Suite Review
 
 ### Why
