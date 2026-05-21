@@ -444,6 +444,7 @@ For wrapper/API changes:
 Current repo-local baseline:
 
 - CI also runs the same `wrapper/api` build and test steps directly before image packaging.
+- The active test-suite cleanup plan lives in the root `tests-refactor.md` working document; keep the public verification commands stable while that refactor is in progress.
 - CI also lint-renders the Helm chart with real image repository overrides and verifies the key negative cases:
   - placeholder image repositories are rejected
   - published-route-prefix overrides are rejected

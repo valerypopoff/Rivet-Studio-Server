@@ -239,7 +239,7 @@ async function runRepoLocalBaseline() {
 
 async function runSplitRepoLocalChecks() {
   await run(
-    'npx tsx --test ' +
+    'npm --prefix wrapper/api exec -- tsx --test ' +
     'wrapper/api/src/tests/api-profile.test.ts ' +
     'wrapper/api/src/tests/phase4-static-contract.test.ts ' +
     'wrapper/api/src/tests/runtime-library-cleanup.test.ts ' +
@@ -250,7 +250,7 @@ async function runSplitRepoLocalChecks() {
 
 async function runManagedLocalDockerRepoLocalChecks() {
   await run(
-    'npx tsx --test ' +
+    'npm --prefix wrapper/api exec -- tsx --test ' +
     'wrapper/api/src/tests/workflow-storage-config.test.ts ' +
     'wrapper/api/src/tests/runtime-libraries.test.ts ' +
     'wrapper/api/src/tests/runtime-library-cleanup.test.ts ' +
