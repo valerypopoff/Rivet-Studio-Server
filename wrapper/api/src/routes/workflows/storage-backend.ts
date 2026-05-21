@@ -487,7 +487,20 @@ export async function restoreWorkflowPublishedVersionWithBackend(
 ): Promise<WorkflowPublishedVersionRestoreResponse> {
   return delegate(
     async (backend) => backend.restoreWorkflowPublishedVersion(relativePath, versionId),
-    async () => restoreWorkflowPublishedVersion(relativePath, versionId),
+    async () => {
+      let projectPath: string | null = null;
+      try {
+        const root = await ensureWorkflowsRoot();
+        projectPath = requireProjectPath(resolveWorkflowRelativePath(root, relativePath, {
+          allowProjectFile: true,
+        }));
+        return await restoreWorkflowPublishedVersion(relativePath, versionId);
+      } finally {
+        if (projectPath) {
+          markFilesystemExecutionStructureDirty([projectPath]);
+        }
+      }
+    },
   );
 }
 

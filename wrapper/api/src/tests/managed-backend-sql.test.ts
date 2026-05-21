@@ -103,6 +103,7 @@ test('managed published version restore republishes a stored revision as a new c
   assert.ok(managedPublicationSource.includes('SET current_draft_revision_id = $2'));
   assert.ok(managedPublicationSource.includes('published_revision_id = $2'));
   assert.ok(managedPublicationSource.includes('published_version_id = $3'));
+  assert.ok(managedPublicationSource.includes('queueWorkflowInvalidation(client, hooks, workflow.workflow_id)'));
 });
 
 test('managed save keeps a published project published when the save is a no-op', () => {

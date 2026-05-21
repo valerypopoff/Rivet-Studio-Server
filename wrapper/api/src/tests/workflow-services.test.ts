@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
 import test from 'node:test';
+import type { TestContext } from 'node:test';
 import express from 'express';
 import { listenTestServer } from './helpers/http-server-harness.js';
 import { createWorkflowTestRoots, resetWorkflowTestRoots } from './helpers/workflow-fixtures.js';
@@ -23,6 +24,28 @@ const workflowRoutes = await import('../routes/workflows/index.js');
 const workflowStorageBackend = await import('../routes/workflows/storage-backend.js');
 const filesystemExecutionCache = await import('../routes/workflows/filesystem-execution-cache.js');
 const rivetNode = await import('@valerypopoff/rivet2-node');
+
+function observeFilesystemExecutionInvalidations(t: TestContext) {
+  const cache = filesystemExecutionCache.getFilesystemExecutionCache();
+  const calls = {
+    markedIndexDirty: false,
+    invalidatedMaterializationPathCalls: [] as string[][],
+  };
+  const originalMarkIndexDirty = cache.markIndexDirty.bind(cache);
+  const originalInvalidateMaterializations = cache.invalidateProjectMaterializations.bind(cache);
+
+  t.mock.method(cache, 'markIndexDirty', () => {
+    calls.markedIndexDirty = true;
+    originalMarkIndexDirty();
+  });
+  t.mock.method(cache, 'invalidateProjectMaterializations', (projectPaths: Iterable<string>) => {
+    const projectPathList = [...projectPaths];
+    calls.invalidatedMaterializationPathCalls.push(projectPathList);
+    originalInvalidateMaterializations(projectPathList);
+  });
+
+  return calls;
+}
 
 async function resetWorkflowsRoot() {
   filesystemExecutionCache.resetFilesystemExecutionCacheForTests();
@@ -1058,7 +1081,7 @@ test('publish and unpublish keep workflow project behavior stable', async () => 
   assert.equal(await workflowPublication.findLatestWorkflowByEndpoint(workflowsRoot, 'demo-endpoint'), null);
 });
 
-test('each filesystem publish creates a downloadable published version history entry', async () => {
+test('each filesystem publish creates a downloadable published version history entry', async (t) => {
   const created = await workflowMutations.createWorkflowProjectItem('', 'PublishedHistory');
   const firstContents = await fs.readFile(created.absolutePath, 'utf8');
   const firstDatasetContents = 'first published dataset';
@@ -1108,6 +1131,8 @@ test('each filesystem publish creates a downloadable published version history e
   assert.equal(previousDownload.contents, firstContents);
   assert.match(currentDownload.fileName, /^PublishedHistory \[published /);
 
+  const cacheInvalidations = observeFilesystemExecutionInvalidations(t);
+
   const restored = await workflowStorageBackend.restoreWorkflowPublishedVersionWithBackend(
     created.relativePath,
     history.versions[1]!.id,
@@ -1116,6 +1141,8 @@ test('each filesystem publish creates a downloadable published version history e
   assert.notEqual(restored.version.id, history.versions[1]!.id);
   assert.equal(restored.version.endpointName, 'published-history-endpoint');
   assert.equal(restored.project.settings.status, 'published');
+  assert.equal(cacheInvalidations.markedIndexDirty, true);
+  assert.deepEqual(cacheInvalidations.invalidatedMaterializationPathCalls.at(-1), [created.absolutePath]);
 
   const restoredHistory = await workflowStorageBackend.listWorkflowPublishedVersionsWithBackend(created.relativePath);
   assert.equal(restoredHistory.versions.length, 3);
@@ -1211,7 +1238,7 @@ test('filesystem published version history exposes legacy current snapshots with
   assert.equal(historyAfterSecondPublish.versions[1]?.isStarred, true);
 });
 
-test('filesystem published version history rejects mismatched metadata ids', async () => {
+test('filesystem published version history rejects mismatched metadata ids', async (t) => {
   const created = await workflowMutations.createWorkflowProjectItem('', 'PublishedHistoryMetadataMismatch');
   const published = await workflowMutations.publishWorkflowProjectItem(created.relativePath, {
     endpointName: 'published-history-metadata-mismatch-endpoint',
@@ -1254,6 +1281,7 @@ test('filesystem published version history rejects mismatched metadata ids', asy
     workflowFs.getPublishedWorkflowSnapshotPath(workflowsRoot, storedSettings.publishedSnapshotId),
   );
 
+  const cacheInvalidations = observeFilesystemExecutionInvalidations(t);
   await assert.rejects(
     () => workflowStorageBackend.restoreWorkflowPublishedVersionWithBackend(
       created.relativePath,
@@ -1261,6 +1289,8 @@ test('filesystem published version history rejects mismatched metadata ids', asy
     ),
     /Published version snapshot belongs to a different project/,
   );
+  assert.equal(cacheInvalidations.markedIndexDirty, true);
+  assert.deepEqual(cacheInvalidations.invalidatedMaterializationPathCalls.at(-1), [created.absolutePath]);
   assert.equal(await fs.readFile(created.absolutePath, 'utf8'), originalContents);
 });
 

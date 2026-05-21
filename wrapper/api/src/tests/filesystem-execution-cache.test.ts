@@ -127,6 +127,29 @@ test('filesystem execution cache warms published and latest endpoint pointers at
   assert.equal(latest.debug.cacheStatus, 'hit');
 });
 
+test('filesystem execution cache invalidates published snapshot materializations by source project path', async () => {
+  const created = await createPublishedProject('Published Source Invalidation', 'published-source-invalidation');
+  const cache = new FilesystemExecutionCache();
+
+  await cache.initialize(workflowsRoot);
+
+  const initial = await cache.loadPublishedExecutionProject(workflowsRoot, 'published-source-invalidation');
+  assert.ok(initial);
+
+  const warmHit = await cache.loadPublishedExecutionProject(workflowsRoot, 'published-source-invalidation');
+  assert.ok(warmHit);
+  assert.equal(warmHit.debug.cacheStatus, 'hit');
+  assert.strictEqual(warmHit.project, initial.project);
+
+  cache.invalidateProjectMaterializations([created.absolutePath]);
+
+  const afterInvalidation = await cache.loadPublishedExecutionProject(workflowsRoot, 'published-source-invalidation');
+  assert.ok(afterInvalidation);
+  assert.equal(afterInvalidation.debug.cacheStatus, 'hit');
+  assert.notStrictEqual(afterInvalidation.project, initial.project);
+  assert.equal(afterInvalidation.project.metadata.title, 'Published Source Invalidation');
+});
+
 test('filesystem execution cache rebuilds after settings and directory changes', async () => {
   const created = await createPublishedProject('RebuildIndex', 'before-index-rebuild');
   const cache = new FilesystemExecutionCache();
