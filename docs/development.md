@@ -445,7 +445,8 @@ Current repo-local baseline:
 
 - CI also runs the same `wrapper/api` build and test steps directly before image packaging.
 - The active test-suite cleanup plan lives in the root `tests-refactor.md` working document; keep the public verification commands stable while that refactor is in progress.
-- API workflow tests should reuse the shared helpers under `wrapper/api/src/tests/helpers/` before adding local harness code. Phase 1 of the cleanup extracted workflow HTTP harnesses, JSON response handling, recording waiters, filesystem execution cache invalidation probes, temp workflow roots, and root-level published-project fixtures there.
+- API workflow tests should reuse the shared helpers under `wrapper/api/src/tests/helpers/` before adding local harness code. Workflow HTTP harnesses, JSON response handling, recording waiters, filesystem execution cache invalidation probes, temp workflow roots, root-level published-project fixtures, and the filesystem workflow suite bootstrap/cleanup live there.
+- The old mixed `workflow-services.test.ts` suite has been split by behavior domain. Put new filesystem tree/import/export coverage in `workflow-filesystem-tree.test.ts`, publication-state and endpoint-reservation coverage in `workflow-publication-filesystem.test.ts`, published-version-history coverage in `workflow-published-history-filesystem.test.ts`, endpoint execution/cache coverage in `workflow-execution-filesystem.test.ts`, and recording route coverage in `workflow-recordings-http.test.ts`.
 - CI also lint-renders the Helm chart with real image repository overrides and verifies the key negative cases:
   - placeholder image repositories are rejected
   - published-route-prefix overrides are rejected

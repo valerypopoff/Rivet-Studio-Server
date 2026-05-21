@@ -4,6 +4,30 @@ This document records intentional architecture and cleanup changes that future m
 
 It is not a changelog. Keep entries focused on why a refactor happened, which ownership boundary changed, and which verification paths should be kept alive.
 
+## 2026-05-21 - Workflow API Test Suite Split
+
+### Why
+
+`workflow-services.test.ts` had become a mixed API suite covering workflow-tree mutations, copy/import/export routes, publication state, published-version history, endpoint execution, execution-cache behavior, and recordings. That made future cleanup risky because unrelated workflow contracts lived behind one file name and one local setup block.
+
+The workflow API tests are now split by behavior domain so a future change has an obvious home and can run a smaller focused suite before the full API test command.
+
+### Ownership
+
+- `workflow-filesystem-tree.test.ts` owns filesystem workflow-tree CRUD, sidecars, duplicate/upload/download flows, and their HTTP route coverage.
+- `workflow-publication-filesystem.test.ts` owns filesystem publication state, endpoint reservation and uniqueness, full unpublish behavior, and published/latest source selection rules.
+- `workflow-published-history-filesystem.test.ts` owns filesystem published-version history, legacy fallback, star/restore behavior, and restore cache invalidation.
+- `workflow-execution-filesystem.test.ts` owns filesystem endpoint execution contracts, request context normalization, execution-cache refresh behavior, debug headers, and missing-root recovery.
+- `workflow-recordings-http.test.ts` owns recording-producing endpoint runs plus recording list/filter/delete/cleanup route behavior.
+- `workflow-filesystem-suite-harness.ts` owns the shared temp-root/env bootstrap, temp-root cleanup, and dynamic workflow-module import ordering for those split suites.
+
+### Verification To Preserve
+
+- API build: `npm --prefix wrapper/api run build`
+- Focused split-suite run: `node ../../scripts/run-preserve-symlinks.mjs tsx --test src/tests/workflow-filesystem-tree.test.ts src/tests/workflow-publication-filesystem.test.ts src/tests/workflow-published-history-filesystem.test.ts src/tests/workflow-execution-filesystem.test.ts src/tests/workflow-recordings-http.test.ts` from `wrapper/api`
+- Full API suite: `npm --prefix wrapper/api test`
+- Repo structure guard: `npm run verify:repo-structure`
+
 ## 2026-05-19 - Published Version History
 
 ### Why

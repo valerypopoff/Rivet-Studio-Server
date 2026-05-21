@@ -283,7 +283,7 @@ This is file-level inventory. When a file is split or a test is deleted, the imp
 | `recordings-store.test.ts` | Recording store initialization reuse, cleanup reruns, queue overflow behavior, non-fatal cleanup errors | Service | Keep | Same file |
 | `runtime-libraries.test.ts` | Filesystem runtime-library manifest, active release reconciliation, job visibility, retired env rejection | Service/filesystem | Keep | Same file |
 | `runtime-library-cleanup.test.ts` | Runtime-library config parity, managed schema lock, audit/prune, replica readiness aggregation | Service/mock | Keep, maybe split only if edits become noisy | Same file or focused runtime-library cleanup files |
-| `workflow-publication.test.ts` | Filesystem endpoint reservation for unpublished, draft, and published identities | Service | Keep or merge into publication split | `workflow-publication-filesystem.test.ts` |
+| `workflow-publication.test.ts` | Filesystem endpoint reservation for unpublished, draft, and published identities | Service | Merged | `workflow-publication-filesystem.test.ts` |
 | `workflow-services.test.ts` | Workflow tree CRUD, import/export, publish/history, execution, recordings, cache and route behavior | Mixed service/HTTP | Move/split | Files named in "API Workflow Suites" |
 | `workflow-storage-config.test.ts` | Managed storage env aliases, retired env rejection, blob key namespacing, integer parser semantics | Pure config | Keep | Same file |
 | `wrapper/web/tests/api-request.test.ts` | Dashboard API response parsing and error shaping | Web pure helper | Keep | Same file |
@@ -395,18 +395,33 @@ Outcome:
 
 - Added `wrapper/api/src/tests/helpers/workflow-api-harness.ts` for workflow HTTP harnesses, JSON response handling, env overrides, recording waiters, and filesystem execution cache invalidation probes.
 - Added `createRootPublishedProjectFactory(...)` to `wrapper/api/src/tests/helpers/workflow-fixtures.ts` and replaced the duplicated root-level filesystem execution project-publish helper in the cache/source suites.
-- Kept test file ownership unchanged; `workflow-services.test.ts` still contains the workflow service tests until Phase 2.
+- Kept test file ownership unchanged at Phase 1 completion; `workflow-services.test.ts` still contained the workflow service tests until the Phase 2 split.
 - Corrected one stale cache-refresh assertion discovered during verification: `saveHostedProject` normalizes `project.metadata.title` to the file name, so the materialization refresh test now mutates graph metadata instead of title metadata.
 - Corrected two baseline test-harness issues surfaced by the full API command: `hosted-project-title.test.ts` now sets filesystem env before importing filesystem helpers, and the managed publication static test now checks the current backfill helper shape.
 - Verified with `npm --prefix wrapper/api run build`, `npm --prefix wrapper/api test`, `npm run verify:repo-structure`, the affected filesystem execution suites, and the full `workflow-services.test.ts` suite.
 
-### Phase 2: Split `workflow-services.test.ts`
+### Phase 2: Split `workflow-services.test.ts` (DONE)
 
 1. Move tests into the minimum target workflow suite files by behavior domain.
 2. Keep assertions semantically identical during the move.
 3. Update `wrapper/api/package.json` and `scripts/verify-compatibility.mjs` in the same commit as any file rename.
 4. Delete local helpers only after all moved tests use shared helpers.
 5. Keep one temporary compatibility run of the old suite name only if needed during migration; remove it before the phase is complete.
+
+Outcome:
+
+- Deleted the catch-all `wrapper/api/src/tests/workflow-services.test.ts`.
+- Moved its 72 tests into the planned workflow domain suites:
+  - `workflow-filesystem-tree.test.ts`
+  - `workflow-publication-filesystem.test.ts`
+  - `workflow-published-history-filesystem.test.ts`
+  - `workflow-execution-filesystem.test.ts`
+  - `workflow-recordings-http.test.ts`
+- Added `workflow-filesystem-suite-harness.ts` so the split suites share the temp-root/env bootstrap and cleanup, dynamic workflow-module imports, and HTTP route harness construction without duplicating the import-order-sensitive setup.
+- Merged the two endpoint-reservation tests from `workflow-publication.test.ts` into `workflow-publication-filesystem.test.ts`, then deleted the old tiny publication file so filesystem publication coverage has one home.
+- Updated `wrapper/api/package.json` so the public API test command runs the split suites directly. `scripts/verify-compatibility.mjs` did not require a file-list change because it delegates the filesystem baseline to `npm --prefix wrapper/api test` and has no stale `workflow-services.test.ts` reference.
+- Removed the temporary old-suite path entirely; there is no compatibility run for `workflow-services.test.ts`.
+- Verified the moved tests with the five new workflow suite files as a focused run before the full verification pass.
 
 ### Phase 3: Reduce Static Contract Tests
 
@@ -497,9 +512,9 @@ Mark a test stale and remove or rewrite it when:
 
 ## Suggested Commit Slices
 
-1. Add shared workflow and HTTP test helpers.
-2. Split workflow tree/copy/import/export tests out of `workflow-services.test.ts`.
-3. Split publication/history/execution/recordings tests out of `workflow-services.test.ts`.
+1. Add shared workflow and HTTP test helpers. (DONE)
+2. Split workflow tree/copy/import/export tests out of `workflow-services.test.ts`. (DONE)
+3. Split publication/history/execution/recordings tests out of `workflow-services.test.ts`. (DONE)
 4. Refactor managed publication/history tests away from source-string assertions.
 5. Split and shrink `phase4-static-contract.test.ts`.
 6. Normalize test scripts and update docs.
