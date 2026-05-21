@@ -13,7 +13,7 @@ test('hosted editor shell mounts RivetAppHost with wrapper providers, executor U
   const editorMessageBridge = readRepoFile('wrapper/web/dashboard/EditorMessageBridge.tsx');
 
   assert.match(entry, /rivet\/packages\/app\/src\/host\.css/);
-  assert.doesNotMatch(entry, /rivet\/packages\/app\/src\/index\.css|rivet\/packages\/app\/src\/colors\.css/);
+  assert.doesNotMatch(entry, /index\.css|colors\.css/);
   assert.match(hostedEditorApp, /<RivetAppHost/);
   assert.match(hostedEditorApp, /executor=\{\{ internalExecutorUrl: RIVET_EXECUTOR_WS_URL \}\}/);
   assert.match(hostedEditorApp, /providers=\{hostedRivetProviders\}/);
@@ -102,7 +102,7 @@ test('hosted executor, save, find, and clipboard shims stay scoped to wrapper-ow
 
   assert.match(hostedEditorApp, /executor=\{\{ internalExecutorUrl: RIVET_EXECUTOR_WS_URL \}\}/);
   assert.doesNotMatch(viteAliases, /useExecutorSession|useRemoteDebugger|useGraphExecutor|useRemoteExecutor|useSaveProject|useMenuCommands/);
-  assert.match(editorMessageBridge, /rivet\/packages\/app\/src\/hooks\/useSaveProject/);
+  assert.match(editorMessageBridge, /const \{ saveProject \} = useSaveProject\(\)/);
   assert.doesNotMatch(editorMessageBridge, /rivet-project-saved/);
   assert.match(windowsHotkeysFix, /menuId === 'save_project' && isHostedMode\(\)/);
   assert.doesNotMatch(windowsHotkeysFix, /CmdOrCtrl\+Shift\+I|import_graph/);

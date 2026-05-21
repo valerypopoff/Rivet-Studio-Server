@@ -472,12 +472,29 @@ Outcome:
 3. Use real storage mutation only when persistence is the behavior under test.
 4. Ensure every browser-visible feature has at most one canonical happy path plus targeted edge cases.
 
-### Phase 6: Command And CI Cleanup
+### Phase 6: Add Test Style Guardrails (DONE)
 
-1. Introduce grouped API test scripts through a deterministic manifest runner if grouping still helps after the file split.
-2. Keep existing public verification commands working.
-3. Update `docs/development.md` with the final command map.
-4. Make CI use the same commands developers run locally.
+1. Add a cheap repo-local style guard that checks test command manifests without running the full API suite.
+2. Keep the existing public verification commands working.
+3. Block focused `.only` tests and retired catch-all test files.
+4. Ensure `wrapper/api` default tests list every non-Kubernetes API test exactly once.
+5. Ensure `verify:web-pure` lists every pure web helper test exactly once.
+6. Ensure `kubernetes-*.test.ts` API files stay behind `verify:kubernetes`.
+7. Prevent wrapper tests/helpers from asserting upstream `rivet/packages/app/src` implementation paths.
+8. Update `docs/development.md` with the final guardrail command map.
+9. Make CI use the same guardrail command developers run locally.
+
+Outcome:
+
+- Added `scripts/verify-test-style.mjs` and the root `npm run verify:test-style` command.
+- The style guard verifies the default API test manifest, `verify:web-pure`, and `verify:kubernetes` file ownership without shell globs.
+- The style guard checks the `kubernetes-*.test.ts` naming convention so new Kubernetes API contract files cannot slip into the default API suite by accident.
+- The style guard blocks nested runnable `.test.ts` or `.spec.ts` files from hiding under helper folders.
+- The guard blocks accidental `.only` tests across API, pure web, and Playwright files.
+- The guard blocks reintroducing `workflow-services.test.ts` or `phase4-static-contract.test.ts`.
+- The guard keeps wrapper tests/helpers from asserting upstream `rivet/packages/app/src` source paths beyond the approved host entry/style seam.
+- The root image-build workflow now runs `npm run verify:test-style` after `npm run verify:repo-structure`.
+- Developer docs and refactor history describe the new command and ownership boundary.
 
 ### Phase 7: Final Prune
 
@@ -533,14 +550,14 @@ Mark a test stale and remove or rewrite it when:
 3. Split publication/history/execution/recordings tests out of `workflow-services.test.ts`. (DONE)
 4. Refactor managed publication/history tests away from source-string assertions.
 5. Split and shrink `phase4-static-contract.test.ts`. (DONE)
-6. Normalize test scripts and update docs.
+6. Normalize test scripts and update docs. (DONE)
 7. Final prune of stale tests and unused helpers.
 
 Keep each slice behavior-preserving except the explicit stale-test deletion slice. That makes review much easier than one giant "test cleanup" diff.
 
 ## Open Questions Before Implementation
 
-- Should API test grouping preserve strict file order, or is deterministic sorted discovery enough?
+- Should API test grouping preserve strict file order, or is deterministic sorted discovery enough? (Partially resolved in Phase 6: current public commands keep explicit manifests, and `verify:test-style` enforces sorted command ownership without adding grouped runners yet.)
 - Are any current tests intentionally guarding an old upstream seam that should now be deleted after the `RivetAppHost` migration?
 - Which Playwright specs are considered required release gates versus local debugging aids?
 - Should `verify:kubernetes` stop depending on the broad static contract suite once rendered Helm checks cover the same route/image contracts? (Resolved in Phase 3: it now runs `kubernetes-contract.test.ts` instead.)

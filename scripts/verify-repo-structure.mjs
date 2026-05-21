@@ -196,6 +196,7 @@ function main() {
     'setup:k8s-tools',
     'setup:rivet',
     'verify:repo-structure',
+    'verify:test-style',
     'verify:kubernetes',
     'dev:docker:config',
     'prod',

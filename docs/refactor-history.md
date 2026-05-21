@@ -4,6 +4,28 @@ This document records intentional architecture and cleanup changes that future m
 
 It is not a changelog. Keep entries focused on why a refactor happened, which ownership boundary changed, and which verification paths should be kept alive.
 
+## 2026-05-21 - Test Style Guardrails
+
+### Why
+
+After the workflow and static-contract suite split, the next failure mode was command drift: a new test file could be forgotten in `wrapper/api/package.json`, Kubernetes tests could slip back into the default API suite, or a temporary `.only` could land because the repo had no cheap style check for test files.
+
+### Ownership
+
+- `scripts/verify-test-style.mjs` owns test command manifests and style guardrails.
+- The default API test command must list every non-Kubernetes API test exactly once.
+- `verify:web-pure` must list every pure web test exactly once.
+- `verify:kubernetes` owns `kubernetes-*.test.ts` API contract tests plus the Helm render verifier.
+- Runnable API, pure web, and Playwright test files stay in their expected top-level suite folders so helper directories cannot become hidden suites.
+- Retired broad suites such as `workflow-services.test.ts` and `phase4-static-contract.test.ts` must not be reintroduced.
+- Wrapper tests and helpers must not assert upstream `rivet/packages/app/src` implementation shapes beyond the approved host entry/style seam; use wrapper seams, focused helper tests, or `scripts/update-check.sh` for upstream compatibility scanning.
+
+### Verification To Preserve
+
+- Test style guard: `npm run verify:test-style`
+- Repo structure guard: `npm run verify:repo-structure`
+- Pure web helper command still proves command manifest alignment: `npm run verify:web-pure`
+
 ## 2026-05-21 - Static Contract Test Reduction
 
 ### Why
