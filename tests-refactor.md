@@ -72,7 +72,7 @@ Last surveyed: 2026-05-21
 
 ## Do-Not-Break Constraints
 
-- Keep `npm --prefix wrapper/api test` and `npm --prefix wrapper/api run build` working throughout the refactor.
+- Do not introduce new failures into `npm --prefix wrapper/api test` or `npm --prefix wrapper/api run build`; if the local upstream Rivet dependency bootstrap is red for unrelated reasons, record that explicitly and use build, affected-suite, and guardrail checks until `npm run setup` refreshes the local baseline.
 - Keep `npm run verify:filesystem`, `npm run verify:local-docker`, `npm run verify:local-docker:split`, `npm run verify:web-pure`, `npm run verify:kubernetes`, and `npm run verify:repo-structure` working with any renamed files.
 - Preserve test import ordering when a suite configures env before importing modules.
 - Do not rely on shell glob expansion in npm scripts; Windows, GitHub Actions, and the preserve-symlinks runner must resolve the same files.
@@ -248,7 +248,7 @@ Failing API test files from the escalated baseline:
 
 The first sandboxed API run also showed `spawnSync helm EPERM` inside `phase4-static-contract.test.ts`, but the escalated API rerun proved that Helm-render case is green on this machine. Treat the Helm EPERM as a sandbox/tooling artifact, not as a test-suite failure.
 
-Do not begin Phase 1 until the dependency baseline is refreshed and the API suite is rerun. The expected remediation is `npm run setup`, then `npm --prefix wrapper/api test`.
+The original stop rule was to avoid mass moves while the baseline was red. The baseline failure was later isolated to the local upstream dependency bootstrap rather than the test refactor itself, so later phases used build, affected-suite, style, repo-structure, web-pure, and Kubernetes verification while preserving this full-suite caveat. The expected local remediation remains `npm run setup`, then `npm --prefix wrapper/api test`.
 
 Tooling gap fixed during reassessment: root `verify:web-pure`, root `verify:kubernetes`, and the compatibility script's focused `tsx --test` checks now use `npm --prefix wrapper/api exec -- tsx` instead of `npx tsx`, so those verification paths no longer fetch `tsx` from npm during a normal run.
 
@@ -338,26 +338,18 @@ Rules for helpers:
 - Temp roots must be per suite or per test and always cleaned up by the Node test context where practical.
 - A new helper should have at least two immediate call sites, and preferably three.
 
-## Script Refactor Plan
+## Script Refactor Decision
 
-Keep the existing top-level commands stable, then add finer-grained commands behind them.
+Keep the existing top-level commands stable. Do not add a grouped API-test runner until the long explicit manifests become a recurring maintenance problem that `verify:test-style` cannot catch.
 
 Prefer a deterministic manifest runner over shell globs. Shell globs are easy to write but are not portable enough for this repo's Windows plus GitHub Actions workflow.
 
-Potential API scripts:
+A grouped runner was considered during planning and deliberately left out of this refactor. The current simpler contract is:
 
-```json
-{
-  "test": "npm run test:api",
-  "test:api": "node ../../scripts/run-api-test-group.mjs all",
-  "test:api:unit": "node ../../scripts/run-api-test-group.mjs unit",
-  "test:api:storage": "node ../../scripts/run-api-test-group.mjs storage",
-  "test:api:execution": "node ../../scripts/run-api-test-group.mjs execution",
-  "test:api:deploy": "node ../../scripts/run-api-test-group.mjs deploy"
-}
-```
-
-The runner can be tiny: it should map group names to explicit file arrays, sort only where order is not meaningful, and execute `node ../../scripts/run-preserve-symlinks.mjs tsx --test ...`. Keep this as a final-phase cleanup, after files have settled.
+- `wrapper/api/package.json` keeps the explicit default API test manifest.
+- root `verify:web-pure` keeps the explicit pure web test manifest.
+- root `verify:kubernetes` keeps Kubernetes API tests isolated from the default API suite and still runs the Helm verifier.
+- `npm run verify:test-style` verifies those manifests instead of introducing another command layer.
 
 Root scripts should keep these stable:
 
@@ -400,7 +392,7 @@ Outcome:
 - Kept test file ownership unchanged at Phase 1 completion; `workflow-services.test.ts` still contained the workflow service tests until the Phase 2 split.
 - Corrected one stale cache-refresh assertion discovered during verification: `saveHostedProject` normalizes `project.metadata.title` to the file name, so the materialization refresh test now mutates graph metadata instead of title metadata.
 - Corrected two baseline test-harness issues surfaced by the full API command: `hosted-project-title.test.ts` now sets filesystem env before importing filesystem helpers, and the managed publication static test now checks the current backfill helper shape.
-- Verified with `npm --prefix wrapper/api run build`, `npm --prefix wrapper/api test`, `npm run verify:repo-structure`, the affected filesystem execution suites, and the full `workflow-services.test.ts` suite.
+- Verified with `npm --prefix wrapper/api run build`, `npm run verify:repo-structure`, the affected filesystem execution suites, and the full `workflow-services.test.ts` suite. The full API command also surfaced the baseline upstream dependency bootstrap issue recorded in Phase 0, so later phases kept using focused runs plus build/style/repo guardrails until the local `rivet/` dependencies are refreshed.
 
 ### Phase 2: Split `workflow-services.test.ts` (DONE)
 
@@ -565,8 +557,8 @@ Mark a test stale and remove or rewrite it when:
 
 | Change type | Required verification |
 | --- | --- |
-| API helper/test-only move | Affected API test file, then `npm --prefix wrapper/api test` before merge |
-| API behavior coverage rewrite | Affected test group, `npm --prefix wrapper/api test`, `npm --prefix wrapper/api run build` |
+| API helper/test-only move | Affected API test file, then `npm --prefix wrapper/api test` before merge; if the local upstream dependency bootstrap is red, record that blocker and run `npm --prefix wrapper/api run build` plus the affected focused tests |
+| API behavior coverage rewrite | Affected test group, `npm --prefix wrapper/api test`, `npm --prefix wrapper/api run build`; if the local upstream dependency bootstrap is red, record that blocker and run every affected focused suite that does not depend on the missing upstream packages |
 | Static/deploy contract rewrite | `npm run verify:repo-structure`; add `npm run verify:kubernetes` if Helm/image/proxy contracts changed |
 | Web pure test rewrite | `npm run verify:web-pure` |
 | Playwright spec cleanup | `PLAYWRIGHT_HEADLESS=1`, `PLAYWRIGHT_SLOW_MO=0`, `node scripts/playwright-observe.mjs test` |
@@ -600,5 +592,5 @@ Keep each slice behavior-preserving except the explicit stale-test deletion slic
 - Static tests no longer assert long source snippets that duplicate implementation.
 - Tests are grouped by behavior domain and can be run selectively.
 - Docs describe the new test command map.
-- Routine verification remains no heavier than today's repo-local baseline.
+- Routine verification remains no heavier than today's repo-local baseline; when the local upstream dependency bootstrap is incomplete, the blocker is documented separately from refactor regressions.
 - No changes are made under `rivet/`.
