@@ -55,7 +55,7 @@ See also: [Repo structure](./repo-structure.md)
 | `npm run verify:local-docker:split` | Runs split-topology repo-local checks plus local-Docker launcher validation | Check that split-era control/execution contracts still fit the local-Docker managed rehearsal model |
 | `npm run verify:repo-structure` | Verifies the intended authored repo layout and blocks legacy path drift | Catch misplaced runtime/deployment/tooling files before they spread |
 | `npm run verify:web-pure` | Runs the pure web helper tests with `tsx --test` | Catch regressions in extracted non-React dashboard/protocol helpers quickly |
-| `npm run verify:kubernetes` | Runs the Kubernetes static-contract tests, renders the local rehearsal values path, and lint-renders the production overlay | Catch local/prod chart drift before handing the repo to operators |
+| `npm run verify:kubernetes` | Runs Kubernetes launcher/chart contract tests, renders the local rehearsal values path, and lint-renders the production overlay | Catch local/prod chart drift before handing the repo to operators |
 | `npm --prefix wrapper/api run workflow-execution:measure -- --base-url http://localhost:8080 --endpoint hello-world --kind published --runs 5 --warmups 1` | Calls one published/latest workflow endpoint repeatedly and prints timing headers | Measure filesystem or managed execution behavior safely |
 | `npm run runtime-libraries:managed:audit` | Audits managed runtime-library release/job/object state and writes a JSON snapshot | Inspect live managed runtime-library state safely |
 | `npm run runtime-libraries:managed:prune` | Builds a dry-run prune plan for managed runtime-library state | Review cleanup impact before applying it |
@@ -447,6 +447,9 @@ Current repo-local baseline:
 - The active test-suite cleanup plan lives in the root `tests-refactor.md` working document; keep the public verification commands stable while that refactor is in progress.
 - API workflow tests should reuse the shared helpers under `wrapper/api/src/tests/helpers/` before adding local harness code. Workflow HTTP harnesses, JSON response handling, recording waiters, filesystem execution cache invalidation probes, temp workflow roots, root-level published-project fixtures, and the filesystem workflow suite bootstrap/cleanup live there.
 - The old mixed `workflow-services.test.ts` suite has been split by behavior domain. Put new filesystem tree/import/export coverage in `workflow-filesystem-tree.test.ts`, publication-state and endpoint-reservation coverage in `workflow-publication-filesystem.test.ts`, published-version-history coverage in `workflow-published-history-filesystem.test.ts`, endpoint execution/cache coverage in `workflow-execution-filesystem.test.ts`, and recording route coverage in `workflow-recordings-http.test.ts`.
+- The old broad `phase4-static-contract.test.ts` suite has been split. Put proxy, Docker image, CI image, and production launcher contracts in `proxy-image-contract.test.ts`; hosted editor wrapper/upstream seam guardrails in `hosted-editor-seams.test.ts`; and Helm/chart topology assertions in `kubernetes-contract.test.ts`.
+- `npm --prefix wrapper/api test` intentionally does not run Helm. Use `npm run verify:kubernetes` for Kubernetes launcher tests, Helm-rendered chart contracts, and production overlay lint/template checks.
+- `scripts/update-check.sh` must list every active `createModuleOverrideAliases(...)` target. `npm run verify:web-pure` checks that the scanner and Vite aliases stay aligned, so update both when adding or removing hosted upstream overrides.
 - CI also lint-renders the Helm chart with real image repository overrides and verifies the key negative cases:
   - placeholder image repositories are rejected
   - published-route-prefix overrides are rejected
@@ -663,8 +666,11 @@ For the current execution-plane split specifically:
 Use the three validation layers intentionally:
 
 - repo-local:
-  - proves API correctness, cache/invalidation behavior, config parsing, proxy/chart static contracts, and most workflow/runtime-library backend logic
-  - this is where `npm --prefix wrapper/api run build`, `npm --prefix wrapper/api test`, and Helm lint/template checks belong
+  - proves API correctness, cache/invalidation behavior, config parsing, proxy/image static contracts, hosted-editor seam contracts, and most workflow/runtime-library backend logic
+  - this is where `npm --prefix wrapper/api run build`, `npm --prefix wrapper/api test`, `npm run verify:web-pure`, and `npm run verify:repo-structure` belong
+- Kubernetes render:
+  - proves Helm chart syntax, local launcher values rendering, chart validation, and rendered control-plane versus execution-plane env/routing contracts
+  - this is where `npm run verify:kubernetes` and Helm lint/template checks belong
 - managed Docker rehearsal:
   - proves managed-state behavior against disposable Postgres plus object storage
   - use this for workflow-storage migration rehearsal, `workflow-storage:verify`, managed endpoint measurement, hosted browser flows, and runtime-library install/remove/readiness checks
@@ -683,6 +689,7 @@ Current follow-up expectations:
 
 Use the current compatibility commands intentionally:
 
+- the repo-local test portions scrub ambient runtime-root, managed-storage, execution-route, runtime-library, and recording env such as `RIVET_WORKFLOWS_ROOT`, `RIVET_ARTIFACTS_HOST_PATH`, `RIVET_DATABASE_CONNECTION_STRING`, `RIVET_STORAGE_URL`, `RIVET_PUBLISHED_WORKFLOWS_BASE_PATH`, and `RIVET_ENV_FILE` before spawning API tests, so local `.env` or shell state cannot redirect those tests into a real workflow folder, database, object store, route prefix, runtime-library role, or recording policy
 - `npm run verify:filesystem`
   - runs the repo-local baseline for filesystem compatibility:
     - `wrapper/api` build

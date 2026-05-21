@@ -4,6 +4,31 @@ This document records intentional architecture and cleanup changes that future m
 
 It is not a changelog. Keep entries focused on why a refactor happened, which ownership boundary changed, and which verification paths should be kept alive.
 
+## 2026-05-21 - Static Contract Test Reduction
+
+### Why
+
+`phase4-static-contract.test.ts` had become a second implementation checklist for proxy templates, Dockerfiles, CI YAML, hosted editor seams, upstream Rivet source shapes, UI behavior, docs wording, and Helm chart contracts. That made harmless refactors noisy and kept Helm in the default API test path.
+
+The static coverage is now split by contract boundary, with Kubernetes render checks isolated behind the Kubernetes verification command.
+
+### Ownership
+
+- `proxy-image-contract.test.ts` owns proxy route ownership, proxy timeout behavior, UI-gate prompt staging, API/executor image contracts, GHCR login/tag/publish behavior, and production launcher image behavior.
+- `hosted-editor-seams.test.ts` owns wrapper-facing hosted editor seams: `RivetAppHost` mounting, provider injection, workspace command bridge usage, hosted file-menu policy, hosted executor URL wiring, shortcut shims, and stale override removal.
+- `kubernetes-contract.test.ts` owns Helm/chart topology assertions and runs through `npm run verify:kubernetes`, not the default API test command.
+- The Kubernetes contract also keeps the local image-build path honest: Rivet-dependent local K8s images must receive the filtered `rivet_source` Docker build context.
+- `verify:repo-structure` owns structural guardrails such as shell-script LF normalization.
+- `verify:web-pure` owns exported web helper contracts such as hosted shortcut matching, Vite override alias selection, and alignment between active module overrides and `scripts/update-check.sh`.
+
+### Verification To Preserve
+
+- API build: `npm --prefix wrapper/api run build`
+- Focused static contract run: `npm --prefix wrapper/api exec -- tsx --test wrapper/api/src/tests/proxy-image-contract.test.ts wrapper/api/src/tests/hosted-editor-seams.test.ts`
+- Web pure helpers: `npm run verify:web-pure`
+- Repo structure guard: `npm run verify:repo-structure`
+- Kubernetes render contracts: `npm run verify:kubernetes`
+
 ## 2026-05-21 - Workflow API Test Suite Split
 
 ### Why

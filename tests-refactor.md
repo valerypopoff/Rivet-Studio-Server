@@ -27,11 +27,11 @@ Last surveyed: 2026-05-21
 
 | Area | Current location | Current shape | Keep? |
 | --- | --- | --- | --- |
-| API unit/integration tests | `wrapper/api/src/tests/*.test.ts` | 28 test files, run by `npm --prefix wrapper/api test` | Yes, but split and prune |
-| Web pure helper tests | `wrapper/web/tests/*.test.ts` | 3 files, run by `npm run verify:web-pure` | Yes |
+| API unit/integration tests | `wrapper/api/src/tests/*.test.ts` | 33 test files; routine API tests run by `npm --prefix wrapper/api test` | Yes, but split and prune |
+| Web pure helper tests | `wrapper/web/tests/*.test.ts` | 5 files, run by `npm run verify:web-pure` | Yes |
 | Browser behavior | `wrapper/web/playwright-observe/*.spec.ts` | 15 Playwright specs via `scripts/playwright-observe.mjs` | Yes, keep scenario-focused |
-| Repo/deploy static contracts | mostly `wrapper/api/src/tests/phase4-static-contract.test.ts` | Broad source and regex assertions | Reduce sharply |
-| Kubernetes render checks | `kubernetes-launcher-config.test.ts`, `phase4-static-contract.test.ts`, `scripts/verify-kubernetes.mjs` | Mixed static plus rendered manifest checks | Prefer rendered manifest checks |
+| Repo/deploy static contracts | `proxy-image-contract.test.ts`, `hosted-editor-seams.test.ts`, `verify:repo-structure` | Split by boundary, with shorter source checks | Keep lean |
+| Kubernetes render checks | `kubernetes-launcher-config.test.ts`, `kubernetes-contract.test.ts`, `scripts/verify-kubernetes.mjs` | Isolated behind `npm run verify:kubernetes` | Prefer rendered manifest checks |
 
 ## Main Problems Found
 
@@ -277,7 +277,7 @@ This is file-level inventory. When a file is split or a test is deleted, the imp
 | `managed-mappers.test.ts` | Workflow status and row-to-item mapping | Pure mapper | Keep | Same file |
 | `migrate-workflow-storage.test.ts` | Migration status derivation and verification comparison logic | Pure migration helper | Keep | Same file |
 | `native-io.test.ts` | Native IO path validation, route error preservation, `readDir` include/ignore filters | Service/helper | Keep | Same file |
-| `phase4-static-contract.test.ts` | Proxy/image/CI/hosted-editor/Kubernetes static contracts | Static/rendered config | Rewrite/split | `proxy-image-contract.test.ts`, `hosted-editor-seams.test.ts`, `kubernetes-contract.test.ts`, `verify:repo-structure` |
+| `phase4-static-contract.test.ts` | Proxy/image/CI/hosted-editor/Kubernetes static contracts | Static/rendered config | Split/deleted | `proxy-image-contract.test.ts`, `hosted-editor-seams.test.ts`, `kubernetes-contract.test.ts`, `verify:repo-structure`, `verify:web-pure` |
 | `plugin-installer.test.ts` | Plugin package metadata URL encoding and package/tag validation | Pure helper | Keep | Same file |
 | `recording-input-filter.test.ts` | Recording input JSON-path root semantics, string table restoration, invalid filter rejection, artifact read bounds | Pure/service helper | Keep | Same file |
 | `recordings-store.test.ts` | Recording store initialization reuse, cleanup reruns, queue overflow behavior, non-fatal cleanup errors | Service | Keep | Same file |
@@ -423,7 +423,7 @@ Outcome:
 - Removed the temporary old-suite path entirely; there is no compatibility run for `workflow-services.test.ts`.
 - Verified the moved tests with the five new workflow suite files as a focused run before the full verification pass.
 
-### Phase 3: Reduce Static Contract Tests
+### Phase 3: Reduce Static Contract Tests (DONE)
 
 1. Categorize each `phase4-static-contract.test.ts` assertion as:
    - rendered runtime contract
@@ -436,6 +436,22 @@ Outcome:
 4. Replace source-snippet checks with exported helper tests when there is a real code contract.
 5. Delete stale assertions that only preserve old implementation wording.
 6. Move Helm-dependent checks behind `npm run verify:kubernetes` if they are not required by the default API test command.
+
+Outcome:
+
+- Deleted the broad `wrapper/api/src/tests/phase4-static-contract.test.ts` suite.
+- Added `proxy-image-contract.test.ts` for proxy route ownership, image/linking contracts, CI image publishing, and production launcher behavior.
+- Added `hosted-editor-seams.test.ts` for wrapper-owned hosted editor seams without reading upstream Rivet source files as a local contract.
+- Added `kubernetes-contract.test.ts` and moved Helm-rendered chart assertions behind `npm run verify:kubernetes`; the default API test command no longer invokes Helm.
+- Added `repo-contract-helpers.ts` for shared repo-file reading and nginx block extraction in the remaining static tests.
+- Moved proxy shell LF/shebang checks to `verify:repo-structure`.
+- Added web pure tests for hosted shortcut matching and Vite module override alias selection, replacing source-snippet-only assertions with exported helper coverage.
+- Removed static duplicate checks for inline rename UI behavior that already have Playwright coverage.
+- Hardened `verify-compatibility.mjs` so repo-local test subprocesses scrub ambient runtime-root env before importing API modules with import-time root constants.
+- Reassessment cleanup kept the useful CI/image and local Kubernetes coverage that was easy to lose in the split: GHCR login/metadata/latest-tag assertions stay with `proxy-image-contract.test.ts`, and the local K8s launcher still proves Rivet-dependent image builds receive the filtered `rivet_source` context.
+- The compatibility runner now also scrubs ambient managed-storage and recording env before repo-local tests, so a developer shell with real DB/S3 or recording retention settings cannot leak into the compatibility baseline.
+- A second discrepancy pass aligned `scripts/update-check.sh` with every active `createModuleOverrideAliases(...)` target and added a `verify:web-pure` guard so upstream-rename scanning cannot fall behind Vite alias changes.
+- The same pass broadened compatibility env scrubbing to execution route prefixes, security roots/allowlists, runtime-library role/readiness knobs, and debug-header settings.
 
 ### Phase 4: Managed Storage Cleanup
 
@@ -516,7 +532,7 @@ Mark a test stale and remove or rewrite it when:
 2. Split workflow tree/copy/import/export tests out of `workflow-services.test.ts`. (DONE)
 3. Split publication/history/execution/recordings tests out of `workflow-services.test.ts`. (DONE)
 4. Refactor managed publication/history tests away from source-string assertions.
-5. Split and shrink `phase4-static-contract.test.ts`.
+5. Split and shrink `phase4-static-contract.test.ts`. (DONE)
 6. Normalize test scripts and update docs.
 7. Final prune of stale tests and unused helpers.
 
@@ -527,7 +543,7 @@ Keep each slice behavior-preserving except the explicit stale-test deletion slic
 - Should API test grouping preserve strict file order, or is deterministic sorted discovery enough?
 - Are any current tests intentionally guarding an old upstream seam that should now be deleted after the `RivetAppHost` migration?
 - Which Playwright specs are considered required release gates versus local debugging aids?
-- Should `verify:kubernetes` stop depending on the broad static contract suite once rendered Helm checks cover the same route/image contracts?
+- Should `verify:kubernetes` stop depending on the broad static contract suite once rendered Helm checks cover the same route/image contracts? (Resolved in Phase 3: it now runs `kubernetes-contract.test.ts` instead.)
 - Should published version history restore receive one managed-mode integration test with a real Postgres rehearsal, or is the mocked managed harness enough for CI?
 
 ## Definition Of Done

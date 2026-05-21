@@ -229,6 +229,21 @@ function main() {
     );
   }
 
+  const gitattributes = fs.readFileSync(path.join(rootDir, '.gitattributes'), 'utf8');
+  assert.match(gitattributes, /^\*\.sh text eol=lf$/m, 'Shell scripts should stay LF-normalized for Linux containers.');
+
+  const proxyBootstrapBytes = fs.readFileSync(path.join(rootDir, 'image/proxy/normalize-workflow-paths.sh'));
+  assert.equal(
+    proxyBootstrapBytes.includes(Buffer.from('\r\n')),
+    false,
+    'image/proxy/normalize-workflow-paths.sh should not contain CRLF line endings.',
+  );
+  assert.match(
+    proxyBootstrapBytes.toString('utf8'),
+    /^#!\/bin\/sh\n/,
+    'image/proxy/normalize-workflow-paths.sh should keep its POSIX shell shebang.',
+  );
+
   console.log(`[${launcherName}] Repo structure checks passed.`);
 }
 
