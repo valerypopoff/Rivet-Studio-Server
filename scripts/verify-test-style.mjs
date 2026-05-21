@@ -121,6 +121,39 @@ function assertCommandHasExplicitTestFiles(command, label) {
   assert.doesNotMatch(command, /\bnpx\s+tsx\b/, `${label} should use the repo-local tsx toolchain instead of npx.`);
 }
 
+function assertRootTestCommand(command) {
+  const requiredSegments = [
+    'npm --prefix wrapper/api run build',
+    'npm --prefix wrapper/api test',
+    'npm run verify:web-pure',
+    'npm run verify:test-style',
+    'npm run verify:repo-structure',
+    'npm run verify:kubernetes',
+  ];
+
+  for (const segment of requiredSegments) {
+    assert.equal(
+      command.includes(segment),
+      true,
+      `Root test command should run ${segment}.`,
+    );
+  }
+
+  assert.doesNotMatch(
+    command,
+    /(?:ui:observe|playwright-observe)/,
+    'Root test command should not launch Playwright; browser runs need an explicit app target.',
+  );
+}
+
+function assertRootPretestCommand(command) {
+  assert.equal(
+    command,
+    'node scripts/ensure-dev-deps.mjs',
+    'Root pretest command should run the standard dependency bootstrap before the full test gate.',
+  );
+}
+
 function assertNoRetiredTestFiles() {
   const candidateDirs = [
     'wrapper/api/src/tests',
@@ -187,6 +220,8 @@ function main() {
   const rootScripts = rootPackage.scripts ?? {};
   const apiScripts = apiPackage.scripts ?? {};
 
+  assert.equal(typeof rootScripts.test, 'string', 'Root package.json should expose test.');
+  assert.equal(typeof rootScripts.pretest, 'string', 'Root package.json should expose pretest.');
   assert.equal(typeof rootScripts['verify:test-style'], 'string', 'Root package.json should expose verify:test-style.');
   assert.equal(typeof apiScripts.test, 'string', 'wrapper/api package.json should expose the default API test command.');
   assert.equal(typeof rootScripts['verify:web-pure'], 'string', 'Root package.json should expose verify:web-pure.');
@@ -210,6 +245,8 @@ function main() {
   assertCommandHasExplicitTestFiles(apiScripts.test, 'wrapper/api test');
   assertCommandHasExplicitTestFiles(rootScripts['verify:web-pure'], 'verify:web-pure');
   assertCommandHasExplicitTestFiles(rootScripts['verify:kubernetes'], 'verify:kubernetes');
+  assertRootTestCommand(rootScripts.test);
+  assertRootPretestCommand(rootScripts.pretest);
 
   const apiCommandFiles = extractTestPaths(apiScripts.test);
   const webCommandFiles = extractTestPaths(rootScripts['verify:web-pure']);

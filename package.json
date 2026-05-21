@@ -4,6 +4,8 @@
   "version": "1.5.8",
   "description": "Root launcher for the Rivet Studio Server Docker stacks",
   "scripts": {
+    "pretest": "node scripts/ensure-dev-deps.mjs",
+    "test": "npm --prefix wrapper/api run build && npm --prefix wrapper/api test && npm run verify:web-pure && npm run verify:test-style && npm run verify:repo-structure && npm run verify:kubernetes",
     "setup": "node scripts/ensure-dev-deps.mjs",
     "setup:k8s-tools": "node scripts/ensure-k8s-tools.mjs",
     "setup:rivet": "node scripts/bootstrap-rivet.mjs",

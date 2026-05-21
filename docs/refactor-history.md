@@ -71,6 +71,7 @@ After the workflow and static-contract suite split, the next failure mode was co
 ### Ownership
 
 - `scripts/verify-test-style.mjs` owns test command manifests and style guardrails.
+- Root `npm run test` must compose the non-browser repo-local gate after the standard `pretest` dependency bootstrap: API build, default API tests, pure web tests, test-style guardrails, repo-structure guardrails, and Kubernetes launcher/chart contracts.
 - The default API test command must list every non-Kubernetes API test exactly once.
 - `verify:web-pure` must list every pure web test exactly once.
 - `verify:kubernetes` owns `kubernetes-*.test.ts` API contract tests plus the Helm render verifier.

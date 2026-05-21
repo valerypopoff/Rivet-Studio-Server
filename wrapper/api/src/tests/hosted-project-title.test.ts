@@ -74,7 +74,12 @@ test.after(async () => {
   await fs.rm(tempRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
 });
 
-test('hosted project title normalization rejects invalid project contents as a bad request', () => {
+test('hosted project title normalization rejects invalid project contents as a bad request', (t) => {
+  const loggedWarnings: unknown[][] = [];
+  t.mock.method(console, 'warn', (...args: unknown[]) => {
+    loggedWarnings.push(args);
+  });
+
   assert.throws(
     () => normalizeHostedProjectTitle('not a rivet project', 'Tree Name', 'Could not save project'),
     (error: unknown) => {
@@ -83,6 +88,8 @@ test('hosted project title normalization rejects invalid project contents as a b
       return true;
     },
   );
+  assert.equal(loggedWarnings.length, 1);
+  assert.match(String(loggedWarnings[0]?.[0]), /Failed to deserialize project/);
 });
 
 test('filesystem saveHostedProject rewrites the YAML title to the file tree name', async () => {

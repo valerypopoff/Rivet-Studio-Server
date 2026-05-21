@@ -350,9 +350,11 @@ A grouped runner was considered during planning and deliberately left out of thi
 - root `verify:web-pure` keeps the explicit pure web test manifest.
 - root `verify:kubernetes` keeps Kubernetes API tests isolated from the default API suite and still runs the Helm verifier.
 - `npm run verify:test-style` verifies those manifests instead of introducing another command layer.
+- `npm run test` composes the non-browser repo-local gate from those explicit commands plus the API build/test commands after the standard `pretest` dependency bootstrap; Playwright stays separate because it needs a live app/browser target.
 
 Root scripts should keep these stable:
 
+- `npm run test`
 - `npm run verify:filesystem`
 - `npm run verify:filesystem:docker`
 - `npm run verify:local-docker`
